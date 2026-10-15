@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { t } from '@/i18n';
 
+import { DaemonClientError } from '../api/daemon-client';
 import { createSettingsApi, type SettingsApi } from '../api/settings-api';
 import { saveErrorMessage } from '../model/save-state';
 
@@ -42,6 +43,8 @@ function defaultEnterEditor(documentId: string): void {
 const styles = {
   page: {
     display: 'grid',
+    // alignContent: start —— 行按内容高度排布，避免 minHeight:100vh 把页头行撑开
+    alignContent: 'start',
     gap: 'var(--dfg-space-6)',
     padding: 'var(--dfg-space-8)',
     minHeight: '100vh',
@@ -117,10 +120,24 @@ export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
   const createExample = async (): Promise<void> => {
     setCreating(true);
     setCreateError(null);
+    const exampleName = t('coldstart.exampleName');
     try {
-      const document = await client.createDocument(t('coldstart.exampleName'));
+      const document = await client.createDocument(exampleName);
       (onEnterEditor ?? defaultEnterEditor)(document.id);
     } catch (error) {
+      // 幂等：「一键示例」重按 / 示例已存在不报错——改为打开既有示例文档
+      if (error instanceof DaemonClientError && error.code === 'doc_exists') {
+        try {
+          const list = await client.listDocuments();
+          const existing = list.documents.find((item) => item.name === exampleName);
+          if (existing !== undefined) {
+            (onEnterEditor ?? defaultEnterEditor)(existing.id);
+            return;
+          }
+        } catch {
+          // 落到统一失败提示（下面 setCreateError）
+        }
+      }
       setCreateError(saveErrorMessage(error));
     } finally {
       setCreating(false);

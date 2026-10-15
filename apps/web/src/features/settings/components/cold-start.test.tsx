@@ -105,4 +105,31 @@ describe('空库冷启动', () => {
     expect(screen.queryByRole('button', { name: '一键示例' })).toBeNull();
     expect(screen.getByRole('link', { name: '返回首页' }).getAttribute('href')).toBe('/');
   });
+
+  it('示例已存在（重按一键示例）：不报错，直接打开既有示例文档', async () => {
+    const createDocument = vi.fn<SettingsApi['createDocument']>().mockRejectedValueOnce(
+      new DaemonClientError({
+        kind: 'api',
+        code: 'doc_exists',
+        message: '同名文档已存在',
+        status: 409,
+      }),
+    );
+    const api = makeApi({
+      createDocument,
+      // 第二次查询要能看到已存在的示例（首次判定空库时为空）
+      listDocuments: vi
+        .fn<SettingsApi['listDocuments']>()
+        .mockResolvedValueOnce({ documents: [], warnings: [] })
+        .mockResolvedValueOnce({ documents: [EXAMPLE_DOC], warnings: [] }),
+    });
+    const onEnterEditor = vi.fn();
+    const user = userEvent.setup();
+    renderColdStart(api, onEnterEditor);
+
+    await user.click(await screen.findByRole('button', { name: '一键示例' }));
+
+    expect(onEnterEditor).toHaveBeenCalledWith('示例设计');
+    expect(screen.queryByText(/创建示例失败/)).toBeNull();
+  });
 });

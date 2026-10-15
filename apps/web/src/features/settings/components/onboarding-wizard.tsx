@@ -40,6 +40,8 @@ import { SettingsSectionForm } from './section-form';
 const styles = {
   page: {
     display: 'grid',
+    // alignContent: start —— 行按内容高度排布，避免 minHeight:100vh 把页头行撑开
+    alignContent: 'start',
     gap: 'var(--dfg-space-6)',
     padding: 'var(--dfg-space-8)',
     minHeight: '100vh',
