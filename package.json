@@ -14,6 +14,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run test",
+    "verify:daemon": "node scripts/verify-daemon.mjs",
     "guard:deps": "node scripts/guard-deps.mjs",
     "guard:tokens": "node scripts/guard-tokens.mjs",
     "verify:figma-component": "node scripts/verify-figma-component.mjs",
