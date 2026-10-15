@@ -22,11 +22,12 @@ export function file(path: string, size = 128): DwdFileEntry {
   return { path, size, sha256: 'f'.repeat(64) };
 }
 
-/** 默认资产根文件清单：SKILL.md + references/ + LICENSE。 */
+/** 默认资产根文件清单：SKILL.md + references/ + LICENSE + CI 工作流。 */
 export const DEFAULT_FILES: DwdFileEntry[] = [
   file('SKILL.md'),
   file('references/api.md'),
   file('LICENSE'),
+  file('.github/workflows/ci.yml'),
 ];
 
 /** 默认正文：含显式步骤 + 命令块。 */
