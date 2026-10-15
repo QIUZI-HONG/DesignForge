@@ -1,0 +1,225 @@
+{
+  "schema": "df.market.state-coverage/v1",
+  "ticket": "FE-11",
+  "note": "自设计页（清单 D 区）六态覆盖登记表（《前端验收标准 v1》§5）。marker 为**可在源码中逐一断言的字面量**（verify-market 与 vitest 双向检查）；delegatedTo 表示该态由 @dforge/ui 基础件承担（FE-01 组件级门禁覆盖）或不适用，不得写成通过。",
+  "states": ["hover", "active", "disabled", "loading", "empty", "error"],
+  "pages": [
+    {
+      "page": "D1",
+      "route": "/market",
+      "theme": "light",
+      "sourceFiles": [
+        "apps/web/src/features/market/components/MarketCard.tsx",
+        "apps/web/src/features/market/components/CardGrid.tsx",
+        "apps/web/src/features/market/components/MarketStates.tsx"
+      ],
+      "states": {
+        "hover": {
+          "marker": "data-df-state={hovered ? 'hover' : 'default'}",
+          "how": "卡片鼠标进入 → 抬升（transform + 强阴影）；组件状态驱动，jsdom 可断言"
+        },
+        "active": {
+          "delegatedTo": "@dforge/ui 基础件（按钮/输入/分段控件的 focus-visible 环，FE-01 组件级门禁）",
+          "how": "键盘 Tab 聚焦页面主按钮；截图门禁真实聚焦取证"
+        },
+        "disabled": {
+          "marker": "data-df-state={install.disabled ? 'disabled' : 'enabled'}",
+          "how": "仅看/禁资产的装载按钮灰化 + Tooltip 原因（F15）"
+        },
+        "loading": {
+          "marker": "data-df-state=\"loading\"",
+          "how": "首帧取数期间渲染骨架网格（SkeletonCard 3–5 块）"
+        },
+        "empty": {
+          "marker": "data-df-state=\"empty\"",
+          "how": "四类空态：索引缺失/损坏（采集指引）、无结果（清空筛选）、已装载空态"
+        },
+        "error": {
+          "marker": "data-df-state=\"error\"",
+          "how": "daemon 不可达 → 错误态 + 重试"
+        }
+      }
+    },
+    {
+      "page": "D2",
+      "route": "/market/[assetId]",
+      "theme": "light",
+      "sourceFiles": [
+        "apps/web/src/features/market/components/AssetDetailView.tsx",
+        "apps/web/src/app/market/[assetId]/page.tsx",
+        "apps/web/src/features/market/components/MarketStates.tsx"
+      ],
+      "states": {
+        "hover": {
+          "delegatedTo": "@dforge/ui 基础件（按钮 hover 覆盖）",
+          "how": "详情页交互件均为基础件；本页无自定义抬升单元"
+        },
+        "active": {
+          "delegatedTo": "@dforge/ui 基础件（focus-visible 环）",
+          "how": "键盘可达：返回/装载/卸载/来源链接"
+        },
+        "disabled": {
+          "marker": "data-df-state={install.disabled ? 'disabled' : 'enabled'}",
+          "how": "仅看/禁资产的装载按钮灰化 + 原因"
+        },
+        "loading": {
+          "marker": "data-df-loading=\"detail\"",
+          "how": "详情取数首帧 + 装载提案加载中提示"
+        },
+        "empty": {
+          "marker": "data-df-empty=\"not-found\"",
+          "how": "daemon 返回 market_asset_not_found → 资源不存在空态"
+        },
+        "error": {
+          "marker": "data-df-state=\"error\"",
+          "how": "详情取数失败/提案失败 → 错误态（重试/返回）"
+        }
+      }
+    },
+    {
+      "page": "D3",
+      "route": "/market（搜索与筛选区）",
+      "theme": "light",
+      "sourceFiles": [
+        "apps/web/src/features/market/components/FilterBar.tsx",
+        "apps/web/src/features/market/components/MarketStates.tsx",
+        "apps/web/src/features/market/components/HighlightedText.tsx",
+        "apps/web/src/features/market/components/CardGrid.tsx"
+      ],
+      "states": {
+        "hover": {
+          "delegatedTo": "@dforge/ui 基础件（按钮/输入 hover 覆盖）",
+          "how": "筛选栏由基础件组成"
+        },
+        "active": {
+          "delegatedTo": "@dforge/ui 基础件（focus-visible 环；输入框焦点环落在外层 wrap）",
+          "how": "键盘 Tab 依次进入搜索框与各下拉"
+        },
+        "disabled": {
+          "delegatedTo": "@dforge/ui 基础件（禁用档）",
+          "how": "筛选栏无禁用件；禁用态样例见 D1/D2 的装载按钮"
+        },
+        "loading": {
+          "marker": "data-df-state=\"loading\"",
+          "how": "改筛选后重新取数 → 骨架网格（与 D1 同页）"
+        },
+        "empty": {
+          "marker": "data-df-empty=\"no-result\"",
+          "how": "搜索/筛选无命中 → 无结果空态 + 清空筛选"
+        },
+        "error": {
+          "marker": "data-df-state=\"error\"",
+          "how": "daemon 不可达 → 错误态 + 重试"
+        }
+      }
+    },
+    {
+      "page": "D4",
+      "route": "/market/[assetId]（装载确认框）",
+      "theme": "context",
+      "sourceFiles": [
+        "apps/web/src/features/market/components/LoadConfirmDialog.tsx",
+        "apps/web/src/features/market/components/CapabilityList.tsx",
+        "apps/web/src/app/market/[assetId]/page.tsx"
+      ],
+      "states": {
+        "hover": {
+          "delegatedTo": "@dforge/ui 基础件（模态内按钮 hover）",
+          "how": "确认框动作区由基础件组成"
+        },
+        "active": {
+          "delegatedTo": "@dforge/ui 基础件（focus-visible；模态焦点陷阱由 Modal 承担）",
+          "how": "Esc 关闭、Tab 在卡内回环"
+        },
+        "disabled": {
+          "marker": "data-df-state={expired ? 'disabled' : 'enabled'}",
+          "how": "token 超时 → 写入按钮标 disabled 态；不可装载资产在按钮层与状态机双闸拒绝"
+        },
+        "loading": {
+          "marker": "data-df-loading=\"load-plan\"",
+          "how": "提案拉取中提示（确认框只在提案就绪后打开）"
+        },
+        "empty": {
+          "delegatedTo": "不适用：确认框仅在提案就绪时打开；空数据显示在页面级空态",
+          "how": "—"
+        },
+        "error": {
+          "marker": "data-df-market=\"load-error\"",
+          "how": "重复确认/重复写入/超时 → 显式错误提示（role=alert）"
+        }
+      }
+    },
+    {
+      "page": "D5",
+      "route": "/market/panel",
+      "theme": "dark",
+      "sourceFiles": [
+        "apps/web/src/features/market/panel/MarketPanel.tsx",
+        "apps/web/src/app/market/panel/page.tsx",
+        "apps/web/src/features/market/components/MarketStates.tsx"
+      ],
+      "states": {
+        "hover": {
+          "delegatedTo": "@dforge/ui 基础件（深色族按钮 hover）",
+          "how": "面板由基础件组成；面板行用 aria-pressed 表达选中"
+        },
+        "active": {
+          "delegatedTo": "@dforge/ui 基础件（focus-visible 环）",
+          "how": "键盘可遍历面板行与动作按钮"
+        },
+        "disabled": {
+          "marker": "disabled={selected.installGate.mode !== 'loadable'}",
+          "how": "仅看资产的「采纳」按钮灰化（带原因提示）"
+        },
+        "loading": {
+          "marker": "data-df-loading=\"panel\"",
+          "how": "面板取数首帧提示"
+        },
+        "empty": {
+          "marker": "data-df-state=\"empty\"",
+          "how": "索引缺失/无结果 → 空态（与市场页同一套空态件）"
+        },
+        "error": {
+          "marker": "data-df-state=\"error\"",
+          "how": "daemon 不可达 → 错误态 + 重试"
+        }
+      }
+    },
+    {
+      "page": "D6",
+      "route": "/dashboard",
+      "theme": "light",
+      "sourceFiles": [
+        "apps/web/src/features/dashboard/DashboardView.tsx",
+        "apps/web/src/app/dashboard/page.tsx",
+        "apps/web/src/features/market/components/MarketStates.tsx"
+      ],
+      "states": {
+        "hover": {
+          "delegatedTo": "@dforge/ui 基础件（按钮 hover）",
+          "how": "看板由统计卡与表格组成，无自定义抬升单元"
+        },
+        "active": {
+          "delegatedTo": "@dforge/ui 基础件（focus-visible 环）",
+          "how": "键盘可触发返回/重试"
+        },
+        "disabled": {
+          "delegatedTo": "@dforge/ui 基础件（禁用档）",
+          "how": "看板无禁用件；未上报项以徽标而非禁用表达"
+        },
+        "loading": {
+          "marker": "data-df-loading=\"dashboard\"",
+          "how": "看板取数首帧提示"
+        },
+        "empty": {
+          "marker": "data-df-empty=\"index-missing\"",
+          "how": "无索引/无结果 → 「看板不下结论」空态"
+        },
+        "error": {
+          "marker": "data-df-state=\"error\"",
+          "how": "daemon 不可达 → 错误态 + 重试"
+        }
+      }
+    }
+  ]
+}

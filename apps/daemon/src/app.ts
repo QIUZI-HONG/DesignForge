@@ -17,6 +17,7 @@ import type { ConfigStore } from './config/store.ts';
 import { createConfigStore } from './config/store.ts';
 import type { DaemonPaths } from './context.ts';
 import { DAEMON_VERSION, defaultDataRoot, resolveDaemonPaths } from './context.ts';
+import { corsOriginsFromEnv, createCorsPolicy, registerCors } from './cors.ts';
 import type { CredentialStore } from './credentials/store.ts';
 import { createCredentialStore } from './credentials/store.ts';
 import type { DocumentStore } from './documents/store.ts';
@@ -66,6 +67,8 @@ export interface DaemonAppOptions {
   aiRetryDelaysMs?: number[];
   /** MCP ackToken 时效（缺省 2 分钟；测试注入短时值）。 */
   mcpAckTtlMs?: number;
+  /** CORS 白名单覆盖（缺省读 `DFORGE_CORS_ORIGINS`/`DF_CORS_ORIGINS`，再回退本机默认）。 */
+  corsOrigins?: string[];
 }
 
 /** 运行时上下文（路由注册共用；所有路径/存储的唯一入口）。 */
@@ -158,6 +161,9 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
 
   const app = Fastify({ logger: options.logger ?? false });
   registerErrorHandlers(app);
+  // 受控 CORS：web 开发态（localhost:3000）与打包壳（Origin: null）跨源直连；
+  // 白名单外不放行（受控白名单，不通配）——详见 cors.ts 模块头注释
+  registerCors(app, createCorsPolicy(options.corsOrigins ?? corsOriginsFromEnv(process.env)));
 
   // GET /health —— 基座握手（verify-daemon 与 FE-12 壳用它判活）
   app.get(DAEMON_ROUTES.health.path, () => ({

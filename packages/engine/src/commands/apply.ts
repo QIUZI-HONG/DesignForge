@@ -36,6 +36,7 @@ import {
   setInstanceOverrides,
   setNodeProps,
   updatePage,
+  validateDocument,
 } from '../scene/index';
 import {
   clearOverrideAt,
@@ -339,6 +340,23 @@ export function applyCommand(doc: DesignDocument, command: Command): ApplyResult
       return {
         document: setDocumentTokens(doc, command.tokens),
         inverse: [{ type: 'document.setTokens', tokens: previous }],
+      };
+    }
+
+    case 'document.replace': {
+      // 快照来自外部（本地快照目录 / 未来的 daemon 版本接口），先自洽校验再替换：
+      // 非法快照必须在**改动文档之前**失败，否则会把坏状态写进历史栈。
+      const issues = validateDocument(command.document);
+      if (issues.length > 0) {
+        throw domainError(
+          'invalid-argument',
+          `替换目标文档结构非法：${issues.map((issue) => issue.code).join('；')}`,
+        );
+      }
+      const previous = doc;
+      return {
+        document: command.document,
+        inverse: [{ type: 'document.replace', document: previous }],
       };
     }
   }

@@ -1,0 +1,144 @@
+/**
+ * 画布特性样式（FE-06）。
+ *
+ * 口径（`_shared.md` §3 禁裸值）：颜色/间距/圆角/字号一律 `var(--dfg-*)` 令牌；
+ * 只有**几何计算**（覆盖层定位/尺寸）在组件内联 style 里按世界坐标算出。
+ * C9 浮层工具条的圆角走 `--dfg-radius-xl`（= 13 胶囊档，清单 C9 对标要点）。
+ */
+
+.dfc-canvas-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--dfg-color-canvas);
+  outline: none;
+}
+
+.dfc-canvas-surface {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.dfc-canvas-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.dfc-canvas-layer--overlay {
+  pointer-events: none;
+}
+
+.dfc-canvas-layer--overlay > * {
+  pointer-events: auto;
+}
+
+/* 文本内联编辑覆盖层（C10） */
+.dfc-canvas-text-overlay {
+  cursor: text;
+}
+
+/* C9 浮层工具条：选中上方悬浮、13 胶囊圆角 */
+.dfc-canvas-toolbar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-1);
+  transform: translate(-50%, -100%);
+  background-color: var(--dfg-color-surface-raised);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-xl);
+  box-shadow: var(--dfg-shadow-popover);
+  z-index: var(--dfg-z-dropdown);
+  white-space: nowrap;
+}
+
+.dfc-canvas-toolbar__divider {
+  width: var(--dfg-border-width-hairline);
+  align-self: stretch;
+  background-color: var(--dfg-color-border);
+  margin-inline: var(--dfg-space-1);
+}
+
+.dfc-canvas-toolbar__label {
+  padding-inline: var(--dfg-control-padding-x-sm);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* 对齐/分布这类无图标动作：文字小按钮（图标几何归 FE-01，本票不另造） */
+.dfc-canvas-toolbar__text-btn {
+  min-height: var(--dfg-control-height-sm);
+  padding-inline: var(--dfg-control-padding-x-sm);
+  border: 0;
+  border-radius: var(--dfg-radius-sm);
+  background-color: transparent;
+  color: var(--dfg-color-text-primary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-11);
+  cursor: pointer;
+}
+
+.dfc-canvas-toolbar__text-btn:hover:not(:disabled) {
+  background-color: var(--dfg-color-hover);
+}
+
+.dfc-canvas-toolbar__text-btn:disabled {
+  color: var(--dfg-color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* C11 右键菜单：复用 FE-01 的菜单本体，只做定位与条目高度口径 */
+.dfc-canvas-menu {
+  position: absolute;
+  z-index: var(--dfg-z-dropdown);
+}
+
+/* 零尺寸锚点：让 DropdownMenu 的触发器落在指针处（视觉不可见） */
+.dfc-canvas-menu__anchor {
+  display: block;
+  width: 0;
+  height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+}
+
+/* C20 HUD：11 号字反白小条（--dfg-font-size-11） */
+.dfc-canvas-hud {
+  position: absolute;
+  left: 50%;
+  bottom: var(--dfg-space-3);
+  transform: translateX(-50%);
+  padding-block: var(--dfg-space-1);
+  padding-inline: var(--dfg-space-2);
+  background-color: var(--dfg-color-text-primary);
+  color: var(--dfg-color-canvas);
+  border-radius: var(--dfg-radius-sm);
+  font-size: var(--dfg-font-size-11);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* 加载/错误态：画布区的居中浮层 */
+.dfc-canvas-status {
+  position: absolute;
+  inset: var(--dfg-space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-4);
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-13);
+  text-align: center;
+}

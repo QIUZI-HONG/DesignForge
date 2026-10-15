@@ -15,5 +15,9 @@ dist/
 coverage/
 artifacts/
 
+# 画布运行时资产（FE-06：CanvasKit wasm + Noto Sans SC 子集，第三方二进制不入库）
+# 生成：pnpm --filter @dforge/web copy:canvaskit（node src/features/canvas/tools/copy-canvaskit-assets.mjs）
+apps/web/public/canvaskit/
+
 # Next.js 自动生成（不进版本控制；tags 见 Next 文档）
 next-env.d.ts

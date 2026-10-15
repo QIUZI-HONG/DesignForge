@@ -1,0 +1,48 @@
+/**
+ * 编辑器工作区样式（FE-06 宿主接线；颜色/间距/圆角/字号一律 `var(--dfg-*)`）。
+ */
+
+.dfc-ws-right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: var(--dfg-space-2);
+  background-color: var(--dfg-color-surface);
+}
+
+.dfc-ws-right__tabs {
+  flex: none;
+}
+
+/* 上半区：FE-08 三页签（内容自撑，超出滚动） */
+.dfc-ws-right__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 下半区：FE-05 Inspector（C5–C7 对标面） */
+.dfc-ws-right__inspector {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  padding-top: var(--dfg-space-2);
+}
+
+/* MCP 确认条宿主位（常驻；无提案时不占位） */
+.dfc-ws-mcp {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--dfg-z-toast);
+  pointer-events: none;
+}
+
+.dfc-ws-mcp > * {
+  pointer-events: auto;
+}

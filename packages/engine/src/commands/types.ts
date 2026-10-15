@@ -8,6 +8,7 @@
  */
 
 import type {
+  DesignDocument,
   NodeId,
   NodePatch,
   PageId,
@@ -139,6 +140,19 @@ export interface SetDocumentTokensCommand {
   tokens: TokenSet;
 }
 
+/**
+ * 整文档替换（版本回滚：用快照文档整体替换当前文档）。
+ *
+ * 为什么是文档级命令而不是逐页重放：版本快照是**文档的完整 JSON**，
+ * 「逐页删除 + 逐页重建」会经过 0 页的非法中间态，且同 id 页重建会撞唯一性校验；
+ * 整文档替换只有一次状态转移，天然原子，逆命令即「换回旧文档」（FE-07 F10 回滚）。
+ */
+export interface ReplaceDocumentCommand {
+  type: 'document.replace';
+  /** 目标文档（快照解析产物；施加前做结构自洽校验，非法即整体不生效）。 */
+  document: DesignDocument;
+}
+
 /** 命令联合。 */
 export type Command =
   | InsertNodeCommand
@@ -155,7 +169,8 @@ export type Command =
   | RemovePageCommand
   | UpdatePageCommand
   | RenameDocumentCommand
-  | SetDocumentTokensCommand;
+  | SetDocumentTokensCommand
+  | ReplaceDocumentCommand;
 
 /** 命令类型判别符。 */
 export type CommandType = Command['type'];
