@@ -2,8 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
-    // 采集线模块可被 Node 原生 TS 类型擦除直跑（node src/index/cli.ts 等），
-    // 相对导入显式带 .ts 后缀（Node ESM 不做无后缀解析）。
+    // 采集线各层 CLI 走 Node 原生 TS 类型擦除直跑（node src/<层>/cli.ts），相对导入需显式带 .ts 后缀。
     "allowImportingTsExtensions": true
   },
   "include": ["src"]

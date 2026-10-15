@@ -43,6 +43,7 @@ export interface TestDaemonOptions {
   aiRetryDelaysMs?: number[];
   comfyBaseUrl?: string;
   mcpAckTtlMs?: number;
+  corsOrigins?: string[];
 }
 
 /** 创建测试用 daemon（临时目录 + 假上游 + 日志捕获）。 */
@@ -94,6 +95,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     ...(options.marketIndexPath === undefined ? {} : { marketIndexPath: options.marketIndexPath }),
     ...(options.aiRetryDelaysMs === undefined ? {} : { aiRetryDelaysMs: options.aiRetryDelaysMs }),
     ...(options.mcpAckTtlMs === undefined ? {} : { mcpAckTtlMs: options.mcpAckTtlMs }),
+    ...(options.corsOrigins === undefined ? {} : { corsOrigins: options.corsOrigins }),
   };
   const app = await createDaemonApp(appOptions);
 

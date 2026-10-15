@@ -1,18 +1,26 @@
-import { t } from '@/i18n';
+'use client';
 
 /**
- * 落地页（骨架期占位）。
+ * 首页 / 文件浏览器（FE-02；路由 `/`，对标页 · 浅色基准）。
  *
- * 仅证明链路可跑：Next App Router → i18n（ICU）→ 捆绑字体渲染。
- * 真正的首页 / 文件浏览器（对标 Figma 本体的浅色首页族）归 FE-02；
- * 此处不得沉淀任何页面结构与样式，避免与 FE-01 令牌口径冲突。
+ * 本文件只做三件事：导入本票样式、把路由导航接给 `HomeView`、确认浅色基准
+ * （`<html data-theme="light">` 由根布局给出，验收标准 §3「逐页对齐 Figma 本体」——
+ * 首页族浅色，编辑器族深色）。页面结构与全部状态都在 `features/home/**`（本票独占目录）。
  */
+import { useRouter } from 'next/navigation';
+
+import { HomeView } from '@/features/home/components/HomeView';
+import { editorHref } from '@/features/home/lib/routes';
+
+import '@/features/home/home.css';
+
+/** 首页。 */
 export default function HomePage() {
+  const router = useRouter();
   return (
-    <main>
-      <h1>{t('home.title')}</h1>
-      <p>{t('home.subtitle')}</p>
-      <p>{t('home.stage', { stage: 'P0' })}</p>
-    </main>
+    <HomeView
+      onOpenDocument={(document) => router.push(editorHref(document.id))}
+      onOpenMarket={(assetId) => router.push(`/market?assetId=${encodeURIComponent(assetId)}`)}
+    />
   );
 }

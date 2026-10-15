@@ -22,6 +22,7 @@ export type {
 } from './layout';
 export { defaultAutoLayout, padding, paddingAlongAxis } from './layout';
 export type {
+  BlendMode,
   ComponentNode,
   ComponentSetNode,
   ContainerNode,
