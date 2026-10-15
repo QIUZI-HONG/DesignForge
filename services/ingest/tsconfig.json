@@ -2,8 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
-    // 采集器 CLI 走 Node 原生 TS 类型擦除直跑（node src/collect/cli.ts），
-    // 需要相对导入显式带 .ts 后缀（Node ESM 不做无后缀解析）。
+    // 采集线各模块的 CLI 走 Node 原生 TS 类型擦除直跑（node src/collect/cli.ts、
+    // src/transform/cli.ts 等），相对导入需显式带 .ts 后缀（Node ESM 不做无后缀解析）。
     "allowImportingTsExtensions": true
   },
   "include": ["src"]

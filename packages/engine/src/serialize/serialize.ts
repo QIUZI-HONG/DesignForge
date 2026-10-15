@@ -1,0 +1,143 @@
+/**
+ * 序列化：Design IR ⇄ JSON（**稳定键序**、幂等往返）。
+ *
+ * 为什么需要稳定键序：文档要能进 Git（本地优先 → 可 diff），同一文档在任何环境、
+ * 任何写入顺序下都应产出**逐字节相同**的 JSON；键排序后 diff 只反映真实变更。
+ *
+ * 信封（envelope）：`{ $format, $version, document }`——版本号让导入端能识别旧文件并迁移；
+ * `parseDocument` 同时接受带信封与裸文档两种输入（夹具书写更省事）。
+ */
+
+import type { DesignDocument } from '../model/index';
+import { domainError } from '../scene/errors';
+import { assertValidDocument, validateDocument } from '../scene/validate';
+
+/** 格式标识。 */
+export const DESIGN_IR_FORMAT = 'dforge.designir' as const;
+
+/** 当前版本（递增即表示有破坏性变更）。 */
+export const DESIGN_IR_VERSION = 1;
+
+/** 序列化信封。 */
+export interface DesignIrEnvelope {
+  $format: typeof DESIGN_IR_FORMAT;
+  $version: number;
+  document: DesignDocument;
+}
+
+/** 递归按键名排序（数组顺序保持）。 */
+export function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => sortKeysDeep(item));
+  if (value !== null && typeof value === 'object') {
+    const source = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) {
+      const item = source[key];
+      if (item === undefined) continue; // JSON 语义：undefined 不落盘
+      out[key] = sortKeysDeep(item);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** 稳定 JSON 字符串（键序稳定、2 空格缩进）。 */
+export function stableStringify(value: unknown, space = 2): string {
+  return JSON.stringify(sortKeysDeep(value), null, space);
+}
+
+/** 文档 → 信封对象。 */
+export function documentEnvelope(doc: DesignDocument): DesignIrEnvelope {
+  return { $format: DESIGN_IR_FORMAT, $version: DESIGN_IR_VERSION, document: doc };
+}
+
+/** 序列化文档（稳定键序 + 信封）。 */
+export function serializeDocument(doc: DesignDocument): string {
+  return stableStringify(documentEnvelope(doc));
+}
+
+/** 序列化单页（导出/分享片段用）。 */
+export function serializePage(doc: DesignDocument, pageId: string): string {
+  const page = doc.pages.find((candidate) => candidate.id === pageId);
+  if (!page) throw domainError('page-not-found', `页面不存在：${pageId}`);
+  return stableStringify({ $format: DESIGN_IR_FORMAT, $version: DESIGN_IR_VERSION, page });
+}
+
+/** 解析结果。 */
+export interface ParsedDocument {
+  document: DesignDocument;
+  version: number;
+  /** 是否带信封（裸文档解析时为 false）。 */
+  enveloped: boolean;
+}
+
+/**
+ * 解析文档：接受信封 JSON、裸文档 JSON 或已解析对象。
+ * 结构非法（悬空引用/多父/环等）时抛 `DomainError('invalid-argument')`。
+ */
+export function parseDocument(input: string | unknown): ParsedDocument {
+  let raw: unknown = input;
+  if (typeof input === 'string') {
+    try {
+      raw = JSON.parse(input);
+    } catch {
+      throw domainError('invalid-argument', '文档内容不是合法 JSON');
+    }
+  }
+  if (raw === null || typeof raw !== 'object') {
+    throw domainError('invalid-argument', '文档内容不是对象');
+  }
+  const record = raw as Record<string, unknown>;
+  const enveloped = record.$format === DESIGN_IR_FORMAT;
+  if (record.$format !== undefined && !enveloped) {
+    throw domainError('invalid-argument', `未知的文档格式：${String(record.$format)}`);
+  }
+  const version = typeof record.$version === 'number' ? record.$version : DESIGN_IR_VERSION;
+  const document = (enveloped ? record.document : record) as DesignDocument | undefined;
+  if (!document || typeof document !== 'object') {
+    throw domainError('invalid-argument', '信封缺少 document 字段');
+  }
+  if (!Array.isArray(document.pages) || document.pages.length === 0) {
+    throw domainError('invalid-argument', '文档缺少页面');
+  }
+  const issues = validateDocument(document);
+  if (issues.length > 0) {
+    throw domainError(
+      'invalid-argument',
+      `文档结构非法：${issues.map((issue) => `${issue.code}(${issue.message})`).join('；')}`,
+    );
+  }
+  return { document, version, enveloped };
+}
+
+/** 往返：`parseDocument(serializeDocument(doc))` 的便捷包装（含结构断言）。 */
+export function roundTripDocument(doc: DesignDocument): DesignDocument {
+  const parsed = parseDocument(serializeDocument(doc));
+  assertValidDocument(parsed.document);
+  return parsed.document;
+}
+
+/** 深拷贝文档（结构共享的不可变路径之外的场景：导出快照/对比）。 */
+export function cloneDocument(doc: DesignDocument): DesignDocument {
+  return JSON.parse(JSON.stringify(doc)) as DesignDocument;
+}
+
+/** 文档统计（状态栏/看板：页面数、节点数）。 */
+export function documentStats(doc: DesignDocument): {
+  pages: number;
+  nodes: number;
+  components: number;
+  instances: number;
+} {
+  let nodes = 0;
+  let components = 0;
+  let instances = 0;
+  for (const page of doc.pages) {
+    for (const node of Object.values(page.nodes)) {
+      nodes += 1;
+      if (node.type === 'component') components += 1;
+      if (node.type === 'instance') instances += 1;
+    }
+  }
+  return { pages: doc.pages.length, nodes, components, instances };
+}

@@ -1,0 +1,153 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`示例查询集 · 命中率（判据链第 5 环） > 排序快照（每条查询 Top-10 资产 id；变更需评审） 1`] = `
+{
+  "a11y-zh": {
+    "top": [
+      "gh:veniceai/skills#skills/a11y-check",
+    ],
+    "total": 1,
+  },
+  "chart-en": {
+    "top": [
+      "gh:acme-labs/df-plugin-charts#",
+      "gh:semi-design-group/semi-design-tokens#packages/tokens",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-startup",
+    ],
+    "total": 3,
+  },
+  "deck-en": {
+    "top": [
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-modern",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-startup",
+      "gh:lewislulu/html-ppt-skill#",
+      "gh:acme-labs/df-plugin-charts#",
+      "gh:anthropics/skills#skills/pptx",
+    ],
+    "total": 5,
+  },
+  "design-system-en": {
+    "top": [
+      "gh:nexu-io/open-design#design-system/lumen",
+      "gh:acme-ui/tokens-starter#tokens/core",
+      "gh:semi-design-group/semi-design-tokens#packages/tokens",
+      "gh:nexu-io/open-design#plugins/figma-bridge",
+      "gh:Leonxlnx/taste-skill#",
+      "gh:anthropics/skills#skills/pptx",
+      "gh:greensock/gsap-skills#skills/gsap-animate",
+      "gh:lewislulu/html-ppt-skill#",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-modern",
+      "gh:nexu-io/html-anything#templates/poster-launch",
+    ],
+    "total": 12,
+  },
+  "design-system-zh": {
+    "top": [
+      "gh:nexu-io/open-design#design-system/lumen",
+      "gh:semi-design-group/semi-design-tokens#packages/tokens",
+      "gh:acme-ui/tokens-starter#tokens/core",
+      "gh:Leonxlnx/taste-skill#",
+      "gh:nexu-io/open-design#plugins/figma-bridge",
+      "gh:anthropics/skills#skills/pptx",
+      "gh:lewislulu/html-ppt-skill#",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-modern",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-startup",
+      "gh:anthropics/skills#skills/pdf",
+    ],
+    "total": 10,
+  },
+  "export-zh": {
+    "top": [
+      "gh:anthropics/skills#skills/pdf",
+      "gh:nexu-io/html-anything#templates/poster-launch",
+      "gh:acme-ui/tokens-starter#tokens/core",
+      "gh:anthropics/skills#skills/pptx",
+      "gh:greensock/gsap-skills#skills/gsap-animate",
+      "gh:MiniMax-AI/skills#skills/icon-forge",
+      "gh:lewislulu/html-ppt-skill#",
+    ],
+    "total": 7,
+  },
+  "icon-zh": {
+    "top": [
+      "gh:MiniMax-AI/skills#skills/icon-forge",
+      "gh:nexu-io/open-design#design-system/lumen",
+    ],
+    "total": 2,
+  },
+  "mobile-zh": {
+    "top": [
+      "gh:fal-ai-community/skills#templates/mobile-app-kit",
+      "gh:semi-design-group/semi-design-tokens#packages/tokens",
+      "gh:acme-labs/df-plugin-charts#",
+    ],
+    "total": 3,
+  },
+  "motion-zh": {
+    "top": [
+      "gh:greensock/gsap-skills#skills/gsap-animate",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-modern",
+      "gh:lewislulu/html-ppt-skill#",
+    ],
+    "total": 3,
+  },
+  "palette-zh": {
+    "top": [
+      "gh:acme-ui/tokens-starter#tokens/core",
+      "gh:Leonxlnx/taste-skill#",
+      "gh:semi-design-group/semi-design-tokens#packages/tokens",
+      "gh:nexu-io/open-design#design-system/lumen",
+      "gh:veniceai/skills#skills/a11y-check",
+    ],
+    "total": 5,
+  },
+  "pdf": {
+    "top": [
+      "gh:anthropics/skills#skills/pdf",
+      "gh:nexu-io/html-anything#templates/poster-launch",
+    ],
+    "total": 2,
+  },
+  "ppt-en": {
+    "top": [
+      "gh:anthropics/skills#skills/pptx",
+      "gh:lewislulu/html-ppt-skill#",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-modern",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-startup",
+      "gh:acme-labs/df-plugin-charts#",
+    ],
+    "total": 5,
+  },
+  "prototype-zh": {
+    "top": [
+      "gh:fal-ai-community/skills#templates/mobile-app-kit",
+    ],
+    "total": 1,
+  },
+  "slides-zh": {
+    "top": [
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-modern",
+      "gh:anthropics/skills#skills/pptx",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-startup",
+      "gh:lewislulu/html-ppt-skill#",
+      "gh:acme-labs/df-plugin-charts#",
+      "gh:nexu-io/html-anything#templates/poster-launch",
+      "gh:fal-ai-community/skills#templates/mobile-app-kit",
+      "gh:acme-ui/tokens-starter#tokens/core",
+    ],
+    "total": 8,
+  },
+  "template-zh": {
+    "top": [
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-modern",
+      "gh:zarazhangrui/beautiful-html-templates#templates/deck-startup",
+      "gh:nexu-io/html-anything#templates/poster-launch",
+      "gh:anthropics/skills#skills/pptx",
+      "gh:fal-ai-community/skills#templates/mobile-app-kit",
+      "gh:acme-ui/tokens-starter#tokens/core",
+      "gh:acme-labs/df-plugin-charts#",
+    ],
+    "total": 7,
+  },
+}
+`;
