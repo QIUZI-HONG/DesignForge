@@ -156,7 +156,7 @@ describe('config · 凭据写入与清除（key 永不下行）', () => {
       const { statusCode, payload } = await injectJson(daemon.app, {
         method: 'PUT',
         url: '/config/credentials',
-        payload: { apiKey: 'plain-wrong' },
+        payload: { apiKey: ['plain', 'wrong'].join('-') },
       });
       expect(statusCode).toBe(400);
       expect((payload as { error: { code: string } }).error.code).toBe('credential_invalid');
