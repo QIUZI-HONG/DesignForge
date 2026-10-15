@@ -18,6 +18,12 @@
  *   DF_DAEMON_URL=http://127.0.0.1:5000 node scripts/verify-market.mjs
  *   node scripts/verify-market.mjs --skip-daemon      # 只跑静态两项（仍按 exit 2 记阻塞）
  *
+ * 与 `verify-self-designed.mjs`（FE-09，尚未入集成分支）的关系：
+ * 本脚本的检查 ①② 与它同源同口径（同一份 guard-tokens 核心 + 六态挂点），额外多了
+ * ③ 的市场专属阻塞判定（daemon `/market` 索引可判定性）。FE-09 的门禁并入集成分支后，
+ * 可改为 `node scripts/verify-self-designed.mjs --roots apps/web/src/features/market,... --ticket fe-11`
+ * 跑前两项，本脚本只保留 daemon 项（统一动作留给合并阶段，见报告）。
+ *
  * 环境变量：DF_DAEMON_URL、DF_EVIDENCE_DIR（缺省 ~/df-evidence）。
  * 证据 JSON 字段按《前端验收标准 v1》§4：page/level/diff/artifacts/humanReview/exitCode。
  */
