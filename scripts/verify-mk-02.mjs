@@ -213,7 +213,12 @@ let dwdRoot = '';
   const odsRoot = join(opts.fixtureDataRoot, 'ods');
   dwdRoot = join(opts.fixtureDataRoot, 'dwd');
   const run = runCli(['dwd', '--ods', odsRoot, '--out', dwdRoot]);
-  s.assert({ name: 'dwd 子命令退出码 0', expected: '0', actual: String(run.status), ok: run.status === 0 });
+  s.assert({
+    name: 'dwd 子命令退出码 0',
+    expected: '0',
+    actual: String(run.status),
+    ok: run.status === 0,
+  });
   const rows = run.outcome?.summary?.rows ?? {};
   s.assert({
     name: '四表齐备',
@@ -285,7 +290,7 @@ let dwdRoot = '';
   });
   s.assert({
     name: 'digest 口径如实（ok 或有明确原因，不冒充）',
-    expected: "ok|incomplete-content|empty",
+    expected: 'ok|incomplete-content|empty',
     actual: first ? `${first.digest_status} digest=${first.digest ?? 'null'}` : '(无样本)',
     ok: ['ok', 'incomplete-content', 'empty'].includes(first?.digest_status),
   });
@@ -323,7 +328,9 @@ let dwdRoot = '';
   const realSource = opts.dir;
   const realSnapshots = join(realSource, 'ods', 'raw_snapshots');
   if (!existsSync(realSnapshots)) {
-    s.block(`未见真实采集产物：${realSnapshots}（MK-01 未落地或未小跑；夹具链路已通过，此处如实标阻塞）`);
+    s.block(
+      `未见真实采集产物：${realSnapshots}（MK-01 未落地或未小跑；夹具链路已通过，此处如实标阻塞）`,
+    );
     s.done();
   } else {
     const dataRoot = workDir('real');
@@ -395,7 +402,11 @@ const evidencePath = join(opts.out, 'verify-mk-02.evidence.json');
 writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
 const localCopy = join(ROOT, 'artifacts', 'verify-mk-02');
 mkdirSync(localCopy, { recursive: true });
-writeFileSync(join(localCopy, 'verify-mk-02.evidence.json'), `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
+writeFileSync(
+  join(localCopy, 'verify-mk-02.evidence.json'),
+  `${JSON.stringify(evidence, null, 2)}\n`,
+  'utf8',
+);
 
 console.log('\n汇总：');
 for (const item of steps) console.log(`  ${item.verdict.padEnd(8)} ${item.id} —— ${item.name}`);
