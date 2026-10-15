@@ -380,6 +380,11 @@
   right: 0;
 }
 
+/* 分组容器：条目各自整宽成行（不得被 Tooltip 锚点等行内包裹夹层） */
+.dfg-menu__section {
+  display: block;
+}
+
 .dfg-menu__group-label {
   padding-block: var(--dfg-space-1);
   padding-inline: var(--dfg-control-padding-x-sm);
@@ -388,6 +393,7 @@
 }
 
 .dfg-menu__item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--dfg-icon-gap);
