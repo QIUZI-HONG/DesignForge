@@ -108,16 +108,27 @@ function readJsonlLines(path) {
     .map((line) => JSON.parse(line));
 }
 
-/** 列出目录下匹配的 JSONL（一层分区）。 */
+/**
+ * 列出目录下匹配的 JSONL（一层分区）。
+ * 去重口径：同一 runId 可能同时存在 MK-01 的 `.jsonl` 与规整后的 `.jsonl.gz`（内容一致），
+ * 只取一份（优先 `.jsonl`）——否则事件/记录会被重复计数（实测踩过）。
+ */
 function listJsonl(root) {
   const out = [];
   if (!existsSync(root)) return out;
   for (const name of readdirSync(root).sort()) {
     const entry = join(root, name);
     if (!statSync(entry).isDirectory()) continue;
+    const byRun = new Map();
     for (const file of readdirSync(entry).sort()) {
-      if (file.endsWith('.jsonl') || file.endsWith('.jsonl.gz')) out.push(join(entry, file));
+      const match = /^(.*)\.jsonl(\.gz)?$/.exec(file);
+      if (match === null) continue;
+      const runId = match[1];
+      const isGz = file.endsWith('.gz');
+      const known = byRun.get(runId);
+      if (known === undefined || (known.endsWith('.gz') && !isGz)) byRun.set(runId, file);
     }
+    for (const file of [...byRun.values()].sort()) out.push(join(entry, file));
   }
   return out;
 }

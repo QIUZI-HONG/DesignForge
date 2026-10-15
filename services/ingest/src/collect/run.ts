@@ -158,7 +158,10 @@ export function isTextLikePath(path: string): boolean {
  */
 const CONTENT_ROOT_GROUPS: { name: string; pieces: string[] }[] = [
   { name: 'plugin', pieces: ['plugin-manifest', 'marketplace-manifest'] },
-  { name: 'design-system', pieces: ['design-md', 'tokens-file', 'components-manifest', 'manifest-json'] },
+  {
+    name: 'design-system',
+    pieces: ['design-md', 'tokens-file', 'components-manifest', 'manifest-json'],
+  },
   { name: 'template', pieces: ['template-manifest'] },
   { name: 'skill', pieces: ['skill-doc'] },
   { name: 'other', pieces: ['package-json', 'mcp-json'] },
@@ -221,7 +224,6 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
   };
   for (const entry of blobs) {
     if (selected.length >= budget) break;
-    const base = entry.path.split('/').pop() ?? entry.path;
     const isRootReadme = entry.path === README_BASENAME;
     const isRootChangelog = entry.path === 'CHANGELOG.md' || entry.path === 'CHANGELOG';
     if ((isRootReadme || isRootChangelog) && isTextLikePath(entry.path)) take(entry.path);
@@ -263,7 +265,11 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
   }
   for (const list of completableByGroup.values()) {
     list.sort((a, b) =>
-      a.files.length !== b.files.length ? a.files.length - b.files.length : a.root < b.root ? -1 : 1,
+      a.files.length !== b.files.length
+        ? a.files.length - b.files.length
+        : a.root < b.root
+          ? -1
+          : 1,
     );
   }
   // 装填：各群**均分预算份额**，群内按根规模升序尽量装；装不下的根放弃（升序，后面只会更大）；
@@ -298,7 +304,11 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
     .flat()
     .filter((root) => root.files.some((path) => !selectedSet.has(path)))
     .sort((a, b) =>
-      a.files.length !== b.files.length ? a.files.length - b.files.length : a.root < b.root ? -1 : 1,
+      a.files.length !== b.files.length
+        ? a.files.length - b.files.length
+        : a.root < b.root
+          ? -1
+          : 1,
     );
   for (const root of leftoversRoots) {
     const pending = root.files.filter((path) => !selectedSet.has(path));

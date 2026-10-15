@@ -195,7 +195,6 @@ interface AssetTextGroup {
 }
 
 const README_NAME = 'README.md';
-const CHANGELOG_NAMES = new Set(['CHANGELOG.md', 'CHANGELOG']);
 
 /** JSON 原文解析为对象（数组/标量/坏 JSON → null，如实缺省不臆造）。 */
 function parseJsonObject(text: string | undefined): Record<string, unknown> | null {
