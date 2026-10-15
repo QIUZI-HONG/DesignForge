@@ -37,6 +37,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
+import { bboxOfDiff } from './lib/pixels.mjs';
+
 const WEB_URL = process.env.DF_WEB_URL ?? 'http://127.0.0.1:3210';
 const HOST_URL = process.env.DF_INSPECTOR_URL ?? `${WEB_URL}/editor`;
 const REF_DIR = resolve(process.env.DF_REF_DIR ?? join(homedir(), 'df-evidence', 'reference-v1'));
@@ -399,7 +401,12 @@ for (const target of targets) {
 
   unit.status = ratio <= maxRatio ? 'pass' : 'fail';
   if (unit.status === 'fail') failures += 1;
-  unit.diff = { bbox: null, diffPixels, totalPixels: total, ratio: Number(ratio.toFixed(6)) };
+  unit.diff = {
+    bbox: bboxOfDiff(diffPng),
+    diffPixels,
+    totalPixels: total,
+    ratio: Number(ratio.toFixed(6)),
+  };
   unit.artifacts = {
     ref: fingerprint(refPath),
     actual: fingerprint(actualPath),

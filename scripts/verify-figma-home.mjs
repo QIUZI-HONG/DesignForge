@@ -36,6 +36,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { startFixtureDaemon, startSameOriginGateway } from './lib/gates.mjs';
+import { bboxOfDiff } from './lib/pixels.mjs';
 
 const WEB_URL = process.env.DF_WEB_URL ?? 'http://127.0.0.1:3210';
 const REF_DIR = resolve(process.env.DF_REF_DIR ?? join(homedir(), 'df-evidence', 'reference-v1'));
@@ -405,7 +406,12 @@ for (const state of targets) {
     state,
     status,
     annotate,
-    diff: { diffPixels, totalPixels: total, ratio: Number(ratio.toFixed(6)), bbox: null },
+    diff: {
+      diffPixels,
+      totalPixels: total,
+      ratio: Number(ratio.toFixed(6)),
+      bbox: bboxOfDiff(diffPng),
+    },
     artifacts: {
       ref: fingerprint(refPath),
       actual: fingerprint(actualPath),

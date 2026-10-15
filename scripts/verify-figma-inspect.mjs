@@ -40,6 +40,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
+import { bboxOfDiff } from './lib/pixels.mjs';
+
 const WEB_URL = process.env.DF_WEB_URL ?? 'http://127.0.0.1:3210';
 const HOST_URL = process.env.DF_INSPECT_URL ?? `${WEB_URL}/editor`;
 /** daemon 基址：缺省取契约端口基准（守护进程未启动时本门禁阻塞，禁自动拉起）。 */
@@ -618,7 +620,7 @@ async function runParity() {
     writeFileSync(diffPath, PNG.sync.write(diffPng));
     record.artifacts.diff = fingerprint(diffPath);
     record.diff = {
-      bbox: null,
+      bbox: bboxOfDiff(diffPng),
       diffPixels,
       ratio: Number(ratio.toFixed(6)),
       totalPixels: total,

@@ -41,6 +41,8 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { bboxOfDiff } from './lib/pixels.mjs';
+
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_APP_DIR = join(REPO_ROOT, 'apps', 'web');
 const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df-evidence'));
@@ -704,7 +706,12 @@ async function main() {
   evidence.screenshot = {
     unit: SCREENSHOT_UNIT,
     status: ratio <= MAX_RATIO ? 'pass' : 'fail',
-    diff: { diffPixels, totalPixels: total, ratio: Number(ratio.toFixed(6)), bbox: null },
+    diff: {
+      diffPixels,
+      totalPixels: total,
+      ratio: Number(ratio.toFixed(6)),
+      bbox: bboxOfDiff(diffPng),
+    },
     reference: refPath,
     artifacts: {
       ref: fingerprint(refPath),
