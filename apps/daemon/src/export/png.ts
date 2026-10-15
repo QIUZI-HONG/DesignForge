@@ -191,11 +191,11 @@ export function encodePng(rgba: Uint8Array, width: number, height: number): Buff
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 6; // color type RGBA
-  ihdr[10] = 0; // compression
-  ihdr[11] = 0; // filter
-  ihdr[12] = 0; // interlace
+  ihdr[8] = 8; // 位深 bit depth
+  ihdr[9] = 6; // 颜色类型 color type：6 = RGBA
+  ihdr[10] = 0; // 压缩方式 compression：0 = deflate
+  ihdr[11] = 0; // 滤波方式 filter：0 = 无滤波
+  ihdr[12] = 0; // 隔行扫描 interlace：0 = 不隔行
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     pngChunk('IHDR', ihdr),
