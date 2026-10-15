@@ -1,0 +1,29 @@
+# 设界 · pnpm workspace 定义（骨架见 docs/plan/skeleton-and-package-layout-v1.md）
+# 注意：scripts/ 不是 workspace 包——它是工程脚本与门禁挂点目录，由根包直接持有。
+packages:
+  - apps/*
+  - packages/*
+  - services/*
+  - tools/*
+
+# 版本目录（catalog）：共享工具链与运行时依赖的单一版本来源，逐包以 `catalog:` 引用。
+# 依据：docs/plan/skeleton-and-package-layout-v1.md §2「环境锁定」+ 前端实现规格 v1 §一。
+catalog:
+  # 工具链
+  typescript: ~5.9.3
+  vitest: 5.0.5
+  '@biomejs/biome': 2.5.15
+  '@types/node': ^22.20.5
+  # Web 前端（apps/web）
+  next: 16.4.1
+  react: 18.3.1
+  react-dom: 18.3.1
+  '@types/react': ^18.3.31
+  '@types/react-dom': ^18.3.7
+  zustand: ^5.0.15
+  intl-messageformat: ^12.1.3
+  '@fontsource/noto-sans-sc': ^5.3.1
+  # 本地服务（apps/daemon）
+  fastify: ^5.12.7
+  # 桌面壳（apps/desktop；FE-12 落地）
+  electron: 44.7.2
