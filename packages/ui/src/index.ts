@@ -70,13 +70,8 @@ export {
   type TooltipProps,
   useToast,
 } from './components/index';
-export {
-  createIcon,
-  ICONS,
-  type IconComponent,
-  type IconName,
-  type IconProps,
-} from './icons/index';
+// 图标整体透出：单个图标（工具条/面板按名引用）与 ICONS 注册表（列举用）都要能取到
+export * from './icons/index';
 export {
   INTERACTION_STATES,
   type InteractionState,

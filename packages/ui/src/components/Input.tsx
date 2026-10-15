@@ -1,3 +1,8 @@
+'use client';
+
+// 组件层统一声明客户端边界：Next App Router 下（apps/web）任何服务端组件都能直接引用本包组件，
+// 无需每个消费方各自包一层 'use client' 包装器；令牌与图标仍是纯模块，可在服务端使用。
+
 /**
  * Input —— 文本 / 数字 / 搜索输入（面板与表单的基础件）。
  *
@@ -31,6 +36,8 @@ export interface InputProps
   icon?: ReactNode;
   /** 后缀槽（清除键、单位等由调用方给）。 */
   trailing?: ReactNode;
+  /** 交互层类名（状态强制类 `dfg-state-hover|focus` 与截图门禁取样用）。 */
+  wrapClassName?: string;
   className?: string;
 }
 
@@ -45,6 +52,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     hint,
     icon,
     trailing,
+    wrapClassName,
     className,
     id,
     disabled,
@@ -74,6 +82,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           size === 'sm' && 'dfg-input-wrap--sm',
           isInvalid && 'dfg-input-wrap--invalid',
           disabled === true && 'dfg-input-wrap--disabled',
+          wrapClassName,
         )}
       >
         {leadingIcon === undefined ? null : (

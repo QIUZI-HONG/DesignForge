@@ -1,3 +1,8 @@
+'use client';
+
+// 组件层统一声明客户端边界：Next App Router 下（apps/web）任何服务端组件都能直接引用本包组件，
+// 无需每个消费方各自包一层 'use client' 包装器；令牌与图标仍是纯模块，可在服务端使用。
+
 /**
  * DropdownMenu —— 弹出菜单（F3 弹出菜单族）。
  *
@@ -69,6 +74,8 @@ export interface DropdownMenuProps {
   trigger: (state: MenuTriggerState) => ReactNode;
   /** 与触发器对齐：开始 / 末尾。 */
   align?: 'start' | 'end';
+  /** 初始展开（预览矩阵与组件级截图门禁取样用；正常页面靠交互开合）。 */
+  defaultOpen?: boolean;
   /** 禁用原因提示的延迟（预览与截图门禁传 0）。 */
   tooltipDelay?: number;
   className?: string;
@@ -80,10 +87,11 @@ export function DropdownMenu({
   sections,
   trigger,
   align = 'start',
+  defaultOpen = false,
   tooltipDelay,
   className,
 }: DropdownMenuProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [activeIndex, setActiveIndex] = useState(-1);
   const menuId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
