@@ -9,9 +9,6 @@
     "allowJs": true,
     "incremental": true,
     "types": ["node"],
-    // 引用 @dforge/contracts（源码以显式 .ts 后缀的相对导入组织，与 daemon/ingest 同口径）；
-    // 本包 noEmit，故该标志合法。
-    "allowImportingTsExtensions": true,
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"]
