@@ -14,7 +14,9 @@
  *   `trigger` 渲染函数摊到自己的按钮上（本包不猜测触发器的形状与文案）；
  * - 打开后：↑/↓ 漫游（跳过禁用项、首尾回环）、Home/End 到两端、Enter/Space 选中、
  *   Esc 关闭并把焦点归还触发器、点击菜单外关闭；
- * - 禁用条目保持 DOM 可悬停（`aria-disabled` 而不是 `disabled`），这样「原因提示」能出来。
+ * - 禁用条目保持 DOM 可悬停（`aria-disabled` 而不是 `disabled`），这样「原因提示」能出来；
+ *   原因提示经 `Tooltip asChild` **直挂条目**——条目不得被锚点包裹夹层（否则多条禁用条目并排成一行，
+ *   且 `role="menuitem"` 的 ARIA 父子层级被破坏；回归测试见 `menu-item-layout.test.tsx`）。
  */
 import {
   type KeyboardEvent,
@@ -259,7 +261,7 @@ export function DropdownMenu({
           onKeyDown={handleMenuKeyDown}
         >
           {sections.map((section, sectionIndex) => (
-            <div key={section.id}>
+            <div key={section.id} className="dfg-menu__section">
               {/* 分隔线用 <hr>：自带 separator 语义（无需手写 role，也免去 div 语义补丁） */}
               {sectionIndex === 0 ? null : <hr className="dfg-menu__separator" />}
               {section.label === undefined ? null : (
@@ -292,8 +294,15 @@ export function DropdownMenu({
                   </button>
                 );
                 if (item.disabledReason === undefined) return itemNode;
+                // asChild：提示直接挂在条目上，不再夹 inline-flex 锚点包裹——
+                // 包裹会让多条禁用条目并排成一行，并把 menuitem 塞进无语义 span（ARIA 层级被破坏）
                 return (
-                  <Tooltip key={item.id} content={item.disabledReason} delay={tooltipDelay ?? 300}>
+                  <Tooltip
+                    key={item.id}
+                    content={item.disabledReason}
+                    delay={tooltipDelay ?? 300}
+                    asChild
+                  >
                     {itemNode}
                   </Tooltip>
                 );

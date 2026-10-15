@@ -1,9 +1,10 @@
 /**
- * apps/web 测试公共装配（FE-09 引入；其他前端票按需复用）。
+ * apps/web 组件测试公共装配（FE-02 / FE-09 引入；其他前端票按需复用）。
  *
- * - RTL 自动清理：vitest 未开 `globals`，RTL 不会自动 cleanup，此处显式在 afterEach 卸载；
+ * - RTL 自动清理：vitest 未开 `globals`，RTL 不会自动 cleanup，此处显式在 afterEach 卸载
+ *   （否则同一文件内多次 render 会互相污染查询结果）；
  * - `matchMedia` 兜底：jsdom 未实现（组件若按视口降级不会误崩）。
- * 与 `packages/ui/src/test-setup.ts` 同源口径（不在包间共享物上做耦合，各自持有薄装配）。
+ * 与 `packages/ui/src/test-setup.ts` 同口径（跨包一致）。
  */
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';

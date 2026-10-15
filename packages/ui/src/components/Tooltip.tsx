@@ -35,9 +35,31 @@ export interface TooltipProps {
   placement?: TooltipPlacement;
   /** 出现延迟（毫秒）；默认 300。 */
   delay?: number;
+  /**
+   * 把提示行为**直接挂到子元素本身**，不再包一层锚点 `<span>`。
+   *
+   * 何时必须用（FE-03 实测缺陷的根因）：容器对直接子元素有语义/布局要求时——
+   * 典型是 `role="menu"` 的菜单条目：条目必须是整宽块级行、且应当直接挂在菜单下。
+   * 夹一层 `inline-flex` 包裹会同时坏掉两件事：多条禁用条目并排成一行，
+   * 且 `role="menuitem"` 被塞进无语义的 span 里（ARIA 父子层级被破坏）。
+   * 默认（`false`）仍用包裹形态：原生 `disabled` 控件自身不派发鼠标事件，
+   * 需要借外层包裹才能出提示（如禁用按钮的 F15 原因）。
+   */
+  asChild?: boolean;
   /** 锚点元素（单一子元素）。 */
   children: ReactNode;
   className?: string;
+}
+
+/** 组合事件处理器：先跑调用方原有的，再跑提示自己的（两者都不能丢）。 */
+function compose<E extends { defaultPrevented?: boolean }>(
+  theirs: ((event: E) => void) | undefined,
+  ours: (event: E) => void,
+): (event: E) => void {
+  return (event) => {
+    if (typeof theirs === 'function') theirs(event);
+    ours(event);
+  };
 }
 
 /** 悬停/聚焦提示。 */
@@ -45,6 +67,7 @@ export function Tooltip({
   content,
   placement = 'top',
   delay = 300,
+  asChild = false,
   children,
   className,
 }: TooltipProps) {
@@ -83,6 +106,34 @@ export function Tooltip({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open]);
 
+  const tooltipNode = open ? (
+    <span role="tooltip" id={id} className={cx('dfg-tooltip', `dfg-tooltip--${placement}`)}>
+      {content}
+    </span>
+  ) : null;
+
+  // asChild：提示挂到子元素自身；浮层作为**兄弟节点**紧随其后（绝对定位，不参与行布局）
+  if (asChild && isValidElement(children)) {
+    const child = children as ReactElement<Record<string, unknown>>;
+    const { props } = child;
+    const withHandlers = cloneElement(child, {
+      onMouseEnter: compose(
+        props.onMouseEnter as ((event: unknown) => void) | undefined,
+        scheduleShow,
+      ),
+      onMouseLeave: compose(props.onMouseLeave as ((event: unknown) => void) | undefined, hide),
+      onFocus: compose(props.onFocus as ((event: unknown) => void) | undefined, scheduleShow),
+      onBlur: compose(props.onBlur as ((event: unknown) => void) | undefined, hide),
+      ...(open ? { 'aria-describedby': id } : {}),
+    });
+    return (
+      <>
+        {withHandlers}
+        {tooltipNode}
+      </>
+    );
+  }
+
   const anchor =
     open && isValidElement(children)
       ? cloneElement(children as ReactElement<Record<string, unknown>>, {
@@ -100,11 +151,7 @@ export function Tooltip({
       onBlur={hide}
     >
       {anchor}
-      {open ? (
-        <span role="tooltip" id={id} className={cx('dfg-tooltip', `dfg-tooltip--${placement}`)}>
-          {content}
-        </span>
-      ) : null}
+      {tooltipNode}
     </span>
   );
 }

@@ -462,7 +462,7 @@ export default function DesignPreviewPage() {
 
         <Section id="menu" title={t('design.section.menu')}>
           <div style={styles.grid}>
-            <Cell id="menu/default" label="menu · 展开（含禁用项与分隔线）">
+            <Cell id="menu/default" label="menu · 展开（含两条禁用项与分隔线）">
               <DropdownMenu
                 label={t('design.action.menu')}
                 defaultOpen
@@ -494,6 +494,14 @@ export default function DesignPreviewPage() {
                         label: t('design.menu.delete'),
                         icon: <ICONS.TrashIcon />,
                         danger: true,
+                        disabled: true,
+                        disabledReason: t('design.menu.readonly'),
+                      },
+                      // 第二条禁用条目：菜单里两条禁用条目必须各自成行（回归 · menu-item-layout.test.tsx）
+                      {
+                        id: 'archive',
+                        label: t('design.menu.archive'),
+                        icon: <ICONS.DownloadIcon />,
                         disabled: true,
                         disabledReason: t('design.menu.readonly'),
                       },
