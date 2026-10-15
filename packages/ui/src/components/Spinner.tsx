@@ -16,7 +16,7 @@ export type SpinnerSize = 'sm' | 'md' | 'lg';
 
 /** Spinner props。 */
 export interface SpinnerProps {
-  /** 尺寸档；默认 md（16px，与 `--dfg-icon-size-md` 对齐）。 */
+  /** 尺寸档；默认 md（取 `--dfg-icon-size-md`）。 */
   size?: SpinnerSize;
   /** 无障碍名称；给出后成为 `role="status"`。 */
   label?: string;

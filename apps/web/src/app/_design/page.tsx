@@ -15,7 +15,6 @@ import {
   Input,
   LoadingOverlay,
   Modal,
-  PRIMITIVES,
   Progress,
   SegmentedControl,
   Skeleton,
@@ -237,11 +236,9 @@ export default function DesignPreviewPage() {
             ))}
           </div>
           <div style={styles.row}>
-            <span style={styles.chip}>
-              {`控件高 md = ${String(PRIMITIVES.iconSize.md)} / 密度默认随主题：浅色 32 ↔ 深色 28`}
-            </span>
-            <span style={styles.chip}>{'圆角档 3 / 6 / 8 / 13 / 999'}</span>
-            <span style={styles.chip}>{'间距 4 的倍数（8px 栅格）'}</span>
+            <span style={styles.chip}>{t('design.token.controlHeight')}</span>
+            <span style={styles.chip}>{t('design.token.radius')}</span>
+            <span style={styles.chip}>{t('design.token.spacing')}</span>
           </div>
         </Section>
 

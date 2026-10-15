@@ -18,7 +18,7 @@ import { cx } from '../utils/class-names';
 export interface EmptyStateProps {
   title: ReactNode;
   description?: ReactNode;
-  /** 插图；不给用默认空盒图标（48px）。 */
+  /** 插图；不给用默认空盒图标（边长 48）。 */
   art?: ReactNode;
   /** 动作区（通常一个主按钮，由调用方给）。 */
   action?: ReactNode;

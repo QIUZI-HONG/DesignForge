@@ -39,6 +39,8 @@
   --dfg-line-height-tight: 1.2;
   --dfg-line-height-base: 1.4;
   --dfg-line-height-relaxed: 1.6;
+  --dfg-letter-spacing-tight: -0.01em;
+  --dfg-letter-spacing-wide: 0.04em;
   --dfg-duration-fast: 150px;
   --dfg-duration-base: 200px;
   --dfg-duration-slow: 300px;

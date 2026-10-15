@@ -58,5 +58,8 @@
   "design.menu.delete": "Delete",
   "design.menu.readonly": "Read-only document",
   "design.menu.sectionDanger": "Danger zone",
-  "design.tip": "hover / active are reproduced with state-forcing classes (dfg-state-hover / dfg-state-active); focus-visible is captured by the screenshot gate with a real focus."
+  "design.tip": "hover / active are reproduced with state-forcing classes (dfg-state-hover / dfg-state-active); focus-visible is captured by the screenshot gate with a real focus.",
+  "design.token.controlHeight": "Control height md follows theme density: 32 light vs 28 dark",
+  "design.token.radius": "Radius steps 3 / 6 / 8 / 13 / 999",
+  "design.token.spacing": "Spacing scale: multiples of 4 (incl. 8 grid)"
 }

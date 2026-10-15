@@ -16,7 +16,7 @@ import { cx } from '../utils/class-names';
 export interface SkeletonProps {
   /** 宽度（CSS 长度；默认 100%）。 */
   width?: string;
-  /** 高度覆盖（默认由类名给：块 12px）。 */
+  /** 高度覆盖（默认由类名给：块高取 `--dfg-space-3`）。 */
   height?: string;
   className?: string;
 }

@@ -1,7 +1,7 @@
 /**
  * 图标工厂与图标集（@dforge/ui）。
  *
- * 口径（清单 §1.0 两套基准规范）：**16px 画布 / 1.5px 线性描边 / currentColor**；
+ * 口径（清单 §1.0 两套基准规范）：**16 画布 / 1.5 描边 / currentColor**（描边宽见 `ICON_STROKE_WIDTH`）；
  * 全部**自绘（clean-room）**——只用基础几何（直线、圆、圆弧、圆角矩形）组合，
  * 不复制任何第三方图标库的路径数据；形状细节按 B 级「视觉同族」人工复核
  * （验收标准 §2：图标几何/尺寸/描边/颜色为 A 级，形状细节为 B 级）。
@@ -18,7 +18,7 @@ const ICON_STROKE_WIDTH = 1.5;
 
 /** 图标 props：默认装饰性；`title` 给出后可访问名，`size` 覆盖边长。 */
 export interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'children' | 'title'> {
-  /** 边长（px）；默认 16（`PRIMITIVES.iconSize.md`）。 */
+  /** 边长（数值即 CSS 像素）；默认 16（`PRIMITIVES.iconSize.md`）。 */
   size?: number;
   /** 无障碍名称；给出后图标成为具名图形（`role="img"`）。 */
   title?: string;

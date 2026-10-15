@@ -98,6 +98,12 @@ export interface DurationScale {
   slow: number;
 }
 
+/** 字距档（等宽数码/错误码用小间距拉开可读性）。 */
+export interface LetterSpacingScale {
+  tight: string;
+  wide: string;
+}
+
 /** 动效曲线（标准进出 / 强调 / 退出）。 */
 export interface EasingScale {
   standard: string;
@@ -153,6 +159,7 @@ export interface Primitives {
   fontSize: FontSizeScale;
   fontWeight: FontWeightScale;
   lineHeight: LineHeightScale;
+  letterSpacing: LetterSpacingScale;
   duration: DurationScale;
   easing: EasingScale;
   iconSize: IconSizeScale;
@@ -170,6 +177,7 @@ export const PRIMITIVES: Primitives = {
   fontSize: { 11: 11, 12: 12, 13: 13, 15: 15, 18: 18, 20: 20, 24: 24 },
   fontWeight: { regular: 400, medium: 500, bold: 700 },
   lineHeight: { tight: 1.2, base: 1.4, relaxed: 1.6 },
+  letterSpacing: { tight: '-0.01em', wide: '0.04em' },
   duration: { fast: 150, base: 200, slow: 300 },
   easing: {
     standard: 'cubic-bezier(0.2, 0, 0, 1)',

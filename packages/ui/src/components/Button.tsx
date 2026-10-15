@@ -31,7 +31,7 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   loadingLabel?: string;
   /** 占满容器宽。 */
   fullWidth?: boolean;
-  /** 前置图标（16px 线性图标）。 */
+  /** 前置图标（16 画布线性图标，见 `PRIMITIVES.iconSize`）。 */
   icon?: ReactNode;
   /** 禁用原因；给出时禁用态包 Tooltip 说明原因。 */
   disabledReason?: string;
