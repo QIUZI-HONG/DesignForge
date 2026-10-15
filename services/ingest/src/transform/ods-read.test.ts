@@ -5,7 +5,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -142,7 +142,7 @@ describe('materializeOds + readOds（规格形状：gzip 事件 / files.json / b
     expect(again.conflicts).toEqual([]);
   });
 
-  it('只追加：同路径不同内容视为冲突，不得静默覆盖', async () => {
+  it('只追加：同路径文件级事实不同视为冲突，不得静默覆盖', async () => {
     const source = await copySource();
     const out = join(workDir, 'ods');
     await materializeOds({ source, out });
@@ -153,10 +153,89 @@ describe('materializeOds + readOds（规格形状：gzip 事件 / files.json / b
       'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
       'files.json',
     );
-    await writeFile(snapshotPath, '{"schema":"df.market.ods.files/v1","tampered":true}\n', 'utf8');
+    // 同一 (repoId, commit) 的文件清单被改写 → 必须报冲突（元数据差异不算冲突，见下一条）
+    const tampered = JSON.parse(await readFile(snapshotPath, 'utf8')) as { files: unknown[] };
+    tampered.files = tampered.files.slice(0, 1);
+    await writeFile(snapshotPath, `${JSON.stringify(tampered, null, 2)}\n`, 'utf8');
     const result = await materializeOds({ source, out });
     expect(result.conflicts.length).toBeGreaterThan(0);
     expect(result.issues.some((issue) => issue.rule === 'snapshot-conflict')).toBe(true);
+  });
+
+  it('后续 run 的 304（正文为空）不得冲掉先前取回的正文（否则 blob 与 sha256 整片丢失）', async () => {
+    const source = await copySource();
+    // 追加一轮完整 ETag 命中的录制：同一 URL、status 304、正文为空串
+    const replayDir = join(source, 'replay', '20261015-130000');
+    await mkdir(replayDir, { recursive: true });
+    const previous = await readFile(
+      join(source, 'replay', '20261015-120000', 'responses.jsonl'),
+      'utf8',
+    );
+    const cached = previous
+      .split('\n')
+      .filter((line) => line !== '')
+      .map((line) => {
+        const row = JSON.parse(line) as Record<string, unknown>;
+        return JSON.stringify({ ...row, status: 304, body: '' });
+      })
+      .join('\n');
+    await writeFile(join(replayDir, 'responses.jsonl'), `${cached}\n`, 'utf8');
+
+    const out = join(workDir, 'ods');
+    const result = await materializeOds({ source, out });
+    expect(result.blobsWritten).toBe(2);
+    const snapshot = JSON.parse(
+      await readFile(
+        join(
+          out,
+          'raw_snapshots',
+          'acme__design-kit',
+          'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          'files.json',
+        ),
+        'utf8',
+      ),
+    ) as { files: { path: string; sha256: string | null }[] };
+    const skill = snapshot.files.find((file) => file.path === 'skills/palette/SKILL.md');
+    expect(skill?.sha256).toBe(SKILL_SHA256);
+  });
+
+  it('同 (repoId, commit) 多轮观测：幂等键归并成一份，元数据差异不算冲突', async () => {
+    const source = await copySource();
+    // 追加第二轮的一仓一记录（同 repoId + 同 ref，不同 runId/fetchedAt）
+    const snapshotPath = join(
+      source,
+      'ods',
+      'raw_snapshots',
+      'date=2026-10-15',
+      '20261015-120000.jsonl',
+    );
+    const lines = (await readFile(snapshotPath, 'utf8')).trim().split('\n');
+    const second = { ...(JSON.parse(lines[0] ?? '{}') as Record<string, unknown>) };
+    second.runId = '20261015-130000';
+    second.fetchedAt = '2026-10-15T13:00:03.000Z';
+    second.etag = 'W/"etag-repo-a-v2"';
+    await writeFile(snapshotPath, `${lines.join('\n')}\n${JSON.stringify(second)}\n`, 'utf8');
+
+    const out = join(workDir, 'ods');
+    const result = await materializeOds({ source, out });
+    expect(result.conflicts).toEqual([]);
+    expect(result.snapshotFiles).toHaveLength(2);
+    const snapshot = JSON.parse(
+      await readFile(
+        join(
+          out,
+          'raw_snapshots',
+          'acme__design-kit',
+          'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          'files.json',
+        ),
+        'utf8',
+      ),
+    ) as { runId: string; fetchedAt: string };
+    // 首次观测为准（只追加、不修改历史）
+    expect(snapshot.runId).toBe('20261015-120000');
+    expect(snapshot.fetchedAt).toBe('2026-10-15T12:00:03.000Z');
   });
 
   it('readOds 能读回规整产物：记录、快照、事件、blob 索引齐备', async () => {

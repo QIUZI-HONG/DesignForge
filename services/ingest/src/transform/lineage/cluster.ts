@@ -245,6 +245,7 @@ export function assignClusters(assets: ClusterAssetInput[]): ClusterResult {
 
   // 3) 目录指纹：≥0.9 合并，0.7–0.9 人工队列（两侧文件列表均非空才判定——
   //    「都没有文件」不构成同源证据，不得据此合并）
+  //    规模守卫：Jaccard ≤ min/max，差别过大直接跳过（等同结果，避免 O(n²) 白跑）
   for (let i = 0; i < sorted.length; i += 1) {
     const a = sorted[i];
     if (a === undefined) continue;
@@ -253,6 +254,9 @@ export function assignClusters(assets: ClusterAssetInput[]): ClusterResult {
       if (b === undefined) continue;
       if (a.kind !== b.kind) continue;
       if (a.filePaths.length === 0 || b.filePaths.length === 0) continue;
+      const min = Math.min(a.filePaths.length, b.filePaths.length);
+      const max = Math.max(a.filePaths.length, b.filePaths.length);
+      if (min / max < FINGERPRINT_REVIEW) continue;
       const similarity = jaccard(a.filePaths, b.filePaths);
       if (similarity >= FINGERPRINT_MERGE) connect(a, b, 'fingerprint', similarity);
       else if (similarity >= FINGERPRINT_REVIEW) {

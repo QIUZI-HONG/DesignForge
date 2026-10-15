@@ -173,7 +173,13 @@ export async function readOdsSource(root: string): Promise<OdsSourceBundle> {
   }
 
   // 录制响应（可选）：`<root>/replay/<runId>/responses.jsonl` 或 `<odsRoot>/bodies/responses.jsonl`
+  //
+  // 口径：**同一 URL 取「最近一次真正带回正文」的那份**。理由：增量采集里后续 run 常命中
+  // ETag（304，正文为空），若按 run 顺序无条件覆盖，早先取回的正文会被空串冲掉，
+  // 文件级 sha256 与 blob 会整片丢失（实测发生过）。
   const recordedBodies = new Map<string, unknown>();
+  const usableBody = (body: unknown): boolean =>
+    (body !== null && typeof body === 'object') || (typeof body === 'string' && body.trim() !== '');
   for (const candidate of [join(root, 'replay'), join(odsRoot, 'bodies'), join(root, 'bodies')]) {
     if (!(await exists(candidate))) continue;
     const runDirs = (await readdir(candidate, { withFileTypes: true }))
@@ -194,7 +200,10 @@ export async function readOdsSource(root: string): Promise<OdsSourceBundle> {
       for (const row of content.rows) {
         if (row === null || typeof row !== 'object') continue;
         const record = row as Record<string, unknown>;
-        if (typeof record.url === 'string') recordedBodies.set(record.url, record.body);
+        if (typeof record.url !== 'string') continue;
+        if (recordedBodies.get(record.url) === undefined || usableBody(record.body)) {
+          recordedBodies.set(record.url, record.body);
+        }
       }
     }
   }

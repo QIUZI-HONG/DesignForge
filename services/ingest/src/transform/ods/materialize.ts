@@ -23,6 +23,7 @@ import { gzipSync } from 'node:zlib';
 import type {
   OdsFileEntry,
   OdsRepoFilesSnapshot,
+  OdsRepoRecord,
   OdsSourceFile,
   OdsValidationIssue,
   RawEvent,
@@ -131,6 +132,43 @@ async function writeAppendOnly(
   try {
     const existing = await readFile(path, 'utf8');
     return existing === content ? 'skipped' : 'conflict';
+  } catch {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, content, 'utf8');
+    return 'written';
+  }
+}
+
+/** 文件级事实（快照冲突判定只看这部分：代码里唯一代表「这一 commit 有哪些文件」的内容）。 */
+function fileFacts(snapshot: { tree?: { listingDigest?: unknown }; files?: unknown }): string {
+  const files = Array.isArray(snapshot.files) ? snapshot.files : [];
+  return JSON.stringify({
+    listingDigest: snapshot.tree?.listingDigest ?? null,
+    files: files.map((file) => {
+      const record = (file ?? {}) as Record<string, unknown>;
+      return [record.path, record.gitSha, record.size, record.sha256, record.blobRef];
+    }),
+  });
+}
+
+/**
+ * 写快照（只追加，但按**文件级事实**判冲突）。
+ *
+ * 为什么不是「字节不同即冲突」：同一 (repoId, commit) 会被多轮采集反复观测（规格 §4.3.1 的
+ * 幂等键是 `(repoId, commit, path)`），各轮的 runId/fetchedAt/配额必然不同；把元数据差异当冲突
+ * 会淹没真正的问题。真正的冲突 = 同一 commit 的文件清单/内容哈希不一致（数据被改写）。
+ */
+async function writeSnapshot(
+  path: string,
+  content: string,
+  snapshot: { tree?: { listingDigest?: unknown }; files?: unknown },
+): Promise<'written' | 'skipped' | 'conflict'> {
+  try {
+    const existing = JSON.parse(await readFile(path, 'utf8')) as {
+      tree?: { listingDigest?: unknown };
+      files?: unknown;
+    };
+    return fileFacts(existing) === fileFacts(snapshot) ? 'skipped' : 'conflict';
   } catch {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, 'utf8');
@@ -262,7 +300,14 @@ export async function materializeOds(input: MaterializeInput): Promise<Materiali
   };
 
   // 1) 逐仓快照：文件清单（Trees 录制）+ 正文哈希（contents 录制）
-  for (const record of bundle.records) {
+  //    按幂等键 (repoId, commit) 归并多轮观测：元数据取首轮，文件级事实取各轮并集
+  const groups = new Map<string, OdsRepoRecord>();
+  for (const record of [...bundle.records].sort((a, b) => a.repo.id - b.repo.id)) {
+    const key = `${record.repo.id}@${record.ref}`;
+    if (!groups.has(key)) groups.set(key, record);
+  }
+
+  for (const record of groups.values()) {
     const fullName = record.repo.fullName;
     const entries = treeByRepo.get(fullName);
     const files: OdsFileEntry[] = [];
@@ -319,14 +364,14 @@ export async function materializeOds(input: MaterializeInput): Promise<Materiali
     snapshot.snapshotDigest = computeSnapshotDigest(snapshot as unknown as Record<string, unknown>);
 
     const path = join(input.out, 'raw_snapshots', repoDirName(fullName), record.ref, 'files.json');
-    const outcome = await writeAppendOnly(path, `${JSON.stringify(snapshot, null, 2)}\n`);
+    const outcome = await writeSnapshot(path, `${JSON.stringify(snapshot, null, 2)}\n`, snapshot);
     if (outcome === 'written') filesWritten += 1;
     else if (outcome === 'skipped') filesSkipped += 1;
     else {
       conflicts.push({
         path,
         rule: 'snapshot-conflict',
-        detail: '同 (repoId, commit) 快照已存在且内容不同（只追加：不覆盖历史）',
+        detail: '同 (repoId, commit, path) 快照已存在且**文件级事实**不同（只追加：不覆盖历史）',
       });
     }
     snapshotFiles.push(path);

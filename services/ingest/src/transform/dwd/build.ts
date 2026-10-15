@@ -98,16 +98,48 @@ function relativeToRoot(root: string, repoPath: string): string {
   return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : repoPath;
 }
 
+/** 各资产类的「身份结构件」白名单（相对资产根的位置需精确匹配，规格 §2.2–§2.5）。 */
+const STRUCTURAL_FILES: Record<AssetKind, string[]> = {
+  skill: ['SKILL.md', 'README.md', 'manifest.json'],
+  plugin: [
+    'plugin.json',
+    '.claude-plugin/plugin.json',
+    'marketplace.json',
+    '.claude-plugin/marketplace.json',
+    'manifest.json',
+    'package.json',
+  ],
+  'design-system': [
+    'DESIGN.md',
+    'manifest.json',
+    'design-tokens.json',
+    'tokens.json',
+    'tokens.css',
+    'tailwind-v4.css',
+    'components.manifest.json',
+    'package.json',
+  ],
+  template: ['template.json', 'manifest.json', 'package.json'],
+};
+
+/** 是否为本资产类的身份结构件（位置敏感：必须落在资产根，`.claude-plugin/` 例外）。 */
+export function isStructuralFile(kind: AssetKind, relative: string): boolean {
+  return STRUCTURAL_FILES[kind].includes(relative);
+}
+
 /**
- * 从仓库正文正文推断同源上游（规格 §1.3 `upstream` / §2.6.3 结构同源依据）。
- * 只做「正文里指向另一个 GitHub 仓」的保守推断：出现次数最多者胜，平票取字典序。
+ * 从仓库正文推断同源上游（规格 §1.3 `upstream` / §2.6.3 结构同源依据）。
+ *
+ * 保守口径：只算「指向另一个 GitHub 仓」的链接，并要求**至少两个不同文件**都指向它，
+ * 才算强同源（`strong=true`，可作同簇依据）。单个文件里的一次外链不足以下结论——
+ * 实测里 `anthropics/skills` 的某个技能正文提到 SDK 仓，这不是同源。
  */
 export function inferUpstream(
   fullName: string,
   bodies: { path: string; text: string }[],
-): { upstream: string | null; source: string | null } {
-  const counts = new Map<string, number>();
+): { upstream: string | null; source: string | null; fileCount: number; strong: boolean } {
   const self = fullName.toLowerCase();
+  const filesByCandidate = new Map<string, Set<string>>();
   for (const body of bodies) {
     for (const match of body.text.matchAll(/github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)/g)) {
       const owner = match[1];
@@ -115,22 +147,29 @@ export function inferUpstream(
       if (owner === undefined || repo === undefined) continue;
       const candidate = `${owner}/${repo}`.replace(/\.git$/, '');
       if (candidate.toLowerCase() === self) continue;
-      counts.set(candidate, (counts.get(candidate) ?? 0) + 1);
+      const files = filesByCandidate.get(candidate) ?? new Set<string>();
+      files.add(body.path);
+      filesByCandidate.set(candidate, files);
     }
   }
-  let best: { name: string; count: number } | null = null;
-  for (const [name, count] of counts) {
+  let best: { name: string; fileCount: number } | null = null;
+  for (const [name, files] of filesByCandidate) {
+    const fileCount = files.size;
     if (
       best === null ||
-      count > best.count ||
-      (count === best.count && name.toLowerCase() < best.name.toLowerCase())
+      fileCount > best.fileCount ||
+      (fileCount === best.fileCount && name.toLowerCase() < best.name.toLowerCase())
     ) {
-      best = { name, count };
+      best = { name, fileCount };
     }
   }
-  return best === null
-    ? { upstream: null, source: null }
-    : { upstream: best.name, source: 'body-link' };
+  if (best === null) return { upstream: null, source: null, fileCount: 0, strong: false };
+  return {
+    upstream: best.name,
+    source: 'body-link',
+    fileCount: best.fileCount,
+    strong: best.fileCount >= 2,
+  };
 }
 
 /** 资产解析报告（进 asset.parse_report，供 MK-03 打分与 MK-04 卡片复用）。 */
@@ -193,7 +232,12 @@ function parseAssetContent(
     template: ['template.json', 'manifest.json', 'package.json'],
   };
   const wanted = preference[asset.kind];
-  const ordered = [...files].sort((a, b) => {
+  // 只把「资产根处的结构件」当候选：嵌套 `template/SKILL.md` 之类的深层文件不参与本资产
+  // 的身份解析（否则仓根 Plugin 会被某个子目录的 SKILL.md 顶掉名字，实测发生过）。
+  const structural = files.filter((file) =>
+    isStructuralFile(asset.kind, relativeToRoot(asset.root, file.path)),
+  );
+  const ordered = [...structural].sort((a, b) => {
     const rankA = wanted.findIndex((name) => a.path === name || a.path.endsWith(`/${name}`));
     const rankB = wanted.findIndex((name) => b.path === name || b.path.endsWith(`/${name}`));
     return (rankA < 0 ? 99 : rankA) - (rankB < 0 ? 99 : rankB) || (a.path < b.path ? -1 : 1);
@@ -460,8 +504,7 @@ export async function buildDwd(input: DwdBuildInput): Promise<DwdBuildResult> {
         manifest?.name ??
         asset.name ??
         slugify(asset.root || repo.name);
-      const summary =
-        frontmatter?.description ?? manifest?.description ?? repo.description ?? '';
+      const summary = frontmatter?.description ?? manifest?.description ?? repo.description ?? '';
       const summaryLang = detectLanguage(summary);
       const descriptionText = primary?.body ?? null;
       const descriptionLang = detectLanguage(descriptionText);
@@ -562,7 +605,8 @@ export async function buildDwd(input: DwdBuildInput): Promise<DwdBuildResult> {
         root: asset.root,
         filePaths: owned.map((file) => relativeToRoot(asset.root, file.path)),
         bodyText: primary === null ? null : primary.body,
-        upstream: upstream.upstream,
+        // 只有强同源才作为「必进同簇」依据（规格 §2.6.3）；弱推断仍落 repo.upstream 供人工复核
+        upstream: upstream.strong ? upstream.upstream : null,
       });
     }
   }
