@@ -11,6 +11,7 @@ import { defineConfig } from 'vitest/config';
  * 别名：与 `tsconfig.json` 的 `@/*` 对齐。
  * 环境：默认 node（页面级 smoke 用 `react-dom/server`）；需要 DOM 的用例，
  * 在文件头用 `// @vitest-environment jsdom` 单独切换。
+ * 装配：`./src/test-setup.ts`（RTL 清理与 jsdom 缺口兜底；FE-09 引入）。
  */
 export default defineConfig({
   oxc: { jsx: { runtime: 'automatic' } },
@@ -21,5 +22,6 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.{ts,tsx}'],
+    setupFiles: ['./src/test-setup.ts'],
   },
 });
