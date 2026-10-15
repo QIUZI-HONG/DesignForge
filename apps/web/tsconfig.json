@@ -1,8 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
-  // allowImportingTsExtensions：工作区包（@dforge/contracts）以 .ts 源码直供（见 next.config.ts
-  // 的 transpilePackages），tsc 会把这些源文件拉进本包的程序，需与 contracts/daemon 同开关。
   "compilerOptions": {
+    // allowImportingTsExtensions：工作区包（@dforge/contracts / @dforge/engine）以 .ts 源码直供
+    // （见 next.config.ts 的 transpilePackages），tsc 会把这些源文件拉进本包的程序，
+    // 需与 contracts / engine / daemon 同开关（FE-02/FE-09 各自引入，合并后单点声明）。
     "allowImportingTsExtensions": true,
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "jsx": "preserve",
