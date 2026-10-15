@@ -505,7 +505,19 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
     await writeFile(join(replayDir, 'responses.jsonl'), `${recordedLines.join('\n')}\n`, 'utf8');
     await writeFile(
       join(replayDir, 'manifest.json'),
-      `${JSON.stringify({ schema: 'df.market.replay/v1', runId: effective.runId, asOfMs: opts.asOfMs, responses: recordedLines.length }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          schema: 'df.market.replay/v1',
+          runId: effective.runId,
+          asOfMs: effective.asOfMs,
+          asOf: isoOf(effective.asOfMs),
+          responses: recordedLines.length,
+          // 完整采集参数：离线复跑据此精确重放（URL 逐条命中样本）。
+          params: collectParamsOf(effective),
+        },
+        null,
+        2,
+      )}\n`,
       'utf8',
     );
     log(`重放样本：${replayDir}/responses.jsonl（${recordedLines.length} 条响应）`);
