@@ -18,7 +18,6 @@ import {
   RESERVED_COMMAND_IDS,
   registerCommand,
   registerEditorSlotItem,
-  toZoomPercent,
   useEditorView,
 } from '@/features/editor-shell';
 import { t } from '@/i18n';
@@ -189,7 +188,16 @@ export function WorkspaceBootstrap(): null {
   return null;
 }
 
+// 引导实现注入（`ensureWorkspaceBootstrapped` 由槽组件在挂载后调用）：命令/视口同步/门禁探针
+setWorkspaceBootstrap(() => {
+  // 幂等：重复调用无副作用（注册表同 id 覆盖、探针重复赋值同一形状）
+  registerWorkspaceCommands();
+  connectViewSync();
+  installInspectorProbe();
+  installWorkspaceProbe();
+});
+
 /** 缩放百分比（供状态栏/调试）。 */
 export function currentZoomLabel(): string {
-  return `${String(toZoomPercent(getWorkspace().canvas.viewport().zoom))}%`;
+  return `${String(Math.round(getWorkspace().canvas.viewport().zoom * 100))}%`;
 }

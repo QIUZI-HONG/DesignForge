@@ -326,7 +326,7 @@ export function CanvasStage({
         coveredRef.current === undefined ? {} : { skipIds: coveredRef.current },
       );
       // 让给宿主的组合（handled=false）不 preventDefault：宿主（编辑器壳）的全局派发要接着处理它
-      if (result !== null && result.handled) {
+      if (result?.handled === true) {
         event.preventDefault();
         loopRef.current?.request();
       }

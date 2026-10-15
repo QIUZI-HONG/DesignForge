@@ -154,8 +154,22 @@ async function ensureWeb() {
     { timeout: 6000, label: '既有 dev 探测' },
   ).catch(() => null);
   if (reused !== null) webUrl = reused;
+  // 端口漂移兜底：续跑残留的服务会占住计划端口，Next 会换端口并在输出里自报地址
+  const advertised = await waitFor(
+    () => {
+      const match = started
+        .output()
+        .match(/(?:Local:|existing server at)\s+(http:\/\/localhost:\d+)/);
+      return match === null ? null : match[1];
+    },
+    { timeout: 10000, label: '站点自报地址' },
+  ).catch(() => null);
+  if (advertised !== null && advertised !== webUrl) {
+    console.log(`  端口漂移：计划 ${webUrl} 被占用，改用站点自报地址 ${advertised}`);
+    webUrl = advertised;
+  }
   const ready = await waitFor(() => probe(`${webUrl}/_canvas`), {
-    timeout: 120000,
+    timeout: 150000,
     interval: 500,
     label: '站点就绪',
   })

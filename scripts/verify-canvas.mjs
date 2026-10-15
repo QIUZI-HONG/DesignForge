@@ -314,6 +314,21 @@ async function ensureWeb(plannedPort) {
   if (existingUrl !== null) {
     notes.push(`复用已运行的 next dev：${existingUrl}（Next 16 每项目单实例）`);
     webUrl = existingUrl;
+  } else {
+    // 端口漂移兜底：续跑残留的服务会占住计划端口，Next 会自动换端口并在输出里打印真实地址
+    const advertised = await waitFor(
+      () => {
+        const match = started
+          .output()
+          .match(/(?:Local:|existing server at)\s+(http:\/\/localhost:\d+)/);
+        return match === null ? null : match[1];
+      },
+      { timeout: 8000, interval: 200, label: '真实监听地址探测' },
+    ).catch(() => null);
+    if (advertised !== null && advertised !== webUrl) {
+      notes.push(`端口漂移：计划 ${webUrl} 已被占用，改用站点自报地址 ${advertised}`);
+      webUrl = advertised;
+    }
   }
   const ready = await waitFor(() => probe(`${webUrl}/_canvas`), {
     timeout: 120000,
@@ -387,8 +402,9 @@ async function main() {
 
   const daemonBase = useProxy ? DAEMON_PREFIX : daemonUrl;
   const canvasUrl = `${webUrl}/_canvas?daemon=${encodeURIComponent(daemonBase)}`;
-  await page.goto(canvasUrl, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('canvas[data-df-canvas]');
+  // 首屏放宽到 120s：next dev 首次编译 + 7MB wasm 冷启动在 CI/本机都可能超过默认 30s
+  await page.goto(canvasUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+  await page.waitForSelector('canvas[data-df-canvas]', { timeout: 60_000 });
 
   const api = makeApi(page);
 
@@ -552,8 +568,8 @@ async function main() {
           .catch(() => null)
       : null;
   const reloadUrl = `${canvasUrl}&doc=${encodeURIComponent(documentId ?? '')}`;
-  await page.goto(reloadUrl, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('canvas[data-df-canvas]');
+  await page.goto(reloadUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+  await page.waitForSelector('canvas[data-df-canvas]', { timeout: 60_000 });
   // 等「持久化后的几何」真的回来（只等 documentId 会被样例文档的初始状态蒙混过关）
   await waitFor(
     () =>
@@ -1155,8 +1171,8 @@ async function takeScreenshot(chromePath, url, outPath) {
         errors.push(message.text());
     });
     await routeDaemon(page);
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('canvas[data-df-canvas]');
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+    await page.waitForSelector('canvas[data-df-canvas]', { timeout: 60_000 });
     try {
       // 空转页面只出一帧（循环只在有请求时重画）——等到「首帧已出」即可
       await page.waitForFunction(

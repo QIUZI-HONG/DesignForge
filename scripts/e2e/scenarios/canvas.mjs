@@ -23,7 +23,8 @@ export async function run(page, ctx) {
   ctx.assert(typeof ctx.routeDaemon === 'function', 'runner 提供 daemon 转发钩子');
   await ctx.routeDaemon();
 
-  await page.goto(ctx.canvasUrl, { waitUntil: 'domcontentloaded' });
+  // 首屏放宽：next dev 首次编译 + 7MB Skia wasm 冷启动可能超过默认 30s
+  await page.goto(ctx.canvasUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page.waitForSelector('canvas[data-df-canvas]');
   await page.waitForFunction(
     () => globalThis.__dforgeCanvas?.runtime().canvasKit === 'ready',
