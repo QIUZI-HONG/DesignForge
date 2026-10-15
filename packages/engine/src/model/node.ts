@@ -302,6 +302,14 @@ export function isContainer(node: SceneNode): node is ContainerNode {
   );
 }
 
+/**
+ * 容器的子节点列表（非容器返回空数组）。
+ * 消费侧（图层面板/渲染）不必先做类型收窄即可安全读取子列表。
+ */
+export function childrenOf(node: SceneNode): NodeId[] {
+  return isContainer(node) ? [...node.children] : [];
+}
+
 /** 是否实例。 */
 export function isInstanceNode(node: SceneNode): node is InstanceNode {
   return node.type === 'instance';

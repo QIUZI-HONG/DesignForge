@@ -39,6 +39,7 @@ export type {
   TextNode,
 } from './node';
 export {
+  childrenOf,
   createComponent,
   createComponentSet,
   createEllipse,
