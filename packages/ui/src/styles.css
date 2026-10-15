@@ -1,0 +1,9 @@
+/*
+ * 设界设计系统样式入口（@dforge/ui）。
+ *
+ * 消费方（apps/web 布局、apps/desktop 壳）只导入本文件即可拿到：
+ * 1. 双基准令牌 CSS 变量（tokens.css）；2. 基础组件样式（components.css）。
+ * 页面在 `<html>` 上设 `data-theme="light|dark"` 切基准（首页族浅色 / 编辑器族深色）。
+ */
+@import "./tokens.css";
+@import "./components.css";
