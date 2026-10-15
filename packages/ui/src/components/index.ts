@@ -7,6 +7,12 @@
 
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from './Button';
 export {
+  Drawer,
+  type DrawerProps,
+  type DrawerStorage,
+  type DrawerWidth,
+} from './Drawer';
+export {
   DropdownMenu,
   type DropdownMenuProps,
   type MenuItemSpec,
@@ -20,6 +26,7 @@ export {
   type IconButtonVariant,
 } from './IconButton';
 export { Input, type InputKind, type InputProps } from './Input';
+export { Modal, type ModalProps, type ModalSize } from './Modal';
 export {
   SegmentedControl,
   type SegmentedControlProps,
