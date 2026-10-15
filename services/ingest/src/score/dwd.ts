@@ -25,9 +25,13 @@ import type {
 
 /** DWD 记录形状不合约时的错误（附字段路径，便于 MK-02/MK-05 定位）。 */
 export class DwdShapeError extends Error {
-  constructor(public readonly issues: readonly string[]) {
+  /** 问题清单（逐条含字段路径）。 */
+  readonly issues: readonly string[];
+
+  constructor(issues: readonly string[]) {
     super(`DWD 记录不合约：${issues.join('；')}`);
     this.name = 'DwdShapeError';
+    this.issues = issues;
   }
 }
 
@@ -70,20 +74,17 @@ export function validateDwdAsset(raw: unknown): string[] {
   const root = record(raw);
   if (root === null) return ['记录不是对象'];
 
-  const asset = record(root['asset']);
+  const asset = record(root.asset);
   if (asset === null) missing(issues, 'asset', '对象');
   else {
-    if (str(asset['id']) === null) missing(issues, 'asset.id', '非空字符串（gh:owner/repo#path）');
-    if (!KINDS.includes(asset['kind'] as AssetKind)) missing(issues, 'asset.kind', KINDS.join('|'));
-    if (str(asset['name']) === null) missing(issues, 'asset.name', '非空字符串');
-    if (
-      asset['compliance'] !== undefined &&
-      !COMPLIANCES.includes(asset['compliance'] as Compliance)
-    )
+    if (str(asset.id) === null) missing(issues, 'asset.id', '非空字符串（gh:owner/repo#path）');
+    if (!KINDS.includes(asset.kind as AssetKind)) missing(issues, 'asset.kind', KINDS.join('|'));
+    if (str(asset.name) === null) missing(issues, 'asset.name', '非空字符串');
+    if (asset.compliance !== undefined && !COMPLIANCES.includes(asset.compliance as Compliance))
       missing(issues, 'asset.compliance', COMPLIANCES.join('|'));
   }
 
-  const repo = record(root['repo']);
+  const repo = record(root.repo);
   if (repo === null) missing(issues, 'repo', '对象');
   else {
     for (const key of ['repoId', 'stars', 'forks'] as const) {
@@ -92,20 +93,20 @@ export function validateDwdAsset(raw: unknown): string[] {
     for (const key of ['pushedAt', 'createdAt'] as const) {
       if (str(repo[key]) === null) missing(issues, `repo.${key}`, 'ISO8601 字符串');
     }
-    if (typeof repo['archived'] !== 'boolean') missing(issues, 'repo.archived', '布尔');
+    if (typeof repo.archived !== 'boolean') missing(issues, 'repo.archived', '布尔');
   }
 
-  const license = record(root['license']);
+  const license = record(root.license);
   if (license === null) missing(issues, 'license', '对象');
-  else if (!GATES.includes(license['gate'] as LicenseGate))
+  else if (!GATES.includes(license.gate as LicenseGate))
     missing(issues, 'license.gate', GATES.join('|'));
 
-  const files = record(root['files']);
+  const files = record(root.files);
   if (files === null) missing(issues, 'files', '对象');
-  else if (!Array.isArray(files['entries'])) missing(issues, 'files.entries', '数组（可空）');
+  else if (!Array.isArray(files.entries)) missing(issues, 'files.entries', '数组（可空）');
 
   // 文本抽取组：评分的表述性信号全靠它——缺整组即报，不让五维静默塌陷。
-  const text = record(root['text']);
+  const text = record(root.text);
   if (text === null) {
     issues.push(
       'text 缺失（MK-02 需提供描述性文本抽取：frontmatter/body/readme/manifest/packageJson/mcpJson/changelog；字段值可 null）',
@@ -121,73 +122,73 @@ export function normalizeDwdAsset(raw: unknown): DwdAsset {
   if (issues.length > 0) throw new DwdShapeError(issues);
 
   const root = raw as Record<string, unknown>;
-  const asset = root['asset'] as Record<string, unknown>;
-  const repo = root['repo'] as Record<string, unknown>;
-  const license = record(root['license']) as Record<string, unknown>;
-  const files = root['files'] as Record<string, unknown>;
-  const text = record(root['text']) ?? {};
-  const trend = record(root['trend']) ?? {};
-  const evidence = record(license['evidence']) ?? {};
+  const asset = root.asset as Record<string, unknown>;
+  const repo = root.repo as Record<string, unknown>;
+  const license = record(root.license) as Record<string, unknown>;
+  const files = root.files as Record<string, unknown>;
+  const text = record(root.text) ?? {};
+  const trend = record(root.trend) ?? {};
+  const evidence = record(license.evidence) ?? {};
 
   const repoView: DwdRepoView = {
-    repoId: num(repo['repoId']) as number,
-    fullName: str(repo['fullName'], true) ?? '',
-    stars: num(repo['stars']) as number,
-    forks: num(repo['forks']) as number,
-    pushedAt: str(repo['pushedAt']) as string,
-    createdAt: str(repo['createdAt']) as string,
-    archived: repo['archived'] === true,
-    fork: repo['fork'] === true,
-    upstream: str(repo['upstream'], true),
-    commits90d: num(repo['commits90d']),
-    lastReleaseAt: str(repo['lastReleaseAt'], true),
+    repoId: num(repo.repoId) as number,
+    fullName: str(repo.fullName, true) ?? '',
+    stars: num(repo.stars) as number,
+    forks: num(repo.forks) as number,
+    pushedAt: str(repo.pushedAt) as string,
+    createdAt: str(repo.createdAt) as string,
+    archived: repo.archived === true,
+    fork: repo.fork === true,
+    upstream: str(repo.upstream, true),
+    commits90d: num(repo.commits90d),
+    lastReleaseAt: str(repo.lastReleaseAt, true),
   };
 
   const licenseView: DwdLicenseView = {
-    spdx: str(license['spdx'], true),
-    gate: license['gate'] as LicenseGate,
-    evidence: { path: str(evidence['path'], true), sha256: str(evidence['sha256'], true) },
+    spdx: str(license.spdx, true),
+    gate: license.gate as LicenseGate,
+    evidence: { path: str(evidence.path, true), sha256: str(evidence.sha256, true) },
   };
 
-  const entries: DwdFileEntry[] = (files['entries'] as unknown[]).map((item) => {
+  const entries: DwdFileEntry[] = (files.entries as unknown[]).map((item) => {
     const entry = record(item) ?? {};
     return {
-      path: str(entry['path']) ?? '',
-      size: num(entry['size']) ?? 0,
-      sha256: str(entry['sha256'], true) ?? '',
+      path: str(entry.path) ?? '',
+      size: num(entry.size) ?? 0,
+      sha256: str(entry.sha256, true) ?? '',
     };
   });
 
   const textView: DwdTextView = {
-    frontmatter: record(text['frontmatter']),
-    body: str(text['body'], true),
-    readme: str(text['readme'], true),
-    manifest: record(text['manifest']),
-    packageJson: record(text['packageJson']),
-    mcpJson: record(text['mcpJson']),
-    changelog: str(text['changelog'], true),
+    frontmatter: record(text.frontmatter),
+    body: str(text.body, true),
+    readme: str(text.readme, true),
+    manifest: record(text.manifest),
+    packageJson: record(text.packageJson),
+    mcpJson: record(text.mcpJson),
+    changelog: str(text.changelog, true),
   };
 
   const trendView: DwdTrendView = {
-    stars90dAgo: num(trend['stars90dAgo']),
-    referencedBy: num(trend['referencedBy']),
+    stars90dAgo: num(trend.stars90dAgo),
+    referencedBy: num(trend.referencedBy),
   };
 
   return {
     asset: {
-      id: str(asset['id']) as string,
-      kind: asset['kind'] as AssetKind,
-      name: str(asset['name']) as string,
-      ref: str(asset['ref'], true) ?? '',
-      path: str(asset['path'], true) ?? '',
+      id: str(asset.id) as string,
+      kind: asset.kind as AssetKind,
+      name: str(asset.name) as string,
+      ref: str(asset.ref, true) ?? '',
+      path: str(asset.path, true) ?? '',
       // 缺失不默认 ok：如实降置信（deferred），绝不假装可信。
-      compliance: (asset['compliance'] as Compliance | undefined) ?? 'deferred',
-      capabilitiesDeclared: asset['capabilitiesDeclared'] === true,
-      capabilities: strArray(asset['capabilities']),
+      compliance: (asset.compliance as Compliance | undefined) ?? 'deferred',
+      capabilitiesDeclared: asset.capabilitiesDeclared === true,
+      capabilities: strArray(asset.capabilities),
     },
     repo: repoView,
     license: licenseView,
-    files: { truncated: files['truncated'] === true, entries },
+    files: { truncated: files.truncated === true, entries },
     text: textView,
     trend: trendView,
   };

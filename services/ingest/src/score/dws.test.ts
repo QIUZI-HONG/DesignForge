@@ -52,7 +52,7 @@ describe('validateDwsRecord：反例（坏记录必须被抓住）', () => {
 
   it('schema 不符', () => {
     const bad = base() as unknown as Record<string, unknown>;
-    bad['schema'] = 'df.marketplace.index/v1';
+    bad.schema = 'df.marketplace.index/v1';
     expect(validateDwsRecord(bad).some((i) => i.includes('schema'))).toBe(true);
   });
 

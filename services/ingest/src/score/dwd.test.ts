@@ -82,7 +82,7 @@ describe('validateDwdAsset / normalizeDwdAsset', () => {
 
   it('compliance 缺失 → 归为 deferred（不默认 ok 假装可信）', () => {
     const base = raw();
-    (base['asset'] as Record<string, unknown>)['compliance'] = undefined;
+    (base.asset as Record<string, unknown>).compliance = undefined;
     const normalized = normalizeDwdAsset(base);
     expect(normalized.asset.compliance).toBe('deferred');
     const { records } = scoreBatch([normalized], { asOf: AS_OF });

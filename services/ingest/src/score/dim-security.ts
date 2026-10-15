@@ -68,7 +68,7 @@ export function scoreSecurity(input: DwdAsset): DimensionResult {
   // —— 权限声明（缺省注入 prompt:inject 不算声明，规格 §1.2）——
   const permissionsDeclared =
     asset.capabilitiesDeclared ||
-    stringArray(frontmatter['allowedTools']).length > 0 ||
+    stringArray(frontmatter.allowedTools).length > 0 ||
     hasAnyKey(text.manifest, ['capabilities', 'permissions', 'allowedTools']) ||
     text.mcpJson !== null;
 
@@ -78,10 +78,10 @@ export function scoreSecurity(input: DwdAsset): DimensionResult {
   );
   const declaredDomains = new Set(
     [
-      ...stringArray(frontmatter['outboundDomains']),
-      ...stringArray(text.manifest?.['outboundDomains']),
-      ...stringArray(text.manifest?.['domains']),
-      ...stringArray(text.manifest?.['allowedHosts']),
+      ...stringArray(frontmatter.outboundDomains),
+      ...stringArray(text.manifest?.outboundDomains),
+      ...stringArray(text.manifest?.domains),
+      ...stringArray(text.manifest?.allowedHosts),
       ...asset.capabilities.filter((c) => c.startsWith('net:')).map((c) => c.slice(4)),
     ].map((d) => d.toLowerCase()),
   );

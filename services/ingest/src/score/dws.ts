@@ -59,20 +59,19 @@ export function validateDwsRecord(raw: unknown): string[] {
   if (typeof raw !== 'object' || raw === null) return ['记录不是对象'];
   const rec = raw as Record<string, unknown>;
 
-  if (rec['schema'] !== DWS_QUALITY_SCHEMA) issues.push(`schema ≠ ${DWS_QUALITY_SCHEMA}`);
-  if (typeof rec['assetId'] !== 'string' || rec['assetId'] === '') issues.push('assetId 为空');
-  if (typeof rec['asOf'] !== 'string' || rec['asOf'] === '') issues.push('asOf 为空');
-  if (rec['score'] !== null && !isUnitScore(rec['score'], ROUND_TOTAL_DIGITS))
+  if (rec.schema !== DWS_QUALITY_SCHEMA) issues.push(`schema ≠ ${DWS_QUALITY_SCHEMA}`);
+  if (typeof rec.assetId !== 'string' || rec.assetId === '') issues.push('assetId 为空');
+  if (typeof rec.asOf !== 'string' || rec.asOf === '') issues.push('asOf 为空');
+  if (rec.score !== null && !isUnitScore(rec.score, ROUND_TOTAL_DIGITS))
     issues.push('score 非法（null 或 [0,1] 两位小数）');
-  if (!['high', 'low'].includes(rec['confidence'] as string))
-    issues.push('confidence ∉ {high, low}');
+  if (!['high', 'low'].includes(rec.confidence as string)) issues.push('confidence ∉ {high, low}');
 
-  const flags = rec['flags'] as Record<string, unknown> | undefined;
+  const flags = rec.flags as Record<string, unknown> | undefined;
   for (const key of ['archived', 'coldStart', 'nonCompliant', 'filesTruncated']) {
     if (typeof flags?.[key] !== 'boolean') issues.push(`flags.${key} 非布尔`);
   }
 
-  const dims = rec['dims'] as Record<string, unknown> | undefined;
+  const dims = rec.dims as Record<string, unknown> | undefined;
   if (typeof dims !== 'object' || dims === null) {
     issues.push('dims 缺失');
   } else {
@@ -82,12 +81,12 @@ export function validateDwsRecord(raw: unknown): string[] {
         issues.push(`dims.${key} 非法（null 或 [0,1]）`);
     }
     const expected = expectedTotal(dims as Record<DimKey, number | null>);
-    if (expected !== rec['score']) {
-      issues.push(`总分与维度分不符（记录 ${String(rec['score'])} / 重算 ${String(expected)}）`);
+    if (expected !== rec.score) {
+      issues.push(`总分与维度分不符（记录 ${String(rec.score)} / 重算 ${String(expected)}）`);
     }
   }
 
-  const explain = rec['explain'] as Record<string, unknown> | undefined;
+  const explain = rec.explain as Record<string, unknown> | undefined;
   if (typeof explain !== 'object' || explain === null) {
     issues.push('explain 缺失');
   } else {
@@ -104,12 +103,12 @@ export function validateDwsRecord(raw: unknown): string[] {
         continue;
       }
       for (const d of dim.deductions as Record<string, unknown>[]) {
-        if (!Object.hasOwn(REASON_TEXT, d['code'] as string))
-          issues.push(`explain.${key} 扣分码不在词表：${String(d['code'])}`);
-        if (typeof d['reason'] !== 'string' || d['reason'] === '')
-          issues.push(`explain.${key} 扣分理由为空（码 ${String(d['code'])}）`);
-        if (typeof d['delta'] !== 'number' || d['delta'] < 0 || d['delta'] > 1)
-          issues.push(`explain.${key} 扣分 delta 非法（码 ${String(d['code'])}）`);
+        if (!Object.hasOwn(REASON_TEXT, d.code as string))
+          issues.push(`explain.${key} 扣分码不在词表：${String(d.code)}`);
+        if (typeof d.reason !== 'string' || d.reason === '')
+          issues.push(`explain.${key} 扣分理由为空（码 ${String(d.code)}）`);
+        if (typeof d.delta !== 'number' || d.delta < 0 || d.delta > 1)
+          issues.push(`explain.${key} 扣分 delta 非法（码 ${String(d.code)}）`);
       }
     }
   }
@@ -128,6 +127,17 @@ export function writeDwsJsonl(
   records: readonly AssetQualityRecord[],
 ): { path: string; sha256: string; length: number } {
   const payload = `${dwsJsonl(records)}\n`;
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(outPath, payload, 'utf8');
+  return { path: outPath, sha256: sha256Hex(payload), length: Buffer.byteLength(payload, 'utf8') };
+}
+
+/** 落盘任意 JSON（证据 JSON 等；缩进 2 便于人工复核）；返回 artifacts 三元组。 */
+export function writeJsonFile(
+  outPath: string,
+  value: unknown,
+): { path: string; sha256: string; length: number } {
+  const payload = `${JSON.stringify(value, null, 2)}\n`;
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, payload, 'utf8');
   return { path: outPath, sha256: sha256Hex(payload), length: Buffer.byteLength(payload, 'utf8') };

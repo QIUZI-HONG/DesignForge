@@ -94,7 +94,7 @@ export function scoreSpec(input: DwdAsset): DimensionResult {
 
   const frontmatter = text.frontmatter ?? {};
   const hasName = hasAnyField(frontmatter, ['name']);
-  const descriptionValue = frontmatter['description'];
+  const descriptionValue = frontmatter.description;
   const description =
     typeof descriptionValue === 'string' && descriptionValue.trim() !== ''
       ? descriptionValue
