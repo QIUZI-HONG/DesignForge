@@ -17,8 +17,8 @@ import {
   worldRotation,
 } from '../geometry/index';
 import type { Point, Rect } from '../geometry/types';
-import { createIdFactory, ID_PREFIX, type IdFactory } from '../model/ids';
-import type { NodeId, NodePatch, PageId, ScenePage } from '../model/index';
+import { ID_PREFIX, type IdFactory, systemIdFactory } from '../model/ids';
+import type { NodeId, NodePatch, PageId, SceneNode, ScenePage } from '../model/index';
 import { createGroup } from '../model/index';
 import { domainError } from '../scene/errors';
 import { requireNode, resolveNode, sortByZOrder, topmostIds } from '../scene/index';
@@ -140,18 +140,16 @@ export function groupNodesCommands(
 ): Command[] {
   const roots = sortByZOrder(page, topmostIds(page, nodeIds));
   if (roots.length === 0) return [];
-
   const bounds = worldBoundsOfNodes(page, roots);
   if (!bounds) return [];
 
-  // 编组要求同层（Figma 的编组也是同层操作）：不同父级会改变层级的语义
+  // 编组要求同层（Figma 的编组也是同层操作）：跨父级会改变层级语义
   const parents = new Set(roots.map((id) => parentIdOf(page, id)));
   if (parents.size > 1) {
     throw domainError('invalid-argument', '编组要求所选节点处于同一父级');
   }
-  const parentId = [...parents][0] ?? null;
 
-  const ids = options.ids ?? createIdFactory();
+  const ids = options.ids ?? systemIdFactory;
   const groupId = options.groupId ?? ids.next(ID_PREFIX.group);
   const group = createGroup({
     id: groupId,
@@ -161,27 +159,52 @@ export function groupNodesCommands(
     width: bounds.width,
     height: bounds.height,
   });
+  return wrapIntoContainerCommands(page, pageId, roots, group);
+}
 
-  const commands: Command[] = [];
-  const anchorParentId = parentId ?? null;
-  const siblingIndex = siblingIndexOf(page, roots[0] as NodeId);
-
-  // 先在原坐标系内计算各子节点的目标属性（此时世界变换还没变）
+/**
+ * 把选中节点包进**给定容器**（容器需已按选中并集定位），并使各子节点世界形状不变。
+ * 编组与「提升为主组件」共用这条路径。
+ */
+export function wrapIntoContainerCommands(
+  page: ScenePage,
+  pageId: PageId,
+  roots: readonly NodeId[],
+  container: ContainerLike,
+): Command[] {
+  const first = roots[0] as NodeId;
+  const parentId = parentIdOf(page, first);
+  const index = siblingIndexOf(page, first);
+  const bounds = {
+    x: container.x,
+    y: container.y,
+    width: container.width,
+    height: container.height,
+  };
   const patches = roots.map((id) => ({ id, patch: inGroupPatch(page, id, bounds) }));
 
-  commands.push({
-    type: 'node.insert',
-    pageId,
-    node: group,
-    parentId: anchorParentId,
-    index: siblingIndex,
-  });
+  const commands: Command[] = [{ type: 'node.insert', pageId, node: container, parentId, index }];
   patches.forEach(({ id, patch }, order) => {
     commands.push({ type: 'node.update', pageId, nodeId: id, patch });
-    commands.push({ type: 'node.reparent', pageId, nodeId: id, parentId: groupId, index: order });
+    commands.push({
+      type: 'node.reparent',
+      pageId,
+      nodeId: id,
+      parentId: container.id,
+      index: order,
+    });
   });
   return commands;
 }
+
+/** 可作为容器包裹选中节点的节点（编组/组件/画板）。 */
+export type ContainerLike = SceneNode & {
+  id: NodeId;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 /** 子节点进入「以组原点为原点的无旋转坐标系」后的属性。 */
 function inGroupPatch(page: ScenePage, nodeId: NodeId, groupBounds: Rect): NodePatch {

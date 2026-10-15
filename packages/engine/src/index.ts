@@ -23,4 +23,15 @@
  * 选择 / 移动 / 缩放 / 旋转 / 画布缩放 / 画布平移 / 复制粘贴 / 层级 / 编组 / 撤销 / 对齐 / 吸附 / 文本编辑。
  */
 
+export * from './clipboard/index';
+export * from './commands/index';
+export * from './components/index';
+export * from './geometry/index';
+export * from './interaction/index';
+export * from './layout/index';
 export * from './model/index';
+export * from './scene/index';
+export * from './selection/index';
+export * from './serialize/index';
+export * from './snap/index';
+export * from './tokens/index';
