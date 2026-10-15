@@ -7,155 +7,28 @@
  * （明文 key 不得出现在 DOM 任何角落）、以及六态证据挂点（data-df-state）的存在性。
  * 依赖注入：`api` 传入假数据面（记录调用），不起 daemon、不出网。
  */
-import type {
-  ConfigResponse,
-  ConnectivityReport,
-  CredentialSummary,
-  DaemonHealthResponse,
-  DocumentSummary,
-} from '@dforge/contracts';
-import { ToastProvider } from '@dforge/ui';
-import { render, screen, waitFor } from '@testing-library/react';
+import type { ConfigResponse } from '@dforge/contracts';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DaemonClientError } from '../api/daemon-client';
 import type { SettingsApi } from '../api/settings-api';
 
+import {
+  CONFIG_RESPONSE,
+  deferred,
+  makeApi,
+  NORMALIZED_WORKSPACE,
+  REPORT_COMFY_DOWN,
+  REPORT_COMFY_UP,
+  renderWithToast,
+} from './settings-fixtures';
 import { SettingsPage } from './settings-page';
 
-/* ---------- 夹具（写死期望值，不按实现口径重算） ---------- */
-
-const NORMALIZED_WORKSPACE = '/home/u/设计';
-
-const CONFIG_RESPONSE: ConfigResponse = {
-  config: {
-    workspaceDir: '/home/u/设界',
-    ai: { provider: 'deepseek', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com' },
-    comfy: { baseUrl: 'http://127.0.0.1:8188', installPath: null },
-    telemetry: { enabled: true },
-  },
-  credentials: {
-    deepseek: {
-      provider: 'deepseek',
-      hasKey: true,
-      maskedKey: 'sk-…wxyz',
-      source: 'stored',
-      updatedAt: '2026-10-15T00:00:00.000Z',
-    },
-  },
-};
-
-const HEALTH: DaemonHealthResponse = {
-  name: 'dforge-daemon',
-  version: '0.0.0',
-  startedAt: '2026-10-15T00:00:00.000Z',
-  uptimeMs: 1000,
-  dataRoot: '/home/u/.dforge',
-  workspaceDir: '/home/u/设界',
-};
-
-const REPORT_COMFY_DOWN: ConnectivityReport = {
-  checkedAt: '2026-10-15T00:00:00.000Z',
-  items: [
-    { id: 'daemon', label: '本地服务', status: 'ok', detail: '运行中', actions: [], code: null },
-    {
-      id: 'comfyui',
-      label: 'ComfyUI 出图',
-      status: 'unavailable',
-      detail: '未检测到本地服务。',
-      actions: ['retry-probe'],
-      code: 'comfy_unreachable',
-    },
-    {
-      id: 'ai',
-      label: 'DeepSeek（文本 AI）',
-      status: 'ok',
-      detail: '已配置（sk-…wxyz）',
-      actions: [],
-      code: null,
-    },
-  ],
-};
-
-const REPORT_COMFY_UP: ConnectivityReport = {
-  checkedAt: '2026-10-15T00:00:00.000Z',
-  items: [
-    { id: 'daemon', label: '本地服务', status: 'ok', detail: '运行中', actions: [], code: null },
-    {
-      id: 'comfyui',
-      label: 'ComfyUI 出图',
-      status: 'ok',
-      detail: '已连接 http://127.0.0.1:8188',
-      actions: [],
-      code: null,
-    },
-    {
-      id: 'ai',
-      label: 'DeepSeek（文本 AI）',
-      status: 'not-configured',
-      detail: '未配置 key',
-      actions: ['configure-credentials'],
-      code: null,
-    },
-  ],
-};
-
-const CLEARED_SUMMARY: CredentialSummary = {
-  provider: 'deepseek',
-  hasKey: false,
-  maskedKey: null,
-  source: null,
-  updatedAt: null,
-};
-
-const EXAMPLE_DOC: DocumentSummary = {
-  id: '示例设计',
-  name: '示例设计',
-  directory: '/home/u/设界/示例设计.dfg',
-  createdAt: '2026-10-15T00:00:00.000Z',
-  updatedAt: '2026-10-15T00:00:00.000Z',
-  pageCount: 1,
-  sizeBytes: 128,
-};
-
-/** 造一个全量假数据面（逐方法可覆盖）。 */
-function makeApi(overrides: Partial<SettingsApi> = {}): SettingsApi {
-  return {
-    loadConfig: vi.fn(async () => CONFIG_RESPONSE),
-    patchConfig: vi.fn(async () => CONFIG_RESPONSE),
-    setApiKey: vi.fn(async () => CONFIG_RESPONSE.credentials.deepseek),
-    clearApiKey: vi.fn(async () => CLEARED_SUMMARY),
-    checkConnectivity: vi.fn(async () => REPORT_COMFY_DOWN),
-    listDocuments: vi.fn(async () => ({ documents: [], warnings: [] })),
-    loadHealth: vi.fn(async () => HEALTH),
-    createDocument: vi.fn(async () => EXAMPLE_DOC),
-    ...overrides,
-  };
-}
-
-/** 手动结算的 Promise（观察「保存中」这类中间态）。 */
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (reason: unknown) => void;
-} {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-/** 渲染（Toast 与生产同构：根布局已提供 Provider）。 */
+/** 渲染设置页（注入假数据面）。 */
 function renderPage(api: SettingsApi) {
-  return render(
-    <ToastProvider>
-      <SettingsPage api={api} />
-    </ToastProvider>,
-  );
+  return renderWithToast(<SettingsPage api={api} />);
 }
 
 /* ---------- 用例 ---------- */

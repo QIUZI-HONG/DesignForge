@@ -24,7 +24,7 @@ import { SETTINGS_SECTIONS, type SettingsSectionId, settingsSection } from '../m
 import { useSettingsSession } from '../model/use-settings-session';
 
 import { SaveFooter } from './save-footer';
-import { AiSection, ComfySection, TelemetrySection, WorkspaceSection } from './sections';
+import { SettingsSectionForm } from './section-form';
 
 const styles = {
   page: {
@@ -162,7 +162,6 @@ export function SettingsPage({ api }: SettingsPageProps) {
 
   const section = settingsSection(activeSection);
   const sectionTitle = t(section.titleKey);
-  const credentials = session.credentials;
 
   return (
     <div style={styles.page}>
@@ -189,7 +188,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
         </div>
       ) : null}
 
-      {session.loadPhase === 'ready' && session.config !== null && credentials !== null ? (
+      {session.loadPhase === 'ready' && session.config !== null && session.credentials !== null ? (
         <div style={styles.body}>
           <nav aria-label={t('settings.nav.label')} style={styles.nav}>
             {SETTINGS_SECTIONS.map((item) => (
@@ -209,69 +208,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
             <h2 style={styles.panelTitle}>{sectionTitle}</h2>
             <p style={styles.panelDesc}>{t(section.descriptionKey)}</p>
 
-            {activeSection === 'workspace' ? (
-              <WorkspaceSection
-                value={session.draft.workspaceDir}
-                onChange={(value) => {
-                  session.updateDraft({ workspaceDir: value });
-                }}
-                error={session.fieldError}
-                disabled={session.saveState.phase === 'saving'}
-              />
-            ) : null}
-
-            {activeSection === 'ai' ? (
-              <AiSection
-                summary={credentials}
-                apiKey={session.draft.apiKey}
-                onApiKeyChange={(value) => {
-                  session.updateDraft({ apiKey: value });
-                }}
-                error={session.fieldError}
-                disabled={session.saveState.phase === 'saving'}
-                onClearKey={() => {
-                  void session.clearKey();
-                }}
-                clearing={session.clearingKey}
-                clearError={session.keyError}
-                onTestConnectivity={() => {
-                  void session.runProbe();
-                }}
-                checking={session.probe.checking}
-                aiItem={session.probe.report?.items.find((item) => item.id === 'ai') ?? null}
-                probeError={session.probe.error}
-              />
-            ) : null}
-
-            {activeSection === 'comfy' ? (
-              <ComfySection
-                value={session.draft.comfyBaseUrl}
-                onChange={(value) => {
-                  session.updateDraft({ comfyBaseUrl: value });
-                }}
-                error={session.fieldError}
-                disabled={session.saveState.phase === 'saving'}
-                onProbe={() => {
-                  void session.runProbe();
-                }}
-                checking={session.probe.checking}
-                comfyItem={
-                  session.probe.report?.items.find((item) => item.id === 'comfyui') ?? null
-                }
-                probeError={session.probe.error}
-              />
-            ) : null}
-
-            {activeSection === 'telemetry' ? (
-              <TelemetrySection
-                enabled={session.draft.telemetryEnabled}
-                onChange={(enabled) => {
-                  session.updateDraft({ telemetryEnabled: enabled });
-                }}
-                disabled={session.saveState.phase === 'saving'}
-                dataRoot={session.dataRoot}
-              />
-            ) : null}
+            <SettingsSectionForm id={activeSection} session={session} />
 
             <SaveFooter
               saveLabel={

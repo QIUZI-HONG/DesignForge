@@ -12,6 +12,7 @@
  * - `data-df-state="disabled"`：按钮外层——禁用（无改动 / 保存中）证据挂点。
  */
 import { AlertCircleIcon, Button, CheckCircleIcon } from '@dforge/ui';
+import type { ReactNode } from 'react';
 
 import { t } from '@/i18n';
 
@@ -19,12 +20,14 @@ import type { SaveState } from '../model/save-state';
 
 /** SaveFooter props。 */
 export interface SaveFooterProps {
-  /** 主按钮文案（保存 / 保存密钥）。 */
+  /** 主按钮文案（保存 / 保存密钥 / 下一步 / 完成）。 */
   saveLabel: string;
   saveState: SaveState;
   /** 无改动或保存中：按钮禁点。 */
   disabled: boolean;
   onSave: () => void;
+  /** 主按钮前挂的附加动作（引导用：上一步 / 跳过）。 */
+  extraActions?: ReactNode;
 }
 
 const styles = {
@@ -55,11 +58,18 @@ const styles = {
 } satisfies Record<string, React.CSSProperties>;
 
 /** 保存脚。 */
-export function SaveFooter({ saveLabel, saveState, disabled, onSave }: SaveFooterProps) {
+export function SaveFooter({
+  saveLabel,
+  saveState,
+  disabled,
+  onSave,
+  extraActions,
+}: SaveFooterProps) {
   const saving = saveState.phase === 'saving';
   return (
     <div style={{ display: 'grid', gap: 'var(--dfg-space-2)' }}>
       <div style={styles.footer}>
+        {extraActions}
         <span data-df-state={disabled || saving ? 'disabled' : undefined}>
           <Button
             variant="primary"
