@@ -46,12 +46,16 @@ export interface EcosystemContext {
   referenced: readonly number[];
 }
 
-/** 冷启动判定（规格 §5.4：<90 天或零采纳）。 */
+/**
+ * 冷启动判定（规格 §5.4：<90 天或零采纳）。
+ * `createdAt` 为 null 时（采集侧未采创建时间）**只按零采纳判定**——不猜测、
+ * 不把「不知道年龄」当「年轻」，也不因此把资产误判为老仓。
+ */
 export function isColdStart(input: DwdAsset, asOf: string): boolean {
-  const ageDays = daysBetween(input.repo.createdAt, asOf);
+  const ageDays = input.repo.createdAt === null ? null : daysBetween(input.repo.createdAt, asOf);
   const zeroAdoption =
     input.repo.stars === 0 && input.repo.forks === 0 && (input.trend.referencedBy ?? 0) === 0;
-  return ageDays < COLD_START_DAYS || zeroAdoption;
+  return (ageDays !== null && ageDays < COLD_START_DAYS) || zeroAdoption;
 }
 
 /** 从整批构建分位语境（排除冷启动资产；批量与顺序无关 → 确定性）。 */

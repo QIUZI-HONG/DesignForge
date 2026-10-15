@@ -128,8 +128,12 @@ export interface DwdRepoView {
   forks: number;
   /** 最后 push（维护活跃信号源，规格 §1.3）。 */
   pushedAt: string;
-  /** 创建时间（冷启动 <90 天判定，规格 §5.4）。 */
-  createdAt: string;
+  /**
+   * 仓库创建时间（冷启动 <90 天判定，规格 §5.4）。
+   * 采集侧（MK-01 ODS / MK-02 DWD repo 行）当前**未采该字段** → 允许 null，
+   * 语义降级为「只按零采纳判定冷启动」（见 `dim-ecosystem.ts#isColdStart` 与报告「对接面缺口」）。
+   */
+  createdAt: string | null;
   archived: boolean;
   fork: boolean;
   /** 同源上游（规格 §1.3；许可署名信号源）。 */

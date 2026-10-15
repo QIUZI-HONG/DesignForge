@@ -118,4 +118,18 @@ describe('scoreEcosystem：无数据与冷启动（规格 §5.4）', () => {
   it('老仓但有星 → 不属冷启动', () => {
     expect(isColdStart(makeDwd(), AS_OF)).toBe(false);
   });
+
+  it('createdAt 未知（采集侧未采）→ 不猜年龄：有星者按正常分位，零采纳者仍走托底', () => {
+    const unknownAge = makeDwd({ repo: { createdAt: null } });
+    expect(isColdStart(unknownAge, AS_OF)).toBe(false);
+    expect(
+      scoreEcosystem(unknownAge, buildEcosystemContext([unknownAge], AS_OF), AS_OF).score,
+    ).toBe(1);
+
+    const unknownAgeZero = makeDwd({
+      repo: { createdAt: null, stars: 0, forks: 0 },
+      trend: { stars90dAgo: null, referencedBy: 0 },
+    });
+    expect(isColdStart(unknownAgeZero, AS_OF)).toBe(true);
+  });
 });

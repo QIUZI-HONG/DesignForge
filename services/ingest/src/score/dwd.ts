@@ -90,9 +90,10 @@ export function validateDwdAsset(raw: unknown): string[] {
     for (const key of ['repoId', 'stars', 'forks'] as const) {
       if (num(repo[key]) === null) missing(issues, `repo.${key}`, '数字');
     }
-    for (const key of ['pushedAt', 'createdAt'] as const) {
-      if (str(repo[key]) === null) missing(issues, `repo.${key}`, 'ISO8601 字符串');
-    }
+    if (str(repo.pushedAt) === null) missing(issues, 'repo.pushedAt', 'ISO8601 字符串');
+    // createdAt：采集侧当前未采（允许缺省 → 冷启动只按零采纳判定，见 types.ts 注释）。
+    if (repo.createdAt !== undefined && repo.createdAt !== null && str(repo.createdAt) === null)
+      missing(issues, 'repo.createdAt', 'ISO8601 字符串或 null');
     if (typeof repo.archived !== 'boolean') missing(issues, 'repo.archived', '布尔');
   }
 
@@ -105,12 +106,24 @@ export function validateDwdAsset(raw: unknown): string[] {
   if (files === null) missing(issues, 'files', '对象');
   else if (!Array.isArray(files.entries)) missing(issues, 'files.entries', '数组（可空）');
 
-  // 文本抽取组：评分的表述性信号全靠它——缺整组即报，不让五维静默塌陷。
+  // 文本抽取组：评分的表述性信号全靠它——缺整组、或整组空壳，都要报，不让五维静默塌陷。
   const text = record(root.text);
   if (text === null) {
     issues.push(
       'text 缺失（MK-02 需提供描述性文本抽取：frontmatter/body/readme/manifest/packageJson/mcpJson/changelog；字段值可 null）',
     );
+  } else {
+    const kind = asset?.kind as AssetKind | undefined;
+    const hasAnyText = ['body', 'readme', 'manifest', 'frontmatter'].some(
+      (key) => text[key] !== undefined && text[key] !== null,
+    );
+    if (!hasAnyText) {
+      issues.push(
+        'text 抽取组为空壳（body/readme/manifest/frontmatter 全 null）——识别规则要求的最低文本未提供，五维会静默塌陷',
+      );
+    } else if (kind === 'skill' && text.body == null && text.readme == null) {
+      issues.push('text.body/readme 均缺失（skill 认定要求正文非空，规格 §2.2）');
+    }
   }
 
   return issues;
@@ -136,7 +149,7 @@ export function normalizeDwdAsset(raw: unknown): DwdAsset {
     stars: num(repo.stars) as number,
     forks: num(repo.forks) as number,
     pushedAt: str(repo.pushedAt) as string,
-    createdAt: str(repo.createdAt) as string,
+    createdAt: str(repo.createdAt, true),
     archived: repo.archived === true,
     fork: repo.fork === true,
     upstream: str(repo.upstream, true),

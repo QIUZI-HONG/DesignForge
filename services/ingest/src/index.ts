@@ -13,8 +13,8 @@ export const INGEST_PACKAGE = '@dforge/ingest' as const;
 /** 四层仓库名（占位导出，随采集票接入实现）。 */
 export const INGEST_LAYERS = ['ods', 'dwd', 'dws', 'ads'] as const;
 
-// MK-03 评分公共 API（DWD 输入契约、五维评分、DWS 产物与 ADS `quality` 投影）。
-export * from './score/index.ts';
-
-// MK-04 索引与检索公共 API（daemon/FE-11/MK-05 复用：`validateMarketplaceIndex` 等）。
+// 子域公共 API（排序按路径规约）：
+//   ./index/** = MK-04 索引与检索（daemon/FE-11/MK-05 复用：`validateMarketplaceIndex` 等）
+//   ./score/** = MK-03 五维评分（DWD 输入契约、五维评分、DWS 产物与 ADS `quality` 投影）
 export * from './index/index.ts';
+export * from './score/index.ts';

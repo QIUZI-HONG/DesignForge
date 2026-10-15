@@ -230,8 +230,32 @@ async function main() {
     .every((i) => (byId.get(i.asset.id)?.dims.maintenance ?? 0) <= 0.3);
   check(
     [...inputById.values()].filter((i) => i.repo.archived).length === 0 || archivedOk,
-    '归档仓维护活跃 ≤0.3（样本中无归档样本时按「无适用」处理）',
+    '归档仓维护活跃 ≤0.3（固定样本集中无归档样本，见下方派生样本端到端）',
   );
+
+  // 派生样本端到端：把健康 skill 标为归档仓，走真实 `--dwd` 路径验证封顶与 M7（拿产物说话）。
+  {
+    const derived = SAMPLE_DWD.map((r) => JSON.parse(JSON.stringify(r)));
+    derived[0].repo.archived = true;
+    const derivedDir = join(opts.outDir, 'runs', 'derived-archived');
+    const derivedPath = join(derivedDir, 'dwd-archived.jsonl');
+    mkdirSync(derivedDir, { recursive: true });
+    writeFileSync(derivedPath, `${derived.map((r) => JSON.stringify(r)).join('\n')}\n`, 'utf8');
+    const run = runCli(['--dwd', derivedPath, '--as-of', AS_OF, '--out', derivedDir]);
+    check(run.status === 0, `派生样本（归档）跑分退出码 = 0（实际 ${run.status}）`);
+    if (run.status === 0) {
+      const derivedRecords = readJsonl(join(derivedDir, 'dws', 'asset_quality.jsonl'));
+      const archived = derivedRecords.find((r) => r.flags.archived === true);
+      check(
+        archived !== undefined && (archived.dims.maintenance ?? 1) <= 0.3,
+        `归档仓维护活跃封顶 ≤0.3（实际 ${String(archived?.dims.maintenance)}）`,
+      );
+      check(
+        archived?.explain?.maintenance?.deductions?.some((d) => d.code === 'M7') === true,
+        '归档封顶差额记 M7',
+      );
+    }
+  }
 
   const truncatedIds = [...inputById.values()]
     .filter((i) => i.files.truncated)
@@ -258,7 +282,9 @@ async function main() {
     if (run.status !== 0) console.log(`${(run.stdout ?? '').split('\n').slice(-10).join('\n')}`);
   } else {
     notes.push(
-      '  · 真实 DWD 未提供（--dwd）——MK-02 落地后接入；当前以固定样本集为准（如实列待办）',
+      '  · 真实 DWD 未提供（--dwd）——当前以固定样本集为准。接入前需上游补齐 `text` 抽取组'
+        + '（frontmatter/正文/README/清单），否则 CLI 以 exit 2 阻塞'
+        + '（MK-02 真产物实测 851 条均缺该组，见 ~/df-evidence/mk-03/work/mk02-gap.json）',
     );
   }
 

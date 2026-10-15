@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { AS_OF } from './__fixtures__/dwd.ts';
 import { SAMPLE_DWD } from './__fixtures__/dwd-samples.ts';
 import { scoreBatch } from './batch.ts';
+import { isColdStart } from './dim-ecosystem.ts';
 import { DwdShapeError, normalizeDwdAsset, validateDwdAsset } from './dwd.ts';
 
 /** 合法基础记录（可覆盖字段）。 */
@@ -41,7 +42,10 @@ function raw(overrides: Record<string, unknown> = {}): Record<string, unknown> {
       evidence: { path: 'LICENSE', sha256: 'e'.repeat(64) },
     },
     files: { truncated: false, entries: [{ path: 'SKILL.md', size: 10, sha256: 'f'.repeat(64) }] },
-    text: { frontmatter: { name: 'pdf', description: 'Use when needed' } },
+    text: {
+      frontmatter: { name: 'pdf', description: 'Use when needed' },
+      body: '# PDF\n\n1. 打开\n2. 导出\n',
+    },
     ...overrides,
   };
 }
@@ -70,6 +74,28 @@ describe('validateDwdAsset / normalizeDwdAsset', () => {
     expect(issues.some((i) => i.includes('text 缺失'))).toBe(true);
   });
 
+  it('text 组为空壳（全 null）→ 明确报错（实测 MK-02 真产物即此形状）', () => {
+    const base = raw();
+    base.text = {
+      frontmatter: null,
+      body: null,
+      readme: null,
+      manifest: null,
+      packageJson: null,
+      mcpJson: null,
+      changelog: null,
+    };
+    const issues = validateDwdAsset(base);
+    expect(issues.some((i) => i.includes('空壳'))).toBe(true);
+  });
+
+  it('skill 有 manifest 但无正文 → 仍报错（skill 认定要求正文，规格 §2.2）', () => {
+    const base = raw();
+    base.text = { frontmatter: { name: 'pdf' }, manifest: { name: 'x' } };
+    const issues = validateDwdAsset(base);
+    expect(issues.some((i) => i.includes('正文非空'))).toBe(true);
+  });
+
   it('可选字段缺失 → 补 null，不参与加权（不抛错）', () => {
     const normalized = normalizeDwdAsset(raw());
     expect(normalized.trend).toEqual({ stars90dAgo: null, referencedBy: null });
@@ -78,6 +104,16 @@ describe('validateDwdAsset / normalizeDwdAsset', () => {
     expect(normalized.text.readme).toBeNull();
     expect(normalized.text.manifest).toBeNull();
     expect(normalized.files.truncated).toBe(false);
+  });
+
+  it('repo.createdAt 缺省（采集侧未采）→ 归 null，不报错；冷启动只按零采纳判定', () => {
+    const base = raw();
+    delete (base.repo as Record<string, unknown>).createdAt;
+    expect(validateDwdAsset(base)).toEqual([]);
+    const normalized = normalizeDwdAsset(base);
+    expect(normalized.repo.createdAt).toBeNull();
+    // 有星 → 非零采纳 → 年龄未知时判为「非冷启动」（不猜年龄）。
+    expect(isColdStart(normalized, AS_OF)).toBe(false);
   });
 
   it('compliance 缺失 → 归为 deferred（不默认 ok 假装可信）', () => {
