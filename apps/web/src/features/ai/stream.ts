@@ -20,7 +20,9 @@ import {
   finishSteps,
   initialAiRun,
   retryAiRun,
-} from './steps';
+  // 显式 `.ts` 后缀：本模块是门禁脚本（node 直跑 TS）的导入目标——node 的 ESM 解析
+  // 与 packages/*、apps/daemon 同口径要求显式扩展名（TS/Next/vite 亦接受此写法）。
+} from './steps.ts';
 
 /** 一次步骤转移（时间线的一条）。 */
 export interface AiStepTransition {
