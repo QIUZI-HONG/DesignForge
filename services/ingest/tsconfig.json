@@ -1,7 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    // 评分 CLI 走 Node 原生 TS 类型擦除直跑（node src/score/cli.ts），
+    // 需要相对导入显式带 .ts 后缀（Node ESM 不做无后缀解析）。与 MK-01 同口径。
+    "allowImportingTsExtensions": true
   },
   "include": ["src"]
 }
