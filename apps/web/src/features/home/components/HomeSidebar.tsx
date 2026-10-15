@@ -9,12 +9,7 @@
  * 受控组件：分区与折叠态由父级（store）持有，本组件只报事件——这样选中态只有一处真源，
  * 也让侧栏可以在 `/_design` 之外的任何容器里复用。
  */
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  IconButton,
-  TrashIcon,
-} from '@dforge/ui';
+import { ChevronLeftIcon, ChevronRightIcon, IconButton, TrashIcon } from '@dforge/ui';
 import type { ReactNode } from 'react';
 
 import { t } from '@/i18n';
@@ -74,9 +69,7 @@ export function HomeSidebar({
           const isTrash = entry.id === 'trash';
           // 回收站条目把条数并入无障碍名（图标模式下也能听出有几条记录）
           const ariaLabel =
-            isTrash && trashCount > 0
-              ? t('home.nav.trashCount', { count: trashCount })
-              : label;
+            isTrash && trashCount > 0 ? t('home.nav.trashCount', { count: trashCount }) : label;
           return (
             <li key={entry.id}>
               <button

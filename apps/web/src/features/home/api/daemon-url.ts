@@ -90,8 +90,7 @@ export async function resolveDaemonBaseUrl(
     return fromSearch;
   }
 
-  const envUrl =
-    options.envUrl ?? process.env.NEXT_PUBLIC_DF_DAEMON_URL ?? undefined;
+  const envUrl = options.envUrl ?? process.env.NEXT_PUBLIC_DF_DAEMON_URL ?? undefined;
   if (envUrl !== undefined && envUrl.trim() !== '') {
     const normalized = trimTrailingSlash(envUrl.trim());
     cachedBaseUrl = normalized;

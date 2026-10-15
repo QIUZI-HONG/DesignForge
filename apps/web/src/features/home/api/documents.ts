@@ -13,10 +13,10 @@ import {
   DAEMON_ROUTES,
   type DfErrorCode,
   type DocumentDeleteResponse,
-  isApiFailure,
-  isApiSuccess,
   type DocumentListResponse,
   type DocumentSummary,
+  isApiFailure,
+  isApiSuccess,
 } from '@dforge/contracts';
 
 /** 前端侧错误码：daemon 错误码 ∪ 传输层归一码。 */
@@ -83,11 +83,7 @@ async function readEnvelope<T>(response: Response): Promise<T> {
 }
 
 /** 发请求并解包；网络异常统一归一。 */
-async function request<T>(
-  fetchImpl: typeof fetch,
-  url: string,
-  init?: RequestInit,
-): Promise<T> {
+async function request<T>(fetchImpl: typeof fetch, url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetchImpl(url, init);

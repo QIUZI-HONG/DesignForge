@@ -64,7 +64,9 @@ describe('appendTrashRecord', () => {
 
 describe('removeTrashRecord', () => {
   it('按 id 移除（彻底删除记录的语义）', () => {
-    expect(removeTrashRecord([record('a'), record('b')], 'a').map((item) => item.id)).toEqual(['b']);
+    expect(removeTrashRecord([record('a'), record('b')], 'a').map((item) => item.id)).toEqual([
+      'b',
+    ]);
   });
 
   it('id 不存在时原样返回', () => {

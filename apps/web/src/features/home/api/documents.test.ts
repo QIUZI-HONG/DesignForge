@@ -5,18 +5,10 @@
  * 信封解包（成功取 result、失败抛带码错误）、网络异常归一为 `daemon_unreachable`。
  * 用注入的假 fetch 记录调用（不起真服务）；期望值来自契约（DAEMON_ROUTES / 错误码表）。
  */
-import {
-  DAEMON_ROUTES,
-  type DocumentListResponse,
-  type DocumentSummary,
-} from '@dforge/contracts';
+import { DAEMON_ROUTES, type DocumentListResponse, type DocumentSummary } from '@dforge/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  createDocumentsGateway,
-  describeApiErrorCode,
-  DocumentApiError,
-} from './documents';
+import { createDocumentsGateway, DocumentApiError, describeApiErrorCode } from './documents';
 
 const BASE = 'http://127.0.0.1:4318';
 
@@ -115,14 +107,16 @@ describe('createDocumentsGateway.create', () => {
     expect(calls[0]?.url).toBe(`${BASE}/documents`);
     expect(calls[0]?.init?.method).toBe('POST');
     expect(calls[0]?.init?.body).toBe(JSON.stringify({ name: '新文档' }));
-    expect((calls[0]?.init?.headers as Record<string, string>)['content-type']).toContain(
-      'application/json',
-    );
+    const headers = calls[0]?.init?.headers as Record<string, string> | undefined;
+    expect(headers?.['content-type']).toContain('application/json');
   });
 
   it('重名冲突 → 抛码为 doc_exists 的错误（供 UI 提示）', async () => {
     const { fetchImpl } = fakeFetch([
-      { status: 409, body: { ok: false, error: { code: 'doc_exists', message: '同名文档已存在' } } },
+      {
+        status: 409,
+        body: { ok: false, error: { code: 'doc_exists', message: '同名文档已存在' } },
+      },
     ]);
     const gateway = createDocumentsGateway({ baseUrl: BASE, fetchImpl });
     await expect(gateway.create('海报 A')).rejects.toMatchObject({ code: 'doc_exists' });
@@ -169,7 +163,10 @@ describe('createDocumentsGateway 其他', () => {
   });
 
   it('fetchImpl 缺省时用全局 fetch', async () => {
-    const spy = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true, result: LIST }) }) as Response);
+    const spy = vi.fn(
+      async () =>
+        ({ ok: true, status: 200, json: async () => ({ ok: true, result: LIST }) }) as Response,
+    );
     vi.stubGlobal('fetch', spy);
     try {
       const gateway = createDocumentsGateway({ baseUrl: BASE });

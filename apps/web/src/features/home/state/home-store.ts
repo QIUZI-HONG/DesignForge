@@ -10,7 +10,7 @@
  * 页面用模块级单例 `useHomeStore`。
  */
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
-
+import type { DocumentRange, DocumentSort } from '../lib/filter';
 import {
   appendTrashRecord,
   parseTrashRecords,
@@ -19,7 +19,6 @@ import {
   TRASH_STORAGE_KEY,
   type TrashRecord,
 } from '../lib/trash';
-import type { DocumentRange, DocumentSort } from '../lib/filter';
 
 /** 侧栏分区。 */
 export type HomeSection = 'recent' | 'local' | 'trash';

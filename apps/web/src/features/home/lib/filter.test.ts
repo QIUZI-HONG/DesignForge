@@ -106,16 +106,16 @@ describe('sortDocuments', () => {
 
 describe('selectDocumentList（组合）', () => {
   it('先按搜索词与范围过滤，再排序', () => {
-    const result = selectDocumentList(
-      DOCS,
-      { query: '海报', range: 'all', now: NOW },
-      'name-asc',
-    );
+    const result = selectDocumentList(DOCS, { query: '海报', range: 'all', now: NOW }, 'name-asc');
     expect(result.map((item) => item.name)).toEqual(['海报 A', '海报 B']);
   });
 
   it('搜索无命中 → 空数组', () => {
-    const result = selectDocumentList(DOCS, { query: '不存在', range: 'all', now: NOW }, 'name-asc');
+    const result = selectDocumentList(
+      DOCS,
+      { query: '不存在', range: 'all', now: NOW },
+      'name-asc',
+    );
     expect(result).toEqual([]);
   });
 

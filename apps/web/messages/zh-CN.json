@@ -21,7 +21,7 @@
   "home.search.marketUnavailable": "技能市场未就绪（索引未生成）",
   "home.search.emptyTitle": "没有找到相关结果",
   "home.search.emptyDesc": "换个关键词试试，或清除搜索查看全部文档。",
-  "home.search.emptyAction": "清除搜索",
+  "home.search.emptyAction": "清除搜索条件",
   "home.new.label": "新建",
   "home.new.designFile": "设计文件",
   "home.new.designFileHint": "新建空白设计文件（⌘N）",
@@ -161,5 +161,6 @@
   "design.tip": "hover / active 用状态强制类（dfg-state-hover / dfg-state-active）复现；focus-visible 由截图门禁真实聚焦取证。",
   "design.token.controlHeight": "控件高 md 随主题密度：浅色 32 ↔ 深色 28",
   "design.token.radius": "圆角档 3 / 6 / 8 / 13 / 999",
-  "design.token.spacing": "间距刻度 4 的倍数（含 8 栅格档）"
+  "design.token.spacing": "间距刻度 4 的倍数（含 8 栅格档）",
+  "home.dialog.close": "关闭对话框"
 }

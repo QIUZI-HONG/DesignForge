@@ -7,5 +7,7 @@
 
 /** 拼接 class 名：忽略 false/null/undefined/空串。 */
 export function cx(...values: Array<string | false | null | undefined>): string {
-  return values.filter((value): value is string => typeof value === 'string' && value !== '').join(' ');
+  return values
+    .filter((value): value is string => typeof value === 'string' && value !== '')
+    .join(' ');
 }

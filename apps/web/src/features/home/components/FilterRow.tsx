@@ -9,7 +9,13 @@
  *
  * 受控组件：三个取值都由父级（store）持有。
  */
-import { Button, ChevronDownIcon, DropdownMenu, type MenuItemSpec, SegmentedControl } from '@dforge/ui';
+import {
+  Button,
+  ChevronDownIcon,
+  DropdownMenu,
+  type MenuItemSpec,
+  SegmentedControl,
+} from '@dforge/ui';
 
 import { t } from '@/i18n';
 
@@ -79,7 +85,9 @@ export function FilterRow({
     }));
 
   return (
-    <div className="dfg-home__filterrow" role="group" aria-label={t('home.filter.rowLabel')}>
+    // 不加 role="group"：行内两个下拉与一个单选组各自带无障碍名，再包一层具名分组
+    // 反而把「筛选行」听成表单域；`data-df-home` 只作为截图门禁的取样挂点
+    <div className="dfg-home__filterrow" data-df-home="filter-row">
       <DropdownMenu
         label={t('home.filter.range')}
         sections={[{ id: 'range', items: toItems(RANGE_OPTIONS, range, onRangeChange) }]}
@@ -124,5 +132,9 @@ export function FilterRow({
 
 /** 菜单选中勾（小尺寸勾号，避免为菜单项额外引一个图标依赖）。 */
 function CheckMark() {
-  return <span className="dfg-home__check" aria-hidden="true">✓</span>;
+  return (
+    <span className="dfg-home__check" aria-hidden="true">
+      ✓
+    </span>
+  );
 }

@@ -25,14 +25,28 @@ function asset(id: string, name: string): MarketAsset {
       path: 'skills/x',
       ref: 'a'.repeat(40),
       fetchedAt: '2026-10-15T00:00:00.000Z',
-      license: { spdx: 'MIT', gate: 'loadable', evidence: { path: 'LICENSE', sha256: 'f'.repeat(64) } },
+      license: {
+        spdx: 'MIT',
+        gate: 'loadable',
+        evidence: { path: 'LICENSE', sha256: 'f'.repeat(64) },
+      },
       stars: 1,
       pushedAt: '2026-10-14T00:00:00.000Z',
       archived: false,
+      homepage: null,
+      upstream: 'owner/repo',
+      brandDerived: false,
     },
     capabilities: [],
-    facets: { category: '其他', lane: 'create', mode: 'other', tags: [], scenes: [] },    quality: { score: 0.5, dims: { spec: 1, maintenance: 1, docs: 1, security: 1, ecosystem: 1 } },
-    installGate: { mode: 'loadable', licenseGate: 'loadable', security: 'pass', reasons: [], ackRequired: [] },
+    facets: { category: '其他', lane: 'create', mode: 'other', tags: [], scenes: [] },
+    quality: { score: 0.5, dims: { spec: 1, maintenance: 1, docs: 1, security: 1, ecosystem: 1 } },
+    installGate: {
+      mode: 'loadable',
+      licenseGate: 'loadable',
+      security: 'pass',
+      reasons: [],
+      ackRequired: [],
+    },
     digest: '0'.repeat(64),
     embeddingRef: null,
     yanked: null,
@@ -89,9 +103,10 @@ describe('searchMarketAssets', () => {
 
   it('daemon 不可达 → available=false（首页搜索整体不报错）', async () => {
     const { fetchImpl } = fakeFetch({ reject: true });
-    await expect(
-      searchMarketAssets({ baseUrl: BASE, query: '任意', fetchImpl }),
-    ).resolves.toEqual({ available: false, items: [] });
+    await expect(searchMarketAssets({ baseUrl: BASE, query: '任意', fetchImpl })).resolves.toEqual({
+      available: false,
+      items: [],
+    });
   });
 
   it('失败信封 → available=false', async () => {
@@ -99,9 +114,10 @@ describe('searchMarketAssets', () => {
       status: 500,
       body: { ok: false, error: { code: 'internal', message: 'x' } },
     });
-    await expect(
-      searchMarketAssets({ baseUrl: BASE, query: '任意', fetchImpl }),
-    ).resolves.toEqual({ available: false, items: [] });
+    await expect(searchMarketAssets({ baseUrl: BASE, query: '任意', fetchImpl })).resolves.toEqual({
+      available: false,
+      items: [],
+    });
   });
 
   it('空查询直接返回空结果，不发请求', async () => {

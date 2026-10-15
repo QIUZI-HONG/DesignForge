@@ -55,16 +55,12 @@ export function filterDocuments(
 ): DocumentSummary[] {
   return documents.filter(
     (document) =>
-      matchesQuery(document.name, query.query) &&
-      matchesRange(document, query.range, query.now),
+      matchesQuery(document.name, query.query) && matchesRange(document, query.range, query.now),
   );
 }
 
 /** 排序：返回新数组，不改入参（时间列解析失败的项排到末尾，避免抖动）。 */
-export function sortDocuments(
-  documents: DocumentSummary[],
-  sort: DocumentSort,
-): DocumentSummary[] {
+export function sortDocuments(documents: DocumentSummary[], sort: DocumentSort): DocumentSummary[] {
   const sorted = [...documents];
   const timeOf = (iso: string): number => {
     const value = new Date(iso).getTime();
