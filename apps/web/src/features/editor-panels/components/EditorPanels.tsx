@@ -5,7 +5,7 @@
  *
  * 为什么合成一个组件：Figma 的左面板就是「文件（图层）」与「资产」两个页签共享一栏；
  * 面板各自独立（`LayersPanel` / `AssetsPanel`）仍可单独挂载，
- * 组合后的整栏带 `data-df-panel-group` 供面板级截图门禁取样（保留完整面板边界 + 8px 边距）。
+ * 组合后的整栏带 `data-df-panel-group` 供面板级截图门禁取样（保留完整面板边界 + spec 规定的固定外扩边距）。
  */
 import { SegmentedControl } from '@dforge/ui';
 import type { CSSProperties } from 'react';

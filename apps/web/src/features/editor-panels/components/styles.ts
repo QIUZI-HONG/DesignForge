@@ -12,7 +12,7 @@ import type { CSSProperties } from 'react';
 
 const border = `${cssVar('border-width.hairline')} solid ${cssVar('color.border')}`;
 
-/** 面板外框（深色编辑器族下 = 面板 #2C2C2C / 描边 #3E3E3E）。 */
+/** 面板外框（深色编辑器族下取面板底与描边令牌：surface / border）。 */
 export const panelStyles = {
   panel: {
     display: 'flex',

@@ -88,7 +88,7 @@ export function stubRowRects(height: number = ROW_HEIGHT): () => void {
  *
  * 页面结构（绘制顺序，后面的在上）：
  * 顶层 [f1 画板 ⊃ [r1, r2, g1 编组 ⊃ [t1]]，f2 空画板，c1 主组件 ⊃ [cr1]]
- * 令牌：color.brand.primary（#0D99FF）、space.md（16）、color.brand.onPrimary（别名）
+ * 令牌：color.brand.primary（组件蓝）、space.md（尺寸）、color.brand.onPrimary（别名）
  */
 export function panelsFixture(): DesignDocument {
   let doc = createDocument({
