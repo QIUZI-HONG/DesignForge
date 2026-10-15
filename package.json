@@ -26,6 +26,7 @@
     "guard:mcp-contract": "node scripts/guard-mcp-contract.mjs",
     "guard:channel-pairing": "node scripts/guard-channel-pairing.mjs",
     "verify:figma-home": "node scripts/verify-figma-home.mjs",
+    "verify:figma-review": "node scripts/verify-figma-review.mjs",
     "e2e:smoke": "node scripts/e2e-smoke.mjs"
   },
   "devDependencies": {
