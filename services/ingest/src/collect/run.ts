@@ -275,9 +275,19 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
   // 装填：各群**均分预算份额**，群内按根规模升序尽量装；装不下的根放弃（升序，后面只会更大）；
   // 用不完的份额顺延给下一群，最后仍有余量则按全群规模升序兜底——预算不会被空群浪费。
   const groupOrder = CONTENT_ROOT_GROUPS.map((g) => g.name);
-  const perGroupShare = Math.floor(budget / groupOrder.length);
+  const perGroupBase = Math.floor(budget / groupOrder.length);
+  /** 单群份额上限 = 预算一半（防「一个超大的根吃掉整仓预算」）。 */
+  const perGroupCap = Math.max(1, Math.floor(budget / 2));
   let carry = 0;
   const consumed = new Map<string, number>();
+  /** 本群当前第一个待装根的待取文件数（用于份额下限）。 */
+  const headSizeOf = (group: string): number => {
+    const list = completableByGroup.get(group);
+    if (list === undefined) return 0;
+    const head = list[consumed.get(group) ?? 0];
+    if (head === undefined) return 0;
+    return head.files.filter((path) => !selectedSet.has(path)).length;
+  };
   const spendInGroup = (group: string, allowance: number): number => {
     const list = completableByGroup.get(group);
     if (list === undefined) return allowance;
@@ -297,7 +307,10 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
     return left;
   };
   for (const group of groupOrder) {
-    carry = spendInGroup(group, perGroupShare + carry);
+    // 份额 = max(均分, 本群最小根规模)，上限预算一半——否则「大根类群」（设计系统常见
+    // 24–41 文件的资产根）在小预算下永远一张卡片都出不了（实测 5 仓与 40 仓批次都踩到）。
+    const share = Math.max(perGroupBase, Math.min(perGroupCap, headSizeOf(group)));
+    carry = spendInGroup(group, share + carry);
   }
   // 兜底：全群剩余根按规模升序装填（用尽预算或无可装之根为止）
   const leftoversRoots = [...completableByGroup.values()]
@@ -474,6 +487,29 @@ export const STARS_HISTORY_DAYS = 90;
 export const STARS_HISTORY_MAX_CALLS = 10;
 
 /**
+ * 从录制样本反推「每仓取回的内容路径」——**重放的内容名单以样本为准**。
+ *
+ * 为什么：离线复跑要保证「URL 逐条命中样本」，而内容取回算法会随版本演进（优先级/预算/完整根策略）。
+ * 若重放仍按当前算法重算名单，算法一变样本就复现不出来（实测踩过：批次后修订策略 → 复跑 12 仓缺样本）。
+ * 样本里已经记录了逐条 URL，因此把 `contents/<path>?ref=` 反解成名单，重放时原样取回——
+ * 复跑复现的是**那次真实采集**，与算法版本解耦（参数仍以样本 manifest 为准）。
+ */
+export function selectionsFromRecorded(responses: { url: string }[]): Map<string, string[]> {
+  const byRepo = new Map<string, Set<string>>();
+  for (const response of responses) {
+    const match = /\/repos\/([^/]+\/[^/]+)\/contents\/(.+?)\?ref=/.exec(response.url);
+    if (match === null) continue;
+    const repo = match[1];
+    const path = decodeURIComponent(match[2] ?? '');
+    if (repo === undefined || path === '') continue;
+    const set = byRepo.get(repo) ?? new Set<string>();
+    set.add(path);
+    byRepo.set(repo, set);
+  }
+  return new Map([...byRepo.entries()].map(([repo, set]) => [repo, [...set].sort()]));
+}
+
+/**
  * 取一仓的星标历史水位（`trend.stars90dAgo` 的来源）。
  * 取不到（上游异常/预算耗尽）→ null + 原因码，**绝不臆造**；离线重放缺样本按阻塞上抛。
  */
@@ -555,11 +591,15 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
   let token: string | null = null;
   let cacheStore: FileCacheStore | null = null;
 
+  let recordedResponses: { url: string }[] = [];
   if (offline && opts.replayDir !== null) {
     try {
       const raw = await readFile(join(opts.replayDir, 'responses.jsonl'), 'utf8');
-      baseFetch = createReplayFetch(parseRecordedResponses(raw));
-      log(`离线重放：样本 ${join(opts.replayDir, 'responses.jsonl')}`);
+      recordedResponses = parseRecordedResponses(raw);
+      baseFetch = createReplayFetch(recordedResponses as Parameters<typeof createReplayFetch>[0]);
+      log(
+        `离线重放：样本 ${join(opts.replayDir, 'responses.jsonl')}（${recordedResponses.length} 条响应）`,
+      );
     } catch (error) {
       blockedReason = `离线样本不可读：${String(error)}（阻塞：不触网、不伪造）`;
     }
@@ -703,8 +743,22 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
           licenseSha256,
         });
 
-        // 内容抽样（预算内按优先级）
-        const selection = selectContentPaths(treeResult.entries, effective.maxContentPerRepo);
+        // 内容抽样：离线重放**以样本名单为准**（保证 URL 逐条命中；算法演进不影响复现），
+        // 真网运行按当前策略（完整资产根 + 类群份额）选取。
+        const recordedSelection = offline
+          ? selectionsFromRecorded(recordedResponses)
+              .get(target.fullName)
+              // 许可原文走独立取回（不属于内容名单）——重放名单里剔除它，避免重复请求
+              ?.filter((path) => path !== licensePath)
+          : undefined;
+        const selection =
+          recordedSelection !== undefined
+            ? {
+                selected: recordedSelection,
+                deferred: selectContentPaths(treeResult.entries, effective.maxContentPerRepo)
+                  .deferred,
+              }
+            : selectContentPaths(treeResult.entries, effective.maxContentPerRepo);
         const contents = new Map<string, string>();
         for (const path of selection.selected) {
           try {

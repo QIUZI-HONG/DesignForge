@@ -15,7 +15,7 @@ import type { ScriptedStep } from './__fixtures__/http-harness.ts';
 import { jsonStep } from './__fixtures__/http-harness.ts';
 import type { FetchLike } from './http.ts';
 import type { CollectOptions } from './run.ts';
-import { runCollect, selectContentPaths } from './run.ts';
+import { runCollect, selectContentPaths, selectionsFromRecorded } from './run.ts';
 
 const tempDirs: string[] = [];
 function tempDir(): string {
@@ -417,6 +417,21 @@ describe('内容取回策略（对接面修复：完整资产根优先 + 兜底�
     const selection = selectContentPaths(withBinary, 8);
     expect(selection.selected).toContain('skills/pdf/SKILL.md');
     expect(selection.selected).toContain('skills/pdf/notes.md');
+  });
+});
+
+describe('selectionsFromRecorded（重放的内容名单以样本为准，与算法版本解耦）', () => {
+  it('从 contents URL 反推每仓取回名单（含 URL 解码、去重与稳定排序）', () => {
+    const map = selectionsFromRecorded([
+      { url: 'https://api.github.com/repos/a/b/contents/skills/x/SKILL.md?ref=abc' },
+      { url: 'https://api.github.com/repos/a/b/contents/docs/a%20b.md?ref=abc' },
+      { url: 'https://api.github.com/repos/a/b/contents/skills/x/SKILL.md?ref=abc' }, // 重复
+      { url: 'https://api.github.com/repos/c/d/contents/README.md?ref=def' },
+      { url: 'https://api.github.com/repos/a/b/git/trees/main?recursive=1' }, // 非 contents：忽略
+    ]);
+    expect(map.get('a/b')).toEqual(['docs/a b.md', 'skills/x/SKILL.md']);
+    expect(map.get('c/d')).toEqual(['README.md']);
+    expect(map.get('nope/nope')).toBeUndefined();
   });
 });
 
