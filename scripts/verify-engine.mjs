@@ -4,9 +4,9 @@
  *
  * 与本票 DoD 对应（不依赖参照集，故正常态只有 0/1）：
  *   1) 跑包内全量测试：`pnpm --filter @dforge/engine test`（几何/命令栈/吸附/序列化…）
- *   2) **独立复核**快照哈希回归产物：
- *      sha256(packages/engine/__snapshots__/fixed-document.json) === fixed-document.sha256
- *      （哈希由测试内用同一份稳定序列化产物算出；脚本侧再算一遍，防止「只改 JSON 没改哈希」这类假绿）
+ *   2) **独立复核**快照哈希回归产物：规范哈希
+ *      sha256(JSON 解析 → 递归键排序 → 无空白序列化) === fixed-document.sha256
+ *      （脚本自带这份口径的实现，不依赖包内序列化器；格式化差异不误报，语义变化必红）
  *   3) 校验快照信封（$format/$version/pages）存在且非空
  *
  * 退出码语义（docs/agents/implementation-workflow.md）：
@@ -37,6 +37,22 @@ function sha256(text) {
   return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
+/** 递归按键名排序（数组顺序保持）。 */
+function sortKeysDeep(value) {
+  if (Array.isArray(value)) return value.map((item) => sortKeysDeep(item));
+  if (value !== null && typeof value === 'object') {
+    const out = {};
+    for (const key of Object.keys(value).sort()) out[key] = sortKeysDeep(value[key]);
+    return out;
+  }
+  return value;
+}
+
+/** 规范哈希：与包内 regression.test.ts 同口径（无空白、键序稳定）。 */
+function canonicalHash(json) {
+  return sha256(JSON.stringify(sortKeysDeep(JSON.parse(json))));
+}
+
 console.log('[verify-engine] 1/3 运行 @dforge/engine 全量测试…');
 const test = spawnSync('pnpm', ['--filter', '@dforge/engine', 'test'], {
   cwd: ROOT,
@@ -60,7 +76,12 @@ if (!existsSync(DOC_PATH) || !existsSync(HASH_PATH)) {
 }
 const docJson = readFileSync(DOC_PATH, 'utf8');
 const expectedHash = readFileSync(HASH_PATH, 'utf8').trim();
-const actualHash = sha256(docJson);
+let actualHash;
+try {
+  actualHash = canonicalHash(docJson);
+} catch (error) {
+  fail(`快照 JSON 不可解析：${error.message}`);
+}
 if (!/^[0-9a-f]{64}$/.test(expectedHash)) {
   fail(`哈希文件内容不是 sha256：${expectedHash}`);
 }

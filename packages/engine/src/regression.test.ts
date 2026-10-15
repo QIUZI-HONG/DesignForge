@@ -7,7 +7,11 @@
  *
  * 产物（随仓库提交，供审阅与 diff）：
  * - `packages/engine/__snapshots__/fixed-document.json`：操作后的文档（稳定键序）
- * - `packages/engine/__snapshots__/fixed-document.sha256`：该 JSON 的 sha256
+ * - `packages/engine/__snapshots__/fixed-document.sha256`：该文档的 **规范哈希**
+ *
+ * 哈希口径：对「JSON 解析后按键名递归排序、无空白序列化」的字符串取 sha256——
+ * 因此格式化工具（biome）重排该 JSON 文件不影响哈希，只有**语义变化**才会让它变红。
+ * `scripts/verify-engine.mjs` 用自己实现的同一口径独立复算，不依赖本包序列化器。
  *
  * 更新方式：`UPDATE_SNAPSHOT=1 pnpm --filter @dforge/engine test`（有意变更时先看 diff）。
  * 快照缺失时自动生成并通过（首次落库）；存在但哈希不符 → 测试失败（行为漂移）。
@@ -47,6 +51,21 @@ import { serializeDocument } from './serialize/index';
 import { computeSnap } from './snap/index';
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../__snapshots__/', import.meta.url));
+
+/** 规范哈希：解析 → 递归键排序 → 无空白序列化 → sha256（与门禁脚本同口径）。 */
+export function canonicalHash(json: string): string {
+  const sortKeys = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(sortKeys);
+    if (value !== null && typeof value === 'object') {
+      const source = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(source).sort()) out[key] = sortKeys(source[key]);
+      return out;
+    }
+    return value;
+  };
+  return createHash('sha256').update(JSON.stringify(sortKeys(JSON.parse(json))), 'utf8').digest('hex');
+}
 const DOC_PATH = `${SNAPSHOT_DIR}fixed-document.json`;
 const HASH_PATH = `${SNAPSHOT_DIR}fixed-document.sha256`;
 
@@ -241,7 +260,7 @@ describe('regression · 夹具自检', () => {
 describe('regression · 固定操作序列 → 快照哈希', () => {
   it('结果文档哈希与 __snapshots__ 一致（行为漂移即失败）', () => {
     const json = serializeDocument(runFixedScript());
-    const hash = createHash('sha256').update(json, 'utf8').digest('hex');
+    const hash = canonicalHash(json);
     const update = process.env.UPDATE_SNAPSHOT === '1';
 
     if (update || !existsSync(HASH_PATH) || !existsSync(DOC_PATH)) {
@@ -252,9 +271,8 @@ describe('regression · 固定操作序列 → 快照哈希', () => {
     }
 
     const expected = readFileSync(HASH_PATH, 'utf8').trim();
-    const storedDoc = readFileSync(DOC_PATH, 'utf8');
-    // 产物自身也必须是自洽的（哈希文件 = JSON 文件的哈希）
-    expect(createHash('sha256').update(storedDoc, 'utf8').digest('hex')).toBe(expected);
+    // 存量产物也要能算出同一个规范哈希（格式化差异不影响）
+    expect(canonicalHash(readFileSync(DOC_PATH, 'utf8'))).toBe(expected);
     expect(hash, '固定操作序列的结果漂移：请核对 diff 后用 UPDATE_SNAPSHOT=1 更新').toBe(expected);
   });
 
