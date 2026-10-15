@@ -132,17 +132,41 @@ export interface ClipboardPort {
   read(): Promise<string | null>;
 }
 
+/**
+ * 选择集端口（跨票同源用）。
+ *
+ * 编辑器工作区里选择集的宿主是 FE-04 的面板 UI store（图层面板要读它高亮）；
+ * 画布把选择读写委托给它，就得到「画布选中 = 面板高亮」的同源联动，
+ * 而不需要两处各存一份再互相同步。
+ */
+export interface SelectionPort {
+  get(): Selection;
+  set(selection: Selection): void;
+  subscribe(listener: () => void): () => void;
+}
+
 /** 会话构造选项。 */
 export interface CanvasSessionOptions {
+  /**
+   * 现成命令栈（**文档真值共享**）：编辑器工作区把 FE-04 面板会话的命令栈注入进来，
+   * 使画布与面板读写同一份文档；省略则自建（画布可独立运行，`/_canvas` 与单测走这条）。
+   */
+  stack?: CommandStack;
+  /** 文档（未注入 `stack` 时用它建栈；注入时必须与栈内文档一致）。 */
   document: DesignDocument;
+  /** 选择集端口（缺省：选择集只住在画布会话里）。 */
+  selectionPort?: SelectionPort;
   pageId?: PageId;
   viewport?: Viewport;
   ids?: IdFactory;
-  stack?: CommandStackOptions;
+  /** 自建命令栈时的选项（注入现成 `stack` 时忽略）。 */
+  stackOptions?: CommandStackOptions;
   clipboard?: ClipboardPort;
   rulers?: boolean;
   /** 吸附开关（默认开；测试与「自由定位」场景可关）。 */
   snapEnabled?: boolean;
+  /** 视口变化回调（编辑器壳的缩放菜单/状态栏跟随；`_canvas` 宿主不需要）。 */
+  onViewportChange?: (viewport: Viewport) => void;
 }
 
 /** 指针按下输入（DOM 无关）。 */
@@ -275,16 +299,21 @@ const MIN_DRAFT_SIZE = 1;
 /** 创建会话。 */
 export function createCanvasSession(options: CanvasSessionOptions): CanvasSession {
   const ids: IdFactory = options.ids ?? systemIdFactory;
-  const stack = new CommandStack(options.document, options.stack ?? {});
+  const stack = options.stack ?? new CommandStack(options.document, options.stackOptions ?? {});
   const initialPageId = (options.document.pages[0] as ScenePage).id;
   const clipboardPort = options.clipboard;
 
   /** 内部剪贴板载荷（系统剪贴板不可用时的兜底；同实例内 ⌘C→⌘V 始终可用）。 */
   let clipboardPayload: ClipboardPayload | null = null;
 
+  /** 视口变化 → 通知宿主（缩放菜单/状态栏跟随）。 */
+  const emitViewport = (): void => {
+    options.onViewportChange?.(store.getState().viewport);
+  };
+
   const store = createStore<CanvasUiState>(() => ({
     pageId: options.pageId ?? initialPageId,
-    selection: createSelection([]),
+    selection: options.selectionPort?.get() ?? createSelection([]),
     viewport: options.viewport ?? createViewport(1, 0, 0),
     tool: 'select',
     spacePressed: false,
@@ -452,6 +481,7 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
     },
     clearSelection() {
       store.setState({ selection: createSelection([]) });
+      options.selectionPort?.set(createSelection([]));
     },
     singleSelectionId() {
       const selection = store.getState().selection;
@@ -558,6 +588,7 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
             currentScreen: input.screen,
           },
         });
+        emitViewport();
         return;
       }
 
@@ -659,9 +690,11 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       if (state.editing !== null) return;
       if (input.zoom === true) {
         store.setState({ viewport: zoomByWheel(state.viewport, input.deltaY, input.screen) });
+        emitViewport();
         return;
       }
       store.setState({ viewport: panBy(state.viewport, -input.deltaX, -input.deltaY) });
+      emitViewport();
     },
 
     setTool(tool) {
@@ -814,9 +847,11 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
 
     zoomIn(screenCenter) {
       store.setState({ viewport: zoomStep(store.getState().viewport, 1, screenCenter) });
+      emitViewport();
     },
     zoomOut(screenCenter) {
       store.setState({ viewport: zoomStep(store.getState().viewport, -1, screenCenter) });
+      emitViewport();
     },
     zoomToFit(screenSize) {
       const size = screenSize ?? store.getState().viewportSize;
@@ -824,13 +859,16 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
         // padding 是世界单位留白（几何参数，非 UI 间距令牌）
         viewport: fitBounds(pageBounds(page()), size, { padding: 40, maxZoom: 1 }), // guard-tokens:allow 画布留白为世界单位
       });
+      emitViewport();
     },
     zoom100(screenSize) {
       const size = screenSize ?? store.getState().viewportSize;
       store.setState({ viewport: zoomTo100(store.getState().viewport, size) });
+      emitViewport();
     },
     setViewportSize(size) {
       store.setState({ viewportSize: size });
+      emitViewport();
     },
 
     beginTextEditing(nodeId, editOptions = {}) {

@@ -81,9 +81,7 @@ export function FloatingToolbar({ session }: FloatingToolbarProps) {
   if (bounds === null || selection.ids.length === 0) return null;
 
   const insight = selectionInsight(session);
-  const actions = canvasActions(session, t).filter((action) =>
-    TOOLBAR_ACTION_IDS.includes(action.id),
-  );
+  const actions = canvasActions(session).filter((action) => TOOLBAR_ACTION_IDS.includes(action.id));
 
   const centerX = (bounds.x + bounds.width / 2) * viewport.zoom + viewport.panX;
   const topY = bounds.y * viewport.zoom + viewport.panY - TOOLBAR_GAP;

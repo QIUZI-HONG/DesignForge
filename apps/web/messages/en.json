@@ -697,5 +697,10 @@
   "canvas.dev.exported": "IR exported ({bytes} chars)",
   "canvas.dev.imported": "IR imported ({nodes} nodes)",
   "canvas.dev.noDocument": "Local fixture: save first, then reload",
-  "canvas.dev.hint": "Double-click text to edit inline; ⌘/Ctrl + wheel to zoom, middle-drag or Space to pan; right-click for the canvas menu."
+  "canvas.dev.hint": "Double-click text to edit inline; ⌘/Ctrl + wheel to zoom, middle-drag or Space to pan; right-click for the canvas menu.",
+  "canvas.ws.rightTabs": "Right column sections",
+  "canvas.ws.tab.inspect": "Inspect",
+  "canvas.ws.tab.code": "Code",
+  "canvas.ws.tab.export": "Export",
+  "canvas.ws.tab.image": "Generate"
 }

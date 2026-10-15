@@ -60,8 +60,13 @@ export function selectionInsight(session: CanvasSession): SelectionInsight {
   };
 }
 
-/** 全部动作（顺序即工具条顺序；菜单按分组挑子集）。 */
-export function canvasActions(session: CanvasSession, t: Translate): CanvasAction[] {
+/**
+ * 全部动作（顺序即工具条顺序；菜单按分组挑子集）。
+ *
+ * 注意：本函数**不取文案**——工具条用图标/短符号、菜单用 `toMenuItem(action, t)` 落文案，
+ * 两条路径的展示串都来自动作表，因此不会各自硬编码出现漂移。
+ */
+export function canvasActions(session: CanvasSession): CanvasAction[] {
   const insight = selectionInsight(session);
   const state = session.store.getState();
   const multiple = insight.count >= 2;
@@ -293,7 +298,7 @@ export function toMenuItem(action: CanvasAction, t: Translate): MenuItemSpec {
 
 /** 右键菜单分组（空组自动省略：例如单选时「取消编组」之外的对齐组仍保留但条目全禁用）。 */
 export function contextMenuSections(session: CanvasSession, t: Translate): MenuSectionSpec[] {
-  const actions = new Map(canvasActions(session, t).map((action) => [action.id, action]));
+  const actions = new Map(canvasActions(session).map((action) => [action.id, action]));
   const sections: MenuSectionSpec[] = [];
   for (const group of CONTEXT_MENU_GROUPS) {
     const items: MenuItemSpec[] = [];

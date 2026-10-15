@@ -1,5 +1,9 @@
 import { EditorShell } from '@/features/editor-shell';
 
+// FE-06 宿主接线（画布 + 面板 + Inspector + 检查/导出 + AI/MCP 的挂载入口；
+// 只 import 一次即完成插槽与命令注册，壳层与本文件其余部分不动）。
+import '@/features/canvas/register';
+
 /**
  * 编辑器页（`/editor`，清单 C 区对标页族的外围骨架）。
  *

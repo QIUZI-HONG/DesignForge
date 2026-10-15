@@ -31,7 +31,7 @@ import { createSceneRenderer, type SceneRenderer, type SceneRenderStats } from '
 import { loadCanvasKit } from '../runtime/canvaskit-loader';
 import { loadSceneFonts, SCENE_FONT_FAMILY } from '../runtime/scene-fonts';
 import type { CanvasSession } from '../state/session';
-import { CanvasHud } from './canvas-hud';
+import { CanvasHud, type CanvasHudSink } from './canvas-hud';
 import { CanvasContextMenu } from './context-menu';
 import { FloatingToolbar } from './floating-toolbar';
 import { TextOverlay } from './text-overlay';
@@ -61,6 +61,16 @@ export interface CanvasStageProps {
   onFrame?: (stats: SceneRenderStats) => void;
   /** 运行时状态变化回调（只在状态跃迁时触发）。 */
   onStatus?: (status: CanvasRuntimeStatus) => void;
+  /**
+   * 外接 HUD（编辑器壳的 `useCanvasHud()`）。给出后本组件**不再自渲**小条，
+   * 而是把会话里的 HUD 文案转发给宿主（C20 的显示位置由壳层决定）。
+   */
+  hud?: CanvasHudSink;
+  /**
+   * 交给宿主（壳层命令注册表）接管的快捷键 id 列表——命中即不执行，
+   * 避免「画布与壳层各执行一遍」（例如 ⌘Z 撤销两次）。
+   */
+  coveredShortcutIds?: readonly string[];
   style?: CSSProperties;
   className?: string;
 }
@@ -81,6 +91,8 @@ export function CanvasStage({
   theme = 'dark',
   onFrame,
   onStatus,
+  hud,
+  coveredShortcutIds,
   style,
   className,
 }: CanvasStageProps) {
@@ -96,6 +108,8 @@ export function CanvasStage({
   const sizeRef = useRef<Size>({ width: 0, height: 0 });
   const palette = useMemo(() => canvasPalette(theme), [theme]);
   const paletteRef = useRef<CanvasPalette>(palette);
+  const coveredRef = useRef<readonly string[] | undefined>(coveredShortcutIds);
+  coveredRef.current = coveredShortcutIds;
   const onFrameRef = useRef<CanvasStageProps['onFrame']>(onFrame);
   const onStatusRef = useRef<CanvasStageProps['onStatus']>(onStatus);
   paletteRef.current = palette;
@@ -309,6 +323,7 @@ export function CanvasStage({
           screenSize: sizeRef.current,
           screenCenter: { x: sizeRef.current.width / 2, y: sizeRef.current.height / 2 },
         },
+        coveredRef.current === undefined ? {} : { skipIds: coveredRef.current },
       );
       if (handled !== null) {
         event.preventDefault();
@@ -328,12 +343,28 @@ export function CanvasStage({
     };
   }, [session]);
 
+  // 外接 HUD：把会话里的 HUD 文案转给宿主（本组件不渲染小条）
+  useEffect(() => {
+    if (hud === undefined) return undefined;
+    const forward = (text: string | null): void => {
+      if (text === null) {
+        hud.hide();
+        return;
+      }
+      hud.show(text);
+    };
+    forward(session.store.getState().hud);
+    return session.store.subscribe(() => {
+      forward(session.store.getState().hud);
+    });
+  }, [hud, session]);
+
   // 右键菜单：点击菜单外后卸载菜单壳（菜单本体自行收起）
   useEffect(() => {
     if (menuPoint === null) return undefined;
     const onPointerDown = (event: MouseEvent): void => {
       const menu = shellRef.current?.querySelector('[data-df-canvas-context-menu]');
-      if (menu !== null && menu !== undefined && menu.contains(event.target as Node)) return;
+      if (menu?.contains(event.target as Node) === true) return;
       setMenuPoint(null);
     };
     document.addEventListener('mousedown', onPointerDown);
@@ -345,8 +376,7 @@ export function CanvasStage({
       ref={shellRef}
       className={className === undefined ? 'dfc-canvas-shell' : `dfc-canvas-shell ${className}`}
       style={style}
-      // 可聚焦：键盘事件（快捷键/空格平移）落在这里
-      tabIndex={0}
+      // 键盘事件挂在 document（点过工具条/菜单后仍可用），因此这里不需要 tabIndex
       role="application"
       aria-label={t('canvas.stage.label')}
       data-df-canvas-shell=""
@@ -369,7 +399,7 @@ export function CanvasStage({
           <CanvasContextMenu session={session} point={menuPoint} epoch={menuEpoch} />
         )}
       </div>
-      <CanvasHud session={session} />
+      {hud === undefined ? <CanvasHud session={session} /> : null}
     </div>
   );
 }

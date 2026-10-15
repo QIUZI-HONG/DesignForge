@@ -44,7 +44,7 @@ describe('快捷键展示串', () => {
 describe('动作可用性（空选 / 单选 / 多选）', () => {
   it('空选：删除/复制/层级/对齐不可用；粘贴与视图动作可用', () => {
     const session = fixture();
-    const actions = canvasActions(session, t);
+    const actions = canvasActions(session);
     const byId = new Map(actions.map((action) => [action.id, action]));
     expect(byId.get('delete')?.disabled).toBe(true);
     expect(byId.get('copy')?.disabled).toBe(true);
@@ -58,7 +58,7 @@ describe('动作可用性（空选 / 单选 / 多选）', () => {
   it('单选：对齐/分布/编组不可用，编辑文本只对文本节点可用', () => {
     const session = fixture();
     session.setSelection(['n_rect']);
-    const byId = new Map(canvasActions(session, t).map((action) => [action.id, action]));
+    const byId = new Map(canvasActions(session).map((action) => [action.id, action]));
     expect(byId.get('alignLeft')?.disabled).toBe(true);
     expect(byId.get('distributeHorizontal')?.disabled).toBe(true);
     expect(byId.get('group')?.disabled).toBe(true);
@@ -69,7 +69,7 @@ describe('动作可用性（空选 / 单选 / 多选）', () => {
   it('多选：对齐可用、分布需要 ≥3；编组可用', () => {
     const session = fixture();
     session.setSelection(['n_rect', 'n_rect2']);
-    const byId = new Map(canvasActions(session, t).map((action) => [action.id, action]));
+    const byId = new Map(canvasActions(session).map((action) => [action.id, action]));
     expect(byId.get('alignLeft')?.disabled).toBe(false);
     expect(byId.get('distributeHorizontal')?.disabled).toBe(true);
     expect(byId.get('group')?.disabled).toBe(false);
@@ -79,7 +79,7 @@ describe('动作可用性（空选 / 单选 / 多选）', () => {
     const session = fixture();
     const textId = session.createTextAt({ x: 200, y: 200 });
     session.setSelection([textId]);
-    const byId = new Map(canvasActions(session, t).map((action) => [action.id, action]));
+    const byId = new Map(canvasActions(session).map((action) => [action.id, action]));
     expect(byId.get('editText')?.disabled).toBe(false);
   });
 });
@@ -88,7 +88,7 @@ describe('动作执行（工具条与菜单共用执行体）', () => {
   it('复制 → 粘贴 → 删除按选择集生效', async () => {
     const session = fixture();
     session.setSelection(['n_rect']);
-    const byId = new Map(canvasActions(session, t).map((action) => [action.id, action]));
+    const byId = new Map(canvasActions(session).map((action) => [action.id, action]));
     byId.get('copy')?.run();
     await session.paste();
     expect(Object.keys(session.page().nodes)).toHaveLength(3);
@@ -99,7 +99,7 @@ describe('动作执行（工具条与菜单共用执行体）', () => {
   it('层级动作按方向生效（上移一层 / 置于顶层）', () => {
     const session = fixture();
     session.setSelection(['n_rect']);
-    const byId = new Map(canvasActions(session, t).map((action) => [action.id, action]));
+    const byId = new Map(canvasActions(session).map((action) => [action.id, action]));
     byId.get('bringForward')?.run();
     expect(session.page().rootIds.indexOf('n_rect')).toBe(1);
     byId.get('bringToFront')?.run();
@@ -110,7 +110,7 @@ describe('动作执行（工具条与菜单共用执行体）', () => {
 
   it('视图动作切换标尺并重置缩放', () => {
     const session = fixture();
-    const byId = new Map(canvasActions(session, t).map((action) => [action.id, action]));
+    const byId = new Map(canvasActions(session).map((action) => [action.id, action]));
     const rulersBefore = session.store.getState().rulers;
     byId.get('toggleRulers')?.run();
     expect(session.store.getState().rulers).toBe(!rulersBefore);
@@ -142,7 +142,7 @@ describe('C11 菜单分组', () => {
 
   it('工具条子集都在动作表里（避免两处硬编码漂移）', () => {
     const session = fixture();
-    const ids = new Set(canvasActions(session, t).map((action) => action.id));
+    const ids = new Set(canvasActions(session).map((action) => action.id));
     for (const id of TOOLBAR_ACTION_IDS) expect(ids.has(id), `工具条动作缺失：${id}`).toBe(true);
   });
 });

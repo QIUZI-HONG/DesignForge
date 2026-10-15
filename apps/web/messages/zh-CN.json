@@ -697,5 +697,10 @@
   "canvas.dev.exported": "已导出 IR（{bytes} 字符）",
   "canvas.dev.imported": "已导入 IR（{nodes} 个节点）",
   "canvas.dev.noDocument": "当前是本地夹具：先「保存」再「重载」",
-  "canvas.dev.hint": "双击文本进入内联编辑；⌘/Ctrl + 滚轮缩放，中键或空格拖动平移；右键出画布菜单。"
+  "canvas.dev.hint": "双击文本进入内联编辑；⌘/Ctrl + 滚轮缩放，中键或空格拖动平移；右键出画布菜单。",
+  "canvas.ws.rightTabs": "右栏分区",
+  "canvas.ws.tab.inspect": "检查",
+  "canvas.ws.tab.code": "代码",
+  "canvas.ws.tab.export": "导出",
+  "canvas.ws.tab.image": "出图"
 }

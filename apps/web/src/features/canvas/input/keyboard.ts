@@ -296,11 +296,15 @@ export function handleKeyDown(
   session: CanvasSession,
   input: KeyInput,
   context: ShortcutContext,
+  options: { skipIds?: readonly string[] } = {},
 ): string | null {
   const editing = session.store.getState().editing !== null;
+  const skip = options.skipIds === undefined ? null : new Set(options.skipIds);
   for (const shortcut of SHORTCUTS) {
     if (!shortcut.match(input)) continue;
     if (editing && shortcut.whileEditing !== true) return null;
+    // 宿主（编辑器壳）已用同 id 注册命令接管该组合 → 让给它，避免一次按键执行两遍
+    if (skip?.has(shortcut.id) === true) return shortcut.id;
     shortcut.run(session, context, input);
     return shortcut.id;
   }
