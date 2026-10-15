@@ -27,6 +27,12 @@ export type SceneNodeType =
   | 'component_set'
   | 'instance';
 
+/**
+ * 混合模式（C5 Inspector「高级」分区）——P0 子集取 Figma 常用六档。
+ * 渲染侧（FE-06/CanvasKit）按此档位映射混合算子；文档真值只存档位名。
+ */
+export type BlendMode = 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten';
+
 /** 所有节点共有的几何与外观属性。 */
 export interface NodeBase {
   id: NodeId;
@@ -43,6 +49,8 @@ export interface NodeBase {
   locked: boolean;
   /** 0–1。 */
   opacity: number;
+  /** 与父级内容的混合模式（P0 默认 normal；FE-05 起可由 Inspector 读写）。 */
+  blendMode: BlendMode;
   fills: readonly Paint[];
   strokes: readonly Stroke[];
   effects: readonly Effect[];
@@ -134,6 +142,7 @@ export interface NodePatch {
   visible?: boolean;
   locked?: boolean;
   opacity?: number;
+  blendMode?: BlendMode;
   fills?: readonly Paint[];
   strokes?: readonly Stroke[];
   effects?: readonly Effect[];
@@ -156,6 +165,7 @@ export interface NodeInit {
   visible?: boolean;
   locked?: boolean;
   opacity?: number;
+  blendMode?: BlendMode;
   fills?: readonly Paint[];
   strokes?: readonly Stroke[];
   effects?: readonly Effect[];
@@ -206,6 +216,7 @@ function baseNode(type: SceneNodeType, init: NodeInit): NodeBase {
     visible: init.visible ?? true,
     locked: init.locked ?? false,
     opacity: init.opacity ?? 1,
+    blendMode: init.blendMode ?? 'normal',
     fills: init.fills ?? defaultFillFor(type),
     strokes: init.strokes ?? [],
     effects: init.effects ?? [],
@@ -351,6 +362,7 @@ export const PATCHABLE_KEYS = [
   'visible',
   'locked',
   'opacity',
+  'blendMode',
   'fills',
   'strokes',
   'effects',

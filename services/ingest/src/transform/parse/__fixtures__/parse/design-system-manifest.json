@@ -1,0 +1,8 @@
+{
+  "name": "Acme UI",
+  "version": "2.1.0",
+  "license": "Apache-2.0",
+  "tokens": "tokens/color.json",
+  "components": ["Button", "Card"],
+  "themes": ["light", "dark"]
+}

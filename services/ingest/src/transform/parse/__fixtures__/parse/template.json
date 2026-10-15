@@ -1,0 +1,19 @@
+{
+  "slug": "zhangzara-coral",
+  "name": "Coral",
+  "tagline": "Cream and coral on near-black, set in oversized Bebas Neue.",
+  "mood": ["bold", "warm", "modern", "confident"],
+  "occasion": ["fashion / beauty pitch", "fitness brand"],
+  "tone": ["graphic", "punchy", "magazine"],
+  "formality": "medium",
+  "density": "medium",
+  "palette": {
+    "coral": "#E85D5D",
+    "coral_dark": "#D44A4A",
+    "cream": "#F5F0E8",
+    "cream_dark": "#E8E0D4",
+    "ink": "#1A1A1A",
+    "gray": "#6B6B6B",
+    "description": "near-black canvas, warm cream paper"
+  }
+}
