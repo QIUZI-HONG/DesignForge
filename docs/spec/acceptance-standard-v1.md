@@ -63,4 +63,4 @@ hover / active（focus-visible）/ disabled / loading（骨架与进度）/ empt
 
 - A) 对照页面与弹窗清单 v1（#8）
 - B) 中文化术语对照表（21 条基线 → 与 Figma 本体中文校准后的终版；#8 收编）
-- C) 后端真 / 桩边界与功能点清单（#6）
+- C) 范围与依赖边界：见 `docs/spec/frontend-scope-and-boundaries-v1.md`（#6 定稿：54 项 + 真/桩矩阵 + 达标语义）；逐项功能点清单随 #11 并入。
