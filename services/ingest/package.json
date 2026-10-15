@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "设界采集与市场数据管线（采集→四层→评分→索引；独立可跑）",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
