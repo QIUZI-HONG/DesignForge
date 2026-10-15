@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 
 import type { FetchLike, HttpDeps, HttpResponseLike } from './http.ts';
-import { requestText } from './http.ts';
+import { NonRetryableFetchError, requestText } from './http.ts';
 import type { CandidateSource, RepoMeta, TreeEntry } from './types.ts';
 
 /** 上游非 2xx/304 响应（由调用方分类处理：404 跳过、403/429 已由退避层处理）。 */
@@ -30,8 +30,8 @@ export class UpstreamError extends Error {
   }
 }
 
-/** 重放样本缺失（离线复跑明确阻塞）。 */
-export class ReplayMissError extends Error {
+/** 重放样本缺失（离线复跑明确阻塞；不可重试）。 */
+export class ReplayMissError extends NonRetryableFetchError {
   readonly url: string;
   constructor(url: string) {
     super(`离线样本缺失：${url}（重放不触网；请补齐样本集或改跑真网）`);

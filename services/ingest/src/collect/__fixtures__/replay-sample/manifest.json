@@ -1,0 +1,14 @@
+{
+  "schema": "df.market.replay/v1",
+  "runId": "20261015-154054",
+  "asOfMs": 1792078854860,
+  "asOf": "2026-10-15T15:40:54.860Z",
+  "recordedFrom": "2026-10-15 真网小跑（--limit 5，仓库外全量样本见 ~/df-evidence/mk-01/replay/）",
+  "repos": ["anthropics/skills", "zarazhangrui/beautiful-html-templates"],
+  "replayParams": {
+    "seeds": ["anthropics/skills", "zarazhangrui/beautiful-html-templates"],
+    "topics": [],
+    "maxContentPerRepo": 3
+  },
+  "note": "冻结样本集（由仓库外真网响应裁剪）；仅含公开只读元数据与描述性文本；离线复跑不触网"
+}

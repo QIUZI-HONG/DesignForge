@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { IdentifyInput } from './identify.ts';
-import { digestForRoot, identifyAssets } from './identify.ts';
+import { digestForRoot, findLicensePath, identifyAssets } from './identify.ts';
 import type { LicenseAssessment, TreeEntry } from './types.ts';
 
 function tree(paths: string[]): TreeEntry[] {
@@ -353,6 +353,16 @@ describe('Plugin 与同目录优先级（规格 §2.1.3/§2.3）', () => {
     });
     expect(assets).toEqual([]);
     expect(rejected[0]?.reason).toContain('name');
+  });
+});
+
+describe('findLicensePath 许可原文定位（只认仓根）', () => {
+  it('仓根 LICENSE 优先；仅子目录有许可 → null（不误用子目录许可代表全仓）', () => {
+    expect(findLicensePath(tree(['LICENSE', 'skills/x/LICENSE.txt']))).toBe('LICENSE');
+    expect(findLicensePath(tree(['COPYING']))).toBe('COPYING');
+    expect(findLicensePath(tree(['LICENSE.md', 'docs/LICENCE.md']))).toBe('LICENSE.md');
+    expect(findLicensePath(tree(['skills/x/LICENSE.txt', 'docs/LICENSE']))).toBeNull();
+    expect(findLicensePath(tree(['README.md']))).toBeNull();
   });
 });
 

@@ -24,6 +24,12 @@ import {
 } from './ratelimit.ts';
 import type { RawEvent } from './types.ts';
 
+/**
+ * fetch 抛出的**不可重试**错误（如离线样本缺失）：`requestText` 直接上抛，
+ * 不当作网络抖动退避重试。
+ */
+export class NonRetryableFetchError extends Error {}
+
 /** 摘要（确定性；ODS 幂等键与证据哈希的基础）。 */
 export function sha256Hex(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
@@ -135,6 +141,8 @@ export async function requestText(deps: HttpDeps, spec: HttpRequestSpec): Promis
     try {
       res = await deps.fetchImpl(spec.url, { method: 'GET', headers });
     } catch (error) {
+      // 不可重试错误（如 ReplayMissError）直接上抛：重放样本缺失是配置问题，不是网络抖动。
+      if (error instanceof NonRetryableFetchError) throw error;
       errorMessage = error instanceof Error ? error.message : String(error);
     }
     const endedAtMs = clock.now();

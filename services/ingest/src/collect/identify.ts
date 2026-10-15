@@ -88,18 +88,20 @@ export function digestForRoot(tree: TreeEntry[], root: string): string {
   return `sha256:${sha256Hex(stream)}`;
 }
 
-/** Trees 中定位许可原文（优先仓根、再浅层；用于 license 证据与取回选择）。 */
+/**
+ * Trees 中定位许可原文（**只认仓根**）。
+ *
+ * 为什么只认仓根：仓库级 license 证据必须是「整仓适用」的那份；子目录里的
+ * LICENSE（如 anthropics/skills 的 18 个技能各自 LICENSE）不能代表全仓，
+ * 误用会把「一仓多许可」说成单一许可（合规风险）。仓根无许可 → 证据留空，
+ * 守门按「证据缺失」保守处理；逐资产许可由 frontmatter `license` 字段留痕。
+ */
 export function findLicensePath(tree: TreeEntry[]): string | null {
   const licenseRe = /^(license|licence|copying)(\.(md|txt|markdown))?$/i;
   const candidates = tree
-    .filter((e) => e.type === 'blob' && licenseRe.test(baseName(e.path)))
+    .filter((e) => e.type === 'blob' && !e.path.includes('/') && licenseRe.test(baseName(e.path)))
     .map((e) => e.path)
-    .sort((a, b) => {
-      const depthA = a.split('/').length;
-      const depthB = b.split('/').length;
-      if (depthA !== depthB) return depthA - depthB;
-      return a < b ? -1 : a > b ? 1 : 0;
-    });
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return candidates[0] ?? null;
 }
 
