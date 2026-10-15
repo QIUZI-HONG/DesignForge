@@ -26,12 +26,11 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { createServer as createNetServer } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+
+import { freePort, startFixtureDaemon, startSameOriginGateway } from './lib/gates.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scenariosDir = join(repoRoot, 'scripts', 'e2e', 'scenarios');
@@ -55,19 +54,6 @@ const workspaceDir = join(dataRoot, 'workspace');
 /** 向 stdout 打一行（带前缀，便于从日志里区分子进程输出）。 */
 function log(message) {
   console.log(`[e2e] ${message}`);
-}
-
-/** 取一个空闲端口（先 listen 0 再关，交给子进程用）。 */
-function freePort() {
-  return new Promise((resolvePort, reject) => {
-    const server = createNetServer();
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address !== null ? address.port : 0;
-      server.close(() => resolvePort(port));
-    });
-  });
 }
 
 /** 轮询 HTTP 直到 200（或超时）。 */
@@ -145,75 +131,45 @@ if (selected.length === 0) {
 }
 
 // ---------------------------------------------------------------------------
-// 二、起 daemon（子进程 + 临时数据目录）
+// 二、起 daemon（子进程 + 临时数据目录；共享件见 scripts/lib/gates.mjs）
 // ---------------------------------------------------------------------------
 
 mkdirSync(workspaceDir, { recursive: true });
-const daemonPort = await freePort();
-const daemonEnv = {
-  ...process.env,
-  DF_DATA_ROOT: dataRoot,
-  DF_WORKSPACE_DIR: workspaceDir,
-  DF_PORT: String(daemonPort),
-  DF_HOST: '127.0.0.1',
-};
-const daemon = spawn(process.execPath, [join(repoRoot, 'apps/daemon/src/main.ts')], {
-  cwd: repoRoot,
-  env: daemonEnv,
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-
-let daemonUrl = null;
-let daemonOutput = '';
-const daemonReady = await new Promise((resolveReady) => {
-  const timer = setTimeout(() => resolveReady(false), 20_000);
-  daemon.stdout.on('data', (chunk) => {
-    daemonOutput += String(chunk);
-    const match = /listening on (http:\/\/[^\s]+)/.exec(daemonOutput);
-    if (match !== null) {
-      daemonUrl = match[1];
-      clearTimeout(timer);
-      resolveReady(true);
-    }
-  });
-  daemon.stderr.on('data', (chunk) => {
-    daemonOutput += String(chunk);
-  });
-  daemon.on('exit', (code) => {
-    clearTimeout(timer);
-    resolveReady(false);
-    if (verbose) log(`daemon 退出（code ${String(code)}）`);
-  });
-});
-
-if (!daemonReady || daemonUrl === null) {
-  daemon.kill('SIGTERM');
-  evidence.daemon = { url: null, port: daemonPort, output: daemonOutput.slice(-2000) };
+let webServer = null;
+let gateway = null;
+let fixtureDaemon;
+try {
+  fixtureDaemon = await startFixtureDaemon({ dataRoot, workspaceDir });
+} catch (error) {
+  evidence.daemon = { url: null, dataRoot, workspaceDir };
   console.error(
-    [
-      '阻塞：daemon 起不来（本 runner 需要真 daemon 才能跑主路径）。',
-      `输出（末 2000 字符）：${daemonOutput.slice(-2000)}`,
-    ].join('\n'),
+    ['阻塞：daemon 起不来（本 runner 需要真 daemon 才能跑主路径）。', String(error)].join('\n'),
   );
   finish(evidence, 2);
 }
-
+const daemonUrl = fixtureDaemon.url;
 log(`daemon 就绪：${daemonUrl}（数据根 ${dataRoot}）`);
-evidence.daemon = { url: daemonUrl, port: daemonPort, dataRoot, workspaceDir };
+evidence.daemon = { url: daemonUrl, dataRoot, workspaceDir };
+
+/** 结束 daemon / 站点 / 网关（各处提前退出与收尾复用）。 */
+async function shutdown() {
+  await gateway?.close();
+  webServer?.kill('SIGTERM');
+  await fixtureDaemon?.close();
+}
 
 // ---------------------------------------------------------------------------
 // 三、站点（复用 DF_WEB_URL，或生产构建 + 起服务）
 // ---------------------------------------------------------------------------
 
 let webUrl = process.env.DF_WEB_URL ?? null;
-let webServer = null;
 
 if (webUrl === null) {
   const webPort = await freePort();
   webUrl = `http://127.0.0.1:${webPort}`;
   const nextBin = join(repoRoot, 'apps/web/node_modules/.bin/next');
   if (!existsSync(nextBin)) {
-    daemon.kill('SIGTERM');
+    await shutdown();
     console.error('阻塞：未找到 next 可执行文件（先 pnpm install）。');
     finish(evidence, 2);
   }
@@ -221,7 +177,7 @@ if (webUrl === null) {
   const build = spawn(nextBin, ['build'], { cwd: join(repoRoot, 'apps/web'), stdio: 'inherit' });
   const buildCode = await new Promise((resolveBuild) => build.on('exit', resolveBuild));
   if (buildCode !== 0) {
-    daemon.kill('SIGTERM');
+    await shutdown();
     console.error('阻塞：web 构建失败（见上方 next build 输出）。');
     finish(evidence, 2);
   }
@@ -240,8 +196,7 @@ if (webUrl === null) {
 
 evidence.webUrl = webUrl;
 if (!(await waitForHttp(webUrl, 60_000, '站点'))) {
-  daemon.kill('SIGTERM');
-  webServer?.kill('SIGTERM');
+  await shutdown();
   console.error(`阻塞：站点不可达（${webUrl}）。`);
   finish(evidence, 2);
 }
@@ -249,71 +204,10 @@ log(`站点就绪：${webUrl}`);
 
 // ---------------------------------------------------------------------------
 // 三之二、同源网关（还原架构 §3.1 的「Web 应用 ↑↓ 同源 HTTP」形态）
-//
-// 为什么需要它：架构文档把 Web 应用与 daemon 的关系定为**同源 HTTP**（生产形态是
-// daemon/桌面壳把前端与 API 放在同一源下）；而 e2e 里站点与 daemon 各占一个端口，
-// 浏览器直连 daemon 会因缺 CORS 响应头被拦。CORS 开关属 daemon（INF-01）的口径，
-// 不在本票范围——因此这里用极简反向代理把两者还原成同一源：
-//   `/df/*` → daemon（前缀剥掉）；其余 → 站点。
-// 被代理的请求与生产同源形态等价（无跨源、无额外头），不掩盖本票的链路问题。
 // ---------------------------------------------------------------------------
 
-const gatewayPort = await freePort();
-const gateway = createServer((request, response) => {
-  const isDaemon = (request.url ?? '').startsWith('/df');
-  const upstreamBase = isDaemon ? daemonUrl : webUrl;
-  const path = isDaemon ? (request.url ?? '').slice('/df'.length) : (request.url ?? '/');
-  const target = `${upstreamBase}${path.startsWith('/') ? path : `/${path}`}`;
-
-  // 逐跳头与 host/content-length 交给 fetch 自行决定（流式转发时长度由传输层给）
-  const headers = {};
-  for (const [key, value] of Object.entries(request.headers)) {
-    const lower = key.toLowerCase();
-    if (
-      [
-        'host',
-        'connection',
-        'keep-alive',
-        'transfer-encoding',
-        'upgrade',
-        'content-length',
-      ].includes(lower)
-    )
-      continue;
-    if (value !== undefined) headers[key] = value;
-  }
-
-  const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
-  fetch(target, {
-    method: request.method,
-    headers,
-    ...(hasBody ? { body: Readable.toWeb(request), duplex: 'half' } : {}),
-    redirect: 'manual',
-  })
-    .then((upstream) => {
-      // undici 已透明解压上游响应体：必须去掉 content-encoding/content-length，
-      // 否则浏览器按「已压缩」的元数据去解一段未压缩的字节 → ERR_CONTENT_DECODING_FAILED
-      const outHeaders = {};
-      for (const [key, value] of upstream.headers.entries()) {
-        const lower = key.toLowerCase();
-        if (['content-encoding', 'content-length', 'transfer-encoding'].includes(lower)) continue;
-        outHeaders[key] = value;
-      }
-      response.writeHead(upstream.status, outHeaders);
-      if (upstream.body === null) response.end();
-      else Readable.fromWeb(upstream.body).pipe(response);
-    })
-    .catch((error) => {
-      response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
-      response.end(`gateway: ${String(error)}`);
-    });
-});
-
-await new Promise((resolveListen, rejectListen) => {
-  gateway.on('error', rejectListen);
-  gateway.listen(gatewayPort, '127.0.0.1', resolveListen);
-});
-const gatewayUrl = `http://127.0.0.1:${String(gatewayPort)}`;
+gateway = await startSameOriginGateway({ webUrl, daemonUrl });
+const gatewayUrl = gateway.url;
 evidence.gatewayUrl = gatewayUrl;
 log(`同源网关就绪：${gatewayUrl}（/df/* → daemon，其余 → 站点）`);
 
@@ -323,8 +217,7 @@ log(`同源网关就绪：${gatewayUrl}（/df/* → daemon，其余 → 站点�
 
 const chrome = resolveChrome();
 if (chrome === undefined) {
-  daemon.kill('SIGTERM');
-  webServer?.kill('SIGTERM');
+  await shutdown();
   console.error('阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）。');
   finish(evidence, 2);
 }
@@ -340,8 +233,7 @@ for (const file of selected) {
   if (typeof module.run !== 'function') {
     console.error(`阻塞：场景 ${file} 未导出 run(page, ctx)。`);
     await browser.close();
-    daemon.kill('SIGTERM');
-    webServer?.kill('SIGTERM');
+    await shutdown();
     finish(evidence, 2);
   }
 
@@ -379,8 +271,7 @@ for (const file of selected) {
 }
 
 await browser.close();
-daemon.kill('SIGTERM');
-webServer?.kill('SIGTERM');
+await shutdown();
 
 // ---------------------------------------------------------------------------
 // 五、汇总与退出码

@@ -14,12 +14,17 @@
  *   empty 指向空数据根；error 拦截 /documents 使其失败。
  *   无参照集时逐项记 `pending` 并整体 exit 2（禁止假绿）。
  *
+ * 数据来源：默认直连站点（`DF_WEB_URL`）；给定 `--fixture <workspace 目录>` 时，门禁自己起一个
+ * **夹具 daemon**（临时数据根 + 指定工作目录）并用**同源网关**把站点与 daemon 合成一个源——
+ * 页面级对照要能与参照集对上，就必须让页面显示指定的样例数据（见 `scripts/lib/gates.mjs`）。
+ *
  * 用法（仓库根执行）：
  *   node scripts/verify-figma-home.mjs                    # 默认 http://127.0.0.1:3210
  *   DF_WEB_URL=http://127.0.0.1:3000 node scripts/verify-figma-home.mjs
- *   node scripts/verify-figma-home.mjs --sample-only      # 只取样（供参照集采集会话对照），无判定
+ *   node scripts/verify-figma-home.mjs --sample-only --fixture ~/df-evidence/fe-02/fixture-workspace
+ *   # ↑ 只取样（供 REF-01 参照集采集会话对照），无判定
  *
- * 环境变量：DF_WEB_URL（站点；带 `?daemon=` 可指向指定 daemon）、DF_REF_DIR（参照集）、
+ * 环境变量：DF_WEB_URL（站点）、DF_HOME_FIXTURE（等同 --fixture）、DF_REF_DIR（参照集）、
  *           DF_EVIDENCE_DIR（证据根）、BENCH_CHROME_EXECUTABLE（Chromium 可执行文件）。
  *
  * 退出码（门禁三态，禁止假绿）：0 全部通过 / 1 有状态超差 / 2 **阻塞**
@@ -29,6 +34,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+
+import { startFixtureDaemon, startSameOriginGateway } from './lib/gates.mjs';
 
 const WEB_URL = process.env.DF_WEB_URL ?? 'http://127.0.0.1:3210';
 const REF_DIR = resolve(process.env.DF_REF_DIR ?? join(homedir(), 'df-evidence', 'reference-v1'));
@@ -48,6 +55,8 @@ const flagValue = (name) => {
 };
 const only = flagValue('--only');
 const maxRatio = Number(flagValue('--max-ratio') ?? '0.001');
+/** 夹具工作目录：给了就自己起 daemon + 同源网关（页面显示指定样例数据）。 */
+const fixtureDir = flagValue('--fixture') ?? process.env.DF_HOME_FIXTURE;
 
 const startedAt = new Date();
 const stamp = startedAt.toISOString().replaceAll(':', '-').replace(/\..+$/, '');
@@ -207,7 +216,9 @@ const RECIPES = {
 const evidence = baseEvidence();
 const reference = inspectReferenceDir();
 
-if (!reference.ready) {
+// `--sample-only` 的目的正是「参照集冻结**之前**先取样」：此时不判「未冻结」为阻塞，
+// 但仍以 exit 2 收尾（取样无判定 ≠ 通过）。
+if (!reference.ready && !sampleOnly) {
   evidence.blockedReason = reference.reason;
   evidence.states = STATES.map((state) => ({ state, status: 'pending' }));
   evidence.stateCoverage = evidence.stateCoverage.map((item) => ({
@@ -241,8 +252,49 @@ if (!site.reachable) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 夹具 daemon + 同源网关（可选：给了 --fixture / DF_HOME_FIXTURE 才起）
+// ---------------------------------------------------------------------------
+
+let pageOrigin = WEB_URL;
+let daemon = null;
+let gateway = null;
+
+if (fixtureDir !== undefined && fixtureDir.trim() !== '') {
+  const fixtureRoot = resolve(fixtureDir);
+  if (!existsSync(fixtureRoot)) {
+    evidence.blockedReason = `夹具工作目录不存在：${fixtureRoot}`;
+    finish(evidence, 2, `阻塞：夹具工作目录不存在（${fixtureRoot}）。`);
+  }
+  try {
+    daemon = await startFixtureDaemon({
+      dataRoot: join(evidenceDir, 'fixture-data'),
+      workspaceDir: fixtureRoot,
+    });
+  } catch (error) {
+    evidence.blockedReason = String(error);
+    finish(evidence, 2, `阻塞：夹具 daemon 起不来。\n${String(error)}`);
+  }
+  gateway = await startSameOriginGateway({ webUrl: WEB_URL, daemonUrl: daemon.url });
+  pageOrigin = gateway.url;
+  evidence.fixture = { workspaceDir: fixtureRoot, daemonUrl: daemon.url, gatewayUrl: gateway.url };
+  console.error(`夹具 daemon：${daemon.url}；同源网关：${gateway.url}（/df/* → daemon）`);
+}
+
+/** 页面地址（走网关时带 `?daemon=`；同源，与生产形态一致）。 */
+const pageUrl = `${pageOrigin}${PAGE}${
+  gateway === null ? '' : `?daemon=${encodeURIComponent(`${gateway.url}/df`)}`
+}`;
+
+/** 收尾：关网关与夹具 daemon。 */
+async function shutdown() {
+  await gateway?.close();
+  await daemon?.close();
+}
+
 const chrome = resolveChrome();
 if (chrome === undefined) {
+  await shutdown();
   evidence.blockedReason = '未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）';
   finish(
     evidence,
@@ -272,7 +324,7 @@ let failures = 0;
 
 for (const state of targets) {
   const page = await context.newPage();
-  const url = `${WEB_URL}${PAGE}`;
+  const url = pageUrl;
   let annotate = {};
   try {
     const result = await RECIPES[state](page, { url, state });
@@ -368,6 +420,7 @@ for (const state of targets) {
 }
 
 await browser.close();
+await shutdown();
 
 if (sampleOnly) {
   evidence.sampledOnly = true;
