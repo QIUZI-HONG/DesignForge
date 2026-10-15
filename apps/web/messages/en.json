@@ -331,5 +331,6 @@
   "dashboard.fresh.indexAge": "Index age {days} days (generated at {at})",
   "dashboard.fresh.indexAgeUnknown": "Index generation time missing (empty state)",
   "dashboard.empty": "No index data: the dashboard draws no conclusions (run the collector first).",
-  "dashboard.layer.note": "Note"
+  "dashboard.layer.note": "Note",
+  "market.detail.planLoading": "Loading the install proposal (the button is enabled once the dryRun preview is ready)…"
 }

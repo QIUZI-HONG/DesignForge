@@ -54,7 +54,7 @@ export default function MarketAssetPage() {
 
   if (status === 'loading') {
     return (
-      <header style={headerStyle}>
+      <header style={headerStyle} data-df-state="loading" data-df-loading="detail">
         <h1 style={titleStyle}>{t('market.detail.loading')}</h1>
         <p style={subtitleStyle}>{t('market.loading')}</p>
       </header>
@@ -113,6 +113,12 @@ export default function MarketAssetPage() {
           }}
         />
       )}
+
+      {loadPlan.status === 'loading' && confirming ? (
+        <p style={hintStyle} data-df-state="loading" data-df-loading="load-plan">
+          {t('market.detail.planLoading')}
+        </p>
+      ) : null}
 
       {loadPlan.status === 'error' ? (
         <ErrorState

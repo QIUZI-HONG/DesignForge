@@ -74,7 +74,11 @@ export default function MarketPanelPage() {
         <p style={hintStyle}>{t('market.panel.pageHint')}</p>
       </header>
 
-      {status === 'loading' ? <p style={hintStyle}>{t('market.loading')}</p> : null}
+      {status === 'loading' ? (
+        <p style={hintStyle} data-df-state="loading" data-df-loading="panel">
+          {t('market.loading')}
+        </p>
+      ) : null}
       {status === 'error' ? <MarketErrorState message={error ?? ''} onRetry={reload} /> : null}
       {status === 'ready' && outcome === 'index-missing' ? (
         <MarketEmptyState kind="index-missing" />

@@ -59,7 +59,11 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {status === 'loading' ? <p style={hintStyle}>{t('market.loading')}</p> : null}
+      {status === 'loading' ? (
+        <p style={hintStyle} data-df-state="loading" data-df-loading="dashboard">
+          {t('market.loading')}
+        </p>
+      ) : null}
       {status === 'error' ? <MarketErrorState message={error ?? ''} onRetry={reload} /> : null}
 
       {status === 'ready' && outcome === 'index-missing' ? (

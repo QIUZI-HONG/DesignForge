@@ -331,5 +331,6 @@
   "dashboard.fresh.indexAge": "索引年龄 {days} 天（生成时刻 {at}）",
   "dashboard.fresh.indexAgeUnknown": "索引生成时刻缺失（空态）",
   "dashboard.empty": "尚无索引数据：看板不下结论（先跑采集线，再回来看进度与质量）。",
-  "dashboard.layer.note": "说明"
+  "dashboard.layer.note": "说明",
+  "market.detail.planLoading": "装载提案加载中（dryRun 预览就绪后按钮可用）…"
 }

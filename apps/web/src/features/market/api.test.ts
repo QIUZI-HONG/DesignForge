@@ -75,6 +75,17 @@ describe('api · 基址解析', () => {
     );
     expect(daemonBaseUrl({})).toBe(DEFAULT_DAEMON_URL);
   });
+
+  it('不传参数时读静态 process.env.NEXT_PUBLIC_DF_DAEMON_URL（Next 构建期内联口径）', () => {
+    const original = process.env.NEXT_PUBLIC_DF_DAEMON_URL;
+    process.env.NEXT_PUBLIC_DF_DAEMON_URL = 'http://127.0.0.1:4321';
+    try {
+      expect(daemonBaseUrl()).toBe('http://127.0.0.1:4321');
+    } finally {
+      if (original === undefined) delete process.env.NEXT_PUBLIC_DF_DAEMON_URL;
+      else process.env.NEXT_PUBLIC_DF_DAEMON_URL = original;
+    }
+  });
 });
 
 describe('api · 信封解包', () => {

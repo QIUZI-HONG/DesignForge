@@ -42,11 +42,16 @@ export interface MarketClientOptions {
   signal?: AbortSignal;
 }
 
-/** 从环境取 daemon 基址（`NEXT_PUBLIC_DF_DAEMON_URL` 缺省走协议起点）。 */
-export function daemonBaseUrl(
-  env: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
-): string {
-  const configured = env.NEXT_PUBLIC_DF_DAEMON_URL;
+/**
+ * 从环境取 daemon 基址（`NEXT_PUBLIC_DF_DAEMON_URL` 缺省走协议起点）。
+ *
+ * 为什么显式写 `process.env.NEXT_PUBLIC_DF_DAEMON_URL` 这个**静态成员表达式**：
+ * Next 只在构建期内联「字面量形式的 NEXT_PUBLIC_* 访问」，把整个 `process.env` 对象传进来
+ * 在浏览器里取不到值（会静默回落缺省端口）。测试要注入时用 `env` 参数。
+ */
+export function daemonBaseUrl(env?: Record<string, string | undefined>): string {
+  const configured =
+    env === undefined ? process.env.NEXT_PUBLIC_DF_DAEMON_URL : env.NEXT_PUBLIC_DF_DAEMON_URL;
   if (typeof configured === 'string' && configured.length > 0) {
     return configured.replace(/\/+$/, '');
   }
