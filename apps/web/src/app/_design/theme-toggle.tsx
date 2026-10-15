@@ -1,6 +1,6 @@
 'use client';
 
-import { SegmentedControl, type ThemeName } from '@dforge/ui';
+import { applyDocumentTheme, SegmentedControl, type ThemeName } from '@dforge/ui';
 /**
  * 预览页的主题切换（FE-01 · `/_design` 专用）。
  *
@@ -8,7 +8,8 @@ import { SegmentedControl, type ThemeName } from '@dforge/ui';
  * 预览页是唯一需要**同时检视两套基准**的地方，因此在 `documentElement` 上切
  * `data-theme`（令牌变量随主题块整体换值），并把选择记进 localStorage 方便复看。
  * 为什么切 `documentElement` 而不是包一层 div：令牌选择器是 `:root[data-theme=…]`，
- * 只有根元素上的属性才会换整套变量（嵌套容器切换会静默失效）。
+ * 只有根元素上的属性才会换整套变量（嵌套容器切换会静默失效）——统一走包内
+ * `applyDocumentTheme`，不手写 `dataset.theme`。
  */
 import { useEffect, useState } from 'react';
 
@@ -26,12 +27,12 @@ export function ThemeToggle() {
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
     const initial: ThemeName = stored === 'dark' ? 'dark' : 'light';
     setTheme(initial);
-    document.documentElement.dataset.theme = initial;
+    applyDocumentTheme(initial);
   }, []);
 
   const apply = (next: ThemeName): void => {
     setTheme(next);
-    document.documentElement.dataset.theme = next;
+    applyDocumentTheme(next);
     window.localStorage.setItem(THEME_STORAGE_KEY, next);
   };
 

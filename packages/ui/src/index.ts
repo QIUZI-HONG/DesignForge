@@ -79,6 +79,7 @@ export {
   type StateFamilyEntry,
 } from './state-families';
 export {
+  applyDocumentTheme,
   cssVar,
   cssVarName,
   DENSITY,

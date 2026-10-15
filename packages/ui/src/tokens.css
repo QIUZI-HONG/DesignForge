@@ -1,8 +1,11 @@
 /*
  * 设界 · 双基准令牌 CSS 变量（`packages/ui/src/tokens.ts` 的落盘形态）。
  *
- * 用法：布局/页面导入 `@dforge/ui/styles.css`（内含本文件）；在 `<html>` 上设置
- * `data-theme="light"`（首页族）或 `data-theme="dark"`（编辑器族，UI3）。
+ * 用法：布局/页面导入 `@dforge/ui/styles.css`（内含本文件）；用
+ * `applyDocumentTheme('light' | 'dark')`（或直接在 `<html>` 上写 `data-theme`）切基准：
+ * light = 首页族，dark = 编辑器族（UI3）。
+ * **主题是文档级属性**：选择器只认根元素上的 `data-theme`——写在嵌套容器上会静默失效
+ * （门户浮层 Modal/Drawer/Toast 挂在 body，也靠根主题继承，见 tokens.ts 的 applyDocumentTheme）。
  * 两套主题块**变量名完全一致**——切主题不换键，只换值；密度（控件 32↔28）随主题切换。
  *
  * 纪律：本文件是 `scripts/guard-tokens.mjs` 的白名单文件（颜色/间距/圆角/字号的唯一定义处）；

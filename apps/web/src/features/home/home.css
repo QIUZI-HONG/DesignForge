@@ -1,0 +1,548 @@
+/*
+ * 首页布局样式（FE-02）。
+ *
+ * 口径（《前端实现规格 v1》§一.3 + 清单 B 区）：
+ * - 几何全走令牌：侧栏 `--dfg-size-sidebar`(240) + 顶栏 `--dfg-size-topbar`(56) +
+ *   筛选行 `--dfg-space-10`（40）+ 8 像素栅格（`--dfg-space-*` 均为 4 的倍数）；
+ * - 颜色一律 `var(--dfg-color-*)`（浅色基准由 `<html data-theme="light">` 提供）；
+ * - 裸值禁止（`scripts/guard-tokens.mjs` 扫描 apps/web/src，本文件在扫描范围内）——
+ *   唯一的例外是 `ch` 量纲的搜索框宽度上限（字符相对宽度，非像素裸值）。
+ *
+ * 类名以 `dfg-home__` 前缀命名，避免与设计系统组件样式相撞。
+ */
+
+/* ---------- 骨架：侧栏 + 主区 ---------- */
+
+.dfg-home {
+  display: grid;
+  grid-template-columns: var(--dfg-size-sidebar) minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--dfg-color-canvas);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+}
+
+.dfg-home--collapsed {
+  grid-template-columns: var(--dfg-space-12) minmax(0, 1fr);
+}
+
+.dfg-home__main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+/* ---------- 侧栏（B2） ---------- */
+
+.dfg-home__sidebar {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-2);
+  background: var(--dfg-color-surface-subtle);
+  border-inline-end: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-home__sidebar-head {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dfg-home__sidebar--collapsed .dfg-home__sidebar-head {
+  justify-content: center;
+}
+
+/* 分区标题：小写字（11 / 宽字距 / 次级色），折叠时让位 */
+.dfg-home__group-label {
+  padding: var(--dfg-space-2);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-home__sidebar--collapsed .dfg-home__group-label {
+  display: none;
+}
+
+.dfg-home__navlist {
+  display: grid;
+  align-content: start;
+  gap: var(--dfg-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 条目 32 高（随主题密度：舒适 32 / 紧凑 28） */
+.dfg-home__navitem {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-icon-gap);
+  width: 100%;
+  height: var(--dfg-row-height-md);
+  padding-inline: var(--dfg-space-2);
+  border: none;
+  border-radius: var(--dfg-radius-md);
+  background: none;
+  color: var(--dfg-color-text-primary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-13);
+  text-align: start;
+  cursor: pointer;
+}
+
+.dfg-home__navitem:hover,
+.dfg-home__navitem.dfg-state-hover {
+  background: var(--dfg-color-hover);
+}
+
+/* 选中态：选中底 + 主色文字（浅色基准的选中底与主色由令牌给，值见 packages/ui/src/tokens.ts） */
+.dfg-home__navitem--selected {
+  background: var(--dfg-color-selection);
+  color: var(--dfg-color-selection-text);
+}
+
+.dfg-home__navitem:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+}
+
+.dfg-home__navitem-icon {
+  display: inline-flex;
+  color: var(--dfg-color-icon-secondary);
+}
+
+.dfg-home__navitem--selected .dfg-home__navitem-icon {
+  color: var(--dfg-color-selection-text);
+}
+
+.dfg-home__navitem-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dfg-home__navitem-count {
+  min-width: var(--dfg-space-4);
+  padding-inline: var(--dfg-space-1);
+  border-radius: var(--dfg-radius-pill);
+  background: var(--dfg-color-surface);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  text-align: center;
+}
+
+/* 图标模式：只留图标（无障碍名由 aria-label 保住） */
+.dfg-home__sidebar--collapsed .dfg-home__navitem {
+  justify-content: center;
+  padding-inline: var(--dfg-space-1);
+}
+
+.dfg-home__sidebar--collapsed .dfg-home__navitem-label,
+.dfg-home__sidebar--collapsed .dfg-home__navitem-count {
+  display: none;
+}
+
+/* ---------- 顶栏（B1 / B5 / B9 / B10） ---------- */
+
+.dfg-home__topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-4);
+  height: var(--dfg-size-topbar);
+  padding-inline: var(--dfg-space-4);
+  background: var(--dfg-color-surface);
+  border-block-end: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-home__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-home__brand-name {
+  font-size: var(--dfg-font-size-15);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-home__search {
+  position: relative;
+  flex: 1;
+  /* 上限用字符量纲（40 个字符宽），避免把搜索框拉成整条顶栏 */
+  max-width: 40ch;
+}
+
+.dfg-home__searchfield {
+  width: 100%;
+}
+
+.dfg-home__searchpanel {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 100%;
+  z-index: var(--dfg-z-dropdown);
+  display: grid;
+  gap: var(--dfg-space-1);
+  margin-block-start: var(--dfg-space-1);
+  padding: var(--dfg-space-2);
+  background: var(--dfg-color-surface-raised);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  box-shadow: var(--dfg-shadow-popover);
+}
+
+.dfg-home__searchgroup {
+  display: grid;
+  gap: var(--dfg-space-1);
+}
+
+.dfg-home__searchgroup-title {
+  padding-inline: var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+}
+
+.dfg-home__searchgroup-empty {
+  padding: var(--dfg-space-2);
+  color: var(--dfg-color-text-disabled);
+  font-size: var(--dfg-font-size-12);
+}
+
+/* 结果条目 32 高（F3 条目口径：图标 16 + 圆角 6） */
+.dfg-home__searchhit {
+  display: block;
+  width: 100%;
+  height: var(--dfg-row-height-md);
+  padding-inline: var(--dfg-space-2);
+  border: none;
+  border-radius: var(--dfg-radius-sm);
+  background: none;
+  color: var(--dfg-color-text-primary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-13);
+  text-align: start;
+  cursor: pointer;
+}
+
+.dfg-home__searchhit:hover,
+.dfg-home__searchhit:focus-visible {
+  background: var(--dfg-color-selection);
+  color: var(--dfg-color-selection-text);
+  outline: none;
+}
+
+.dfg-home__searchempty {
+  display: grid;
+  gap: var(--dfg-space-1);
+  justify-items: start;
+  padding: var(--dfg-space-3) var(--dfg-space-2);
+  border-block-start: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-home__searchempty-title {
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-home__searchempty-desc {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-home__topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  margin-inline-start: auto;
+}
+
+/* ---------- 内容区 ---------- */
+
+.dfg-home__content {
+  display: grid;
+  align-content: start;
+  gap: var(--dfg-space-5);
+  padding: var(--dfg-space-6);
+  overflow-y: auto;
+}
+
+/* AI 提示区（B1 主结构里的那一块；AI 能力本身归编辑器票） */
+.dfg-home__ai {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-3);
+  padding: var(--dfg-space-4);
+  background: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+  box-shadow: var(--dfg-shadow-sm);
+}
+
+.dfg-home__ai-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dfg-color-component);
+}
+
+.dfg-home__ai-text {
+  display: grid;
+  flex: 1;
+  gap: var(--dfg-space-1);
+}
+
+.dfg-home__ai-title {
+  font-size: var(--dfg-font-size-15);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-home__ai-desc {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-13);
+}
+
+.dfg-home__sectionhead {
+  display: grid;
+  gap: var(--dfg-space-1);
+}
+
+.dfg-home__sectiontitle {
+  margin: 0;
+  font-size: var(--dfg-font-size-18);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-home__sectiondesc {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-13);
+}
+
+/* ---------- 筛选行（B4：单行 40） ---------- */
+
+.dfg-home__filterrow {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-3);
+  height: var(--dfg-space-10);
+}
+
+.dfg-home__filterrow-end {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-3);
+  margin-inline-start: auto;
+}
+
+.dfg-home__count {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-13);
+}
+
+.dfg-home__check {
+  display: inline-block;
+  min-width: var(--dfg-space-3);
+  color: var(--dfg-color-selection-text);
+  font-size: var(--dfg-font-size-12);
+  text-align: center;
+}
+
+/* ---------- 告警条 ---------- */
+
+.dfg-home__notice {
+  display: grid;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-3);
+  background: var(--dfg-color-warning-subtle);
+  border-radius: var(--dfg-radius-md);
+}
+
+.dfg-home__notice-title {
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-home__notice-desc {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+}
+
+/* ---------- 文件区（B1 四列网格 / B4 列表） ---------- */
+
+.dfg-home__files {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--dfg-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfg-home__files[data-view="list"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--dfg-space-1);
+}
+
+/* 卡片（B3）：圆角 8 + 缩略图（内圆角 6）+ 名称 13 + 元信息 11 */
+.dfg-home__card {
+  position: relative;
+  min-width: 0;
+}
+
+.dfg-home__card-link {
+  display: grid;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2);
+  background: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+  color: inherit;
+  text-decoration: none;
+}
+
+.dfg-home__card-link:hover {
+  box-shadow: var(--dfg-shadow-sm);
+}
+
+.dfg-home__card-link:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+}
+
+.dfg-home__card-thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  background: var(--dfg-color-surface-subtle);
+  border-radius: var(--dfg-radius-md);
+  color: var(--dfg-color-icon-disabled);
+}
+
+.dfg-home__card-name {
+  overflow: hidden;
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dfg-home__card-meta {
+  overflow: hidden;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 悬停/键盘聚焦时浮出「…」菜单（键盘路径靠 :focus-within，不只鼠标） */
+.dfg-home__card-menu {
+  position: absolute;
+  inset-block-start: var(--dfg-space-1);
+  inset-inline-end: var(--dfg-space-1);
+  opacity: 0;
+}
+
+.dfg-home__card:hover .dfg-home__card-menu,
+.dfg-home__card:focus-within .dfg-home__card-menu,
+.dfg-home__card .dfg-home__card-menu:focus-within {
+  opacity: 1;
+}
+
+/* 列表视图：同一张卡片换横向排布（缩略图收窄为一个图标位） */
+.dfg-home__files[data-view="list"] .dfg-home__card-link {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--dfg-space-3);
+  border-radius: var(--dfg-radius-md);
+  border-color: transparent;
+  padding-block: var(--dfg-space-1);
+}
+
+.dfg-home__files[data-view="list"] .dfg-home__card-link:hover {
+  background: var(--dfg-color-hover);
+  box-shadow: none;
+}
+
+.dfg-home__files[data-view="list"] .dfg-home__card-thumb {
+  width: var(--dfg-space-10);
+  aspect-ratio: 1 / 1;
+}
+
+.dfg-home__files[data-view="list"] .dfg-home__card-meta {
+  text-align: end;
+}
+
+/* 列表视图下「…」菜单不压在行内容上（行高更矮，浮层改为行内定位） */
+.dfg-home__files[data-view="list"] .dfg-home__card-menu {
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+}
+
+/* ---------- 回收站记录（B2 回收站分区） ---------- */
+
+.dfg-home__trash {
+  display: grid;
+  gap: var(--dfg-space-3);
+}
+
+.dfg-home__trashlist {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfg-home__trashrow {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-3);
+  height: var(--dfg-row-height-md);
+  padding-inline: var(--dfg-space-2);
+  border-block-end: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-home__trashrow-icon {
+  display: inline-flex;
+  color: var(--dfg-color-icon-disabled);
+}
+
+.dfg-home__trashrow-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--dfg-font-size-13);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dfg-home__trashrow-time {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* ---------- 窄窗不破版（1280 / 1024：网格降列，侧栏自动折叠由交互给） ---------- */
+
+/* guard-tokens:allow 断点是排版口径（验收标准 §3 的窄窗口径），非设计令牌范畴 */
+@media (max-width: 1280px) {
+  .dfg-home__files {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* guard-tokens:allow 同上：窄窗断点 */
+@media (max-width: 1024px) {
+  .dfg-home__files {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dfg-home__content {
+    padding: var(--dfg-space-4);
+  }
+}

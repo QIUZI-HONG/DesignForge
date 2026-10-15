@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyDocumentTheme,
   cssVar,
   DENSITY,
   flattenPrimitives,
@@ -177,6 +178,22 @@ describe('令牌 · tokens.css 与 TS 单一真源同步', () => {
     const lightVars = parseBlock(tokensCss, /:root\[data-theme="light"\]\s*\{([^}]*)\}/);
     const darkVars = parseBlock(tokensCss, /:root\[data-theme="dark"\]\s*\{([^}]*)\}/);
     expect(Object.keys(lightVars).sort()).toEqual(Object.keys(darkVars).sort());
+  });
+
+  it('主题选择器只认根元素（口径钉子：主题是文档级属性，嵌套切换不在口径内）', () => {
+    // 原因：验收标准 §3「主题逐页对齐 Figma 本体」= 一个页面一套基准；
+    // 且门户浮层（Modal/Drawer/Toast）挂在 body，必须靠根主题继承才能拿到令牌。
+    const themeSelectors = [...tokensCss.matchAll(/([^{}]*\[data-theme[^{}]*)\{/g)].map((match) =>
+      (match[1] ?? '').trim(),
+    );
+    expect(themeSelectors).toEqual([':root[data-theme="light"]', ':root[data-theme="dark"]']);
+  });
+
+  it('applyDocumentTheme 落到 <html> 上（消费方切主题的唯一入口）', () => {
+    applyDocumentTheme('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    applyDocumentTheme('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 
   it('组件样式表引用的每个 --dfg-* 变量都存在于令牌（防改名漂移）', () => {

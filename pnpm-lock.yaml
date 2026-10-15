@@ -126,6 +126,9 @@ importers:
       '@dforge/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@dforge/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
       '@dforge/ui':
         specifier: workspace:*
         version: link:../../packages/ui
