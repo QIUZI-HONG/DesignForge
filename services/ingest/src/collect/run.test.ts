@@ -15,7 +15,7 @@ import type { ScriptedStep } from './__fixtures__/http-harness.ts';
 import { jsonStep } from './__fixtures__/http-harness.ts';
 import type { FetchLike } from './http.ts';
 import type { CollectOptions } from './run.ts';
-import { runCollect } from './run.ts';
+import { runCollect, selectContentPaths } from './run.ts';
 
 const tempDirs: string[] = [];
 function tempDir(): string {
@@ -368,5 +368,78 @@ describe('退出码：断言失败 → 1（真失败）', () => {
     });
     expect(evidence.exitCode).toBe(1);
     expect(evidence.steps[0]?.verdict).toBe('fail');
+  });
+});
+
+describe('内容取回优先级（对接面修复：text 抽取组的关键文本优先）', () => {
+  const tree = [
+    { path: 'README.md', type: 'blob' as const, sha: 'r0', size: 10 },
+    { path: 'skills/pdf/SKILL.md', type: 'blob' as const, sha: 'b1', size: 10 },
+    { path: 'skills/pdf/README.md', type: 'blob' as const, sha: 'b2', size: 10 },
+    { path: 'skills/pdf/.mcp.json', type: 'blob' as const, sha: 'b3', size: 10 },
+    { path: 'skills/pdf/CHANGELOG.md', type: 'blob' as const, sha: 'b4', size: 10 },
+    { path: 'plugin.json', type: 'blob' as const, sha: 'b5', size: 10 },
+    { path: 'docs/notes.md', type: 'blob' as const, sha: 'b6', size: 10 },
+  ];
+
+  it('仓根 README 第一、SKILL.md 次之；未选的进 deferred（不假装读过）', () => {
+    const selection = selectContentPaths(tree, 3);
+    expect(selection.selected).toEqual([
+      'README.md',
+      'skills/pdf/SKILL.md',
+      'plugin.json',
+    ]);
+    expect(selection.deferred).toContain('skills/pdf/README.md');
+    // 非描述性文本文件永不入选（预算不被无关文件吃掉）
+    expect([...selection.selected, ...selection.deferred]).not.toContain('docs/notes.md');
+  });
+
+  it('预算放大后：资产根 README / .mcp.json / CHANGELOG 依次进入（文本抽取组来源）', () => {
+    const selection = selectContentPaths(tree, 32);
+    expect(selection.selected).toEqual([
+      'README.md',
+      'skills/pdf/SKILL.md',
+      'plugin.json',
+      'skills/pdf/README.md',
+      'skills/pdf/.mcp.json',
+      'skills/pdf/CHANGELOG.md',
+    ]);
+  });
+});
+
+describe('星标历史水位（trend.stars90dAgo 来源，规格 §5.2）', () => {
+  const cutoffPage = [
+    { starred_at: '2025-01-01T00:00:00Z' },
+    { starred_at: '2025-06-01T00:00:00Z' }, // 90 天前水位（asOf=2026-10-15 → cutoff≈2026-07-17）
+  ];
+
+  it('开启后：meta → stargazers 页 → createdAt/stars90dAgo 落记录并入证据指标', async () => {
+    const out = tempDir();
+    const script: ScriptedStep[] = [
+      jsonStep({ ...META, created_at: '2024-01-01T00:00:00Z', stargazers_count: 2 }),
+      jsonStep(cutoffPage, { etag: 'W/"stars"' }),
+      ...fullScript().slice(1),
+    ];
+    const { fetchImpl, urls } = fetchFrom(script);
+    const result = await runCollect(baseOptions(out, { fetchImpl, starsHistory: true }));
+
+    expect(result.exitCode).toBe(0);
+    expect(urls[1]).toContain('/stargazers?per_page=100&page=1');
+    const record = result.records[0];
+    expect(record?.repo.createdAt).toBe('2024-01-01T00:00:00Z');
+    expect(record?.repo.stars90dAgo).toBe(2);
+    expect(record?.repo.starsHistory?.method).toBe('direct-page');
+    const metrics = result.evidence.steps.find((s) => s.id === 'asset-identification')?.metrics;
+    expect(metrics?.repoCreatedAtPresent).toBe(1);
+    expect(metrics?.stars90dAgoCovered).toBe(1);
+  });
+
+  it('默认关闭：不发 stargazers 请求（额外调用预算由调用方显式开启）', async () => {
+    const out = tempDir();
+    const { fetchImpl, urls } = fetchFrom(fullScript());
+    const result = await runCollect(baseOptions(out, { fetchImpl }));
+    expect(result.exitCode).toBe(0);
+    expect(urls.some((u) => u.includes('/stargazers'))).toBe(false);
+    expect(result.records[0]?.repo.stars90dAgo).toBeNull();
   });
 });

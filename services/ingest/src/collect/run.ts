@@ -52,20 +52,42 @@ import type {
   ExitCode,
   OdsRepoRecord,
   RawEvent,
+  RepoMeta,
+  StarsHistoryNote,
   TreeEntry,
 } from './types.ts';
 
-/** 每仓内容取回优先级（规格 §3.7「Contents 抽样 1–3」；MK-01 默认预算放大到 32 见 runCollect）。 */
+/**
+ * 每仓内容取回优先级（规格 §3.7「Contents 抽样 1–3」；MK-01 默认预算放大到 32 见 runCollect）。
+ *
+ * 排序口径（阶段 A 对接面修复后）：**认定资产的关键文本优先**——
+ * 仓根 README（全仓共用的兜底文本）→ SKILL.md 正文 → 清单族 → DESIGN.md/tokens
+ * → 资产根 README → .mcp.json → CHANGELOG。四层 `text` 抽取组（规格 §4.4）据此可落成，
+ * 五维评分不再因「文本空壳」静默塌陷（MK-03 探针实证）。
+ */
 const CONTENT_PRIORITY: { piece: string; rank: number }[] = [
-  { piece: 'plugin-manifest', rank: 0 },
-  { piece: 'marketplace-manifest', rank: 1 },
-  { piece: 'template-manifest', rank: 2 },
-  { piece: 'manifest-json', rank: 3 },
-  { piece: 'components-manifest', rank: 4 },
-  { piece: 'tokens-file', rank: 5 },
-  { piece: 'package-json', rank: 6 },
-  { piece: 'skill-doc', rank: 7 },
+  { piece: 'readme-root', rank: 0 },
+  { piece: 'skill-doc', rank: 1 },
+  { piece: 'plugin-manifest', rank: 2 },
+  { piece: 'marketplace-manifest', rank: 3 },
+  { piece: 'manifest-json', rank: 4 },
+  { piece: 'template-manifest', rank: 5 },
+  { piece: 'design-md', rank: 6 },
+  { piece: 'components-manifest', rank: 7 },
+  { piece: 'tokens-file', rank: 8 },
+  { piece: 'package-json', rank: 9 },
+  { piece: 'readme-asset', rank: 10 },
+  { piece: 'mcp-json', rank: 11 },
+  { piece: 'changelog', rank: 12 },
 ];
+
+/** README/CHANGELOG 的文件名（非认定结构件，但是 `text` 抽取组的来源）。 */
+const README_BASENAME = 'README.md';
+const CHANGELOG_BASENAMES = new Set(['CHANGELOG.md', 'CHANGELOG']);
+/** 仓根 README 的独立排序键（`readme-root` 与 `readme-asset` 同名不同位）。 */
+const README_ROOT_RANK = 0;
+const README_ASSET_RANK = 10;
+const CHANGELOG_RANK = 12;
 
 export interface ContentSelection {
   selected: string[];
@@ -74,19 +96,38 @@ export interface ContentSelection {
 
 /**
  * 按优先级选取需要取回正文的路径（预算内）。
+ * 候选 = 探针结构件 ∩ 优先级表 + README/CHANGELOG（文本抽取组来源，规格 §4.4）。
  * 未选中的进 `deferred`（识别层据此标 `compliance: 'deferred'`，不假装校验过）。
  */
 export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSelection {
-  const pieces = probeTree(tree).filter((p) => CONTENT_PRIORITY.some((c) => c.piece === p.piece));
-  const ranked = pieces
-    .map((p) => ({
-      path: p.path,
-      rank: CONTENT_PRIORITY.find((c) => c.piece === p.piece)?.rank ?? 99,
-    }))
+  const candidates: { path: string; rank: number }[] = [];
+  for (const piece of probeTree(tree)) {
+    const priority = CONTENT_PRIORITY.find((c) => c.piece === piece.piece);
+    if (priority !== undefined) candidates.push({ path: piece.path, rank: priority.rank });
+  }
+  for (const entry of tree) {
+    if (entry.type !== 'blob') continue;
+    const base = entry.path.split('/').pop() ?? entry.path;
+    if (base === README_BASENAME) {
+      candidates.push({
+        path: entry.path,
+        rank: entry.path === README_BASENAME ? README_ROOT_RANK : README_ASSET_RANK,
+      });
+    } else if (CHANGELOG_BASENAMES.has(base)) {
+      candidates.push({ path: entry.path, rank: CHANGELOG_RANK });
+    }
+  }
+
+  const byPath = new Map<string, number>();
+  for (const candidate of candidates) {
+    const known = byPath.get(candidate.path);
+    if (known === undefined || candidate.rank < known) byPath.set(candidate.path, candidate.rank);
+  }
+  const ranked = [...byPath.entries()]
+    .map(([path, rank]) => ({ path, rank }))
     .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.path < b.path ? -1 : 1));
 
-  const unique: string[] = [];
-  for (const item of ranked) if (!unique.includes(item.path)) unique.push(item.path);
+  const unique = ranked.map((item) => item.path);
   return { selected: unique.slice(0, budget), deferred: unique.slice(budget) };
 }
 
@@ -108,6 +149,12 @@ export interface CollectOptions {
    * 小仓全量校验（5 仓 ≈ 170 次 core，远低于 4000/时预算），超大仓如实 deferred。
    */
   maxContentPerRepo: number;
+  /**
+   * 是否取星标历史水位（`trend.stars90dAgo` 的来源，规格 §5.2 星标增速）。
+   * 默认关：需 `stargazers` 端点额外调用（每仓 ≤ `STARS_HISTORY_MAX_CALLS` 次），
+   * 由调用方（`df market collect`）显式开启；取不到时如实留 null + 原因，不阻塞链路。
+   */
+  starsHistory?: boolean;
   /** 离线重放目录（含 responses.jsonl + manifest.json）；非空即离线模式。 */
   replayDir: string | null;
   /** 测试注入：请求出口（生产 = 全局 fetch）。 */
@@ -153,8 +200,7 @@ function dateOf(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-/** 种子仓 → 候选形态（repo id 未知，取 meta 后回填；带去重用的 fullName）。 */
-function seedCandidates(seeds: string[]): Candidate[] {
+/** 种子仓 → 候选形态（repo id 未知，取 meta 后回填；带去重用的 fullName）。 */function seedCandidates(seeds: string[]): Candidate[] {
   return seeds.map((fullName) => ({
     repoId: -1,
     fullName,
@@ -186,6 +232,7 @@ export function collectParamsOf(opts: CollectOptions): ReplayParams {
     limit: opts.limit,
     since: opts.since,
     maxContentPerRepo: opts.maxContentPerRepo,
+    starsHistory: opts.starsHistory === true,
   };
 }
 
@@ -199,6 +246,8 @@ export interface ReplayParams {
   limit: number | null;
   since: string | null;
   maxContentPerRepo: number;
+  /** 星标水位开关（重放必须复现，否则样本缺 stargazers 响应 → 明确阻塞）。 */
+  starsHistory: boolean;
 }
 
 /** 读重放 manifest（缺失/损坏 → null，退回调用方参数）。 */
@@ -215,6 +264,56 @@ async function readReplayManifest(
     return { runId: parsed.runId, asOfMs: parsed.asOfMs, params: parsed.params ?? {} };
   } catch {
     return null;
+  }
+}
+
+/** 星标历史水位的窗口（90 天，规格 §5.2 星标增速口径）。 */
+export const STARS_HISTORY_DAYS = 90;
+/** 每仓水位取数调用上限（≈log2(页数)+2；超出即如实降级，不阻塞链路）。 */
+export const STARS_HISTORY_MAX_CALLS = 10;
+
+/**
+ * 取一仓的星标历史水位（`trend.stars90dAgo` 的来源）。
+ * 取不到（上游异常/预算耗尽）→ null + 原因码，**绝不臆造**；离线重放缺样本按阻塞上抛。
+ */
+async function collectStarsHistory(
+  client: GitHubClient,
+  meta: RepoMeta,
+  asOfMs: number,
+): Promise<{ stars90dAgo: number | null; note: StarsHistoryNote }> {
+  const cutoffMs = asOfMs - STARS_HISTORY_DAYS * 24 * 60 * 60 * 1000;
+  const createdMs = meta.createdAt === '' ? Number.NaN : Date.parse(meta.createdAt);
+  if (Number.isFinite(createdMs) && createdMs > cutoffMs) {
+    return {
+      stars90dAgo: 0,
+      note: {
+        method: 'skipped',
+        pagesFetched: 0,
+        reason: `仓创建于水位之后（${meta.createdAt}），水位时点星标 = 0`,
+      },
+    };
+  }
+  try {
+    const history = await client.getStarsHistory({
+      repo: meta.fullName,
+      totalStars: meta.stars,
+      cutoffMs,
+      maxCalls: STARS_HISTORY_MAX_CALLS,
+    });
+    return {
+      stars90dAgo: history.count,
+      note: {
+        method: history.method,
+        pagesFetched: history.pagesFetched,
+        reason: history.count === null ? '调用预算耗尽（如实降级，不阻塞链路）' : null,
+      },
+    };
+  } catch (error) {
+    if (error instanceof ReplayMissError) throw error;
+    return {
+      stars90dAgo: null,
+      note: { method: 'skipped', pagesFetched: 0, reason: `取数失败：${String(error)}` },
+    };
   }
 }
 
@@ -361,6 +460,14 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
           skippedRepos.push({ repo: target.fullName, reason: '元数据缺 id（上游异常）' });
           continue;
         }
+        // 星标历史水位（可选；失败/预算耗尽 → null + 原因，不阻塞链路）
+        let stars90dAgo: number | null = null;
+        let starsHistoryNote: StarsHistoryNote | null = null;
+        if (effective.starsHistory === true) {
+          const history = await collectStarsHistory(client, meta, effective.asOfMs);
+          stars90dAgo = history.stars90dAgo;
+          starsHistoryNote = history.note;
+        }
         const refResult = await client.getRef(target.fullName, meta.defaultBranch);
         if (refResult.commitSha === null) {
           skippedRepos.push({
@@ -429,6 +536,9 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
             stars: meta.stars,
             forks: meta.forks,
             pushedAt: meta.pushedAt,
+            createdAt: meta.createdAt,
+            stars90dAgo,
+            starsHistory: starsHistoryNote,
             archived: meta.archived,
             fork: meta.fork,
             sizeKb: meta.sizeKb,
@@ -683,6 +793,9 @@ function buildIdentificationStep(input: {
     .filter((a) => !/^gh:[^#\s]+#[^#\s]*$/.test(a.id)).length;
   const listMarked = records.filter((r) => r.isListRepo).length;
   const truncRepo = records.filter((r) => r.tree.truncated).length;
+  // 对接面修复的覆盖度（不设为硬断言：取不到是允许的，但要如实进证据，供 MK-05 判据链复核）
+  const createdAtPresent = records.filter((r) => r.repo.createdAt !== '').length;
+  const stars90dCovered = records.filter((r) => r.repo.stars90dAgo !== null).length;
 
   return {
     id: 'asset-identification',
@@ -709,6 +822,8 @@ function buildIdentificationStep(input: {
       deferredAssets: counts.deferredAssets,
       truncatedTrees: truncRepo,
       skippedRepos: counts.skippedRepos.length,
+      repoCreatedAtPresent: createdAtPresent,
+      stars90dAgoCovered: stars90dCovered,
       queries: input.queries.map((q) => `${q.topic}/${q.sort}:${q.items}`).join('|'),
     },
   };

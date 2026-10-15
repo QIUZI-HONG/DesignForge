@@ -93,7 +93,7 @@ describe('冻结样本集：离线复跑（不触网）', () => {
         (a) => a.id === 'gh:anthropics/skills#skills/academy-guide',
       );
       expect(anthroSkill?.compliance).toBe('ok');
-      // 未取回正文的技能如实标 deferred（预算 3：清单 + 2 个 SKILL.md）
+      // 未取回正文的技能如实标 deferred（预算 3：仓根 README + 2 个 SKILL.md——阶段 A 优先级口径）
       expect(anthro?.assets.some((a) => a.compliance === 'deferred')).toBe(true);
 
       // beautiful-html-templates：MIT + 仓根 LICENSE → 可装载；模板为身份型清单 + 同根 template.html
@@ -101,11 +101,10 @@ describe('冻结样本集：离线复跑（不触网）', () => {
       expect(bht?.license.evidence.path).toBe('LICENSE');
       expect(bht?.license.evidence.sha256).toMatch(/^sha256:/);
       const templates = (bht?.assets ?? []).filter((a) => a.kind === 'template');
-      // 预算 3 → 恰 3 个模板完成内容校验（ok），其余如实 deferred（不假装校验过）
+      // 预算 3 → 仓根 README + 2 个模板完成内容校验（ok），其余如实 deferred（不假装校验过）
       expect(templates.filter((a) => a.compliance === 'ok').map((a) => a.id)).toEqual([
         'gh:zarazhangrui/beautiful-html-templates#templates/8-bit-orbit',
         'gh:zarazhangrui/beautiful-html-templates#templates/biennale-yellow',
-        'gh:zarazhangrui/beautiful-html-templates#templates/block-frame',
       ]);
       expect(templates.some((a) => a.compliance === 'deferred')).toBe(true);
 

@@ -31,6 +31,8 @@ export interface CliOptions {
   limit: number | null;
   since: string | null;
   maxContentPerRepo: number;
+  /** 取星标历史水位（trend.stars90dAgo；额外 stargazers 调用，默认关）。 */
+  starsHistory: boolean;
   replayDir: string | null;
   help: boolean;
 }
@@ -62,6 +64,7 @@ export const USAGE = `MK-01 采集器（四类资产候选发现 + 结构探针 
   --max-pages <n>      每查询最多翻页数（默认 1；深翻页不做，规格 §3.5）
   --since <ISO>        增量水位（进 pushed:>= 查询，规格 §3.3）
   --max-content <n>    每仓内容取回预算（默认 32；超出如实标 deferred）
+  --stars-history      取星标历史水位（90 天前，trend.stars90dAgo 来源；额外 stargazers 调用）
   --out <dir>          输出目录（默认 ~/df-evidence/mk-01）
   --run-id <id>       批次 id（默认由 asOf 生成；复现用）
   --as-of <ISO>        抓取时刻（排名冻结依据；复现用）
@@ -84,6 +87,7 @@ export function parseArgs(argv: string[]): CliOptions {
     limit: null,
     since: null,
     maxContentPerRepo: 32,
+    starsHistory: false,
     replayDir: null,
     help: false,
   };
@@ -133,6 +137,9 @@ export function parseArgs(argv: string[]): CliOptions {
         break;
       case '--max-content':
         opts.maxContentPerRepo = Number(value());
+        break;
+      case '--stars-history':
+        opts.starsHistory = true;
         break;
       case '--out':
         opts.outDir = value();
@@ -203,6 +210,7 @@ export async function main(
     limit: opts.limit,
     since: opts.since,
     maxContentPerRepo: opts.maxContentPerRepo,
+    starsHistory: opts.starsHistory,
     replayDir: opts.replayDir,
     log,
   };
