@@ -10,6 +10,8 @@
  * 规则（详见 packages/ui/src/tools/guard-tokens-core.mjs 的 R1/R2/R3）：
  *   R1 颜色裸值 `#hex` / `rgb()` / `hsl()`；R2 长度裸值 `12px`/`1.5rem`（零值放行）；
  *   R3 样式对象里的间距族裸数字（`marginTop: 8`）。
+ * 精度：注释与字符串里的**样式语法文本**（带 `{`、`rgb(`/`hsl(`、或令牌引用示例 `var(--dfg-…)`）
+ * 视为说明/夹具而非取值，跳过；朴素取值写法（如注释里直接写 `#0d99ff` / `12px`）仍照抓。
  * 白名单：令牌定义文件（tokens.ts / tokens.css）、测试文件、守卫自测、
  * 以及行内豁免注释 `guard-tokens:allow <理由>`（理由必填）。
  *

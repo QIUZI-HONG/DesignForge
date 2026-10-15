@@ -96,6 +96,49 @@ describe('guard-tokens · 规则', () => {
     expect(withoutReason.length).toBe(1);
   });
 
+  it('注释里的「样式语法文本」跳过：带令牌引用示例或样式对象记号的说明文字', () => {
+    const violations = scanText(
+      'apps/web/src/a.ts',
+      [
+        '// 口径：`border: var(--dfg-border-width-hairline) solid var(--dfg-color-border)` 这类示例走令牌',
+        '// 说明：间距一律 var(--dfg-space-2)，不要写 padding: 12px',
+      ].join('\n'),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it('字符串里的样式文本跳过，但裸取值写法照抓（守卫辨别力不因精度修复丢失）', () => {
+    const violations = scanText(
+      'apps/web/src/a.ts',
+      [
+        "const extracted = 'fontSize: 16';",
+        "const note = '不要写 marginTop: 8';",
+        '// 这里曾经写过 #0d99ff（规范泄漏记录，仍应被抓）',
+        ' * 取色：rgb(13, 153, 255)',
+      ].join('\n'),
+    );
+    expect(violations.map((item) => `${item.rule}@${String(item.line)}`)).toEqual([
+      'R3@1',
+      'R3@2',
+      'R1@3',
+      'R1@4',
+    ]);
+  });
+
+  it('跨行块注释里的样式语法文本整体跳过（不再按行误报），块外的取值照抓', () => {
+    const violations = scanText(
+      'apps/web/src/a.ts',
+      [
+        '/*',
+        ' * 样例：{ marginTop: 8, gap: 12 }',
+        ' * 取色：rgb(13, 153, 255)',
+        ' */',
+        'const bad = {/* 取值写在块内注释里 */ marginTop: 9 };',
+      ].join('\n'),
+    );
+    expect(violations.map((item) => `${item.rule}@${String(item.line)}`)).toEqual(['R3@5']);
+  });
+
   it('规则表可列举（CLI 输出用）', () => {
     expect(RULES.map((rule) => rule.id)).toEqual(['R1', 'R2', 'R3']);
     for (const rule of RULES) {

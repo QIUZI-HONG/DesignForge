@@ -31,13 +31,13 @@ export interface TokenBinding {
   expression: string;
 }
 
-/** 去掉长度单位（`8px` → `8`）；非纯数值原样返回。 */
+/** 去掉长度单位（`8px` → `8`）；非纯数值原样返回。 guard-tokens:allow 正则样例（长度单位剥离规则），非界面取值 */
 function stripLengthUnit(value: string): string {
   const match = /^(-?\d+(?:\.\d+)?)px$/.exec(value.trim());
   return match?.[1] ?? value;
 }
 
-/** 值的比较键：小写 + 去掉 px 单位（`#0D99FF` ↔ `#0d99ff`、`8px` ↔ `8`）。 */
+/** 值的比较键：小写 + 去掉 px 单位（`#0D99FF` ↔ `#0d99ff`、`8px` ↔ `8`）。 guard-tokens:allow 注释样例（大小写/单位归一化），非界面取值 */
 function comparisonKey(value: string): string {
   return stripLengthUnit(value.trim()).toLowerCase();
 }

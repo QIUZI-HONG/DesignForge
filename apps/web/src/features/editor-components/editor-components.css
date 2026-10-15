@@ -1,7 +1,7 @@
 /*
  * 组件面板样式（C17）——令牌变量引用，禁裸值（guard-tokens 守卫）。
  *
- * 颜色语义：#9747FF 系（`--dfg-color-component`）只用于「组件/实例/变体」——
+ * 颜色语义：`--dfg-color-component`（Figma 组件紫）只用于「组件/实例/变体」——
  * 与画布上的紫色组件标记同源，界面不另造第二套紫。
  * 尺寸走间距/圆角/字号令牌；控件高由 `--dfg-control-height-*` 决定（深色族紧凑档 28）。
  */
@@ -12,7 +12,7 @@
   gap: var(--dfg-space-3);
   padding: var(--dfg-space-3);
   background: var(--dfg-color-surface);
-  border-left: 1px solid var(--dfg-color-border);
+  border-left: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
   color: var(--dfg-color-text-primary);
   font-family: var(--dfg-font-sans);
   font-size: var(--dfg-font-size-12);
@@ -72,7 +72,7 @@
   flex-direction: column;
   gap: var(--dfg-space-1);
   padding-top: var(--dfg-space-2);
-  border-top: 1px solid var(--dfg-color-border);
+  border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
 }
 
 .dfc-panel__section-head {
@@ -132,7 +132,7 @@
   height: var(--dfg-control-height-md);
   min-width: var(--dfg-space-16);
   padding: 0 var(--dfg-space-1);
-  border: 1px solid var(--dfg-color-border);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
   border-radius: var(--dfg-radius-sm);
   background: var(--dfg-color-surface-raised);
   color: var(--dfg-color-text-primary);
@@ -145,8 +145,8 @@
 }
 
 .dfc-variants__control:focus-visible {
-  outline: 2px solid var(--dfg-color-focus-ring);
-  outline-offset: 1px;
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+  outline-offset: var(--dfg-border-width-hairline);
 }
 
 /* 覆盖清单 */

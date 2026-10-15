@@ -11,7 +11,7 @@
   gap: var(--dfg-space-3);
   padding: var(--dfg-space-3);
   background: var(--dfg-color-surface);
-  border-left: 1px solid var(--dfg-color-border);
+  border-left: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
   color: var(--dfg-color-text-primary);
   font-family: var(--dfg-font-sans);
   font-size: var(--dfg-font-size-12);
@@ -91,7 +91,7 @@
   align-items: baseline;
   gap: var(--dfg-space-2);
   padding: 0 var(--dfg-space-2);
-  border-left: 2px solid var(--dfg-color-danger);
+  border-left: var(--dfg-border-width-thick) solid var(--dfg-color-danger);
   background: var(--dfg-color-danger-subtle);
   border-radius: 0 var(--dfg-radius-sm) var(--dfg-radius-sm) 0;
   min-height: var(--dfg-control-height-sm);
@@ -134,7 +134,7 @@
   padding: var(--dfg-space-2);
   max-height: var(--dfg-space-16);
   overflow: auto;
-  border: 1px solid var(--dfg-color-border);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
   border-radius: var(--dfg-radius-md);
   background: var(--dfg-color-surface-subtle);
   font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
@@ -145,8 +145,8 @@
 }
 
 .dfx-code__block:focus-visible {
-  outline: 2px solid var(--dfg-color-focus-ring);
-  outline-offset: 1px;
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+  outline-offset: var(--dfg-border-width-hairline);
 }
 
 .dfx-code__actions {

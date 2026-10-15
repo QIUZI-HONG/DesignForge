@@ -103,7 +103,7 @@ export function inspectPage(): ScenePage {
     y: 360,
     width: 240,
     height: 24,
-    text: { ...defaultTextContent('设界 DesignForge'), fontSize: 16, fontWeight: 500 },
+    text: { ...defaultTextContent('设界 DesignForge'), fontSize: 16, fontWeight: 500 }, // guard-tokens:allow fontSize 是文档数据（Design IR 文本真值）
   });
   const frame = createFrame({
     id: INSPECT_IDS.frame,
