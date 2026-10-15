@@ -97,6 +97,16 @@ export interface OdsRepoRecord {
     stars: number;
     forks: number;
     pushedAt: string;
+    /** 仓库创建时间（冷启动判定输入，规格 §5.4）；空串 = 上游未给。 */
+    createdAt: string;
+    /** 90 天前星标水位（生态维，规格 §5.2）；null = 未取到（原因见 starsHistory）。 */
+    stars90dAgo: number | null;
+    /** 水位取数留痕（MK-01 阶段 A 对接面字段）。 */
+    starsHistory: {
+      method: 'direct-page' | 'binary-search' | 'budget-exhausted' | 'skipped';
+      pagesFetched: number;
+      reason: string | null;
+    } | null;
     archived: boolean;
     fork: boolean;
     sizeKb: number;

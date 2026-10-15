@@ -38,6 +38,9 @@ function repoRecord(repoId: number, name: string): OdsRepoRecord {
       stars: 10,
       forks: 1,
       pushedAt: '2026-10-01T00:00:00Z',
+      createdAt: '2024-01-01T00:00:00Z',
+      stars90dAgo: 5,
+      starsHistory: { method: 'direct-page', pagesFetched: 1, reason: null },
       archived: false,
       fork: false,
       sizeKb: 100,
@@ -151,6 +154,23 @@ describe('validateOdsRepoRecord / validateRawEvent（schema 校验器，verify �
   it('合法记录 → 零问题', () => {
     expect(validateOdsRepoRecord(repoRecord(1, 'a'))).toEqual([]);
     expect(validateRawEvent(EVENT)).toEqual([]);
+  });
+
+  it('缺 createdAt / stars90dAgo 非法 → 逐条报出（对接面回归守门，MK-05 阶段 A）', () => {
+    const base = repoRecord(1, 'a');
+    const bad = {
+      ...base,
+      repo: { ...base.repo, createdAt: undefined, stars90dAgo: -1 },
+    } as unknown;
+    const rules = validateOdsRepoRecord(bad).map((i) => i.rule);
+    expect(rules).toContain('repo-created-at');
+    expect(rules).toContain('repo-stars-90d');
+    // 空串 = 上游未给（合法缺省）；null = 未取到水位（合法缺省）
+    const tolerated = {
+      ...base,
+      repo: { ...base.repo, createdAt: '', stars90dAgo: null },
+    } as unknown;
+    expect(validateOdsRepoRecord(tolerated)).toEqual([]);
   });
 
   it('缺 fetchedAt/etag/digest、digest 形态错、id 形态错 → 逐条报出', () => {

@@ -137,6 +137,17 @@ export interface RejectedCandidate {
   reason: string;
 }
 
+/**
+ * 星标历史水位取数留痕（`trend.stars90dAgo` 的来源与口径，规格 §5.2 生态热度）。
+ * `method`：`direct-page` 一页内直接计数 / `binary-search` 二分定位边界页 /
+ * `budget-exhausted` 调用预算耗尽（count=null，如实降级不阻塞）/ `skipped` 未发起（含原因）。
+ */
+export interface StarsHistoryNote {
+  method: 'direct-page' | 'binary-search' | 'budget-exhausted' | 'skipped';
+  pagesFetched: number;
+  reason: string | null;
+}
+
 /** 一仓一记录（ODS 层原始 JSONL；含 fetchedAt/etag/digest）。 */
 export interface OdsRepoRecord {
   schema: 'df.market.ods.repo/v1';
@@ -151,6 +162,15 @@ export interface OdsRepoRecord {
     stars: number;
     forks: number;
     pushedAt: string;
+    /** 仓库创建时间（冷启动判定输入）；空串 = 上游未给（如实缺省）。 */
+    createdAt: string;
+    /**
+     * 90 天前星标水位（`trend.stars90dAgo` 的来源，规格 §5.2 星标增速）；
+     * null = 未取到/预算耗尽（原因见 starsHistory，绝不臆造）。
+     */
+    stars90dAgo: number | null;
+    /** 水位取数留痕（诚实记录取数方式与页数）。 */
+    starsHistory: StarsHistoryNote | null;
     archived: boolean;
     fork: boolean;
     sizeKb: number;
@@ -240,6 +260,8 @@ export interface RepoMeta {
   forks: number;
   pushedAt: string;
   updatedAt: string;
+  /** 仓库创建时间（冷启动 <90 天判定的输入，规格 §5.4）；缺省空串 = 上游未给。 */
+  createdAt: string;
   archived: boolean;
   fork: boolean;
   sizeKb: number;

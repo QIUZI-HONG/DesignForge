@@ -286,6 +286,9 @@ importers:
       '@dforge/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@dforge/ingest':
+        specifier: workspace:*
+        version: link:../../services/ingest
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

@@ -6,7 +6,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -201,5 +201,251 @@ describe('buildDwd（f(ODS) → DWD 四表）', () => {
     const assetTable = manifest.tables.find((table) => table.name === 'asset');
     expect(assetTable?.rows).toBe(1);
     expect(assetTable?.sha256).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+});
+
+describe('buildDwd · text 抽取组与仓级字段（MK-05 阶段 A 对接面修复，规格 §4.4/§5.2/§5.4）', () => {
+  const COMMIT_A = 'a'.repeat(40);
+  const COMMIT_B = 'b'.repeat(40);
+
+  /** 造一个规格形态的 ODS 层（files.json + blobs），供本组测试专用。 */
+  async function writeSyntheticOds(): Promise<string> {
+    const root = join(workDir, 'synth', 'ods');
+    await mkdir(join(root, 'raw_events'), { recursive: true }); // 层目录存在性（事件可空）
+    const blobs = new Map<string, string>();
+    const writeBlob = async (text: string): Promise<string> => {
+      const hex = createHash('sha256').update(text, 'utf8').digest('hex');
+      const ref = `sha256:${hex}`;
+      blobs.set(ref, text);
+      await mkdir(join(root, 'blobs'), { recursive: true });
+      await writeFile(join(root, 'blobs', hex), text, 'utf8');
+      return ref;
+    };
+
+    interface RepoSpec {
+      repoId: number;
+      fullName: string;
+      commit: string;
+      createdAt: string;
+      stars90dAgo: number | null;
+      files: { path: string; text: string }[];
+      assets: { id: string; root: string; kind: string }[];
+    }
+    const repos: RepoSpec[] = [
+      {
+        repoId: 2001,
+        fullName: 'synth/kit',
+        commit: COMMIT_A,
+        createdAt: '2025-03-04T05:06:07Z',
+        stars90dAgo: 123,
+        files: [
+          {
+            path: 'README.md',
+            text: '# synth/kit\n\n根 README，引用 https://github.com/synth/upstream 两次。',
+          },
+          { path: 'docs/guide.md', text: '指南：见 https://github.com/synth/upstream 的说明。' },
+          {
+            path: 'skills/pdf/SKILL.md',
+            text: `---\nname: pdf\ndescription: 处理 PDF 时使用。\ntags:\n  - doc\n  - export\n---\n\n# 用法\n\n1. 打开\n2. 导出\n`,
+          },
+          { path: 'skills/pdf/README.md', text: '# pdf 技能自己的 README（资产根优先）' },
+          { path: 'skills/pdf/.mcp.json', text: '{"mcpServers":{"pdf":{"command":"pdf-mcp"}}}' },
+          { path: 'skills/pdf/CHANGELOG.md', text: '# 变更记录\n\n- 2026-09 初版' },
+          { path: 'skills/pdf/plugin.json', text: '{"name":"pdf-kit","skills":["SKILL.md"]}' },
+          { path: 'skills/plot/SKILL.md', text: '无 frontmatter 的正文（未取回示例之外）' },
+        ],
+        assets: [
+          { id: 'gh:synth/kit#skills/pdf', root: 'skills/pdf', kind: 'skill' },
+          { id: 'gh:synth/kit#skills/plot', root: 'skills/plot', kind: 'skill' },
+        ],
+      },
+      {
+        repoId: 2002,
+        fullName: 'synth/upstream',
+        commit: COMMIT_B,
+        createdAt: '2024-05-06T07:08:09Z',
+        stars90dAgo: null, // 未取到水位：如实留 null（不臆造）
+        files: [
+          { path: 'SKILL.md', text: '---\nname: root-skill\ndescription: 根技能。\n---\n\n正文。' },
+        ],
+        assets: [{ id: 'gh:synth/upstream#', root: '', kind: 'skill' }],
+      },
+    ];
+
+    for (const repo of repos) {
+      const entries: {
+        path: string;
+        gitSha: string;
+        size: number | null;
+        sha256: string;
+        blobRef: string;
+        mediaType: 'text';
+      }[] = [];
+      for (const [index, file] of repo.files.entries()) {
+        // 只取回前 6 个文件（第 7 个 plugin.json / 第 8 个 plot/SKILL.md 模拟未取回）
+        const fetched = index < 6;
+        const ref = fetched ? await writeBlob(file.text) : null;
+        entries.push({
+          path: file.path,
+          gitSha: `${index}`.repeat(7).slice(0, 7) + `${index}${index}`,
+          size: fetched ? Buffer.byteLength(file.text, 'utf8') : 10,
+          sha256: ref ?? `sha256:${'0'.repeat(64)}`,
+          blobRef: ref ?? '',
+          mediaType: 'text',
+        });
+      }
+      const files = entries.map((entry) => ({
+        ...entry,
+        sha256: entry.blobRef === '' ? null : entry.sha256,
+        blobRef: entry.blobRef === '' ? null : entry.blobRef,
+      }));
+      const listingDigest = `sha256:${createHash('sha256')
+        .update(
+          [...files]
+            .sort((a, b) => (a.path < b.path ? -1 : 1))
+            .map((file) => `${file.path}\0${file.gitSha}\0${file.size ?? 0}\n`)
+            .join(''),
+          'utf8',
+        )
+        .digest('hex')}`;
+      const snapshot: Record<string, unknown> = {
+        schema: 'df.market.ods.files/v1',
+        runId: '20261015-999999',
+        fetchedAt: '2026-10-15T12:00:00.000Z',
+        repoId: repo.repoId,
+        fullName: repo.fullName,
+        ref: repo.commit,
+        etag: null,
+        apiQuotaLeft: 5000,
+        isListRepo: false,
+        tree: {
+          sha: `tree-${repo.repoId}`,
+          truncated: false,
+          entryCount: files.length,
+          listingDigest,
+        },
+        files,
+        record: {
+          schema: 'df.market.ods.repo/v1',
+          runId: '20261015-999999',
+          fetchedAt: '2026-10-15T12:00:00.000Z',
+          repo: {
+            id: repo.repoId,
+            fullName: repo.fullName,
+            owner: 'synth',
+            name: repo.fullName.split('/')[1],
+            defaultBranch: 'main',
+            stars: 500,
+            forks: 20,
+            pushedAt: '2026-10-01T00:00:00Z',
+            createdAt: repo.createdAt,
+            stars90dAgo: repo.stars90dAgo,
+            starsHistory:
+              repo.stars90dAgo === null
+                ? { method: 'budget-exhausted', pagesFetched: 10, reason: '调用预算耗尽' }
+                : { method: 'direct-page', pagesFetched: 1, reason: null },
+            archived: false,
+            fork: false,
+            sizeKb: 10,
+            homepage: null,
+            description: '合成仓',
+            topics: [],
+          },
+          ref: repo.commit,
+          etag: null,
+          digest: listingDigest,
+          tree: {
+            sha: `tree-${repo.repoId}`,
+            truncated: false,
+            entryCount: files.length,
+            etag: null,
+          },
+          license: {
+            spdx: 'MIT',
+            tier: 'permissive',
+            gate: 'loadable',
+            reasons: ['合成'],
+            evidence: { path: 'LICENSE', sha256: null },
+            brandDerived: false,
+            archived: false,
+          },
+          assets: repo.assets.map((asset) => ({
+            id: asset.id,
+            kind: asset.kind,
+            root: asset.root,
+            name: asset.id.split('/').pop() ?? 'asset',
+            version: null,
+            declaredLicense: null,
+            compliance: 'ok',
+            probe: [
+              { piece: 'skill-doc', path: `${asset.root === '' ? '' : `${asset.root}/`}SKILL.md` },
+            ],
+            checks: [{ rule: 'test', ok: true, detail: '合成' }],
+            treeDigest: `sha256:${'1'.repeat(64)}`,
+            capabilities: [],
+            brandDerived: false,
+          })),
+          rejected: [],
+          isListRepo: false,
+          requestUrls: [],
+        },
+        snapshotDigest: '',
+      };
+      const dir = join(root, 'raw_snapshots', repo.fullName.replace('/', '__'), repo.commit);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'files.json'), `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+    }
+    return root;
+  }
+
+  it('text 抽取组：frontmatter 平坦键值 / 正文 / 资产根 README 优先、仓根回退 / mcp / changelog', async () => {
+    const synthRoot = await writeSyntheticOds();
+    const out = join(workDir, 'synth-dwd');
+    const { tables } = await buildDwd({ odsRoot: synthRoot, out });
+
+    const pdf = tables.asset.find((row) => row.asset_id === 'gh:synth/kit#skills/pdf');
+    expect(pdf?.text_frontmatter).toEqual({
+      name: 'pdf',
+      description: '处理 PDF 时使用。',
+      tags: ['doc', 'export'],
+    });
+    expect(pdf?.text_body).toContain('# 用法');
+    expect(pdf?.text_readme).toBe('# pdf 技能自己的 README（资产根优先）');
+    expect(pdf?.text_mcp_json).toEqual({ mcpServers: { pdf: { command: 'pdf-mcp' } } });
+    expect(pdf?.text_changelog).toContain('变更记录');
+    expect(pdf?.text_manifest).toBeNull(); // plugin.json 未取回 → null（不臆造）
+
+    // 资产根无 README → 回退仓根 README；未取回正文的资产 text 组如实全空
+    const rootSkill = tables.asset.find((row) => row.asset_id === 'gh:synth/upstream#');
+    expect(rootSkill?.text_body).toContain('正文。');
+    expect(rootSkill?.text_readme).toBeNull(); // 该仓无 README
+    const plot = tables.asset.find((row) => row.asset_id === 'gh:synth/kit#skills/plot');
+    expect(plot?.text_body).toBeNull();
+    expect(plot?.text_readme).toBe(
+      '# synth/kit\n\n根 README，引用 https://github.com/synth/upstream 两次。',
+    );
+  });
+
+  it('repo 列：created_at / stars_90d_ago / referenced_by / tree 截断留痕', async () => {
+    const synthRoot = await writeSyntheticOds();
+    const out = join(workDir, 'synth-dwd');
+    const { tables } = await buildDwd({ odsRoot: synthRoot, out });
+
+    const kit = tables.repo.find((row) => row.full_name === 'synth/kit');
+    const upstream = tables.repo.find((row) => row.full_name === 'synth/upstream');
+    expect(kit).toMatchObject({
+      created_at: '2025-03-04T05:06:07Z',
+      stars_90d_ago: 123,
+      referenced_by: 0,
+      tree_truncated: false,
+      tree_entry_count: 8,
+      upstream: 'synth/upstream', // 正文链接推断（README + guide.md 两处）
+      upstream_source: 'body-link',
+    });
+    expect(upstream).toMatchObject({
+      created_at: '2024-05-06T07:08:09Z',
+      stars_90d_ago: null, // 未取到水位：如实 null
+      referenced_by: 1, // 同批 synth/kit 的 upstream 指向本仓
+    });
   });
 });

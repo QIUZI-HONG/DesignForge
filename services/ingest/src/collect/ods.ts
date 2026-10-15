@@ -115,6 +115,14 @@ export function validateOdsRepoRecord(value: unknown): OdsValidationIssue[] {
     if (typeof repoRecord.id !== 'number') push('repo-id', 'repo.id 必须为数字（去重主键）');
     if (typeof repoRecord.fullName !== 'string')
       push('repo-fullname', 'repo.fullName 必须为字符串');
+    // 对接面修复（MK-05 阶段 A）：冷启动判定与生态维的输入必须随仓落盘。
+    if (typeof repoRecord.createdAt !== 'string') {
+      push('repo-created-at', 'repo.createdAt 必须为字符串（空串 = 上游未给，如实缺省）');
+    }
+    const stars90d = repoRecord.stars90dAgo;
+    if (stars90d !== null && !(typeof stars90d === 'number' && stars90d >= 0)) {
+      push('repo-stars-90d', 'repo.stars90dAgo 必须为 null 或 ≥0 数字（未取到如实留 null）');
+    }
   }
 
   const tree = record.tree;

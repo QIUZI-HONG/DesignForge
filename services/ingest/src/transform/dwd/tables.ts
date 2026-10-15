@@ -54,6 +54,16 @@ export interface RepoRow {
   /** 上游判定来源：`declared`（声明） / `body-link`（正文链接推断）。 */
   upstream_source: string | null;
   asset_count: number;
+  /** 仓库创建时间（冷启动 <90 天判定，规格 §5.4）；null = 采集侧未给。 */
+  created_at: string | null;
+  /** 90 天前星标水位（生态维星标增速信号，规格 §5.2）；null = 未取到。 */
+  stars_90d_ago: number | null;
+  /** 被引用数（同批仓中 upstream 指向本仓的仓数；口径见 build DWD 头注释）。 */
+  referenced_by: number;
+  /** Trees 截断标志（超大仓：文件级「不存在」不可证明，规格 §3.5/§5.4）。 */
+  tree_truncated: boolean;
+  /** Trees 条目数（规模信号与截断复核）。 */
+  tree_entry_count: number;
 }
 
 /** asset 表：资产主表（规格 §4.4，含 §1.2 的卡片基础字段）。 */
@@ -85,6 +95,17 @@ export interface AssetRow {
   /** 主描述正文的字节数与「链接行占比」（规格 §2.2 redirect 判定证据）。 */
   body_bytes: number | null;
   body_links_ratio: number | null;
+  /**
+   * 描述性文本抽取组（规格 §4.4 `text` 组；MK-03 五维评分的文本信号源）。
+   * 列与 `DwdTextView` 一一对应：body/readme/manifest/frontmatter/packageJson/mcpJson/changelog。
+   */
+  text_frontmatter: Record<string, unknown> | null;
+  text_body: string | null;
+  text_readme: string | null;
+  text_manifest: Record<string, unknown> | null;
+  text_package_json: Record<string, unknown> | null;
+  text_mcp_json: Record<string, unknown> | null;
+  text_changelog: string | null;
   file_count: number;
   known_sha256_count: number;
   /** 规格 §1.6 内容哈希（内容不齐时为 null，**不冒充**）。 */
@@ -181,6 +202,12 @@ const COLUMNS: Record<TableName, ColumnSpec[]> = {
     { name: 'upstream', type: 'STRING' },
     { name: 'upstream_source', type: 'STRING' },
     { name: 'asset_count', type: 'INT32' },
+    // 对接面修复（MK-05 阶段 A）：冷启动/生态维/Trees 截断的输入必须落列（规格 §4.4/§5.4）
+    { name: 'created_at', type: 'STRING' },
+    { name: 'stars_90d_ago', type: 'INT32' },
+    { name: 'referenced_by', type: 'INT32' },
+    { name: 'tree_truncated', type: 'BOOLEAN' },
+    { name: 'tree_entry_count', type: 'INT32' },
   ],
   asset: [
     { name: 'asset_id', type: 'STRING' },
@@ -207,6 +234,14 @@ const COLUMNS: Record<TableName, ColumnSpec[]> = {
     { name: 'parse_report', type: 'JSON' },
     { name: 'body_bytes', type: 'INT32' },
     { name: 'body_links_ratio', type: 'DOUBLE' },
+    // text 抽取组（规格 §4.4；评分文本信号源）
+    { name: 'text_frontmatter', type: 'JSON' },
+    { name: 'text_body', type: 'STRING' },
+    { name: 'text_readme', type: 'STRING' },
+    { name: 'text_manifest', type: 'JSON' },
+    { name: 'text_package_json', type: 'JSON' },
+    { name: 'text_mcp_json', type: 'JSON' },
+    { name: 'text_changelog', type: 'STRING' },
     { name: 'file_count', type: 'INT32' },
     { name: 'known_sha256_count', type: 'INT32' },
     { name: 'digest', type: 'STRING' },

@@ -15,7 +15,7 @@ import type { ScriptedStep } from './__fixtures__/http-harness.ts';
 import { jsonStep } from './__fixtures__/http-harness.ts';
 import type { FetchLike } from './http.ts';
 import type { CollectOptions } from './run.ts';
-import { runCollect } from './run.ts';
+import { runCollect, selectContentPaths, selectionsFromRecorded } from './run.ts';
 
 const tempDirs: string[] = [];
 function tempDir(): string {
@@ -368,5 +368,106 @@ describe('退出码：断言失败 → 1（真失败）', () => {
     });
     expect(evidence.exitCode).toBe(1);
     expect(evidence.steps[0]?.verdict).toBe('fail');
+  });
+});
+
+describe('内容取回策略（对接面修复：完整资产根优先 + 兜底文本）', () => {
+  const tree = [
+    { path: 'README.md', type: 'blob' as const, sha: 'r0', size: 10 },
+    { path: 'skills/pdf/SKILL.md', type: 'blob' as const, sha: 'b1', size: 10 },
+    { path: 'skills/pdf/notes.md', type: 'blob' as const, sha: 'b2', size: 10 },
+    { path: 'skills/pdf/README.md', type: 'blob' as const, sha: 'b3', size: 10 },
+    { path: 'skills/pdf/.mcp.json', type: 'blob' as const, sha: 'b4', size: 10 },
+    { path: 'skills/pdf/CHANGELOG.md', type: 'blob' as const, sha: 'b5', size: 10 },
+    { path: 'plugin.json', type: 'blob' as const, sha: 'b6', size: 10 },
+    { path: 'docs/notes.md', type: 'blob' as const, sha: 'b7', size: 10 },
+  ];
+
+  it('仓根 README 第一；随后整根取回最小资产根（digest 前提：根内文件齐）', () => {
+    const selection = selectContentPaths(tree, 6);
+    expect(selection.selected[0]).toBe('README.md');
+    // 最小根 = skills/pdf（5 个文件，纯文本）→ 整根取回（含非结构件的 notes.md）
+    expect(selection.selected.slice(1).sort()).toEqual([
+      'skills/pdf/.mcp.json',
+      'skills/pdf/CHANGELOG.md',
+      'skills/pdf/README.md',
+      'skills/pdf/SKILL.md',
+      'skills/pdf/notes.md',
+    ]);
+    expect(selection.deferred).toContain('plugin.json');
+    // 非结构件目录（docs/）不参与（预算不被无关文件吃掉）
+    expect([...selection.selected, ...selection.deferred]).not.toContain('docs/notes.md');
+  });
+
+  it('预算不足整根 → 跳过该根并按优先级补单文件（根不会被「半取」）', () => {
+    const selection = selectContentPaths(tree, 4);
+    expect(selection.selected).toContain('README.md');
+    expect(selection.selected).toContain('skills/pdf/SKILL.md'); // 余量走优先级补位
+    expect(selection.selected).toContain('plugin.json');
+    // 根未完整取回：非结构件的 notes.md 不入选（digest 不会「半齐」冒充完整）
+    expect(selection.selected).not.toContain('skills/pdf/notes.md');
+  });
+
+  it('含二进制的资产根不参与完整取回（合规禁下载二进制，§8.1）', () => {
+    const withBinary = [
+      ...tree,
+      { path: 'skills/art/SKILL.md', type: 'blob' as const, sha: 'c1', size: 10 },
+      { path: 'skills/art/preview.png', type: 'blob' as const, sha: 'c2', size: 99 },
+    ];
+    const selection = selectContentPaths(withBinary, 8);
+    expect(selection.selected).toContain('skills/pdf/SKILL.md');
+    expect(selection.selected).toContain('skills/pdf/notes.md');
+  });
+});
+
+describe('selectionsFromRecorded（重放的内容名单以样本为准，与算法版本解耦）', () => {
+  it('从 contents URL 反推每仓取回名单（含 URL 解码、去重与稳定排序）', () => {
+    const map = selectionsFromRecorded([
+      { url: 'https://api.github.com/repos/a/b/contents/skills/x/SKILL.md?ref=abc' },
+      { url: 'https://api.github.com/repos/a/b/contents/docs/a%20b.md?ref=abc' },
+      { url: 'https://api.github.com/repos/a/b/contents/skills/x/SKILL.md?ref=abc' }, // 重复
+      { url: 'https://api.github.com/repos/c/d/contents/README.md?ref=def' },
+      { url: 'https://api.github.com/repos/a/b/git/trees/main?recursive=1' }, // 非 contents：忽略
+    ]);
+    expect(map.get('a/b')).toEqual(['docs/a b.md', 'skills/x/SKILL.md']);
+    expect(map.get('c/d')).toEqual(['README.md']);
+    expect(map.get('nope/nope')).toBeUndefined();
+  });
+});
+
+describe('星标历史水位（trend.stars90dAgo 来源，规格 §5.2）', () => {
+  const cutoffPage = [
+    { starred_at: '2025-01-01T00:00:00Z' },
+    { starred_at: '2025-06-01T00:00:00Z' }, // 90 天前水位（asOf=2026-10-15 → cutoff≈2026-07-17）
+  ];
+
+  it('开启后：meta → stargazers 页 → createdAt/stars90dAgo 落记录并入证据指标', async () => {
+    const out = tempDir();
+    const script: ScriptedStep[] = [
+      jsonStep({ ...META, created_at: '2024-01-01T00:00:00Z', stargazers_count: 2 }),
+      jsonStep(cutoffPage, { etag: 'W/"stars"' }),
+      ...fullScript().slice(1),
+    ];
+    const { fetchImpl, urls } = fetchFrom(script);
+    const result = await runCollect(baseOptions(out, { fetchImpl, starsHistory: true }));
+
+    expect(result.exitCode).toBe(0);
+    expect(urls[1]).toContain('/stargazers?per_page=100&page=1');
+    const record = result.records[0];
+    expect(record?.repo.createdAt).toBe('2024-01-01T00:00:00Z');
+    expect(record?.repo.stars90dAgo).toBe(2);
+    expect(record?.repo.starsHistory?.method).toBe('direct-page');
+    const metrics = result.evidence.steps.find((s) => s.id === 'asset-identification')?.metrics;
+    expect(metrics?.repoCreatedAtPresent).toBe(1);
+    expect(metrics?.stars90dAgoCovered).toBe(1);
+  });
+
+  it('默认关闭：不发 stargazers 请求（额外调用预算由调用方显式开启）', async () => {
+    const out = tempDir();
+    const { fetchImpl, urls } = fetchFrom(fullScript());
+    const result = await runCollect(baseOptions(out, { fetchImpl }));
+    expect(result.exitCode).toBe(0);
+    expect(urls.some((u) => u.includes('/stargazers'))).toBe(false);
+    expect(result.records[0]?.repo.stars90dAgo).toBeNull();
   });
 });

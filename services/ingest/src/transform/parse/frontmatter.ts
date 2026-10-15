@@ -28,6 +28,11 @@ export interface FrontmatterParseResult {
   ok: boolean;
   data: SkillFrontmatter;
   issues: FrontmatterIssue[];
+  /**
+   * frontmatter 的平坦键值（DWD `text.frontmatter` 列的直接来源，规格 §4.4）。
+   * 标量 → string；列表 → string[]；嵌套映射 → null（解析器不展开嵌套，如实标「未展开」而非臆造）。
+   */
+  flat: Record<string, unknown>;
   /** frontmatter 之后的正文（Markdown）。 */
   body: string;
   bodyStats: {
@@ -118,6 +123,7 @@ export function parseFrontmatter(rawText: string): FrontmatterParseResult {
       ok: false,
       data,
       issues: [{ code: 'no-frontmatter', detail: '文件不以 --- 起始（无 frontmatter 块）' }],
+      flat: {},
       body: text,
       bodyStats: bodyStats(text),
     };
@@ -138,6 +144,7 @@ export function parseFrontmatter(rawText: string): FrontmatterParseResult {
       ok: false,
       data,
       issues,
+      flat: {},
       body: text,
       bodyStats: bodyStats(text),
     };
@@ -147,7 +154,7 @@ export function parseFrontmatter(rawText: string): FrontmatterParseResult {
   const body = lines.slice(closing + 1).join('\n');
   if (block.every((line) => line.trim() === '')) {
     issues.push({ code: 'empty-frontmatter', detail: 'frontmatter 块为空' });
-    return { hasBlock: true, ok: true, data, issues, body, bodyStats: bodyStats(body) };
+    return { hasBlock: true, ok: true, data, issues, flat: {}, body, bodyStats: bodyStats(body) };
   }
 
   const scalars = new Map<string, string>();
@@ -276,7 +283,21 @@ export function parseFrontmatter(rawText: string): FrontmatterParseResult {
     ok: !issues.some((issue) => issue.code !== 'empty-frontmatter'),
     data,
     issues,
+    flat: flatOf(scalars, lists, nested),
     body,
     bodyStats: bodyStats(body),
   };
+}
+
+/** 平坦键值视图（标量 / 列表 / 嵌套占位；键序 = 首次出现顺序，快照稳定）。 */
+function flatOf(
+  scalars: Map<string, string>,
+  lists: Map<string, string[]>,
+  nested: Set<string>,
+): Record<string, unknown> {
+  const flat: Record<string, unknown> = {};
+  for (const [key, value] of scalars) flat[key] = value;
+  for (const [key, value] of lists) flat[key] = [...value];
+  for (const key of nested) if (!(key in flat)) flat[key] = null;
+  return flat;
 }

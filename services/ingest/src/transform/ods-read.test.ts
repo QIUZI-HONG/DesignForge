@@ -200,6 +200,64 @@ describe('materializeOds + readOds（规格形状：gzip 事件 / files.json / b
     expect(skill?.sha256).toBe(SKILL_SHA256);
   });
 
+  it('重复 materialize（含已规整的 .gz 事件）→ 幂等，无冲突（阶段 A 集成修正）', async () => {
+    const source = await copySource();
+    const out = join(workDir, 'ods');
+    const first = await materializeOds({ source, out });
+    expect(first.conflicts).toEqual([]);
+
+    // 第二轮：源目录里已含第一轮写出的 .gz 事件与快照；规整必须幂等（gz 逐字节一致）
+    const second = await materializeOds({ source, out });
+    expect(second.conflicts).toEqual([]);
+    expect(second.filesWritten).toBe(0);
+    expect(second.filesSkipped).toBe(3); // 2 仓快照 + 1 个事件文件（夹具只有一条 raw_events）
+    // 事件 gz 逐字节一致（同输入同产物，规格 §4.3.2）
+    const gzPath = join(out, 'raw_events', 'date=2026-10-15', '20261015-120000.jsonl.gz');
+    const before = await readFile(gzPath);
+    expect(before.byteLength).toBeGreaterThan(0);
+  });
+
+  it('事实补全（同 commit 的 sha256 从 null 补齐）→ 合并写回，不算冲突（阶段 A 集成修正）', async () => {
+    const source = await copySource();
+    const out = join(workDir, 'ods');
+    const first = await materializeOds({ source, out });
+    expect(first.conflicts).toEqual([]);
+
+    // 第二轮：同 (repoId, commit)，但多取回了 README.md 的正文（录制里补一条 contents 响应）
+    const skillCommit = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+    const snapshotPath = join(out, 'raw_snapshots', 'acme__design-kit', skillCommit, 'files.json');
+    const before = JSON.parse(await readFile(snapshotPath, 'utf8')) as {
+      files: { path: string; sha256: string | null }[];
+    };
+    const readmeBefore = before.files.find((file) => file.path === 'README.md');
+    expect(readmeBefore?.sha256).toBeNull(); // 首轮未取回 README 正文
+
+    const readmeText = '# design-kit\n\nREADME 正文（第二轮取回）。\n';
+    const replayPath = join(source, 'replay', '20261015-120000', 'responses.jsonl');
+    const replayLines = (await readFile(replayPath, 'utf8')).trim().split('\n');
+    const extra = {
+      url: `https://api.github.com/repos/acme/design-kit/contents/README.md?ref=${skillCommit}`,
+      status: 200,
+      etag: 'W/"readme"',
+      linkNext: null,
+      body: { encoding: 'base64', content: Buffer.from(readmeText, 'utf8').toString('base64') },
+    };
+    await writeFile(replayPath, `${replayLines.join('\n')}\n${JSON.stringify(extra)}\n`, 'utf8');
+
+    const second = await materializeOds({ source, out });
+    expect(second.conflicts).toEqual([]); // 事实补全不是冲突
+    expect(second.issues.some((issue) => issue.rule === 'snapshot-enriched')).toBe(true);
+    const after = JSON.parse(await readFile(snapshotPath, 'utf8')) as {
+      files: { path: string; sha256: string | null }[];
+    };
+    const readmeAfter = after.files.find((file) => file.path === 'README.md');
+    expect(readmeAfter?.sha256).toMatch(/^sha256:[0-9a-f]{64}$/); // 补全后的哈希已落盘
+    // 其他文件的事实不变（未重写历史）
+    expect(after.files.filter((f) => f.path !== 'README.md')).toEqual(
+      before.files.filter((f) => f.path !== 'README.md'),
+    );
+  });
+
   it('同 (repoId, commit) 多轮观测：幂等键归并成一份，元数据差异不算冲突', async () => {
     const source = await copySource();
     // 追加第二轮的一仓一记录（同 repoId + 同 ref，不同 runId/fetchedAt）

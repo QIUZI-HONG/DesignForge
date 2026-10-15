@@ -18,7 +18,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { gzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 
 import type {
   OdsFileEntry,
@@ -140,15 +140,51 @@ async function writeAppendOnly(
 }
 
 /** 文件级事实（快照冲突判定只看这部分：代码里唯一代表「这一 commit 有哪些文件」的内容）。 */
-function fileFacts(snapshot: { tree?: { listingDigest?: unknown }; files?: unknown }): string {
+function snapshotFacts(snapshot: { tree?: { listingDigest?: unknown }; files?: unknown }): {
+  listingDigest: unknown;
+  files: unknown[][];
+} {
   const files = Array.isArray(snapshot.files) ? snapshot.files : [];
-  return JSON.stringify({
+  return {
     listingDigest: snapshot.tree?.listingDigest ?? null,
     files: files.map((file) => {
       const record = (file ?? {}) as Record<string, unknown>;
       return [record.path, record.gitSha, record.size, record.sha256, record.blobRef];
     }),
-  });
+  };
+}
+
+/** 文件级事实的字符串形态（比较用，确定性）。 */
+function fileFacts(snapshot: { tree?: { listingDigest?: unknown }; files?: unknown }): string {
+  return JSON.stringify(snapshotFacts(snapshot));
+}
+
+/**
+ * 是否只是「事实补全」：同 (repoId, commit)、文件清单逐条一致，只是文件的内容 sha256
+ * 由 null 变为已取回的值（其余一律不算）。
+ *
+ * 为什么补全不算冲突：同一 commit 的内容 sha256 是**关于已冻结历史的事实**，多轮采集把
+ * 「没取到的正文」补上不会有任何改写——raw_events 不变、blob 内容寻址不变（补上的正文
+ * 是同一 sha256 的 blob）。反之，「非空哈希被改成另一个值」或文件增删才是真正的历史改写
+ * （数据不一致），必须报冲突且不覆盖（只追加）。
+ */
+function isEnrichment(
+  existing: { tree?: { listingDigest?: unknown }; files?: unknown },
+  next: { tree?: { listingDigest?: unknown }; files?: unknown },
+): boolean {
+  const a = snapshotFacts(existing);
+  const b = snapshotFacts(next);
+  if (a.listingDigest !== b.listingDigest) return false;
+  if (a.files.length !== b.files.length) return false;
+  for (let index = 0; index < a.files.length; index += 1) {
+    const left = a.files[index] as unknown[];
+    const right = b.files[index] as unknown[];
+    if (left[0] !== right[0] || left[1] !== right[1] || left[2] !== right[2]) return false;
+    if (left[3] === right[3] && left[4] === right[4]) continue;
+    if (left[3] === null && right[3] !== null) continue; // null → 值：补全
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -157,18 +193,29 @@ function fileFacts(snapshot: { tree?: { listingDigest?: unknown }; files?: unkno
  * 为什么不是「字节不同即冲突」：同一 (repoId, commit) 会被多轮采集反复观测（规格 §4.3.1 的
  * 幂等键是 `(repoId, commit, path)`），各轮的 runId/fetchedAt/配额必然不同；把元数据差异当冲突
  * 会淹没真正的问题。真正的冲突 = 同一 commit 的文件清单/内容哈希不一致（数据被改写）。
+ *
+ * 阶段 A 集成修正（MK-05）：同 commit 的 sha256 **从 null 补齐**（多轮采集补取正文）视作
+ * 「事实补全」——合并写回并记 `snapshot-enriched`（非冲突、可审计）；否则（非空哈希改值、
+ * 文件增删）仍按冲突处理，不覆盖历史。
  */
 async function writeSnapshot(
   path: string,
   content: string,
   snapshot: { tree?: { listingDigest?: unknown }; files?: unknown },
-): Promise<'written' | 'skipped' | 'conflict'> {
+): Promise<'written' | 'enriched' | 'skipped' | 'conflict'> {
   try {
     const existing = JSON.parse(await readFile(path, 'utf8')) as {
       tree?: { listingDigest?: unknown };
       files?: unknown;
     };
-    return fileFacts(existing) === fileFacts(snapshot) ? 'skipped' : 'conflict';
+    const existingFacts = fileFacts(existing);
+    const nextFacts = fileFacts(snapshot);
+    if (existingFacts === nextFacts) return 'skipped';
+    if (isEnrichment(existing, snapshot)) {
+      await writeFile(path, content, 'utf8');
+      return 'enriched';
+    }
+    return 'conflict';
   } catch {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, 'utf8');
@@ -367,7 +414,15 @@ export async function materializeOds(input: MaterializeInput): Promise<Materiali
     const outcome = await writeSnapshot(path, `${JSON.stringify(snapshot, null, 2)}\n`, snapshot);
     if (outcome === 'written') filesWritten += 1;
     else if (outcome === 'skipped') filesSkipped += 1;
-    else {
+    else if (outcome === 'enriched') {
+      // 事实补全：同 commit 的内容 sha256 由 null 补齐（多轮采集补取正文）→ 合并写回（可审计，非冲突）
+      issues.push({
+        path,
+        rule: 'snapshot-enriched',
+        detail: '同 (repoId, commit, path) 快照的正文哈希由 null 补齐（事实补全，非历史改写）',
+      });
+      filesWritten += 1;
+    } else {
       conflicts.push({
         path,
         rule: 'snapshot-conflict',
@@ -381,7 +436,12 @@ export async function materializeOds(input: MaterializeInput): Promise<Materiali
   // 2) 事件：按来源分区与 runId 原样 gzip（解压后逐字节等于来源）
   for (const source of bundle.sources) {
     if (source.kind !== 'raw_events') continue;
-    const text = await readFile(source.path, 'utf8');
+    // 源可能是 MK-01 的 `.jsonl`，也可能是本层上一轮写出的 `.jsonl.gz`：一律按原始字节解压再重压，
+    // 否则把 gz 当 UTF-8 读会产出乱码（同 runId 事件文件被判定「内容不同」→ 假冲突，实测踩过）。
+    const rawBytes = await readFile(source.path);
+    const text = source.path.endsWith('.gz')
+      ? gunzipSync(rawBytes).toString('utf8')
+      : rawBytes.toString('utf8');
     const runId =
       source.path
         .split('/')

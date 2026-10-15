@@ -17,7 +17,6 @@ import { readFile, writeFile } from 'node:fs/promises';
 import type { FetchLike, HttpDeps, HttpResponseLike } from './http.ts';
 import { NonRetryableFetchError, requestText } from './http.ts';
 import type { CandidateSource, RepoMeta, TreeEntry } from './types.ts';
-
 /** 上游非 2xx/304 响应（由调用方分类处理：404 跳过、403/429 已由退避层处理）。 */
 export class UpstreamError extends Error {
   readonly status: number;
@@ -89,6 +88,7 @@ export function parseRepoMeta(json: unknown): RepoMeta {
     forks: typeof record.forks_count === 'number' ? record.forks_count : 0,
     pushedAt: typeof record.pushed_at === 'string' ? record.pushed_at : '',
     updatedAt: typeof record.updated_at === 'string' ? record.updated_at : '',
+    createdAt: typeof record.created_at === 'string' ? record.created_at : '',
     archived: record.archived === true,
     fork: record.fork === true,
     sizeKb: typeof record.size === 'number' ? record.size : 0,
@@ -171,9 +171,94 @@ export interface GitHubClient extends CandidateSource {
     path: string,
     ref: string,
   ): Promise<{ text: string | null; cacheHit: boolean }>;
+  /** 星标历史水位（90 天前星标数；`stargazers` 端点的二分定位，规格 §5.2）。 */
+  getStarsHistory(input: {
+    repo: string;
+    totalStars: number;
+    cutoffMs: number;
+    maxCalls: number;
+  }): Promise<StarsAtCutoffResult>;
   searchByUrl(url: string): Promise<{ json: unknown; linkNext: string | null }>;
   getRateLimit(): Promise<{ json: unknown }>;
   stats(): { coreCalls: number; searchCalls: number; cacheHits304: number };
+}
+
+/** `starsAtCutoff` 的取数结果（`count=null` 只在预算耗尽时出现）。 */
+export interface StarsAtCutoffResult {
+  count: number | null;
+  pagesFetched: number;
+  method: 'direct-page' | 'binary-search' | 'budget-exhausted';
+}
+
+/** `stargazers` 端点每页上限（GitHub REST 契约）。 */
+export const STARGAZERS_PER_PAGE = 100;
+
+/**
+ * 计算 cutoff 时刻的星标数（`trend.stars90dAgo` 的来源，规格 §5.2 星标增速）。
+ *
+ * 原理：`stargazers` 端点按 starred_at 升序分页（每页 ≤100），水位即「第几个星标」。
+ * 算法：先取首页——若水位早于首页末条或仓不满一页，直接计数（1 次调用）；
+ * 否则二分定位「最后一页整页落在水位之前」的页号，再取边界页数偏移（≈log2(页数) 次）。
+ * 预算纪律：调用数超过 `maxCalls` → 返回 `count:null` + `budget-exhausted`
+ * （调用方如实降级，绝不臆造水位）。水位语义为**闭区间**（starred_at ≤ cutoffMs 计入）。
+ */
+export async function starsAtCutoff(input: {
+  totalStars: number;
+  cutoffMs: number;
+  fetchPage: (page: number) => Promise<{ starred_at: string }[]>;
+  maxCalls: number;
+}): Promise<StarsAtCutoffResult> {
+  const { totalStars, cutoffMs, fetchPage, maxCalls } = input;
+  let calls = 0;
+  if (totalStars <= 0) return { count: 0, pagesFetched: 0, method: 'direct-page' };
+
+  const pages = Math.ceil(totalStars / STARGAZERS_PER_PAGE);
+  /** 页缓存：二分命中的页可能在边界阶段复用（省调用、且保证页码访问确定）。 */
+  const cache = new Map<number, { starred_at: string }[]>();
+  /** 拉一页（计预算；超预算即返回 null，交由调用方降级）。 */
+  const get = async (page: number): Promise<{ starred_at: string }[] | null> => {
+    const hit = cache.get(page);
+    if (hit !== undefined) return hit;
+    if (calls >= maxCalls) return null;
+    calls += 1;
+    const items = await fetchPage(page);
+    cache.set(page, items);
+    return items;
+  };
+  const timeOf = (item: { starred_at: string }): number => Date.parse(item.starred_at);
+  const lastMs = (items: { starred_at: string }[]): number =>
+    timeOf(items[items.length - 1] as { starred_at: string });
+  const countAt = (items: { starred_at: string }[]): number =>
+    items.filter((item) => Number.isFinite(timeOf(item)) && timeOf(item) <= cutoffMs).length;
+
+  const first = await get(1);
+  if (first === null) return { count: null, pagesFetched: calls, method: 'budget-exhausted' };
+  if (first.length === 0) return { count: 0, pagesFetched: calls, method: 'direct-page' };
+  if (pages === 1 || lastMs(first) > cutoffMs) {
+    return { count: countAt(first), pagesFetched: calls, method: 'direct-page' };
+  }
+
+  // 首页整页都在水位之前：二分找「最后一页整页在水位之前」的页号 lo。
+  let lo = 1;
+  let hi = pages;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2);
+    const items = await get(mid);
+    if (items === null) return { count: null, pagesFetched: calls, method: 'budget-exhausted' };
+    if (items.length === 0) hi = mid - 1;
+    else if (lastMs(items) <= cutoffMs) lo = mid;
+    else hi = mid - 1;
+  }
+
+  // lo 页整页 ≤ 水位（lo<pages 时满页 = 100 条）；边界页 lo+1 的前缀按逐条 starred_at 计。
+  if (lo >= pages) return { count: totalStars, pagesFetched: calls, method: 'binary-search' };
+  const boundary = await get(lo + 1);
+  if (boundary === null) return { count: null, pagesFetched: calls, method: 'budget-exhausted' };
+  return {
+    count: lo * STARGAZERS_PER_PAGE + countAt(boundary),
+    pagesFetched: calls,
+    method: 'binary-search',
+  };
 }
 
 /**
@@ -266,13 +351,14 @@ export function createGitHubClient(opts: ClientOptions): GitHubClient {
   async function getJson(
     url: string,
     kind: 'core' | 'search',
+    extraHeaders?: Record<string, string>,
   ): Promise<{ json: unknown; etag: string | null; cacheHit: boolean; linkNext: string | null }> {
     // 仅当本地持有同 URL 的 ETag+正文时才发条件请求（否则强制 200，避免 304 无法还原结果）。
     const cached = kind === 'core' ? cache.get(url) : undefined;
     const outcome = await requestText(deps, {
       url,
       kind,
-      headers,
+      headers: extraHeaders === undefined ? headers : { ...headers, ...extraHeaders },
       ...(cached !== undefined && cached.etag !== null ? { ifNoneMatch: cached.etag } : {}),
       ...(kind === 'search' ? { useEtag: false } : {}),
     });
@@ -333,6 +419,27 @@ export function createGitHubClient(opts: ClientOptions): GitHubClient {
       const url = `${API}/repos/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`;
       const { json, cacheHit } = await getJson(url, 'core');
       return { text: decodeContentsText(json), cacheHit };
+    },
+    async getStarsHistory({ repo, totalStars, cutoffMs, maxCalls }) {
+      // `application/vnd.github.v3.star+json` 才带 starred_at（裸用户列表无法排序→无法定水位）。
+      return starsAtCutoff({
+        totalStars,
+        cutoffMs,
+        maxCalls,
+        fetchPage: async (page) => {
+          const url = `${API}/repos/${repo}/stargazers?per_page=${STARGAZERS_PER_PAGE}&page=${page}`;
+          const { json } = await getJson(url, 'core', {
+            accept: 'application/vnd.github.v3.star+json',
+          });
+          if (!Array.isArray(json)) return [];
+          return json.filter(
+            (item): item is { starred_at: string } =>
+              item !== null &&
+              typeof item === 'object' &&
+              typeof (item as Record<string, unknown>).starred_at === 'string',
+          );
+        },
+      });
     },
     async searchByUrl(url) {
       const { json, linkNext } = await getJson(url, 'search');

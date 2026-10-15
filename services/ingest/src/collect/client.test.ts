@@ -20,6 +20,7 @@ import {
   parseTree,
   ReplayMissError,
   resolveGitHubToken,
+  starsAtCutoff,
   UpstreamError,
 } from './client.ts';
 
@@ -328,5 +329,106 @@ describe('录制与重放（规格 §4.3：离线复跑不触网）', () => {
     const result = await client.getRepoMeta('anthropics/skills');
     expect(result.meta.fullName).toBe('anthropics/skills');
     expect(harness.script.calls).toHaveLength(0); // 原 fetch 未被触及
+  });
+});
+
+describe('parseRepoMeta.createdAt（冷启动判定输入，规格 §5.4）', () => {
+  it('created_at 原样解析；缺字段回退空串（如实缺省，不臆造）', () => {
+    const withCreated = parseRepoMeta({ ...REPO_JSON, created_at: '2025-01-02T03:04:05Z' });
+    expect(withCreated.createdAt).toBe('2025-01-02T03:04:05Z');
+    expect(parseRepoMeta(REPO_JSON).createdAt).toBe('');
+  });
+});
+
+describe('starsAtCutoff 星标历史水位（trend.stars90dAgo 来源）', () => {
+  /** 由星标时间线造页（每页 100，升序；找不到的页返回空数组）。 */
+  function starPages(timestamps: string[]) {
+    const calls: number[] = [];
+    return {
+      calls,
+      fetchPage: async (page: number) => {
+        calls.push(page);
+        const start = (page - 1) * 100;
+        return timestamps.slice(start, start + 100).map((starred_at) => ({ starred_at }));
+      },
+    };
+  }
+
+  /** 生成升序 ISO 时间线（起点 2024-01-01，每天 1 个星标）。 */
+  function dailyTimeline(count: number): string[] {
+    const start = Date.parse('2024-01-01T00:00:00Z');
+    return Array.from({ length: count }, (_, index) =>
+      new Date(start + index * 86_400_000).toISOString(),
+    );
+  }
+
+  const cutoffOf = (days: number) => Date.parse('2025-07-01T00:00:00Z') - days * 86_400_000;
+
+  it('全量在一页内：直接计数，1 次调用', async () => {
+    const timeline = dailyTimeline(50);
+    const pages = starPages(timeline);
+    const result = await starsAtCutoff({
+      totalStars: 50,
+      cutoffMs: Date.parse(timeline[19] as string),
+      fetchPage: pages.fetchPage,
+      maxCalls: 8,
+    });
+    expect(result).toEqual({ count: 20, pagesFetched: 1, method: 'direct-page' });
+    expect(pages.calls).toEqual([1]);
+  });
+
+  it('水位晚于最新星标：0 星（不臆造为全部）', async () => {
+    const timeline = dailyTimeline(50);
+    const pages = starPages(timeline);
+    const result = await starsAtCutoff({
+      totalStars: 50,
+      cutoffMs: Date.parse('2020-01-01T00:00:00Z'),
+      fetchPage: pages.fetchPage,
+      maxCalls: 8,
+    });
+    expect(result.count).toBe(0);
+  });
+
+  it('多页：二分定位边界页，计数 = 整页前缀 + 边界页内偏移', async () => {
+    // 250 个星标（第 1 页 1..100，第 3 页 201..250）；水位落在第 2 页第 50 个。
+    const timeline = dailyTimeline(250);
+    const pages = starPages(timeline);
+    const result = await starsAtCutoff({
+      totalStars: 250,
+      cutoffMs: Date.parse(timeline[149] as string),
+      fetchPage: pages.fetchPage,
+      maxCalls: 8,
+    });
+    expect(result).toEqual({
+      count: 150,
+      pagesFetched: expect.any(Number),
+      method: 'binary-search',
+    });
+    expect(pages.calls.length).toBeLessThanOrEqual(4); // 1 次首页 + 二分 ≤2 次 + 边界页 1 次
+    expect(pages.calls).toEqual([...pages.calls].sort((a, b) => a - b)); // 页码升序访问
+  });
+
+  it('水位于全量之后：返回总数（末页可短页）', async () => {
+    const timeline = dailyTimeline(250);
+    const pages = starPages(timeline);
+    const result = await starsAtCutoff({
+      totalStars: 250,
+      cutoffMs: Date.parse('2025-07-01T00:00:00Z'),
+      fetchPage: pages.fetchPage,
+      maxCalls: 8,
+    });
+    expect(result.count).toBe(250);
+  });
+
+  it('调用预算耗尽：返回 null + 明确标记（如实降级，不阻塞链路）', async () => {
+    const timeline = dailyTimeline(500);
+    const pages = starPages(timeline);
+    const result = await starsAtCutoff({
+      totalStars: 500,
+      cutoffMs: cutoffOf(30),
+      fetchPage: pages.fetchPage,
+      maxCalls: 1, // 只允许 1 次调用（首页不够二分）
+    });
+    expect(result).toEqual({ count: null, pagesFetched: 1, method: 'budget-exhausted' });
   });
 });

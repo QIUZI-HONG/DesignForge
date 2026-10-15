@@ -52,20 +52,126 @@ import type {
   ExitCode,
   OdsRepoRecord,
   RawEvent,
+  RepoMeta,
+  StarsHistoryNote,
   TreeEntry,
 } from './types.ts';
 
-/** 每仓内容取回优先级（规格 §3.7「Contents 抽样 1–3」；MK-01 默认预算放大到 32 见 runCollect）。 */
+/**
+ * 每仓内容取回优先级（规格 §3.7「Contents 抽样 1–3」；MK-01 默认预算放大到 32 见 runCollect）。
+ *
+ * 排序口径（阶段 A 对接面修复后）：**认定资产的关键文本优先**——
+ * 仓根 README（全仓共用的兜底文本）→ SKILL.md 正文 → 清单族 → DESIGN.md/tokens
+ * → 资产根 README → .mcp.json → CHANGELOG。四层 `text` 抽取组（规格 §4.4）据此可落成，
+ * 五维评分不再因「文本空壳」静默塌陷（MK-03 探针实证）。
+ */
 const CONTENT_PRIORITY: { piece: string; rank: number }[] = [
-  { piece: 'plugin-manifest', rank: 0 },
-  { piece: 'marketplace-manifest', rank: 1 },
-  { piece: 'template-manifest', rank: 2 },
-  { piece: 'manifest-json', rank: 3 },
-  { piece: 'components-manifest', rank: 4 },
-  { piece: 'tokens-file', rank: 5 },
-  { piece: 'package-json', rank: 6 },
-  { piece: 'skill-doc', rank: 7 },
+  { piece: 'readme-root', rank: 0 },
+  { piece: 'skill-doc', rank: 1 },
+  { piece: 'plugin-manifest', rank: 2 },
+  { piece: 'marketplace-manifest', rank: 3 },
+  { piece: 'manifest-json', rank: 4 },
+  { piece: 'template-manifest', rank: 5 },
+  { piece: 'design-md', rank: 6 },
+  { piece: 'components-manifest', rank: 7 },
+  { piece: 'tokens-file', rank: 8 },
+  { piece: 'package-json', rank: 9 },
+  { piece: 'readme-asset', rank: 10 },
+  { piece: 'mcp-json', rank: 11 },
+  { piece: 'changelog', rank: 12 },
 ];
+
+/** README/CHANGELOG 的文件名（非认定结构件，但是 `text` 抽取组的来源）。 */
+const README_BASENAME = 'README.md';
+const CHANGELOG_BASENAMES = new Set(['CHANGELOG.md', 'CHANGELOG']);
+/** 仓根 README 的独立排序键（`readme-root` 与 `readme-asset` 同名不同位）。 */
+const README_ROOT_RANK = 0;
+const README_ASSET_RANK = 10;
+const CHANGELOG_RANK = 12;
+
+/**
+ * 文本类扩展名（与 MK-02 `classifyMediaType` 的 `text` 集同族——镜像登记为集成债）。
+ * 用途：判断一个资产根能否**完整取回**（digest 的前提，规格 §1.6）；含二进制的根直接跳过，
+ * 因为合规口径禁下载二进制（§8.1），而 digest 需要全部文件的内容 sha256（§1.6）。
+ */
+const TEXT_EXTENSIONS = new Set([
+  'md',
+  'markdown',
+  'mdx',
+  'txt',
+  'json',
+  'jsonc',
+  'css',
+  'scss',
+  'html',
+  'htm',
+  'svg',
+  'js',
+  'mjs',
+  'cjs',
+  'ts',
+  'tsx',
+  'jsx',
+  'yml',
+  'yaml',
+  'toml',
+  'sh',
+  'bash',
+  'py',
+  'rb',
+  'go',
+  'rs',
+  'java',
+  'kt',
+  'swift',
+  'php',
+  'csv',
+  'tsv',
+  'xml',
+  'gitignore',
+  'gitattributes',
+  'editorconfig',
+  'npmrc',
+  'prettierrc',
+  'eslintrc',
+]);
+/** 单文件取回上限（contents 端点 1MB 封顶；留余量）。 */
+const MAX_FETCH_BYTES = 900 * 1024;
+
+/** 文件名是否像许可/说明文件（无扩展名也要按文本取回）。 */
+const TEXT_BASENAME_RE =
+  /^(LICEN[CS]E|LICENCE|COPYING|NOTICE|AUTHORS|CONTRIBUTORS|CHANGELOG|CHANGES|README|Makefile|Dockerfile|AUTHORS\.md)(\.(md|txt|rst))?$/i;
+
+/** 该路径是否按文本取回（扩展名白名单 + 无扩展名的说明/许可文件 + 常见点文件）。 */
+export function isTextLikePath(path: string): boolean {
+  const base = path.split('/').pop() ?? path;
+  if (TEXT_BASENAME_RE.test(base)) return true;
+  if (base.startsWith('.') && !base.slice(1).includes('.')) return true; // .gitignore / .npmrc 等
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return false; // 无扩展名且不在白名单：不可判定 → 保守跳过
+  return TEXT_EXTENSIONS.has(base.slice(dot + 1).toLowerCase());
+}
+
+/**
+ * 完整资产根的类群（与识别层同目录多命中的优先级一致：plugin > design-system > template > skill，
+ * 规格 §2.1.3）；`other` 兜底（package.json / .mcp.json 等非认定结构件）。
+ */
+const CONTENT_ROOT_GROUPS: { name: string; pieces: string[] }[] = [
+  { name: 'plugin', pieces: ['plugin-manifest', 'marketplace-manifest'] },
+  {
+    name: 'design-system',
+    pieces: ['design-md', 'tokens-file', 'components-manifest', 'manifest-json'],
+  },
+  { name: 'template', pieces: ['template-manifest'] },
+  { name: 'skill', pieces: ['skill-doc'] },
+  { name: 'other', pieces: ['package-json', 'mcp-json'] },
+];
+
+/** 类群序号（越小越优先；未知群排最后）。 */
+function groupRank(name: string): number {
+  const index = CONTENT_ROOT_GROUPS.findIndex((group) => group.name === name);
+  return index < 0 ? CONTENT_ROOT_GROUPS.length : index;
+}
 
 export interface ContentSelection {
   selected: string[];
@@ -73,21 +179,168 @@ export interface ContentSelection {
 }
 
 /**
- * 按优先级选取需要取回正文的路径（预算内）。
+ * 内容取回选择（预算内）。两级策略（阶段 A 对接面修复口径）：
+ *
+ * 1. **完整资产根优先**：把「结构件所在目录 = 资产根」下的**全部文本文件**按根一次性取回
+ *    （根按文件数升序排，贪心装填预算）。理由：规格 §1.6 的 `digest` 需要资产根内全部文件的
+ *    内容 sha256，缺一即 `digest=null`（MK-02 如实标注）→ 卡片契约（§1.2 digest 必填）无从落成。
+ *    含二进制/超大文件的根**直接跳过**（合规禁下载二进制，§8.1），不浪费预算。
+ * 2. **仓根 README/CHANGELOG**：全仓共用的兜底文本（`text.readme` 回退源，规格 §4.4）。
+ * 3. 余量（通常为 0）再按优先级表补单文件（SKILL.md 正文 / 清单 / tokens …）。
+ *
  * 未选中的进 `deferred`（识别层据此标 `compliance: 'deferred'`，不假装校验过）。
  */
 export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSelection {
-  const pieces = probeTree(tree).filter((p) => CONTENT_PRIORITY.some((c) => c.piece === p.piece));
-  const ranked = pieces
-    .map((p) => ({
-      path: p.path,
-      rank: CONTENT_PRIORITY.find((c) => c.piece === p.piece)?.rank ?? 99,
-    }))
-    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.path < b.path ? -1 : 1));
+  const blobs = tree.filter((entry) => entry.type === 'blob');
+  const priorityOf = (piece: string): number | null =>
+    CONTENT_PRIORITY.find((c) => c.piece === piece)?.rank ?? null;
 
-  const unique: string[] = [];
-  for (const item of ranked) if (!unique.includes(item.path)) unique.push(item.path);
-  return { selected: unique.slice(0, budget), deferred: unique.slice(budget) };
+  // 候选登记（用于 deferred 集合与收尾补位）
+  const candidateRank = new Map<string, number>();
+  const register = (path: string, rank: number): void => {
+    const known = candidateRank.get(path);
+    if (known === undefined || rank < known) candidateRank.set(path, rank);
+  };
+  for (const piece of probeTree(tree)) {
+    const rank = priorityOf(piece.piece);
+    if (rank !== null) register(piece.path, rank);
+  }
+  for (const entry of blobs) {
+    const base = entry.path.split('/').pop() ?? entry.path;
+    if (base === README_BASENAME) {
+      register(entry.path, entry.path === README_BASENAME ? README_ROOT_RANK : README_ASSET_RANK);
+    } else if (CHANGELOG_BASENAMES.has(base)) {
+      register(entry.path, CHANGELOG_RANK);
+    }
+  }
+
+  // 1) 仓根 README/CHANGELOG（兜底文本，先占 1–2 格预算）
+  const selected: string[] = [];
+  const selectedSet = new Set<string>();
+  const take = (path: string): void => {
+    if (selectedSet.has(path)) return;
+    selectedSet.add(path);
+    selected.push(path);
+  };
+  for (const entry of blobs) {
+    if (selected.length >= budget) break;
+    const isRootReadme = entry.path === README_BASENAME;
+    const isRootChangelog = entry.path === 'CHANGELOG.md' || entry.path === 'CHANGELOG';
+    if ((isRootReadme || isRootChangelog) && isTextLikePath(entry.path)) take(entry.path);
+  }
+
+  // 2) 完整资产根（结构件目录 → 根内全部文本文件）
+  //    装填顺序 = **按资产类群轮转**（plugin → design-system → template → skill → 其他），
+  //    群内按根规模升序。为什么要轮转：只按规模会一路吃「1 文件小根」，四类卡片的分布被单类
+  //    挤空（实测 5 仓小跑：design-system 卡片 0 张）——市场是给四类看的，批次预算得先保均衡。
+  const sizeOf = new Map(blobs.map((entry) => [entry.path, entry.size ?? 0]));
+  const rootFiles = new Map<string, string[]>();
+  const rootGroup = new Map<string, string>();
+  for (const piece of probeTree(tree)) {
+    if (priorityOf(piece.piece) === null) continue;
+    const root = piece.root;
+    const group = CONTENT_ROOT_GROUPS.find((g) => g.pieces.includes(piece.piece))?.name ?? 'other';
+    const known = rootGroup.get(root);
+    if (known === undefined || groupRank(group) < groupRank(known)) rootGroup.set(root, group);
+    if (rootFiles.has(root)) continue;
+    const prefix = root === '' ? '' : `${root}/`;
+    rootFiles.set(
+      root,
+      blobs
+        .filter((entry) => (root === '' ? true : entry.path.startsWith(prefix)))
+        .map((entry) => entry.path),
+    );
+  }
+  const completableByGroup = new Map<string, { root: string; files: string[] }[]>();
+  for (const [root, files] of rootFiles) {
+    if (files.length === 0) continue;
+    const textOnly = files.every(
+      (path) => isTextLikePath(path) && (sizeOf.get(path) ?? 0) <= MAX_FETCH_BYTES,
+    );
+    if (!textOnly) continue;
+    const group = rootGroup.get(root) ?? 'other';
+    const list = completableByGroup.get(group) ?? [];
+    list.push({ root, files: [...files].sort() });
+    completableByGroup.set(group, list);
+  }
+  for (const list of completableByGroup.values()) {
+    list.sort((a, b) =>
+      a.files.length !== b.files.length
+        ? a.files.length - b.files.length
+        : a.root < b.root
+          ? -1
+          : 1,
+    );
+  }
+  // 装填：各群**均分预算份额**，群内按根规模升序尽量装；装不下的根放弃（升序，后面只会更大）；
+  // 用不完的份额顺延给下一群，最后仍有余量则按全群规模升序兜底——预算不会被空群浪费。
+  const groupOrder = CONTENT_ROOT_GROUPS.map((g) => g.name);
+  const perGroupBase = Math.floor(budget / groupOrder.length);
+  /** 单群份额上限 = 预算一半（防「一个超大的根吃掉整仓预算」）。 */
+  const perGroupCap = Math.max(1, Math.floor(budget / 2));
+  let carry = 0;
+  const consumed = new Map<string, number>();
+  /** 本群当前第一个待装根的待取文件数（用于份额下限）。 */
+  const headSizeOf = (group: string): number => {
+    const list = completableByGroup.get(group);
+    if (list === undefined) return 0;
+    const head = list[consumed.get(group) ?? 0];
+    if (head === undefined) return 0;
+    return head.files.filter((path) => !selectedSet.has(path)).length;
+  };
+  const spendInGroup = (group: string, allowance: number): number => {
+    const list = completableByGroup.get(group);
+    if (list === undefined) return allowance;
+    let left = allowance;
+    let cursor = consumed.get(group) ?? 0;
+    // 升序列表：一旦装不下即停（后面只会更大），剩下的留给兜底装填
+    while (cursor < list.length) {
+      const candidate = list[cursor];
+      if (candidate === undefined) break;
+      const pending = candidate.files.filter((path) => !selectedSet.has(path));
+      if (pending.length > left) break;
+      cursor += 1;
+      for (const path of pending) take(path);
+      left -= pending.length;
+    }
+    consumed.set(group, cursor);
+    return left;
+  };
+  for (const group of groupOrder) {
+    // 份额 = max(均分, 本群最小根规模)，上限预算一半——否则「大根类群」（设计系统常见
+    // 24–41 文件的资产根）在小预算下永远一张卡片都出不了（实测 5 仓与 40 仓批次都踩到）。
+    const share = Math.max(perGroupBase, Math.min(perGroupCap, headSizeOf(group)));
+    carry = spendInGroup(group, share + carry);
+  }
+  // 兜底：全群剩余根按规模升序装填（用尽预算或无可装之根为止）
+  const leftoversRoots = [...completableByGroup.values()]
+    .flat()
+    .filter((root) => root.files.some((path) => !selectedSet.has(path)))
+    .sort((a, b) =>
+      a.files.length !== b.files.length
+        ? a.files.length - b.files.length
+        : a.root < b.root
+          ? -1
+          : 1,
+    );
+  for (const root of leftoversRoots) {
+    const pending = root.files.filter((path) => !selectedSet.has(path));
+    if (selected.length + pending.length > budget) continue;
+    for (const path of pending) take(path);
+  }
+
+  // 3) 余量按优先级补单文件（SKILL.md 正文 / 清单 / tokens / 资产根 README / .mcp.json …）
+  const leftovers = [...candidateRank.entries()]
+    .filter(([path]) => !selectedSet.has(path))
+    .map(([path, rank]) => ({ path, rank }))
+    .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.path < b.path ? -1 : 1));
+  for (const item of leftovers) {
+    if (selected.length >= budget) break;
+    if (isTextLikePath(item.path)) take(item.path);
+  }
+
+  const deferred = [...candidateRank.keys()].filter((path) => !selectedSet.has(path)).sort();
+  return { selected, deferred };
 }
 
 export interface CollectOptions {
@@ -108,6 +361,12 @@ export interface CollectOptions {
    * 小仓全量校验（5 仓 ≈ 170 次 core，远低于 4000/时预算），超大仓如实 deferred。
    */
   maxContentPerRepo: number;
+  /**
+   * 是否取星标历史水位（`trend.stars90dAgo` 的来源，规格 §5.2 星标增速）。
+   * 默认关：需 `stargazers` 端点额外调用（每仓 ≤ `STARS_HISTORY_MAX_CALLS` 次），
+   * 由调用方（`df market collect`）显式开启；取不到时如实留 null + 原因，不阻塞链路。
+   */
+  starsHistory?: boolean;
   /** 离线重放目录（含 responses.jsonl + manifest.json）；非空即离线模式。 */
   replayDir: string | null;
   /** 测试注入：请求出口（生产 = 全局 fetch）。 */
@@ -153,8 +412,9 @@ function dateOf(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-/** 种子仓 → 候选形态（repo id 未知，取 meta 后回填；带去重用的 fullName）。 */
-function seedCandidates(seeds: string[]): Candidate[] {
+/** 种子仓 → 候选形态（repo id 未知，取 meta 后回填；带去重用的 fullName）。 */ function seedCandidates(
+  seeds: string[],
+): Candidate[] {
   return seeds.map((fullName) => ({
     repoId: -1,
     fullName,
@@ -186,6 +446,7 @@ export function collectParamsOf(opts: CollectOptions): ReplayParams {
     limit: opts.limit,
     since: opts.since,
     maxContentPerRepo: opts.maxContentPerRepo,
+    starsHistory: opts.starsHistory === true,
   };
 }
 
@@ -199,6 +460,8 @@ export interface ReplayParams {
   limit: number | null;
   since: string | null;
   maxContentPerRepo: number;
+  /** 星标水位开关（重放必须复现，否则样本缺 stargazers 响应 → 明确阻塞）。 */
+  starsHistory: boolean;
 }
 
 /** 读重放 manifest（缺失/损坏 → null，退回调用方参数）。 */
@@ -215,6 +478,79 @@ async function readReplayManifest(
     return { runId: parsed.runId, asOfMs: parsed.asOfMs, params: parsed.params ?? {} };
   } catch {
     return null;
+  }
+}
+
+/** 星标历史水位的窗口（90 天，规格 §5.2 星标增速口径）。 */
+export const STARS_HISTORY_DAYS = 90;
+/** 每仓水位取数调用上限（≈log2(页数)+2；超出即如实降级，不阻塞链路）。 */
+export const STARS_HISTORY_MAX_CALLS = 10;
+
+/**
+ * 从录制样本反推「每仓取回的内容路径」——**重放的内容名单以样本为准**。
+ *
+ * 为什么：离线复跑要保证「URL 逐条命中样本」，而内容取回算法会随版本演进（优先级/预算/完整根策略）。
+ * 若重放仍按当前算法重算名单，算法一变样本就复现不出来（实测踩过：批次后修订策略 → 复跑 12 仓缺样本）。
+ * 样本里已经记录了逐条 URL，因此把 `contents/<path>?ref=` 反解成名单，重放时原样取回——
+ * 复跑复现的是**那次真实采集**，与算法版本解耦（参数仍以样本 manifest 为准）。
+ */
+export function selectionsFromRecorded(responses: { url: string }[]): Map<string, string[]> {
+  const byRepo = new Map<string, Set<string>>();
+  for (const response of responses) {
+    const match = /\/repos\/([^/]+\/[^/]+)\/contents\/(.+?)\?ref=/.exec(response.url);
+    if (match === null) continue;
+    const repo = match[1];
+    const path = decodeURIComponent(match[2] ?? '');
+    if (repo === undefined || path === '') continue;
+    const set = byRepo.get(repo) ?? new Set<string>();
+    set.add(path);
+    byRepo.set(repo, set);
+  }
+  return new Map([...byRepo.entries()].map(([repo, set]) => [repo, [...set].sort()]));
+}
+
+/**
+ * 取一仓的星标历史水位（`trend.stars90dAgo` 的来源）。
+ * 取不到（上游异常/预算耗尽）→ null + 原因码，**绝不臆造**；离线重放缺样本按阻塞上抛。
+ */
+async function collectStarsHistory(
+  client: GitHubClient,
+  meta: RepoMeta,
+  asOfMs: number,
+): Promise<{ stars90dAgo: number | null; note: StarsHistoryNote }> {
+  const cutoffMs = asOfMs - STARS_HISTORY_DAYS * 24 * 60 * 60 * 1000;
+  const createdMs = meta.createdAt === '' ? Number.NaN : Date.parse(meta.createdAt);
+  if (Number.isFinite(createdMs) && createdMs > cutoffMs) {
+    return {
+      stars90dAgo: 0,
+      note: {
+        method: 'skipped',
+        pagesFetched: 0,
+        reason: `仓创建于水位之后（${meta.createdAt}），水位时点星标 = 0`,
+      },
+    };
+  }
+  try {
+    const history = await client.getStarsHistory({
+      repo: meta.fullName,
+      totalStars: meta.stars,
+      cutoffMs,
+      maxCalls: STARS_HISTORY_MAX_CALLS,
+    });
+    return {
+      stars90dAgo: history.count,
+      note: {
+        method: history.method,
+        pagesFetched: history.pagesFetched,
+        reason: history.count === null ? '调用预算耗尽（如实降级，不阻塞链路）' : null,
+      },
+    };
+  } catch (error) {
+    if (error instanceof ReplayMissError) throw error;
+    return {
+      stars90dAgo: null,
+      note: { method: 'skipped', pagesFetched: 0, reason: `取数失败：${String(error)}` },
+    };
   }
 }
 
@@ -255,11 +591,15 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
   let token: string | null = null;
   let cacheStore: FileCacheStore | null = null;
 
+  let recordedResponses: { url: string }[] = [];
   if (offline && opts.replayDir !== null) {
     try {
       const raw = await readFile(join(opts.replayDir, 'responses.jsonl'), 'utf8');
-      baseFetch = createReplayFetch(parseRecordedResponses(raw));
-      log(`离线重放：样本 ${join(opts.replayDir, 'responses.jsonl')}`);
+      recordedResponses = parseRecordedResponses(raw);
+      baseFetch = createReplayFetch(recordedResponses as Parameters<typeof createReplayFetch>[0]);
+      log(
+        `离线重放：样本 ${join(opts.replayDir, 'responses.jsonl')}（${recordedResponses.length} 条响应）`,
+      );
     } catch (error) {
       blockedReason = `离线样本不可读：${String(error)}（阻塞：不触网、不伪造）`;
     }
@@ -361,6 +701,14 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
           skippedRepos.push({ repo: target.fullName, reason: '元数据缺 id（上游异常）' });
           continue;
         }
+        // 星标历史水位（可选；失败/预算耗尽 → null + 原因，不阻塞链路）
+        let stars90dAgo: number | null = null;
+        let starsHistoryNote: StarsHistoryNote | null = null;
+        if (effective.starsHistory === true) {
+          const history = await collectStarsHistory(client, meta, effective.asOfMs);
+          stars90dAgo = history.stars90dAgo;
+          starsHistoryNote = history.note;
+        }
         const refResult = await client.getRef(target.fullName, meta.defaultBranch);
         if (refResult.commitSha === null) {
           skippedRepos.push({
@@ -395,8 +743,22 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
           licenseSha256,
         });
 
-        // 内容抽样（预算内按优先级）
-        const selection = selectContentPaths(treeResult.entries, effective.maxContentPerRepo);
+        // 内容抽样：离线重放**以样本名单为准**（保证 URL 逐条命中；算法演进不影响复现），
+        // 真网运行按当前策略（完整资产根 + 类群份额）选取。
+        const recordedSelection = offline
+          ? selectionsFromRecorded(recordedResponses)
+              .get(target.fullName)
+              // 许可原文走独立取回（不属于内容名单）——重放名单里剔除它，避免重复请求
+              ?.filter((path) => path !== licensePath)
+          : undefined;
+        const selection =
+          recordedSelection !== undefined
+            ? {
+                selected: recordedSelection,
+                deferred: selectContentPaths(treeResult.entries, effective.maxContentPerRepo)
+                  .deferred,
+              }
+            : selectContentPaths(treeResult.entries, effective.maxContentPerRepo);
         const contents = new Map<string, string>();
         for (const path of selection.selected) {
           try {
@@ -429,6 +791,9 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
             stars: meta.stars,
             forks: meta.forks,
             pushedAt: meta.pushedAt,
+            createdAt: meta.createdAt,
+            stars90dAgo,
+            starsHistory: starsHistoryNote,
             archived: meta.archived,
             fork: meta.fork,
             sizeKb: meta.sizeKb,
@@ -683,6 +1048,9 @@ function buildIdentificationStep(input: {
     .filter((a) => !/^gh:[^#\s]+#[^#\s]*$/.test(a.id)).length;
   const listMarked = records.filter((r) => r.isListRepo).length;
   const truncRepo = records.filter((r) => r.tree.truncated).length;
+  // 对接面修复的覆盖度（不设为硬断言：取不到是允许的，但要如实进证据，供 MK-05 判据链复核）
+  const createdAtPresent = records.filter((r) => r.repo.createdAt !== '').length;
+  const stars90dCovered = records.filter((r) => r.repo.stars90dAgo !== null).length;
 
   return {
     id: 'asset-identification',
@@ -709,6 +1077,8 @@ function buildIdentificationStep(input: {
       deferredAssets: counts.deferredAssets,
       truncatedTrees: truncRepo,
       skippedRepos: counts.skippedRepos.length,
+      repoCreatedAtPresent: createdAtPresent,
+      stars90dAgoCovered: stars90dCovered,
       queries: input.queries.map((q) => `${q.topic}/${q.sort}:${q.items}`).join('|'),
     },
   };
