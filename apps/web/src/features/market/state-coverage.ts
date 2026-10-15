@@ -49,9 +49,9 @@ export const MARKET_STATE_COVERAGE: PageCoverage[] = coverage.pages.map((page) =
   states: Object.fromEntries(
     COVERAGE_STATES.map((state) => {
       // 表由 JSON 提供，逐态宽松读取：缺条目时给「未登记」的保守默认（结构校验在测试与门禁里做）
-      const entry = (page.states as Record<string, { marker?: string; delegatedTo?: string; how: string }>)[
-        state
-      ] ?? { how: '未登记' };
+      const entry = (
+        page.states as Record<string, { marker?: string; delegatedTo?: string; how: string }>
+      )[state] ?? { how: '未登记' };
       return [
         state,
         {
@@ -71,7 +71,12 @@ export function coverageOf(page: string): PageCoverage | null {
 }
 
 /** 未被基础件承担、需要源码字面量断言的态（门禁断言清单）。 */
-export function declaredMarkers(): { page: string; state: CoverageState; marker: string; sourceFiles: string[] }[] {
+export function declaredMarkers(): {
+  page: string;
+  state: CoverageState;
+  marker: string;
+  sourceFiles: string[];
+}[] {
   const out: { page: string; state: CoverageState; marker: string; sourceFiles: string[] }[] = [];
   for (const page of MARKET_STATE_COVERAGE) {
     for (const state of COVERAGE_STATES) {

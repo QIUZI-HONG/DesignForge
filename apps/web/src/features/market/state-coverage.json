@@ -2,14 +2,7 @@
   "schema": "df.market.state-coverage/v1",
   "ticket": "FE-11",
   "note": "自设计页（清单 D 区）六态覆盖登记表（《前端验收标准 v1》§5）。marker 为**可在源码中逐一断言的字面量**（verify-market 与 vitest 双向检查）；delegatedTo 表示该态由 @dforge/ui 基础件承担（FE-01 组件级门禁覆盖）或不适用，不得写成通过。",
-  "states": [
-    "hover",
-    "active",
-    "disabled",
-    "loading",
-    "empty",
-    "error"
-  ],
+  "states": ["hover", "active", "disabled", "loading", "empty", "error"],
   "pages": [
     {
       "page": "D1",

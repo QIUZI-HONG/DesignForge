@@ -13,13 +13,25 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { COVERAGE_STATES, coverageOf, declaredMarkers, MARKET_STATE_COVERAGE } from './state-coverage';
+import {
+  COVERAGE_STATES,
+  coverageOf,
+  declaredMarkers,
+  MARKET_STATE_COVERAGE,
+} from './state-coverage';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
 
 describe('六态覆盖登记表 · 结构', () => {
   it('D1–D6 逐页登记，且每页六态齐备（缺项即缺陷，验收 §5）', () => {
-    expect(MARKET_STATE_COVERAGE.map((page) => page.page)).toEqual(['D1', 'D2', 'D3', 'D4', 'D5', 'D6']);
+    expect(MARKET_STATE_COVERAGE.map((page) => page.page)).toEqual([
+      'D1',
+      'D2',
+      'D3',
+      'D4',
+      'D5',
+      'D6',
+    ]);
     for (const page of MARKET_STATE_COVERAGE) {
       for (const state of COVERAGE_STATES) {
         const entry = page.states[state];
@@ -37,7 +49,10 @@ describe('六态覆盖登记表 · 结构', () => {
         const entry = page.states[state];
         const hasMarker = entry.marker !== undefined;
         const hasDelegation = entry.delegatedTo !== undefined && entry.delegatedTo.length > 0;
-        expect(hasMarker || hasDelegation, `${page.page}.${state} 既无 marker 也无 delegatedTo`).toBe(true);
+        expect(
+          hasMarker || hasDelegation,
+          `${page.page}.${state} 既无 marker 也无 delegatedTo`,
+        ).toBe(true);
       }
     }
   });
@@ -62,7 +77,10 @@ describe('六态覆盖登记表 · 与源码逐字一致（挂点真实存在）
           return false;
         }
       });
-      if (!hit) missing.push(`${item.page}/${item.state} 的 marker 不在 ${item.sourceFiles.join(', ')}：${item.marker}`);
+      if (!hit)
+        missing.push(
+          `${item.page}/${item.state} 的 marker 不在 ${item.sourceFiles.join(', ')}：${item.marker}`,
+        );
     }
     expect(missing).toEqual([]);
   });
@@ -70,7 +88,10 @@ describe('六态覆盖登记表 · 与源码逐字一致（挂点真实存在）
   it('声明的源文件都真实存在（防止登记表指向幽灵路径）', () => {
     for (const page of MARKET_STATE_COVERAGE) {
       for (const file of page.sourceFiles) {
-        expect(() => readFileSync(join(repoRoot, file), 'utf8'), `${page.page} 源文件缺失：${file}`).not.toThrow();
+        expect(
+          () => readFileSync(join(repoRoot, file), 'utf8'),
+          `${page.page} 源文件缺失：${file}`,
+        ).not.toThrow();
       }
     }
   });
