@@ -49,7 +49,11 @@ const maxRatio = Number(flagValue('--max-ratio') ?? '0.001');
  * `prepare` 为交互剧本（在取样前执行）；`state` 用于状态覆盖清单归口。
  */
 const UNITS = [
-  { id: 'editor/topbar', state: 'disabled', note: '默认含禁用入口（分享/演示/评论/版本未注册命令）' },
+  {
+    id: 'editor/topbar',
+    state: 'disabled',
+    note: '默认含禁用入口（分享/演示/评论/版本未注册命令）',
+  },
   { id: 'editor/toolbar', state: 'active', note: '默认含 active 工具块（aria-pressed=true）' },
   { id: 'editor/canvas', state: 'empty', note: '空槽态（FE-06 挂载前）' },
   {
@@ -360,7 +364,9 @@ for (const unit of targets) {
     },
   });
   if (verbose)
-    console.error(`  ${status === 'pass' ? '✓' : '✗'} ${unit.id}：差异率 ${(ratio * 100).toFixed(4)}%`);
+    console.error(
+      `  ${status === 'pass' ? '✓' : '✗'} ${unit.id}：差异率 ${(ratio * 100).toFixed(4)}%`,
+    );
 }
 
 // 取样过的单元把状态清账为「已有取证」（结论 A 级=pass/fail，B 级=人工复核）
