@@ -73,7 +73,9 @@ export function createPanelsSession(options: PanelsSessionOptions = {}): PanelsS
     subscribe: (listener) => stack.subscribe(listener),
     page: () => getPage(stack.document, pageId),
     run: (commands, label) => {
-      const list = Array.isArray(commands) ? (commands as readonly Command[]) : [commands as Command];
+      const list = Array.isArray(commands)
+        ? (commands as readonly Command[])
+        : [commands as Command];
       if (list.length === 0) return;
       stack.dispatch(list, { label });
     },

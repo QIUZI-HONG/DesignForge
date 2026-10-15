@@ -9,11 +9,20 @@
  * 是纯数据结构 + 纯函数（`@dforge/engine` 的 `selection/`），本 store 持有其状态、调用其纯函数。
  * 只用 vanilla store（不经 React context 包裹），方便测试与非 React 消费方（画布渲染循环）读取。
  */
-import { clickSelection, type NodeId, type Selection, selectOnly, setSelection } from '@dforge/engine';
+import {
+  clickSelection,
+  type NodeId,
+  type Selection,
+  selectOnly,
+  setSelection,
+} from '@dforge/engine';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
 /** 资产面板分段（C4：组件 / Token）。 */
 export type AssetSegment = 'components' | 'tokens';
+
+/** 左栏页签（Figma 左面板 = 文件（图层）/ 资产两个页签）。 */
+export type LeftPanelTab = 'layers' | 'assets';
 
 /** 点击图层的修饰键（对应引擎 `clickSelection` 的语义）。 */
 export interface LayerClickModifiers {
@@ -33,6 +42,8 @@ export interface PanelsUiState {
   assetSegment: AssetSegment;
   /** 资产面板搜索词（空 = 不过滤）。 */
   assetQuery: string;
+  /** 左栏页签：图层 ↔ 资产（等同 Figma 左面板的「文件 / 资产」）。 */
+  leftTab: LeftPanelTab;
 
   /** 整体替换选择集（画布框选 / 引擎回传用）。 */
   setSelection: (selection: Selection) => void;
@@ -48,6 +59,8 @@ export interface PanelsUiState {
   setAssetSegment: (segment: AssetSegment) => void;
   /** 设置资产搜索词。 */
   setAssetQuery: (query: string) => void;
+  /** 切换左栏页签。 */
+  setLeftTab: (tab: LeftPanelTab) => void;
 }
 
 /** 面板 UI store 句柄（vanilla：`getState` / `subscribe` / React 侧配 `useStore`）。 */
@@ -70,6 +83,7 @@ export function createPanelsUiStore(
     renamingId: null,
     assetSegment: initial.assetSegment ?? 'components',
     assetQuery: initial.assetQuery ?? '',
+    leftTab: 'layers',
 
     setSelection: (selection) => {
       if (sameSelection(get().selection, selection)) return;
@@ -107,6 +121,11 @@ export function createPanelsUiStore(
     setAssetQuery: (query) => {
       if (get().assetQuery === query) return;
       set({ assetQuery: query });
+    },
+
+    setLeftTab: (tab) => {
+      if (get().leftTab === tab) return;
+      set({ leftTab: tab });
     },
   }));
 }

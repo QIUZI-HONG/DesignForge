@@ -19,9 +19,8 @@ import {
   requireNode,
 } from '@dforge/engine';
 import { describe, expect, it } from 'vitest';
-
+import { type DropRow, isNoopDrop, resolveDropTarget } from './drop-target';
 import { moveLayerCommands } from './layer-commands';
-import { isNoopDrop, resolveDropTarget, type DropRow } from './drop-target';
 
 /**
  * 夹具：f1（画板 200×200，世界原点 0,0）⊃ [r1(10,10,50,50), r2(70,10,50,50), g1 ⊃ [t1(0,0,40,20)]]；
@@ -41,7 +40,12 @@ function baseDoc(): DesignDocument {
     'f1',
   );
   doc = insertNode(doc, 'p1', createRect({ id: 't1', x: 0, y: 0, width: 40, height: 20 }), 'g1');
-  doc = insertNode(doc, 'p1', createFrame({ id: 'f2', x: 400, y: 0, width: 100, height: 100 }), null);
+  doc = insertNode(
+    doc,
+    'p1',
+    createFrame({ id: 'f2', x: 400, y: 0, width: 100, height: 100 }),
+    null,
+  );
   doc = insertNode(doc, 'p1', createRect({ id: 't2', x: 300, y: 0, width: 20, height: 20 }), null);
   return doc;
 }
@@ -85,7 +89,11 @@ describe('拖拽落点解析', () => {
   it('行内下缘 → 插到该行之后（同级）', () => {
     const page = getPage(baseDoc(), 'p1');
     const target = resolveDropTarget(rows(), page, 't1', ROW * 2 + ROW - 2);
-    expect(target).toEqual({ parentId: 'f1', index: 2, indicator: { rowId: 'r2', edge: 'bottom' } });
+    expect(target).toEqual({
+      parentId: 'f1',
+      index: 2,
+      indicator: { rowId: 'r2', edge: 'bottom' },
+    });
   });
 
   it('容器行中段 → 放入容器内部（追加到末位 = 最上层）', () => {

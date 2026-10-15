@@ -34,7 +34,12 @@ describe('面板会话（引擎适配）', () => {
 
     const before = session.getSnapshot();
     session.run(
-      { type: 'node.insert', pageId: session.pageId, node: createRect({ id: 'n1' }), parentId: null },
+      {
+        type: 'node.insert',
+        pageId: session.pageId,
+        node: createRect({ id: 'n1' }),
+        parentId: null,
+      },
       '新建矩形',
     );
 
@@ -46,7 +51,12 @@ describe('面板会话（引擎适配）', () => {
   it('run：写入进历史栈（撤销入口真实可用）', () => {
     const session = createPanelsSession();
     session.run(
-      { type: 'node.insert', pageId: session.pageId, node: createRect({ id: 'n1' }), parentId: null },
+      {
+        type: 'node.insert',
+        pageId: session.pageId,
+        node: createRect({ id: 'n1' }),
+        parentId: null,
+      },
       '新建矩形',
     );
     expect(session.stack.canUndo).toBe(true);
@@ -71,7 +81,12 @@ describe('面板会话（引擎适配）', () => {
     const listener = vi.fn();
     const unsubscribe = session.subscribe(listener);
     session.run(
-      { type: 'node.insert', pageId: session.pageId, node: createRect({ id: 'n1' }), parentId: null },
+      {
+        type: 'node.insert',
+        pageId: session.pageId,
+        node: createRect({ id: 'n1' }),
+        parentId: null,
+      },
       '新建矩形',
     );
     expect(listener).toHaveBeenCalledTimes(1);

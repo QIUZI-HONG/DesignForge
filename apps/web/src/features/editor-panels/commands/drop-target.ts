@@ -81,7 +81,13 @@ export function resolveDropTarget(
   const above = pointerY < first.top;
   const below = pointerY > last.bottom;
 
-  if (!above && !below && row.container && clampedRatio >= EDGE_RATIO && clampedRatio < 1 - EDGE_RATIO) {
+  if (
+    !above &&
+    !below &&
+    row.container &&
+    clampedRatio >= EDGE_RATIO &&
+    clampedRatio < 1 - EDGE_RATIO
+  ) {
     return guard(target(page, dragId, row.id, 'inside'), page, dragId);
   }
   const edge = above ? 'top' : below ? 'bottom' : clampedRatio < 0.5 ? 'top' : 'bottom';

@@ -18,6 +18,7 @@ describe('面板 UI store', () => {
     expect(state.renamingId).toBeNull();
     expect(state.assetSegment).toBe('components');
     expect(state.assetQuery).toBe('');
+    expect(state.leftTab).toBe('layers');
   });
 
   it('点击图层：单击单选替换；Shift 点击追加与再次点击移除（引擎选择模型语义）', () => {
@@ -72,6 +73,14 @@ describe('面板 UI store', () => {
     store.getState().setAssetQuery('品牌');
     expect(store.getState().assetSegment).toBe('tokens');
     expect(store.getState().assetQuery).toBe('品牌');
+  });
+
+  it('左栏页签：图层 ↔ 资产可切换', () => {
+    const store = createPanelsUiStore();
+    store.getState().setLeftTab('assets');
+    expect(store.getState().leftTab).toBe('assets');
+    store.getState().setLeftTab('layers');
+    expect(store.getState().leftTab).toBe('layers');
   });
 
   it('可订阅：状态变更通知订阅者（画布与面板同源的前提）', () => {

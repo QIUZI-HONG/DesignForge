@@ -9,23 +9,23 @@
  */
 import {
   type Command,
-  type NodeId,
-  type PageId,
-  parentIdOf,
-  patchNodeCommands,
-  type ScenePage,
-  siblingIndexOf,
-  type ZOrderOp,
   deleteNodesCommands,
   dissolveGroupCommands,
   getChildrenIds,
   groupNodesCommands,
-  isGroupNode,
   isContainer,
+  isGroupNode,
+  type NodeId,
+  type PageId,
+  parentIdOf,
   parseVirtualNodeId,
-  reparentPreservingWorldCommands,
+  patchNodeCommands,
   reorderNodeCommands,
+  reparentPreservingWorldCommands,
   resolveNode,
+  type ScenePage,
+  siblingIndexOf,
+  type ZOrderOp,
 } from '@dforge/engine';
 
 /** 显隐：设为给定值（与当前一致 → 无操作）。 */
@@ -88,11 +88,7 @@ export function renameLayerCommands(
 }
 
 /** 删除（连同子树）；实例虚节点不可结构性删除 → 无操作。 */
-export function deleteLayerCommands(
-  page: ScenePage,
-  pageId: PageId,
-  nodeId: NodeId,
-): Command[] {
+export function deleteLayerCommands(page: ScenePage, pageId: PageId, nodeId: NodeId): Command[] {
   if (parseVirtualNodeId(nodeId)) return [];
   if (!resolveNode(page, nodeId)) return [];
   return deleteNodesCommands(page, pageId, [nodeId]);
@@ -107,7 +103,9 @@ export function groupLayersCommands(
   pageId: PageId,
   nodeIds: readonly NodeId[],
 ): Command[] {
-  const real = nodeIds.filter((id) => !parseVirtualNodeId(id) && resolveNode(page, id) !== undefined);
+  const real = nodeIds.filter(
+    (id) => !parseVirtualNodeId(id) && resolveNode(page, id) !== undefined,
+  );
   if (real.length < 2) return [];
   const parents = new Set(real.map((id) => parentIdOf(page, id)));
   if (parents.size > 1) return [];
@@ -115,11 +113,7 @@ export function groupLayersCommands(
 }
 
 /** 解组：仅对真实编组节点有效（其余无操作）。 */
-export function ungroupLayerCommands(
-  page: ScenePage,
-  pageId: PageId,
-  nodeId: NodeId,
-): Command[] {
+export function ungroupLayerCommands(page: ScenePage, pageId: PageId, nodeId: NodeId): Command[] {
   if (parseVirtualNodeId(nodeId)) return [];
   const node = resolveNode(page, nodeId);
   if (!node || !isGroupNode(node)) return [];
@@ -127,11 +121,7 @@ export function ungroupLayerCommands(
 }
 
 /** 上移到顶：同级最上层（已在顶 → 无操作）。 */
-export function bringToFrontCommands(
-  page: ScenePage,
-  pageId: PageId,
-  nodeId: NodeId,
-): Command[] {
+export function bringToFrontCommands(page: ScenePage, pageId: PageId, nodeId: NodeId): Command[] {
   return reorderCommands(page, pageId, nodeId, 'front');
 }
 
@@ -141,12 +131,7 @@ export function sendToBackCommands(page: ScenePage, pageId: PageId, nodeId: Node
 }
 
 /** 层级调整的公共路径：端位判定在 UI 侧完成，端位时返回空列表。 */
-function reorderCommands(
-  page: ScenePage,
-  pageId: PageId,
-  nodeId: NodeId,
-  op: ZOrderOp,
-): Command[] {
+function reorderCommands(page: ScenePage, pageId: PageId, nodeId: NodeId, op: ZOrderOp): Command[] {
   if (parseVirtualNodeId(nodeId)) return [];
   const node = resolveNode(page, nodeId);
   if (!node) return [];
@@ -177,6 +162,8 @@ export function moveLayerCommands(
 ): Command[] {
   if (parseVirtualNodeId(nodeId) || !resolveNode(page, nodeId)) return [];
   if (newParentId !== null) {
+    // 虚 id 不是真实容器：reparent 到虚父级会被引擎拒（node-not-found），这里提前判掉
+    if (parseVirtualNodeId(newParentId)) return [];
     const parent = resolveNode(page, newParentId);
     // 实例内部不可作为拖拽父级（其子是虚节点，不是真实容器）
     if (!parent || !isContainer(parent)) return [];

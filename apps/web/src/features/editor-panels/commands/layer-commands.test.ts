@@ -5,8 +5,8 @@
  * 面板只构造命令、从不改文档对象；无操作时返回空列表（不污染撤销栈）。
  */
 import {
-  childrenOf,
   CommandStack,
+  childrenOf,
   createComponent,
   createDocument,
   createFrame,
@@ -56,14 +56,14 @@ function baseDoc(): DesignDocument {
     ],
     'f1',
   );
+  doc = insertNode(doc, 'p1', createRect({ id: 't1', x: 0, y: 0, width: 40, height: 20 }), 'g1');
+  doc = insertNode(doc, 'p1', createRect({ id: 't2', x: 300, y: 0, width: 20, height: 20 }), null);
   doc = insertNode(
     doc,
     'p1',
-    createRect({ id: 't1', x: 0, y: 0, width: 40, height: 20 }),
-    'g1',
+    createFrame({ id: 'f2', x: 400, y: 0, width: 100, height: 100 }),
+    null,
   );
-  doc = insertNode(doc, 'p1', createRect({ id: 't2', x: 300, y: 0, width: 20, height: 20 }), null);
-  doc = insertNode(doc, 'p1', createFrame({ id: 'f2', x: 400, y: 0, width: 100, height: 100 }), null);
   return doc;
 }
 
@@ -72,7 +72,10 @@ function stackOf(doc: DesignDocument = baseDoc()): CommandStack {
 }
 
 /** 施加一串命令（模拟面板的写路径）。 */
-function run(stack: CommandStack, commands: Parameters<CommandStack['dispatch']>[0]): DesignDocument {
+function run(
+  stack: CommandStack,
+  commands: Parameters<CommandStack['dispatch']>[0],
+): DesignDocument {
   return stack.dispatch(commands, { label: '测试操作' });
 }
 
@@ -104,7 +107,10 @@ describe('图层行命令', () => {
   it('锁定：显式设值命令可批量构造（多选行共用）', () => {
     const stack = stackOf();
     const page = getPage(stack.document, 'p1');
-    run(stack, [...setLockedCommands(page, 'p1', 'r1', true), ...setLockedCommands(page, 'p1', 'r2', true)]);
+    run(stack, [
+      ...setLockedCommands(page, 'p1', 'r1', true),
+      ...setLockedCommands(page, 'p1', 'r2', true),
+    ]);
     expect(getNode(getPage(stack.document, 'p1'), 'r1')?.locked).toBe(true);
     expect(getNode(getPage(stack.document, 'p1'), 'r2')?.locked).toBe(true);
     // 一次事务 = 一次撤销
@@ -197,12 +203,12 @@ describe('图层行命令', () => {
 
     const stack = new CommandStack(doc, { freeze: true });
     const virtualId = virtualNodeId('inst1', ['cr1']);
-    expect(setVisibilityCommands(getPage(stack.document, 'p1'), 'p1', virtualId, false)[0]?.type).toBe(
-      'instance.setOverride',
-    );
+    expect(
+      setVisibilityCommands(getPage(stack.document, 'p1'), 'p1', virtualId, false)[0]?.type,
+    ).toBe('instance.setOverride');
     run(stack, setVisibilityCommands(getPage(stack.document, 'p1'), 'p1', virtualId, false));
-    const inst = getPage(stack.document, 'p1').nodes['inst1'];
-    expect(inst && inst.type === 'instance' ? inst.overrides['cr1'] : undefined).toEqual({
+    const inst = getPage(stack.document, 'p1').nodes.inst1;
+    expect(inst && inst.type === 'instance' ? inst.overrides.cr1 : undefined).toEqual({
       visible: false,
     });
   });
