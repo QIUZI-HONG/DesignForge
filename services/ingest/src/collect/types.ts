@@ -226,3 +226,31 @@ export interface Evidence {
 
 /** 退出码语义（规格 §6.1：0 通过 / 1 失败 / 2 阻塞；禁止假绿）。 */
 export type ExitCode = 0 | 1 | 2;
+
+/** 候选仓（搜索发现产物，**未经认定**）。 */
+export interface Candidate {
+  repoId: number;
+  fullName: string;
+  owner: string;
+  name: string;
+  description: string | null;
+  stars: number;
+  pushedAt: string;
+  defaultBranch: string;
+  archived: boolean;
+  fork: boolean;
+  sizeKb: number;
+  homepage: string | null;
+  topics: string[];
+  licenseSpdx: string | null;
+  /** 召回来源（topic × 排序版本），用于复核排名漂移（规格《市场首实现》§2.1）。 */
+  discoveredBy: { topic: string; sort: 'stars' | 'updated' }[];
+  /** 清单仓标记（规格 §2.1.4：kind=list 单列，不入索引）。 */
+  isList: boolean;
+}
+
+/** 候选发现的搜索依赖（真实客户端或夹具重放实现同一接口）。 */
+export interface CandidateSource {
+  /** 按完整 URL 拉搜索页（翻页 URL 来自 Link header，禁手拼）。 */
+  searchByUrl(url: string): Promise<{ json: unknown; linkNext: string | null }>;
+}
