@@ -85,6 +85,8 @@ export const reviewStyles = {
     gap: cssVar('space-2'),
   } as CSSProperties,
   error: { color: cssVar('color.danger'), fontSize: cssVar('font-size-11') } as CSSProperties,
+  /** 列表重置（ul/li 不显标记与缩进）——评论/版本列表共用。 */
+  listReset: { listStyle: 'none', margin: 0, padding: 0 } as CSSProperties,
 } satisfies Record<string, CSSProperties>;
 
 /** 评论层与钉点。 */
@@ -242,4 +244,106 @@ export const commentStyles = {
     borderColor: cssVar('color.primary'),
     color: cssVar('color.onPrimary'),
   } as CSSProperties,
+} satisfies Record<string, CSSProperties>;
+
+/** 版本历史（抽屉列表 + 并排对比浮层）。 */
+export const versionStyles = {
+  drawerBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-2'),
+    padding: cssVar('space-3'),
+  } as CSSProperties,
+  row: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-1'),
+    padding: `${cssVar('space-2')} 0`,
+    borderBottom: border,
+  } as CSSProperties,
+  rowHead: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: cssVar('space-2'),
+  } as CSSProperties,
+  rowActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: cssVar('space-2'),
+  } as CSSProperties,
+  /** 并排对比浮层：铺满视口（两栏才是真的「并排」）。 */
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: cssVar('z-modal'),
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-3'),
+    padding: cssVar('space-4'),
+    background: cssVar('color.surface'),
+    color: cssVar('color.text.primary'),
+    fontFamily: cssVar('font.sans'),
+    fontSize: cssVar('font-size-12'),
+    overflowY: 'auto',
+  } as CSSProperties,
+  overlayHeader: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: cssVar('space-3'),
+  } as CSSProperties,
+  columns: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: cssVar('space-3'),
+    flex: '1 1 auto',
+    minHeight: 0,
+  } as CSSProperties,
+  column: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-2'),
+    padding: cssVar('space-3'),
+    borderRadius: cssVar('radius-lg'),
+    border,
+    background: cssVar('color.surfaceSubtle'),
+    minHeight: 0,
+  } as CSSProperties,
+  columnHeader: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: cssVar('space-2'),
+  } as CSSProperties,
+  columnPreview: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: '1 1 auto',
+    minHeight: 0,
+    overflow: 'hidden',
+  } as CSSProperties,
+  diffPanel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-1'),
+    padding: cssVar('space-3'),
+    borderRadius: cssVar('radius-lg'),
+    border,
+    background: cssVar('color.surfaceRaised'),
+  } as CSSProperties,
+  diffRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: cssVar('space-3'),
+    paddingBlock: cssVar('space-1'),
+  } as CSSProperties,
+  footer: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: cssVar('space-2'),
+  } as CSSProperties,
+  confirmHint: { flex: '1 1 auto', color: cssVar('color.text.secondary') } as CSSProperties,
 } satisfies Record<string, CSSProperties>;

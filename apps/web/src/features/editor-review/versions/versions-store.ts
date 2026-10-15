@@ -38,7 +38,7 @@ export interface VersionUiState {
   /** 放弃对比（回到列表）。 */
   cancelCompare: () => void;
   /** 第二步：确认恢复（派发整文档替换命令）；不在对比态时是空操作。 */
-  confirmRestore: () => void;
+  confirmRestore: (autoLabel?: string) => void;
   /** 读取对比数据（快照 vs 当前文档；无对比对象返回 null）。 */
   diffOf: (snapshotId: string) => DocumentDiff | null;
 }
@@ -59,8 +59,6 @@ export interface VersionStoreOptions {
   onWriteError?: (error: unknown) => void;
   /** 「保存当前版本」的默认标签（组件传 ICU 文案，store 不写死中文）。 */
   defaultLabel?: string;
-  /** 回滚前自动快照的标签（同上）。 */
-  autoLabel?: string;
 }
 
 /** 建版本 store。 */
@@ -120,7 +118,7 @@ export function createVersionStore(options: VersionStoreOptions): VersionStore {
       set({ compareId: null });
     },
 
-    confirmRestore: () => {
+    confirmRestore: (autoLabel) => {
       const compareId = get().compareId;
       if (compareId === null) return;
       const snapshot = get().snapshots.find((item) => item.id === compareId);
@@ -131,7 +129,7 @@ export function createVersionStore(options: VersionStoreOptions): VersionStore {
       // 回滚前先给当前状态留一份自动快照：误回滚还能再回来（本地优先的兜底体验）
       const auto = createSnapshot({
         id: nextId(),
-        label: options.autoLabel ?? '',
+        label: autoLabel ?? '',
         createdAt: now().toISOString(),
         document: options.getDocument(),
         documentId: options.documentId,

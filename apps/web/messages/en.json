@@ -353,5 +353,6 @@
   "review.versions.confirm.submit": "Confirm restore",
   "review.versions.confirm.cancel": "Cancel",
   "review.versions.restored": "Version restored",
-  "review.comments.surfaceLabel": "Add comment on canvas"
+  "review.comments.surfaceLabel": "Add comment on canvas",
+  "review.versions.close": "Close version history"
 }

@@ -353,5 +353,6 @@
   "review.versions.confirm.submit": "确认恢复",
   "review.versions.confirm.cancel": "取消",
   "review.versions.restored": "已恢复所选版本",
-  "review.comments.surfaceLabel": "在画布上添加评论"
+  "review.comments.surfaceLabel": "在画布上添加评论",
+  "review.versions.close": "关闭版本历史"
 }
