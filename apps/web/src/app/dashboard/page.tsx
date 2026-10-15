@@ -1,0 +1,98 @@
+'use client';
+
+/**
+ * 数据看板路由（D6；`/dashboard`，浅色首页族）。
+ *
+ * 取数：daemon `/market/query`（`limit` 取到 200——看板要尽量全的样本；索引缺失 → 空态说明
+ * 「先跑采集线」，不伪造进度）。空态/加载/错误三态与市场页同一套组件。
+ */
+
+import { Button, EmptyState } from '@dforge/ui';
+import { useRouter } from 'next/navigation';
+import { useMemo } from 'react';
+import { DashboardView } from '@/features/dashboard/DashboardView';
+import { classifyMarketOutcome } from '@/features/market/api';
+import { MarketErrorState, MarketWarningBanner } from '@/features/market/components/MarketStates';
+import {
+  badgeRowStyle,
+  headerStyle,
+  hintStyle,
+  subtitleStyle,
+  titleStyle,
+} from '@/features/market/styles';
+import { useMarketQuery } from '@/features/market/use-market';
+import { t } from '@/i18n';
+
+/** 看板样本上限（索引规模在首批 40 仓量级，200 足够覆盖；截断时看板如实标注）。 */
+const DASHBOARD_LIMIT = 200;
+
+/** 数据看板页。 */
+export default function DashboardPage() {
+  const router = useRouter();
+  const params = useMemo(() => ({ limit: DASHBOARD_LIMIT, sort: 'score' as const }), []);
+  const { status, response, error, reload } = useMarketQuery(params);
+  const outcome = response === null ? null : classifyMarketOutcome(response);
+
+  return (
+    <>
+      <header style={headerStyle}>
+        <h1 style={titleStyle} data-df-page="dashboard">
+          {t('dashboard.title')}
+        </h1>
+        <p style={subtitleStyle}>{t('dashboard.subtitle')}</p>
+        <p style={hintStyle} data-df-market="dashboard-hint">
+          {t('dashboard.hint')}
+        </p>
+        <div style={badgeRowStyle}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              router.push('/market');
+            }}
+          >
+            {t('dashboard.back')}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={reload}>
+            {t('market.error.retry')}
+          </Button>
+        </div>
+      </header>
+
+      {status === 'loading' ? <p style={hintStyle}>{t('market.loading')}</p> : null}
+      {status === 'error' ? <MarketErrorState message={error ?? ''} onRetry={reload} /> : null}
+
+      {status === 'ready' && outcome === 'index-missing' ? (
+        <div data-df-state="empty" data-df-empty="index-missing">
+          <EmptyState
+            title={t('dashboard.empty')}
+            description={t('market.empty.indexMissing.desc')}
+          />
+        </div>
+      ) : null}
+      {status === 'ready' && outcome === 'index-invalid' ? (
+        <div data-df-state="empty" data-df-empty="index-invalid">
+          <EmptyState
+            title={t('dashboard.empty')}
+            description={t('market.empty.indexInvalid.desc')}
+          />
+        </div>
+      ) : null}
+      {status === 'ready' && outcome === 'partial' && response !== null ? (
+        <MarketWarningBanner
+          message={t('market.warning.partial', {
+            message: response.warnings.map((warning) => warning.message).join('；'),
+          })}
+        />
+      ) : null}
+      {status === 'ready' && outcome === 'no-result' ? (
+        <div data-df-state="empty" data-df-empty="no-result">
+          <EmptyState title={t('dashboard.empty')} description={t('market.empty.noResult.desc')} />
+        </div>
+      ) : null}
+      {status === 'ready' && response !== null && (outcome === 'ok' || outcome === 'partial') ? (
+        <DashboardView response={response} nowIso={new Date().toISOString()} />
+      ) : null}
+    </>
+  );
+}
