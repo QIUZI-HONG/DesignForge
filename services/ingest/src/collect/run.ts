@@ -175,11 +175,66 @@ function seedCandidates(seeds: string[]): Candidate[] {
   }));
 }
 
+/** 抽取可复现的采集参数（写入重放 manifest；重放时原样取回）。 */
+export function collectParamsOf(opts: CollectOptions): ReplayParams {
+  return {
+    seeds: opts.seeds,
+    topics: opts.topics,
+    sorts: opts.sorts,
+    perTopic: opts.perTopic,
+    maxPagesPerQuery: opts.maxPagesPerQuery,
+    limit: opts.limit,
+    since: opts.since,
+    maxContentPerRepo: opts.maxContentPerRepo,
+  };
+}
+
+/** 重放 manifest 里的采集参数子集。 */
+export interface ReplayParams {
+  seeds: string[];
+  topics: string[];
+  sorts: ('stars' | 'updated')[];
+  perTopic: number;
+  maxPagesPerQuery: number;
+  limit: number | null;
+  since: string | null;
+  maxContentPerRepo: number;
+}
+
+/** 读重放 manifest（缺失/损坏 → null，退回调用方参数）。 */
+async function readReplayManifest(
+  replayDir: string,
+): Promise<{ runId: string; asOfMs: number; params: Partial<ReplayParams> } | null> {
+  try {
+    const parsed = JSON.parse(await readFile(join(replayDir, 'manifest.json'), 'utf8')) as {
+      runId?: unknown;
+      asOfMs?: unknown;
+      params?: Partial<ReplayParams>;
+    };
+    if (typeof parsed.runId !== 'string' || typeof parsed.asOfMs !== 'number') return null;
+    return { runId: parsed.runId, asOfMs: parsed.asOfMs, params: parsed.params ?? {} };
+  } catch {
+    return null;
+  }
+}
+
 /** 主流程。 */
 export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
   const log = opts.log ?? (() => {});
   const offline = opts.replayDir !== null;
-  const clock: Clock = offline ? frozenClock(opts.asOfMs) : systemClock;
+  /** 生效参数（离线重放时被样本 manifest 覆盖，保证 URL 逐条命中）。 */
+  let effective: CollectOptions = opts;
+
+  if (offline && opts.replayDir !== null) {
+    // 重放以样本 manifest 的采集参数为准（精确复现：URL 必须逐条命中样本）。
+    const manifest = await readReplayManifest(opts.replayDir);
+    if (manifest !== null) {
+      effective = { ...opts, ...manifest.params, runId: manifest.runId, asOfMs: manifest.asOfMs };
+      log(`重放参数（取自样本 manifest）：${JSON.stringify(manifest.params)}`);
+    }
+  }
+
+  const clock: Clock = offline ? frozenClock(effective.asOfMs) : systemClock;
 
   const ledger = new BudgetLedger({ clock });
   const governor = offline
@@ -241,7 +296,7 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
       governor,
       ledger,
       rateLimitWatch,
-      runId: opts.runId,
+      runId: effective.runId,
       clock,
       onEvent: (e: RawEvent) => events.push(e),
       rand: Math.random,
@@ -254,16 +309,16 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
     });
 
     // 2) 候选：种子优先，其次 topic 发现（topic 只作候选）
-    const merged: Candidate[] = seedCandidates(opts.seeds);
+    const merged: Candidate[] = seedCandidates(effective.seeds);
     const seenNames = new Set(merged.map((c) => c.fullName.toLowerCase()));
-    if (opts.topics.length > 0) {
+    if (effective.topics.length > 0) {
       try {
         const discovery = await discoverCandidates(client as CandidateSource, {
-          topics: opts.topics,
-          sorts: opts.sorts,
-          perTopic: opts.perTopic,
-          since: opts.since,
-          maxPagesPerQuery: opts.maxPagesPerQuery,
+          topics: effective.topics,
+          sorts: effective.sorts,
+          perTopic: effective.perTopic,
+          since: effective.since,
+          maxPagesPerQuery: effective.maxPagesPerQuery,
         });
         listRepos = discovery.listRepos.slice();
         queries = discovery.queries;
@@ -287,9 +342,9 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
       }
     }
 
-    const targets = opts.limit === null ? merged : merged.slice(0, opts.limit);
+    const targets = effective.limit === null ? merged : merged.slice(0, effective.limit);
     log(
-      `采集目标：${targets.length} 仓（种子 ${opts.seeds.length} + 发现 ${merged.length - opts.seeds.length}，上限 ${opts.limit ?? '不限'}）`,
+      `采集目标：${targets.length} 仓（种子 ${effective.seeds.length} + 发现 ${merged.length - effective.seeds.length}，上限 ${effective.limit ?? '不限'}）`,
     );
 
     // 3) 逐仓串行采集
@@ -338,7 +393,7 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
         });
 
         // 内容抽样（预算内按优先级）
-        const selection = selectContentPaths(treeResult.entries, opts.maxContentPerRepo);
+        const selection = selectContentPaths(treeResult.entries, effective.maxContentPerRepo);
         const contents = new Map<string, string>();
         for (const path of selection.selected) {
           try {
@@ -360,8 +415,8 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
 
         const record: OdsRepoRecord = {
           schema: 'df.market.ods.repo/v1',
-          runId: opts.runId,
-          fetchedAt: isoOf(opts.asOfMs),
+          runId: effective.runId,
+          fetchedAt: isoOf(effective.asOfMs),
           repo: {
             id: meta.id,
             fullName: meta.fullName,
@@ -435,8 +490,8 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
 
   // 4) 产物落盘
   const writeResult = await writeOds(opts.outDir, {
-    runId: opts.runId,
-    date: dateOf(opts.asOfMs),
+    runId: effective.runId,
+    date: dateOf(effective.asOfMs),
     records,
     events,
   });
@@ -445,12 +500,12 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
   // 5) 重放样本（真网运行才录制；离线模式复用原样本）
   let replayDir: string | null = null;
   if (!offline && recordedLines.length > 0) {
-    replayDir = join(opts.outDir, 'replay', opts.runId);
+    replayDir = join(opts.outDir, 'replay', effective.runId);
     await mkdir(replayDir, { recursive: true });
     await writeFile(join(replayDir, 'responses.jsonl'), `${recordedLines.join('\n')}\n`, 'utf8');
     await writeFile(
       join(replayDir, 'manifest.json'),
-      `${JSON.stringify({ schema: 'df.market.replay/v1', runId: opts.runId, asOfMs: opts.asOfMs, responses: recordedLines.length }, null, 2)}\n`,
+      `${JSON.stringify({ schema: 'df.market.replay/v1', runId: effective.runId, asOfMs: opts.asOfMs, responses: recordedLines.length }, null, 2)}\n`,
       'utf8',
     );
     log(`重放样本：${replayDir}/responses.jsonl（${recordedLines.length} 条响应）`);
@@ -477,8 +532,8 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
   }
 
   const evidence = buildEvidence({
-    runId: opts.runId,
-    asOf: isoOf(opts.asOfMs),
+    runId: effective.runId,
+    asOf: isoOf(effective.asOfMs),
     offline,
     steps,
   });
@@ -490,8 +545,8 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
 
   return {
     exitCode: evidence.exitCode,
-    runId: opts.runId,
-    asOf: isoOf(opts.asOfMs),
+    runId: effective.runId,
+    asOf: isoOf(effective.asOfMs),
     records,
     evidence,
     artifacts,

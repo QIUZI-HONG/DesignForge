@@ -21,27 +21,40 @@ interface ReplayManifest {
   runId: string;
   asOfMs: number;
   repos: string[];
-  replayParams: { seeds: string[]; topics: string[]; maxContentPerRepo: number };
+  params: {
+    seeds: string[];
+    topics: string[];
+    sorts: ('stars' | 'updated')[];
+    perTopic: number;
+    maxPagesPerQuery: number;
+    limit: number | null;
+    since: string | null;
+    maxContentPerRepo: number;
+  };
 }
 
 const manifest = JSON.parse(
   readFileSync(join(FIXTURE_DIR, 'manifest.json'), 'utf8'),
 ) as ReplayManifest;
 
-function replayOptions(outDir: string): CollectOptions {
+/**
+ * 离线复跑参数：只给 `--replay` 目录与输出目录；其余参数由样本 manifest 提供
+ * （重放以 manifest 为准——精确复现的前提，这正是本测试要断言的机制）。
+ */
+function replayOptions(outDir: string, replayDir: string = FIXTURE_DIR): CollectOptions {
   return {
     outDir,
-    runId: manifest.runId,
-    asOfMs: manifest.asOfMs,
-    seeds: manifest.replayParams.seeds,
-    topics: manifest.replayParams.topics,
-    sorts: ['stars'],
-    perTopic: 5,
+    runId: 'unused-by-replay',
+    asOfMs: 0,
+    seeds: [],
+    topics: ['should-not-run'],
+    sorts: ['updated'],
+    perTopic: 1,
     maxPagesPerQuery: 1,
-    limit: null,
-    since: null,
-    maxContentPerRepo: manifest.replayParams.maxContentPerRepo,
-    replayDir: FIXTURE_DIR,
+    limit: 1,
+    since: '2099-01-01T00:00:00Z',
+    maxContentPerRepo: 0,
+    replayDir,
     token: null, // 离线：不触网、无需凭据
   };
 }
@@ -57,7 +70,7 @@ describe('冻结样本集：离线复跑（不触网）', () => {
       expect(result.exitCode).toBe(0);
       expect(result.blockedReason).toBeNull();
       expect(result.evidence.offline).toBe(true);
-      expect(result.records).toHaveLength(2);
+      expect(result.records).toHaveLength(2); // manifest limit=null：两仓全采（不因调用方 limit=1 截断）
 
       const anthro = result.records.find((r) => r.repo.fullName === 'anthropics/skills');
       const bht = result.records.find(
@@ -128,19 +141,29 @@ describe('冻结样本集：离线复跑（不触网）', () => {
   });
 
   it('样本外的请求 → 明确阻塞（exit 2，不触网、不伪造）', async () => {
-    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { copyFileSync, mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
-    const out = mkdtempSync(join(tmpdir(), 'mk01-replay-miss-'));
+    const sandbox = mkdtempSync(join(tmpdir(), 'mk01-replay-miss-'));
     try {
-      const result = await runCollect({
-        ...replayOptions(out),
-        seeds: ['not/in-sample'],
-      });
+      // 构造一个「manifest 指向样本外仓」的重放目录：请求必然落空 → 明确阻塞。
+      copyFileSync(join(FIXTURE_DIR, 'responses.jsonl'), join(sandbox, 'responses.jsonl'));
+      writeFileSync(
+        join(sandbox, 'manifest.json'),
+        JSON.stringify({
+          schema: 'df.market.replay/v1',
+          runId: 'miss-0001',
+          asOfMs: manifest.asOfMs,
+          params: { ...manifest.params, seeds: ['not/in-sample'] },
+        }),
+        'utf8',
+      );
+
+      const result = await runCollect(replayOptions(join(sandbox, 'out'), sandbox));
       expect(result.exitCode).toBe(2);
       expect(result.blockedReason).toContain('离线样本缺失');
       expect(result.records).toEqual([]);
     } finally {
-      rmSync(out, { recursive: true, force: true });
+      rmSync(sandbox, { recursive: true, force: true });
     }
   });
 });
