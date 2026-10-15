@@ -64,18 +64,22 @@ export interface SelfCheckExpectation {
 export function splitSecurityFindings(security: SecuritySnapshot): {
   violations: string[];
   undetermined: string[];
+  /** 未测得的键位（结构化：守卫据此与静态结论**逐键**比对，而不是比字符串）。 */
+  undeterminedKeys: Array<keyof SecuritySnapshot>;
 } {
   const violations: string[] = [];
   const undetermined: string[] = [];
+  const undeterminedKeys: Array<keyof SecuritySnapshot> = [];
   for (const [key, expected] of Object.entries(SECURITY_BASELINE)) {
     const actual = security[key as keyof SecuritySnapshot];
     if (actual === null || actual === undefined) {
+      undeterminedKeys.push(key as keyof SecuritySnapshot);
       undetermined.push(`安全基线 ${key} 运行时未测得（期望 ${String(expected)}）`);
     } else if (actual !== expected) {
       violations.push(`安全基线 ${key} 期望 ${String(expected)} 实际 ${String(actual)}`);
     }
   }
-  return { violations, undetermined };
+  return { violations, undetermined, undeterminedKeys };
 }
 
 /**

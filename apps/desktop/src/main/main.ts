@@ -22,8 +22,8 @@ import { resolveLoadPlanFromDisk } from './load-target.js';
 import { buildMenuTemplate } from './menu.js';
 import { resolvePreloadPath } from './preload-path.js';
 import {
-  evaluateBaselineProbe,
   evaluateSelfCheck,
+  splitSecurityFindings,
   type SecuritySnapshot,
   SHELL_SELF_CHECK_SCHEMA,
   type ShellBaselineProbeReport,
@@ -213,14 +213,18 @@ async function runBaselineProbe(): Promise<never> {
   try {
     const page = await readPageSnapshot(window);
     const security = await readSecuritySnapshot(window, page, probe.origin);
+    const findings = splitSecurityFindings(security);
     const report: ShellBaselineProbeReport = {
       schema: SHELL_SELF_CHECK_SCHEMA,
       mode: 'probe',
       security,
     };
-    const failures = evaluateBaselineProbe(report);
-    writeStdout(`DFORGE_BASELINE_PROBE:${JSON.stringify({ ...report, failures })}`);
-    return finish(failures.length === 0 ? 0 : 1);
+    writeStdout(`DFORGE_BASELINE_PROBE:${JSON.stringify({ ...report, ...findings })}`);
+    // 0=五项全部实测且合规；1=实测到违规；2=有项测不到（无法结论，守卫按阻塞处理）
+    if (findings.violations.length > 0) {
+      return finish(1);
+    }
+    return finish(findings.undetermined.length > 0 ? 2 : 0);
   } finally {
     probe.server.close();
   }

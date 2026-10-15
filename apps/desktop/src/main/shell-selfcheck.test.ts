@@ -113,6 +113,7 @@ describe('壳自检判据（冒烟段的地基）', () => {
         '安全基线 sandbox 运行时未测得（期望 true）',
         stringMatchingUndetermined('allowRunningInsecureContent'),
       ],
+      undeterminedKeys: ['sandbox', 'allowRunningInsecureContent'],
     });
     expect(evaluateBaselineProbe(probe)).toHaveLength(2);
   });
