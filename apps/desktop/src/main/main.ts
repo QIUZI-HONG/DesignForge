@@ -15,7 +15,7 @@
 import { mkdirSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, Menu, shell } from 'electron';
+import { app, BrowserWindow, Menu, type NativeImage, shell } from 'electron';
 
 import { decideExternalOpen, decideInPageNavigation } from './external-links.js';
 import { resolveLoadPlanFromDisk } from './load-target.js';
@@ -283,15 +283,16 @@ async function runSmoke(reportPath: string, pngPath?: string): Promise<never> {
   const target = await loadTarget(window);
   attachNavigationGuard(window, target.url);
 
+  const captureNotes: string[] = [];
   if (pngPath) {
     await new Promise((resolve) => setTimeout(resolve, CAPTURE_SETTLE_MS));
-    const image = await window.webContents.capturePage();
+    const image = normalizeCapture(await window.webContents.capturePage(), captureNotes);
     mkdirSync(dirname(pngPath), { recursive: true });
     writeFileSync(pngPath, image.toPNG());
   }
 
   // 对照态要求页面视口严格等于基准（合成器取整会偏 1px），故先做有界校正再看事实
-  const notes = await fitViewportToBaseline(window, WINDOW_SIZE);
+  const notes = [...captureNotes, ...(await fitViewportToBaseline(window, WINDOW_SIZE))];
 
   const page = await readPageSnapshot(window);
   const probe = await startCorsProbeServer();
@@ -335,6 +336,35 @@ async function runSmoke(reportPath: string, pngPath?: string): Promise<never> {
   writeFileSync(reportPath, `${JSON.stringify({ ...report, failures }, null, 2)}\n`);
   writeStdout(`DFORGE_SHELL_SELFCHECK:${JSON.stringify({ ok: failures.length === 0, failures })}`);
   return finish(failures.length === 0 ? 0 : 1);
+}
+
+/**
+ * 把截图裁到**基准物理尺寸**（1440×900 CSS × DPR）。
+ *
+ * 为什么需要：合成器按物理像素取整（本机 WSLg + DPR1.5 实测截图 2162×1352，基准应为 2160×1350），
+ * 而验收标准 §3 要求两侧**同口径**才可比。偏差 ≤2px 时裁掉多出的右/下边（记为 note，不隐瞒）；
+ * 偏差更大说明视口口径真的不对——**不裁**，让对照段按尺寸不一致判 fail。
+ */
+function normalizeCapture(image: NativeImage, notes: string[]): NativeImage {
+  if (!hasDpr) {
+    return image;
+  }
+  const target = {
+    width: Math.round(WINDOW_SIZE.width * requestedDpr),
+    height: Math.round(WINDOW_SIZE.height * requestedDpr),
+  };
+  const size = image.getSize();
+  const withinTolerance =
+    Math.abs(size.width - target.width) <= 2 && Math.abs(size.height - target.height) <= 2;
+  const needsCrop = size.width !== target.width || size.height !== target.height;
+
+  if (!withinTolerance || !needsCrop) {
+    return image;
+  }
+  notes.push(
+    `截图按基准物理尺寸裁切 ${size.width}×${size.height} → ${target.width}×${target.height}（合成器物理像素取整；§3 同口径要求）`,
+  );
+  return image.crop({ x: 0, y: 0, width: target.width, height: target.height });
 }
 
 app.whenReady().then(async () => {
