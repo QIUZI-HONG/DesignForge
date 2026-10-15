@@ -23,7 +23,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '@/i18n';
 
 import { selectionFrameOf } from '../input/hit';
-import { handleKeyDown, handleSpaceDown, handleSpaceUp } from '../input/keyboard';
+import { dispatchKeyDown, handleSpaceDown, handleSpaceUp } from '../input/keyboard';
 import { attachPointerAdapter } from '../input/pointer';
 import { createFrameLoop, type FrameLoop } from '../render/frame-loop';
 import { type CanvasPalette, canvasPalette } from '../render/palette';
@@ -309,7 +309,7 @@ export function CanvasStage({
         handleSpaceDown(session);
         return;
       }
-      const handled = handleKeyDown(
+      const result = dispatchKeyDown(
         session,
         {
           key: event.key,
@@ -325,7 +325,8 @@ export function CanvasStage({
         },
         coveredRef.current === undefined ? {} : { skipIds: coveredRef.current },
       );
-      if (handled !== null) {
+      // 让给宿主的组合（handled=false）不 preventDefault：宿主（编辑器壳）的全局派发要接着处理它
+      if (result !== null && result.handled) {
         event.preventDefault();
         loopRef.current?.request();
       }

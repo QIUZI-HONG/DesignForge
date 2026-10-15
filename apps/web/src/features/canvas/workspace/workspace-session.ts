@@ -126,6 +126,24 @@ export function createEditorWorkspace(preset: WorkspacePreset): EditorWorkspace 
   return { preset, panels, canvas, pageId };
 }
 
+/**
+ * 工作区 daemon 基址（适配层，不重构其它票）：
+ * `?daemon=` 查询参数（本仓门禁/调试的通用约定） → `NEXT_PUBLIC_DF_DAEMON_URL` → 缺省
+ * `http://127.0.0.1:4318`（与 FE-10 的 `resolveDaemonBaseUrl` 缺省一致）。
+ *
+ * 现状与建议：FE-02（首页）用端口漂移探测、FE-10 用 env→4318、本票用查询参数——
+ * 三处尚未收敛；收敛（例如统一到「daemon 自报端口 + 单点 resolve」）归后续集成票，
+ * 本票只保证**编辑器内**的画布/面板/AI/MCP 用同一个基址。
+ */
+export function resolveWorkspaceDaemonUrl(): string | undefined {
+  if (typeof window !== 'undefined') {
+    const fromQuery = new URLSearchParams(window.location.search).get('daemon');
+    if (fromQuery !== null && fromQuery.length > 0) return fromQuery;
+  }
+  const fromEnv = process.env.NEXT_PUBLIC_DF_DAEMON_URL;
+  return typeof fromEnv === 'string' && fromEnv.length > 0 ? fromEnv : undefined;
+}
+
 /** 模块级单例（插槽宿主不在同一棵 Provider 树里）。 */
 let singleton: EditorWorkspace | null = null;
 
@@ -138,7 +156,32 @@ export function getWorkspace(): EditorWorkspace {
   return singleton;
 }
 
+/**
+ * 一次性的浏览器引导（挂载后调用）：命令注册、视口回写、门禁探针。
+ * 由槽组件在挂载后触发（见 `slots.tsx`），所以在服务端渲染阶段不会有副作用。
+ */
+let bootstrapped = false;
+
+/** 注入引导实现（避免本模块反向依赖 register 造成循环导入）。 */
+let bootstrapImpl: ((workspace: EditorWorkspace) => void) | null = null;
+
+/** 注册引导实现（`register.tsx` 在模块加载时调用）。 */
+export function setWorkspaceBootstrap(impl: (workspace: EditorWorkspace) => void): void {
+  bootstrapImpl = impl;
+  if (singleton !== null) {
+    impl(singleton);
+  }
+}
+
+/** 确保浏览器侧引导已执行（幂等）。 */
+export function ensureWorkspaceBootstrapped(): void {
+  if (bootstrapped || bootstrapImpl === null) return;
+  bootstrapped = true;
+  bootstrapImpl(getWorkspace());
+}
+
 /** 重置单例（测试与热重载用）。 */
 export function resetWorkspace(): void {
   singleton = null;
+  bootstrapped = false;
 }

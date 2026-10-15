@@ -14,10 +14,10 @@
  */
 
 import { SegmentedControl } from '@dforge/ui';
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 
-import { AiDrawer } from '@/features/ai';
+import { AiDrawer, createAiPort } from '@/features/ai';
 import { EditorPanels, PanelsProvider } from '@/features/editor-panels';
 import { useCanvasHud } from '@/features/editor-shell';
 import { CodeExportPanel } from '@/features/inspect-export/components/CodeExportPanel';
@@ -26,11 +26,31 @@ import { InspectPanel } from '@/features/inspect-export/components/InspectPanel'
 import { InspectorPanel } from '@/features/inspector';
 import { t } from '@/i18n';
 
-import { CanvasStage } from '../ui/canvas-stage';
+import { installCanvasDebugHandle, sessionDebugHandle } from '../debug/canvas-debug';
+import type { SceneRenderStats } from '../render/renderer';
+import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
 import { McpConfirmHost } from './mcp-host';
-import { getWorkspace } from './workspace-session';
+import {
+  ensureWorkspaceBootstrapped,
+  getWorkspace,
+  resolveWorkspaceDaemonUrl,
+} from './workspace-session';
 
 import './workspace.css';
+
+/**
+ * 挂载完成标记：预设来自查询串（服务端读不到），因此槽内容一律**挂载后**才渲染，
+ * 否则第一次客户端渲染与服务端渲染不一致（hydration 不匹配）。
+ */
+function useMounted(): boolean {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    // 浏览器副作用（会话单例 / 命令 / 探针）在真正挂载后初始化一次
+    ensureWorkspaceBootstrapped();
+  }, []);
+  return mounted;
+}
 
 /** 壳层（FE-03 命令注册表）已接管的快捷键 id（画布不再自行执行，避免一击两动）。 */
 export const SHELL_COVERED_SHORTCUT_IDS: readonly string[] = [
@@ -44,21 +64,54 @@ export const SHELL_COVERED_SHORTCUT_IDS: readonly string[] = [
 
 /** 画布槽（FE-06 本体）：HUD 交给壳层渲染（C20 位置由壳层决定）。 */
 export function CanvasSlot() {
+  const mounted = useMounted();
   const workspace = getWorkspace();
   const hud = useCanvasHud();
+  const statsRef = useRef<SceneRenderStats | null>(null);
+  const statusRef = useRef<CanvasRuntimeStatus | null>(null);
+
+  // 门禁/调试读点（与 `/_canvas` 同一套字段，见 debug/canvas-debug.ts）
+  useEffect(() => {
+    if (!mounted) return undefined;
+    return installCanvasDebugHandle(
+      sessionDebugHandle({
+        session: workspace.canvas,
+        runtime: () =>
+          statusRef.current ?? {
+            canvasKit: 'loading',
+            fonts: 'loading',
+            firstFrame: false,
+            frameCount: 0,
+            dpr: 1,
+            error: null,
+          },
+        stats: () => statsRef.current,
+      }),
+    );
+  }, [mounted, workspace]);
+
+  if (!mounted) return null;
   return (
     <CanvasStage
       session={workspace.canvas}
       theme="dark"
       hud={hud}
       coveredShortcutIds={SHELL_COVERED_SHORTCUT_IDS}
+      onFrame={(stats) => {
+        statsRef.current = stats;
+      }}
+      onStatus={(status) => {
+        statusRef.current = status;
+      }}
     />
   );
 }
 
 /** 左栏槽（FE-04：图层面板 + 资产面板）。 */
 export function LeftPanelSlot() {
+  const mounted = useMounted();
   const workspace = getWorkspace();
+  if (!mounted) return null;
   return (
     <PanelsProvider session={workspace.panels}>
       <EditorPanels />
@@ -75,6 +128,7 @@ type RightTab = (typeof RIGHT_TABS)[number];
  * 分区而非互斥：检查态与属性面板都是「选中即看」，同屏对照更接近 Figma 的右栏心智。
  */
 export function RightPanelSlot() {
+  const mounted = useMounted();
   const workspace = getWorkspace();
   const [tab, setTab] = useState<RightTab>('inspect');
   const selection = useStore(workspace.canvas.store, (state) => state.selection);
@@ -85,6 +139,7 @@ export function RightPanelSlot() {
   );
   const page = document.pages.find((candidate) => candidate.id === workspace.pageId);
   const activeNodeId = selection.activeId ?? selection.ids[0] ?? null;
+  if (!mounted) return null;
 
   return (
     <div className="dfc-ws-right" data-df-workspace="right-panel">
@@ -134,11 +189,18 @@ export function RightPanelSlot() {
  * 抽屉开着时不渲染画布 HUD（避免叠层互相压字）。
  */
 export function AiDrawerSlot() {
+  const mounted = useMounted();
   const [open, setOpen] = useState(false);
+  // 基址适配（不重构 FE-10）：URL `?daemon=` → NEXT_PUBLIC_DF_DAEMON_URL → 其缺省（4318）
+  const port = useMemo(() => {
+    const baseUrl = resolveWorkspaceDaemonUrl();
+    return createAiPort(baseUrl === undefined ? {} : { baseUrl });
+  }, []);
   const onOpenChange = useCallback((next: boolean) => {
     setOpen(next);
   }, []);
-  return <AiDrawer open={open} onOpenChange={onOpenChange} />;
+  if (!mounted) return null;
+  return <AiDrawer open={open} onOpenChange={onOpenChange} port={port} />;
 }
 
 /** 浮层槽：AI 抽屉 + MCP 确认条容器（全局确认，常驻）。 */

@@ -243,13 +243,19 @@ function ensureAssets() {
 }
 
 /** 起 daemon（未外部指定时，用临时工作目录）。 */
-async function ensureDaemon() {
+async function ensureDaemon(webPort) {
   if (daemonUrl !== undefined) {
     if (!(await probe(`${daemonUrl}/health`))) {
       finish(2, `阻塞：外部 daemon 不可达（${daemonUrl}/health）`);
     }
+    notes.push('外部 daemon：其 CORS 白名单未由本脚本配置，页面请求走路由转发（Node 侧）。');
     return;
   }
+  const origins = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    ...(webPort === null ? [] : [`http://localhost:${webPort}`, `http://127.0.0.1:${webPort}`]),
+  ].join(',');
   workspaceDir = await mkdtemp(join(tmpdir(), 'df-fe06-ws-'));
   const dataRoot = await mkdtemp(join(tmpdir(), 'df-fe06-data-'));
   const port = await freePort(4318);
@@ -259,6 +265,8 @@ async function ensureDaemon() {
       DF_DATA_ROOT: dataRoot,
       DF_PORT: String(port),
       DF_HOST: '127.0.0.1',
+      // 受控 CORS：只放行本次站点来源（daemon 默认白名单不含随机端口）
+      DFORGE_CORS_ORIGINS: origins,
     },
   });
   daemonProcess = started.child;
@@ -277,14 +285,14 @@ async function ensureDaemon() {
 }
 
 /** 起 Web 站点（未外部指定时 `next dev`）。 */
-async function ensureWeb() {
+async function ensureWeb(plannedPort) {
   if (webUrl !== undefined) {
     if (!(await probe(`${webUrl}/_canvas`))) {
       finish(2, `阻塞：站点不可达（${webUrl}/_canvas）`);
     }
     return;
   }
-  const port = await freePort(3226);
+  const port = plannedPort ?? (await freePort(3226));
   const started = startProcess(
     'pnpm',
     ['--filter', '@dforge/web', 'exec', 'next', 'dev', '-p', String(port)],
@@ -355,8 +363,10 @@ async function main() {
   if (chrome === undefined) {
     finish(2, '阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）');
   }
-  await ensureDaemon();
-  await ensureWeb();
+  // 站点端口先定：daemon 的 CORS 白名单要按真实站点来源配置（真实跨源，不靠转发）
+  const plannedWebPort = webUrl === undefined ? await freePort(3226) : null;
+  await ensureDaemon(plannedWebPort);
+  await ensureWeb(plannedWebPort);
 
   const { chromium } = await import('playwright-core');
   const browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox'] });
@@ -372,9 +382,11 @@ async function main() {
       consoleErrors.push(message.text());
     }
   });
-  await routeDaemon(page);
+  const useProxy = daemonProcess === undefined;
+  if (useProxy) await routeDaemon(page);
 
-  const canvasUrl = `${webUrl}/_canvas?daemon=${encodeURIComponent(DAEMON_PREFIX)}`;
+  const daemonBase = useProxy ? DAEMON_PREFIX : daemonUrl;
+  const canvasUrl = `${webUrl}/_canvas?daemon=${encodeURIComponent(daemonBase)}`;
   await page.goto(canvasUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('canvas[data-df-canvas]');
 

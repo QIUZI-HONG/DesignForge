@@ -11,6 +11,7 @@ import {
   createIdFactory,
   createPage,
   createRect,
+  createSelection,
   createText,
   type DesignDocument,
   defaultGridSettings,
@@ -192,6 +193,53 @@ describe('会话 · 选择（白名单 1）', () => {
     expect(sessionRef.store.getState().hoverCursor).toBe('move');
     sessionRef.pointerMove({ world: { x: 400, y: 400 }, screen: { x: 400, y: 400 } });
     expect(sessionRef.store.getState().hoverId).toBeNull();
+  });
+});
+
+describe('会话 · 选择集端口（编辑器工作区同源）', () => {
+  it('画布 ⇄ 宿主双向同源：任一侧改选择，另一侧立即一致', () => {
+    // 最小端口替身（编辑器里它就是 FE-04 面板 UI store 的适配）
+    let shared = createSelection([]);
+    const listeners = new Set<() => void>();
+    const port = {
+      get: () => shared,
+      set: (selection: ReturnType<typeof createSelection>) => {
+        shared = selection;
+        for (const listener of listeners) listener();
+      },
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const canvas = createCanvasSession({
+      document: fixtureDocument(),
+      ids: createIdFactory(500),
+      selectionPort: port,
+    });
+
+    // 画布侧改 → 端口侧同源
+    canvas.setSelection(['n_rect']);
+    expect(port.get().ids).toEqual(['n_rect']);
+
+    // 端口侧改（模拟点图层面板）→ 画布侧同源
+    port.set(createSelection(['n_rect2']));
+    expect(canvas.selection().ids).toEqual(['n_rect2']);
+
+    // 清空也要同步
+    canvas.clearSelection();
+    expect(port.get().ids).toEqual([]);
+  });
+
+  it('共享命令栈：文档真值只有一份（画布写入，面板读到的就是同一份）', () => {
+    const doc = fixtureDocument();
+    const canvas = createCanvasSession({ document: doc, ids: createIdFactory(700) });
+    const shared = canvas.stack;
+    const other = createCanvasSession({ document: doc, ids: createIdFactory(800), stack: shared });
+    canvas.setSelection(['n_rect']);
+    canvas.nudge(5, 0);
+    expect(other.document()).toBe(canvas.document());
+    expect(other.page().nodes.n_rect?.x).toBe(15);
   });
 });
 

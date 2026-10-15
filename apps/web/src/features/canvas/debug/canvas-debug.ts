@@ -7,6 +7,8 @@
  * 且**不绕过引擎**：所有写操作仍走会话方法（命令栈）。
  */
 
+import { resolveNode, serializeDocument } from '@dforge/engine';
+
 import type { SceneRenderStats } from '../render/renderer';
 import type { CanvasSession } from '../state/session';
 import type { CanvasRuntimeStatus } from '../ui/canvas-stage';
@@ -79,6 +81,82 @@ export function installCanvasDebugHandle(handle: CanvasDebugHandle): () => void 
       return;
     }
     (globalThis as Record<string, unknown>)[CANVAS_DEBUG_KEY] = previous;
+  };
+}
+
+/**
+ * 造「会话侧」调试句柄字段（不含持久化动作）。
+ *
+ * 两个宿主共用：`/_canvas` 取样页（CanvasStudio，另补保存/重载/导入导出）与
+ * `/editor` 工作区（画布槽）——两边都能被门禁以同一套读点断言。
+ */
+export function sessionDebugHandle(options: {
+  session: CanvasSession;
+  runtime: () => CanvasRuntimeStatus;
+  stats: () => SceneRenderStats | null;
+  documentId?: () => string | null;
+  extras?: Partial<Pick<CanvasDebugHandle, 'save' | 'reload' | 'exportIr' | 'importIr'>>;
+}): CanvasDebugHandle {
+  const { session, runtime, stats } = options;
+  return {
+    version: 1,
+    runtime,
+    stats,
+    viewport: () => session.viewport(),
+    zoomPercent: () => Math.round(session.viewport().zoom * 100),
+    selection: () => [...session.selection().ids],
+    nodeIds: () => [...session.page().rootIds],
+    geometry: (id) => {
+      const node = resolveNode(session.page(), id);
+      if (node === undefined) return null;
+      return {
+        id: node.id,
+        type: node.type,
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+        rotation: node.rotation,
+      };
+    },
+    nodeCount: () => Object.keys(session.page().nodes).length,
+    pageId: () => session.page().id,
+    documentName: () => session.document().name,
+    documentId: options.documentId ?? (() => null),
+    hud: () => session.store.getState().hud,
+    editingText: () => {
+      const editing = session.store.getState().editing;
+      return editing === null
+        ? null
+        : { nodeId: editing.nodeId, characters: editing.content.characters };
+    },
+    textContent: (id) => {
+      const node = resolveNode(session.page(), id);
+      return node !== undefined && node.type === 'text' ? node.text.characters : null;
+    },
+    setSnap: (enabled) => {
+      session.setSnapEnabled(enabled);
+    },
+    error: () => session.store.getState().error,
+    save: options.extras?.save ?? (async () => ({ ok: false, error: '未接入持久化' })),
+    reload: options.extras?.reload ?? (async () => ({ ok: false, error: '未接入持久化' })),
+    exportIr: options.extras?.exportIr ?? (() => serializeDocument(session.document())),
+    importIr: options.extras?.importIr ?? (() => ({ ok: false, error: '未接入导入' })),
+    setViewport: (patch) => {
+      const viewport = session.viewport();
+      session.store.setState({
+        viewport: {
+          zoom: patch.zoom ?? viewport.zoom,
+          panX: patch.panX ?? viewport.panX,
+          panY: patch.panY ?? viewport.panY,
+        },
+      });
+    },
+    select: (ids) => {
+      session.setSelection(ids);
+    },
+    createRect: (bounds) => session.createRect(bounds),
+    session: () => session,
   };
 }
 

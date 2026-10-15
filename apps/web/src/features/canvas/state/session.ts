@@ -353,19 +353,39 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
   /** 选择集规约（父子同选 → 只留上层；失效 id 剔除）。 */
   const applySelection = (input: Selection): void => {
     const normalized = normalizeNodeSelection(page(), input.ids);
-    if (normalized.length === input.ids.length) {
-      store.setState({ selection: input });
-      return;
-    }
-    const activeId =
-      input.activeId !== null && normalized.includes(input.activeId) ? input.activeId : undefined;
-    store.setState({
-      selection:
-        activeId === undefined
-          ? createSelection(normalized)
-          : createSelection(normalized, activeId),
-    });
+    const next =
+      normalized.length === input.ids.length
+        ? input
+        : (() => {
+            const activeId =
+              input.activeId !== null && normalized.includes(input.activeId)
+                ? input.activeId
+                : undefined;
+            return activeId === undefined
+              ? createSelection(normalized)
+              : createSelection(normalized, activeId);
+          })();
+    store.setState({ selection: next });
+    // 同源回写：选择集的真源在宿主（编辑器工作区 = FE-04 面板 UI store）
+    options.selectionPort?.set(next);
   };
+
+  // 端口 → 画布：宿主的其它入口（图层面板点击等）改选择时同步进来
+  if (options.selectionPort !== undefined) {
+    const port = options.selectionPort;
+    port.subscribe(() => {
+      const incoming = port.get();
+      const current = store.getState().selection;
+      if (
+        incoming.ids.length === current.ids.length &&
+        incoming.ids.every((id, index) => id === current.ids[index]) &&
+        incoming.activeId === current.activeId
+      ) {
+        return;
+      }
+      store.setState({ selection: incoming });
+    });
+  }
 
   /** HUD 文案（拖动/缩放/旋转出现，松手消失；C20）。 */
   const hudFor = (interaction: InteractionState): string | null => {

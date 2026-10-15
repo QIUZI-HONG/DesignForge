@@ -13,6 +13,7 @@
  * 3. **门禁挂点**：FE-05 的 `window.__dfInspectorProbe`（历史 + 节点属性读点）。
  */
 
+import { useEffect } from 'react';
 import {
   RESERVED_COMMAND_IDS,
   registerCommand,
@@ -22,7 +23,12 @@ import {
 } from '@/features/editor-shell';
 import { t } from '@/i18n';
 import { CanvasSlot, LeftPanelSlot, OverlaysSlot, RightPanelSlot } from './workspace/slots';
-import { getWorkspace } from './workspace/workspace-session';
+
+import {
+  ensureWorkspaceBootstrapped,
+  getWorkspace,
+  setWorkspaceBootstrap,
+} from './workspace/workspace-session';
 
 /** 中枢屏幕尺寸（缩放锚点用画布区中心；取不到时退回视口尺寸）。 */
 function viewportCenter(): { x: number; y: number } {
@@ -110,6 +116,22 @@ function connectViewSync(): () => void {
   });
 }
 
+/**
+ * 工作区读点（跨票调试/门禁）：面板侧选择集 vs 画布侧选择集——
+ * 两者必须始终一致（选择集同源），否则「画布选中 ≠ 面板高亮」。
+ */
+function installWorkspaceProbe(): () => void {
+  const workspace = getWorkspace();
+  (globalThis as Record<string, unknown>).__dfWorkspaceProbe = {
+    panelsSelection: () => [...workspace.panels.ui.getState().selection.ids],
+    canvasSelection: () => [...workspace.canvas.selection().ids],
+    sameStore: () => workspace.panels.stack === workspace.canvas.stack,
+  };
+  return () => {
+    delete (globalThis as Record<string, unknown>).__dfWorkspaceProbe;
+  };
+}
+
 /** FE-05 门禁挂点：命令栈历史 + 节点属性读点。 */
 function installInspectorProbe(): () => void {
   const workspace = getWorkspace();
@@ -147,12 +169,24 @@ export function registerWorkspaceSlots(): void {
   });
 }
 
-// 模块顶层执行：`app/editor/page.tsx` 只 import 本文件即完成挂载。
-if (typeof window !== 'undefined') {
-  registerWorkspaceSlots();
-  registerWorkspaceCommands();
-  connectViewSync();
-  installInspectorProbe();
+/**
+ * 工作区引导组件（`app/editor/page.tsx` 渲染它即完成挂载）。
+ *
+ * 为什么必须是**客户端组件 + 挂载后注册**，而不是「页面顶层 import 即注册」：
+ * `'use client'` 模块在服务端渲染时只产出 client reference，**顶层代码不会在服务端执行**；
+ * 顶层注册会造成「服务端空槽 / 客户端有槽」的 hydration 不匹配，结果是整棵树停在空槽形态
+ * （插槽永远不出现）。放在 effect 里则服务端与客户端首帧一致，挂载后经注册表订阅填充。
+ */
+export function WorkspaceBootstrap(): null {
+  useEffect(() => {
+    registerWorkspaceSlots();
+    registerWorkspaceCommands();
+    connectViewSync();
+    installInspectorProbe();
+    installWorkspaceProbe();
+    ensureWorkspaceBootstrapped();
+  }, []);
+  return null;
 }
 
 /** 缩放百分比（供状态栏/调试）。 */

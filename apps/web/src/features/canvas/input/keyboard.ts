@@ -292,23 +292,41 @@ function runArrow(session: CanvasSession, input: KeyInput): void {
  * 抑制规则：文本编辑中只放行 `whileEditing` 条目；
  * 输入框/文本域内的按键不劫持（让 DOM 自己处理）。
  */
+/** 分派结果：`handled=false` 表示这一击已**让给宿主**（不要 preventDefault）。 */
+export interface KeyDispatchResult {
+  id: string;
+  handled: boolean;
+}
+
+export function dispatchKeyDown(
+  session: CanvasSession,
+  input: KeyInput,
+  context: ShortcutContext,
+  options: { skipIds?: readonly string[] } = {},
+): KeyDispatchResult | null {
+  const editing = session.store.getState().editing !== null;
+  const skip = options.skipIds === undefined ? null : new Set(options.skipIds);
+  for (const shortcut of SHORTCUTS) {
+    if (!shortcut.match(input)) continue;
+    if (editing && shortcut.whileEditing !== true) return null;
+    // 宿主（编辑器壳）已用同 id 注册命令接管该组合 → 让给它，避免一次按键执行两遍。
+    // 关键：这里**不能** preventDefault，否则宿主的全局派发（`event.defaultPrevented` 即让路）会收不到。
+    if (skip?.has(shortcut.id) === true) return { id: shortcut.id, handled: false };
+    shortcut.run(session, context, input);
+    return { id: shortcut.id, handled: true };
+  }
+  return null;
+}
+
+/** 简版分派（只关心命中了哪条；测试与「说明表」用）。 */
 export function handleKeyDown(
   session: CanvasSession,
   input: KeyInput,
   context: ShortcutContext,
   options: { skipIds?: readonly string[] } = {},
 ): string | null {
-  const editing = session.store.getState().editing !== null;
-  const skip = options.skipIds === undefined ? null : new Set(options.skipIds);
-  for (const shortcut of SHORTCUTS) {
-    if (!shortcut.match(input)) continue;
-    if (editing && shortcut.whileEditing !== true) return null;
-    // 宿主（编辑器壳）已用同 id 注册命令接管该组合 → 让给它，避免一次按键执行两遍
-    if (skip?.has(shortcut.id) === true) return shortcut.id;
-    shortcut.run(session, context, input);
-    return shortcut.id;
-  }
-  return null;
+  const result = dispatchKeyDown(session, input, context, options);
+  return result === null ? null : result.id;
 }
 
 /** 空格键按下（临时手型；文本编辑中不劫持）。 */

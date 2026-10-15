@@ -1,8 +1,9 @@
+// FE-06 宿主接线（画布 + 面板 + Inspector + 检查/导出 + AI/MCP 的挂载入口）。
+// 为什么用组件而不是「顶层 import 即注册」：`'use client'` 模块在服务端渲染时顶层代码不执行，
+// 顶层注册会造成「服务端空槽 / 客户端有槽」的 hydration 不匹配（整棵树停在空槽形态）。
+// 引导组件在挂载后注册插槽与命令，服务端/客户端首帧一致。
+import { WorkspaceBootstrap } from '@/features/canvas/register';
 import { EditorShell } from '@/features/editor-shell';
-
-// FE-06 宿主接线（画布 + 面板 + Inspector + 检查/导出 + AI/MCP 的挂载入口；
-// 只 import 一次即完成插槽与命令注册，壳层与本文件其余部分不动）。
-import '@/features/canvas/register';
 
 /**
  * 编辑器页（`/editor`，清单 C 区对标页族的外围骨架）。
@@ -22,5 +23,10 @@ import '@/features/canvas/register';
  * 注意：本页是服务端组件，不直接用浏览器 API；壳层与插槽宿主都是客户端组件。
  */
 export default function EditorPage() {
-  return <EditorShell />;
+  return (
+    <>
+      <EditorShell />
+      <WorkspaceBootstrap />
+    </>
+  );
 }
