@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { SHELL_STATIC_ENV, SHELL_URL_ENV, resolveLoadPlan } from './load-target';
+import { resolveLoadPlan, SHELL_STATIC_ENV, SHELL_URL_ENV } from './load-target.js';
 
 /** 造一个「只认给定文件存在」的存在谓词。 */
 const existsOf = (...paths: string[]) => {
@@ -18,7 +18,9 @@ const baseInput = (over: Partial<Parameters<typeof resolveLoadPlan>[0]> = {}) =>
 
 describe('壳装载目标解析（dev / 静态产物 / 回退页）', () => {
   it('显式 dev URL 优先（开发态指向本地 dev server）', () => {
-    const plan = resolveLoadPlan(baseInput({ env: { [SHELL_URL_ENV]: 'http://localhost:3000/editor' } }));
+    const plan = resolveLoadPlan(
+      baseInput({ env: { [SHELL_URL_ENV]: 'http://localhost:3000/editor' } }),
+    );
 
     expect(plan).toEqual({
       kind: 'dev-server',
@@ -81,7 +83,9 @@ describe('壳装载目标解析（dev / 静态产物 / 回退页）', () => {
   it('连回退页都缺失时仍给出确定的目标（不抛异常）', () => {
     const plan = resolveLoadPlan(baseInput());
 
-    expect(plan.kind).toBe('fallback');
+    if (plan.kind !== 'fallback') {
+      throw new Error(`期望回退目标，实际 ${plan.kind}`);
+    }
     expect(plan.fileUrl).toContain('fallback.html');
   });
 });

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { EXTERNAL_LINK_ALLOWLIST, decideExternalOpen, isAllowedExternalUrl } from './external-links';
+import {
+  decideExternalOpen,
+  decideInPageNavigation,
+  EXTERNAL_LINK_ALLOWLIST,
+  isAllowedExternalUrl,
+} from './external-links.js';
 
 describe('外链决策（setWindowOpenHandler 白名单口径）', () => {
   it('白名单域（含子域）的 https 外链放行到系统浏览器', () => {
@@ -47,5 +52,44 @@ describe('外链决策（setWindowOpenHandler 白名单口径）', () => {
   it('isAllowedExternalUrl 与决策函数同口径', () => {
     expect(isAllowedExternalUrl('https://github.com/x')).toBe(true);
     expect(isAllowedExternalUrl('https://example.com/')).toBe(false);
+  });
+});
+
+describe('页内导航决策（will-navigate 口径）', () => {
+  it('同源导航放行（壳内应用自身跳转不得被拦）', () => {
+    expect(decideInPageNavigation('http://127.0.0.1:45678/', 'http://127.0.0.1:45678/editor')).toBe(
+      'allow',
+    );
+    expect(decideInPageNavigation('http://localhost:3000/', 'http://localhost:3000/market')).toBe(
+      'allow',
+    );
+  });
+
+  it('devtools 协议放行（开发者工具自身导航）', () => {
+    expect(
+      decideInPageNavigation('http://localhost:3000/', 'devtools://devtools/bundled/x.html'),
+    ).toBe('allow');
+  });
+
+  it('白名单外链转系统浏览器，且不留在壳内', () => {
+    expect(
+      decideInPageNavigation('http://localhost:3000/', 'https://github.com/QIUZI-HONG/DesignForge'),
+    ).toBe('open-external');
+  });
+
+  it('其余（跨源 http、仿冒域、file、畸形）一律拒绝', () => {
+    expect(decideInPageNavigation('http://localhost:3000/', 'http://evil.com/')).toBe('deny');
+    expect(decideInPageNavigation('http://localhost:3000/', 'https://github.com.evil.com/')).toBe(
+      'deny',
+    );
+    expect(decideInPageNavigation('http://localhost:3000/', 'file:///etc/passwd')).toBe('deny');
+    expect(decideInPageNavigation('http://localhost:3000/', '::::')).toBe('deny');
+  });
+
+  it('file: 装载（回退诊断页）下同路径放行，跨路径拒绝', () => {
+    const target = 'file:///repo/apps/desktop/resources/fallback.html';
+
+    expect(decideInPageNavigation(target, target)).toBe('allow');
+    expect(decideInPageNavigation(target, 'file:///etc/passwd')).toBe('deny');
   });
 });

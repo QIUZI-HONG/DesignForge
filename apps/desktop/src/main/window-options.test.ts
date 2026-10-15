@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { SECURITY_BASELINE, WINDOW_SIZE, buildWindowOptions } from './window-options';
+import { buildWindowOptions, SECURITY_BASELINE, WINDOW_SIZE } from './window-options.js';
 
 describe('安全基线与窗口口径', () => {
   it('四项硬断言齐备，且不得放宽（含 allowRunningInsecureContent）', () => {

@@ -48,3 +48,42 @@ export function decideExternalOpen(rawUrl: string): ExternalLinkDecision {
   }
   return { action: 'allow-external', url: parsed.toString() };
 }
+
+/** 页内导航决策：放行 / 转系统浏览器 / 原地拒绝。 */
+export type InPageNavigationDecision = 'allow' | 'open-external' | 'deny';
+
+/**
+ * 页内 `will-navigate` 口径。
+ *
+ * 为什么需要：`setWindowOpenHandler` 只管「新窗口」，页内整页跳转（window.location / `<a href>`）
+ * 走 `will-navigate`——若只拦新窗口，页内跨源跳转会把壳变成任意网页容器。
+ * 同源导航必须放行（壳内应用自身跳转、devtools 面板），跨源白名单外链转系统浏览器，其余拒绝。
+ */
+export function decideInPageNavigation(targetUrl: string, url: string): InPageNavigationDecision {
+  const urlModule: string = url.split('/')[0] ?? '';
+  if (urlModule === 'devtools:') {
+    return 'allow';
+  }
+
+  let target: URL;
+  let next: URL;
+  try {
+    target = new URL(targetUrl);
+    next = new URL(url);
+  } catch {
+    return 'deny';
+  }
+
+  // file: 装载（回退诊断页）下无 origin 可言，按「同协议 + 同路径」判同源。
+  if (target.protocol === 'file:' || next.protocol === 'file:') {
+    return target.protocol === next.protocol && target.pathname === next.pathname
+      ? 'allow'
+      : 'deny';
+  }
+
+  if (target.origin === next.origin) {
+    return 'allow';
+  }
+
+  return decideExternalOpen(url).action === 'allow-external' ? 'open-external' : 'deny';
+}

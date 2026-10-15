@@ -74,7 +74,9 @@ export function resolveStaticFileRequest(input: {
   const base = relative === '' ? root : join(root, relative);
   /** 目录请求（或根请求）直接找 index.html；文件请求先试原路径。 */
   const candidates =
-    relative === '' || pathOnly.endsWith('/') ? [join(base, 'index.html')] : [base, join(base, 'index.html')];
+    relative === '' || pathOnly.endsWith('/')
+      ? [join(base, 'index.html')]
+      : [base, join(base, 'index.html')];
 
   for (const candidate of candidates) {
     const resolved = normalize(candidate);
@@ -121,4 +123,24 @@ export function isDirectory(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * 起一个**故意不发 CORS 头**的本地端口，用于 webSecurity 反证：
+ * 页面（另一 origin）去 fetch 它——同源策略生效则必然被拒（webSecurity=true），
+ * 若成功则说明 webSecurity 被关（违规证据）。等价于「浏览器侧的 CORS 生效性」实测。
+ */
+export function startCorsProbeServer(): Promise<{ server: Server; origin: string }> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+    response.end('probe');
+  });
+
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address() as AddressInfo;
+      resolve({ server, origin: `http://127.0.0.1:${address.port}` });
+    });
+  });
 }

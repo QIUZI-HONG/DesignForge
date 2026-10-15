@@ -56,7 +56,12 @@ function asStaticRoot(raw: string): string {
  * 优先序：`DFORGE_SHELL_URL`（dev）→ `DFORGE_SHELL_STATIC` → 仓库内 `apps/web/out`（Next
  * `output:'export'` 产物）→ 壳内诊断页。被忽略的候选会把原因并进 `reason`，便于证据侧溯源。
  */
-export function resolveLoadPlan({ env, shellRoot, repoRoot, exists }: ResolveLoadPlanInput): ShellLoadPlan {
+export function resolveLoadPlan({
+  env,
+  shellRoot,
+  repoRoot,
+  exists,
+}: ResolveLoadPlanInput): ShellLoadPlan {
   const notes: string[] = [];
 
   const rawUrl = env[SHELL_URL_ENV]?.trim();
