@@ -163,3 +163,29 @@ export function adsQualityOf(record: AssetQualityRecord): AdsQuality {
     explain: record.explain,
   };
 }
+
+/** DWS `asset_quality` 行（规格 §4.4 表行；下游联结用）。 */
+export interface DwsQualityRow {
+  /** 资产 id（联结键：DWD 资产行 ↔ 本行 ↔ facet 行）。 */
+  assetId: string;
+  /** 总分（两位小数；null = 无可算维度）。 */
+  score: number | null;
+  /** 五维分（null = 空心，雷达区分「无信号」与「0 分」，规格 §5.3）。 */
+  dims: Record<DimKey, number | null>;
+  explain: AssetQualityRecord['explain'];
+}
+
+/**
+ * 取本记录的 `asset_quality` 表行（MK-04 消费面：`src/index/dws.ts` 的
+ * `readDwsAsset` 所读的 `quality` 子集即可由此拼出——`{score, dims, explain}`；
+ * 两侧差异（本实现 `dims` 可为 null、`signals[].value` 可为字符串）已在 MK-04 报告
+ * 「偏离与未决」的适配点内，不存在静默改口径）。
+ */
+export function dwsQualityRowOf(record: AssetQualityRecord): DwsQualityRow {
+  return {
+    assetId: record.assetId,
+    score: record.score,
+    dims: record.dims,
+    explain: record.explain,
+  };
+}

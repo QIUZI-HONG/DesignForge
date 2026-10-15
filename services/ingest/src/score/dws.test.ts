@@ -16,6 +16,7 @@ import { scoreBatch } from './batch.ts';
 import {
   adsQualityOf,
   dwsJsonl,
+  dwsQualityRowOf,
   expectedTotal,
   sha256Hex,
   validateDwsRecord,
@@ -125,5 +126,15 @@ describe('dwsJsonl / writeDwsJsonl / adsQualityOf', () => {
     expect(Object.keys(quality)).toEqual(['score', 'confidence', 'coldStart', 'dims', 'explain']);
     expect(quality.dims).toEqual(record.dims);
     expect(quality.explain.spec).toEqual(record.explain.spec);
+  });
+
+  it('DWS asset_quality 表行投影：assetId 联结键 + 总分 + 五维 + explain（下游联结用）', () => {
+    const record = records()[0] as AssetQualityRecord;
+    expect(dwsQualityRowOf(record)).toEqual({
+      assetId: record.assetId,
+      score: record.score,
+      dims: record.dims,
+      explain: record.explain,
+    });
   });
 });
