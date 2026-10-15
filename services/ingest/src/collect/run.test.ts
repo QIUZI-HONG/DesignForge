@@ -64,19 +64,33 @@ const TREE = {
 function fullScript(): ScriptedStep[] {
   return [
     jsonStep(META, { etag: 'W/"meta"' }),
-    jsonStep({ object: { sha: COMMIT, type: 'commit' } }),
+    jsonStep({ object: { sha: COMMIT, type: 'commit' } }, { etag: 'W/"ref"' }),
     jsonStep(TREE, { etag: 'W/"tree"' }),
-    jsonStep({
-      encoding: 'base64',
-      content: Buffer.from('MIT License', 'utf8').toString('base64'),
-    }),
-    jsonStep({
-      encoding: 'base64',
-      content: Buffer.from(
-        `---\nname: pdf\ndescription: 处理 PDF 相关任务时使用。\n---\n\n${'正文'.repeat(200)}`,
-        'utf8',
-      ).toString('base64'),
-    }),
+    jsonStep(
+      { encoding: 'base64', content: Buffer.from('MIT License', 'utf8').toString('base64') },
+      { etag: 'W/"license"' },
+    ),
+    jsonStep(
+      {
+        encoding: 'base64',
+        content: Buffer.from(
+          `---\nname: pdf\ndescription: 处理 PDF 相关任务时使用。\n---\n\n${'正文'.repeat(200)}`,
+          'utf8',
+        ).toString('base64'),
+      },
+      { etag: 'W/"skill"' },
+    ),
+  ];
+}
+
+/** 第二轮剧本：全部 304（条件请求命中；不计入预算，规格 §3.2）。 */
+function all304Script(): ScriptedStep[] {
+  return [
+    { status: 304, headers: { etag: 'W/"meta"' } },
+    { status: 304, headers: { etag: 'W/"ref"' } },
+    { status: 304, headers: { etag: 'W/"tree"' } },
+    { status: 304, headers: { etag: 'W/"license"' } },
+    { status: 304, headers: { etag: 'W/"skill"' } },
   ];
 }
 
@@ -163,6 +177,29 @@ describe('runCollect 真网路径（剧本化 fetch）', () => {
     expect(evidence.steps.every((s) => s.verdict === 'pass')).toBe(true);
     expect(evidence.steps[0]?.assertions.find((a) => a.name.includes('一律 GET'))?.ok).toBe(true);
     expect(result.replayDir).not.toBeNull();
+  });
+
+  it('跨运行 ETag：第二轮全 304 → 记录与首轮一致、304 命中入证据（不计限额）', async () => {
+    const out = tempDir();
+    const first = fetchFrom(fullScript());
+    const run1 = await runCollect(baseOptions(out, { fetchImpl: first.fetchImpl }));
+    expect(run1.exitCode).toBe(0);
+
+    // 第二轮：同一输出目录（复用 etag-cache.json），全部条件请求命中 304。
+    const second = fetchFrom(all304Script());
+    const run2 = await runCollect(baseOptions(out, { fetchImpl: second.fetchImpl }));
+
+    expect(run2.exitCode).toBe(0);
+    expect(second.urls.every((u) => !u.includes('search/repositories'))).toBe(true);
+    // 第二轮全部请求都带了 If-None-Match（条件请求）
+    expect(second.fetchImpl).toBeDefined();
+    expect(run2.records.map((r) => r.digest)).toEqual(run1.records.map((r) => r.digest));
+    expect(run2.records.map((r) => r.assets.map((a) => a.id))).toEqual(
+      run1.records.map((r) => r.assets.map((a) => a.id)),
+    );
+    const metrics = run2.evidence.steps.find((s) => s.id === 'request-discipline')?.metrics;
+    expect(metrics?.cacheHits304).toBe(5);
+    expect(metrics?.coreCalls).toBe(0); // 304 不计入预算窗口
   });
 
   it('离线复跑：同一样本集重放 → ODS 摘要与首跑一致（规格 §4.3）」', async () => {

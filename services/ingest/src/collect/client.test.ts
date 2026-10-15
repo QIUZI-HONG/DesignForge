@@ -10,10 +10,12 @@ import { describe, expect, it } from 'vitest';
 import type { ScriptedStep } from './__fixtures__/http-harness.ts';
 import { jsonStep, makeHttpHarness } from './__fixtures__/http-harness.ts';
 import {
+  CACHE_BODY_MAX_BYTES,
   createGitHubClient,
   createRecordingFetch,
   createReplayFetch,
   decodeContentsText,
+  loadFileCacheStore,
   parseRepoMeta,
   parseTree,
   ReplayMissError,
@@ -194,6 +196,53 @@ describe('parseRepoMeta / parseTree / decodeContentsText 解析', () => {
     expect(decodeContentsText({ encoding: 'base64', content: '' })).toBeNull();
     expect(decodeContentsText([{ type: 'file' }])).toBeNull();
     expect(decodeContentsText(null)).toBeNull();
+  });
+});
+
+describe('loadFileCacheStore 跨运行 ETag 缓存（规格 §3.2）', () => {
+  it('不存在/损坏 → 空缓存起步；写入后可跨实例读回（304 近零成本巡检基础）', async () => {
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'mk01-cache-'));
+    try {
+      const path = join(dir, 'etag-cache.json');
+      const first = await loadFileCacheStore(path);
+      expect(first.size()).toBe(0);
+
+      first.set('https://api.github.com/repos/a/b', { etag: 'W/"e"', bodyText: '{"id":1}' });
+      await first.save();
+
+      const second = await loadFileCacheStore(path);
+      expect(second.get('https://api.github.com/repos/a/b')).toEqual({
+        etag: 'W/"e"',
+        bodyText: '{"id":1}',
+      });
+      expect(JSON.parse(readFileSync(path, 'utf8')).schema).toBe('df.market.etag-cache/v1');
+
+      writeFileSync(path, '{ 坏 JSON', 'utf8');
+      const third = await loadFileCacheStore(path);
+      expect(third.size()).toBe(0); // 损坏 → 空起步，不抛错
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('超大正文不落盘（避免 4MB 级 Trees 塞进缓存文件）', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'mk01-cache2-'));
+    try {
+      const store = await loadFileCacheStore(join(dir, 'etag-cache.json'));
+      store.set('https://api.github.com/big', {
+        etag: 'W/"big"',
+        bodyText: 'x'.repeat(CACHE_BODY_MAX_BYTES + 1),
+      });
+      expect(store.size()).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

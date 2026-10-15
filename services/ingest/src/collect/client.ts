@@ -12,6 +12,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
 
 import type { FetchLike, HttpDeps, HttpResponseLike } from './http.ts';
 import { requestText } from './http.ts';
@@ -175,10 +176,79 @@ export interface GitHubClient extends CandidateSource {
   stats(): { coreCalls: number; searchCalls: number; cacheHits304: number };
 }
 
+/**
+ * ETag 缓存存储（规格 §3.2：`{etag, last_modified, body_digest, fetched_at}` 本地缓存；
+ * 304 命中 → 不重复下载、不计主限额）。MK-01 用 JSON 文件持久化（复用 HTTP 缓存语义），
+ * 后续 MK-02 落 SQLite `http_cache` 表可平滑替换。
+ */
+export interface JsonCacheStore {
+  get(url: string): { etag: string | null; bodyText: string } | undefined;
+  set(url: string, entry: { etag: string | null; bodyText: string }): void;
+}
+
+/** 单条缓存正文上限（超过则不落盘：避免把 4MB 级 Trees 塞进缓存文件）。 */
+export const CACHE_BODY_MAX_BYTES = 512 * 1024;
+
+/** 内存缓存（默认；单次运行内 304 短路）。 */
+export function createMemoryCacheStore(): JsonCacheStore {
+  const map = new Map<string, { etag: string | null; bodyText: string }>();
+  return {
+    get: (url) => map.get(url),
+    set: (url, entry) => {
+      if (Buffer.byteLength(entry.bodyText, 'utf8') > CACHE_BODY_MAX_BYTES) return;
+      map.set(url, entry);
+    },
+  };
+}
+
+/** 文件缓存句柄（`save()` 仅在脏时写盘）。 */
+export interface FileCacheStore extends JsonCacheStore {
+  save(): Promise<void>;
+  size(): number;
+}
+
+/**
+ * 加载/创建文件缓存（跨运行复用 ETag + 正文；304 命中即近零成本巡检，规格 §3.2）。
+ * 文件不存在/损坏 → 空缓存起步（首次运行），不报错。
+ */
+export async function loadFileCacheStore(cacheFilePath: string): Promise<FileCacheStore> {
+  let entries: Record<string, { etag: string | null; bodyText: string }> = {};
+  try {
+    const parsed = JSON.parse(await readFile(cacheFilePath, 'utf8')) as {
+      entries?: Record<string, { etag: string | null; bodyText: string }>;
+    };
+    entries = parsed.entries ?? {};
+  } catch {
+    entries = {};
+  }
+  const map = new Map(Object.entries(entries));
+  let dirty = false;
+  return {
+    get: (url) => map.get(url),
+    set: (url, entry) => {
+      if (Buffer.byteLength(entry.bodyText, 'utf8') > CACHE_BODY_MAX_BYTES) return;
+      map.set(url, entry);
+      dirty = true;
+    },
+    size: () => map.size,
+    save: async () => {
+      if (!dirty) return;
+      dirty = false;
+      await writeFile(
+        cacheFilePath,
+        `${JSON.stringify({ schema: 'df.market.etag-cache/v1', entries: Object.fromEntries(map) })}\n`,
+        'utf8',
+      );
+    },
+  };
+}
+
 export interface ClientOptions {
   deps: HttpDeps;
   /** 凭据；null = 未认证（重放模式允许；真网运行由上层保证非空）。 */
   token: string | null;
+  /** ETag 缓存存储（默认内存；真网运行注入文件缓存以跨运行复用）。 */
+  cacheStore?: JsonCacheStore;
 }
 
 const API = 'https://api.github.com';
@@ -189,7 +259,7 @@ const API = 'https://api.github.com';
  */
 export function createGitHubClient(opts: ClientOptions): GitHubClient {
   const { deps, token } = opts;
-  const cache = new Map<string, { etag: string | null; json: unknown }>();
+  const cache: JsonCacheStore = opts.cacheStore ?? createMemoryCacheStore();
   const headers: Record<string, string> = {};
   if (token !== null && token !== '') headers.authorization = `Bearer ${token}`;
 
@@ -197,16 +267,23 @@ export function createGitHubClient(opts: ClientOptions): GitHubClient {
     url: string,
     kind: 'core' | 'search',
   ): Promise<{ json: unknown; etag: string | null; cacheHit: boolean; linkNext: string | null }> {
+    // 仅当本地持有同 URL 的 ETag+正文时才发条件请求（否则强制 200，避免 304 无法还原结果）。
     const cached = kind === 'core' ? cache.get(url) : undefined;
     const outcome = await requestText(deps, {
       url,
       kind,
       headers,
-      ...(cached?.etag ? { ifNoneMatch: cached.etag } : {}),
+      ...(cached !== undefined && cached.etag !== null ? { ifNoneMatch: cached.etag } : {}),
       ...(kind === 'search' ? { useEtag: false } : {}),
     });
-    if (outcome.cacheHit && cached) {
-      return { json: cached.json, etag: cached.etag, cacheHit: true, linkNext: null };
+    if (outcome.cacheHit && cached !== undefined) {
+      let json: unknown = null;
+      try {
+        json = JSON.parse(cached.bodyText);
+      } catch {
+        throw new UpstreamError(url, outcome.status);
+      }
+      return { json, etag: cached.etag, cacheHit: true, linkNext: null };
     }
     if (!outcome.ok) throw new UpstreamError(url, outcome.status);
     let json: unknown = null;
@@ -216,8 +293,8 @@ export function createGitHubClient(opts: ClientOptions): GitHubClient {
       } catch {
         throw new UpstreamError(url, outcome.status);
       }
+      if (kind === 'core') cache.set(url, { etag: outcome.etag, bodyText: outcome.bodyText });
     }
-    if (kind === 'core') cache.set(url, { etag: outcome.etag, json });
     return { json, etag: outcome.etag, cacheHit: false, linkNext: outcome.linkNext };
   }
 

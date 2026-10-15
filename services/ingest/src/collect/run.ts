@@ -14,14 +14,15 @@
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { type Candidate, type CandidateSource, discoverCandidates } from './candidates.ts';
-import type { GitHubClient } from './client.ts';
+import type { FileCacheStore, GitHubClient } from './client.ts';
 import {
   createGitHubClient,
   createRecordingFetch,
   createReplayFetch,
   ghAuthTokenRunner,
+  loadFileCacheStore,
   parseRecordedResponses,
   ReplayMissError,
   resolveGitHubToken,
@@ -197,6 +198,7 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
   let baseFetch: FetchLike | null = null;
   let blockedReason: string | null = null;
   let token: string | null = null;
+  let cacheStore: FileCacheStore | null = null;
 
   if (offline && opts.replayDir !== null) {
     try {
@@ -220,6 +222,9 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
         recordedLines.push(line),
       );
       baseFetch = recordingFetch;
+      // 跨运行 ETag 缓存（规格 §3.2：条件请求 304 不重复下载、不计主限额）。
+      cacheStore = await loadFileCacheStore(join(opts.outDir, 'cache', 'etag-cache.json'));
+      log(`ETag 缓存：${cacheStore.size()} 条（${join(opts.outDir, 'cache', 'etag-cache.json')}）`);
     }
   }
 
@@ -242,7 +247,11 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
       rand: Math.random,
       ...(opts.maxAttempts !== undefined ? { maxAttempts: opts.maxAttempts } : {}),
     };
-    const client: GitHubClient = createGitHubClient({ deps, token });
+    const client: GitHubClient = createGitHubClient({
+      deps,
+      token,
+      ...(cacheStore !== null ? { cacheStore } : {}),
+    });
 
     // 2) 候选：种子优先，其次 topic 发现（topic 只作候选）
     const merged: Candidate[] = seedCandidates(opts.seeds);
@@ -385,11 +394,18 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
           requestUrls: events.slice(eventStart).map((e) => e.request.url),
         };
         records.push(record);
-        const kinds = identified.assets.map((a) => a.kind).join('/');
+        const kindCounts = new Map<string, number>();
+        for (const asset of identified.assets) {
+          kindCounts.set(asset.kind, (kindCounts.get(asset.kind) ?? 0) + 1);
+        }
+        const kindSummary =
+          kindCounts.size === 0
+            ? '（无）'
+            : `[${[...kindCounts.entries()].map(([k, n]) => `${k}×${n}`).join(', ')}]`;
         log(
           `  ✓ ${meta.fullName}（${meta.stars}★，${license.gate}）：` +
-            `${identified.assets.length} 资产${kinds === '' ? '（无）' : `[${kinds}]`}` +
-            `${identified.rejected.length > 0 ? `，拒绝 ${identified.rejected.length}` : ''}` +
+            `${identified.assets.length} 资产${kindSummary}` +
+            `${identified.rejected.length > 0 ? `，拒选 ${identified.rejected.length}` : ''}` +
             `${treeResult.truncated ? '，⚠ tree truncated' : ''}`,
         );
       } catch (error) {
@@ -408,6 +424,13 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
         }
       }
     }
+  }
+
+  // 3.5) ETag 缓存落盘（跨运行复用；304 命中不计限额）
+  if (cacheStore !== null) {
+    await mkdir(dirname(join(opts.outDir, 'cache', 'etag-cache.json')), { recursive: true });
+    await cacheStore.save();
+    log(`ETag 缓存已写：${cacheStore.size()} 条（304 命中 ${ledger.snapshot().cacheHits304} 次）`);
   }
 
   // 4) 产物落盘
@@ -558,8 +581,10 @@ function buildRequestDisciplineStep(input: {
     artifacts: input.artifacts,
     metrics: {
       coreCalls: snap.coreCalls,
+      coreLimit: snap.coreLimit,
       coreTotal: snap.coreTotal,
       searchCalls: snap.searchCalls,
+      searchLimit: snap.searchLimit,
       searchTotal: snap.searchTotal,
       cacheHits304: snap.cacheHits304,
       retries,
