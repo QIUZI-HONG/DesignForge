@@ -136,7 +136,7 @@ export function AiDrawer(props: AiDrawerProps) {
       width="md"
       footer={footer}
     >
-      <div style={aiStyles.body}>
+      <div data-df-panel="ai" style={aiStyles.body}>
         {status !== null && !status.configured && status.degradedHint !== null ? (
           <p role="status" style={aiStyles.hint}>
             {status.degradedHint}
