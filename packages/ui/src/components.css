@@ -896,23 +896,24 @@
   cursor: pointer;
 }
 
-.dfg-segmented__item:hover:not([aria-checked="true"]):not([aria-disabled="true"]),
-.dfg-segmented__item.dfg-state-hover:not([aria-checked="true"]) {
+.dfg-segmented__item:hover[data-selected="false"][data-disabled="false"],
+.dfg-segmented__item.dfg-state-hover[data-selected="false"] {
   background-color: var(--dfg-color-hover);
 }
 
-.dfg-segmented__item:focus-visible {
+/* 输入框视觉隐藏，焦点环落在 label 上（键盘可达可见） */
+.dfg-segmented__item:focus-within {
   outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
   outline-offset: var(--dfg-border-width-focus);
 }
 
-.dfg-segmented__item[aria-checked="true"] {
+.dfg-segmented__item[data-selected="true"] {
   background-color: var(--dfg-color-surface);
   color: var(--dfg-color-text-primary);
   box-shadow: var(--dfg-shadow-sm);
 }
 
-.dfg-segmented__item[aria-disabled="true"] {
+.dfg-segmented__item[data-disabled="true"] {
   color: var(--dfg-color-text-disabled);
   cursor: not-allowed;
 }

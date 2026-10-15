@@ -15,6 +15,25 @@
 export const UI_PACKAGE = '@dforge/ui' as const;
 
 export {
+  Button,
+  type ButtonProps,
+  type ButtonSize,
+  type ButtonVariant,
+  IconButton,
+  type IconButtonProps,
+  type IconButtonSize,
+  type IconButtonVariant,
+  SegmentedControl,
+  type SegmentedControlProps,
+  type SegmentedOption,
+  Spinner,
+  type SpinnerProps,
+  type SpinnerSize,
+  Tooltip,
+  type TooltipPlacement,
+  type TooltipProps,
+} from './components/index';
+export {
   createIcon,
   ICONS,
   type IconComponent,
