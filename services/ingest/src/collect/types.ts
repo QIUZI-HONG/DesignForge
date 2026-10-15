@@ -71,7 +71,8 @@ export type PieceKind =
   | 'marketplace-manifest'
   | 'package-json'
   | 'template-manifest'
-  | 'ds-manifest'
+  /** `manifest.json`：设计系统清单与模板清单的共用文件名，由内容校验分流（规格 §2.4/§2.5）。 */
+  | 'manifest-json'
   | 'preview-dir'
   | 'examples-dir'
   | 'mcp-json';
