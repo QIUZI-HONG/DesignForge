@@ -215,7 +215,7 @@ export function collectSourceFiles(absRoot) {
  *
  * @param {string} repoRoot 仓库根绝对路径
  * @param {string[]} roots 相对仓库根的目录
- * @returns {Array<{skipped: Array<{file: string, reason: string}>, violations: ReturnType<typeof scanText>}>}
+ * @returns {{ skipped: Array<{file: string, reason: string}>, violations: ReturnType<typeof scanText> }}
  */
 export function scanRoots(repoRoot, roots) {
   /** @type {Array<{file: string, reason: string}>} */
