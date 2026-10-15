@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DESKTOP_PACKAGE, ELECTRON_SECURITY_BASELINE } from './index';
+import { DESKTOP_PACKAGE, ELECTRON_SECURITY_BASELINE } from './index.js';
 
 describe('@dforge/desktop 骨架冒烟', () => {
   it('包标识可用', () => {
