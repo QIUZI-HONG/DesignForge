@@ -8,6 +8,7 @@
 
 import type { NodeId, SceneNode, ScenePage } from '../model/index';
 import { isContainer, isInstanceNode } from '../model/index';
+import { domainError } from './errors';
 import {
   applyNodePatch,
   overriddenKeysOf,
@@ -45,10 +46,10 @@ export function getNode(page: ScenePage, id: NodeId): SceneNode | undefined {
   return page.nodes[id];
 }
 
-/** 取真实节点，缺失即抛错（命令处理器的前置校验用）。 */
+/** 取真实节点，缺失即抛领域错误（命令处理器的前置校验用）。 */
 export function requireNode(page: ScenePage, id: NodeId): SceneNode {
   const node = page.nodes[id];
-  if (!node) throw new Error(`节点不存在：${id}`);
+  if (!node) throw domainError('node-not-found', `节点不存在：${id}`);
   return node;
 }
 
