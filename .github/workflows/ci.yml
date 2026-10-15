@@ -1,0 +1,50 @@
+name: ci
+
+# 设界 · 主 CI（骨架期口径，见 docs/plan/skeleton-and-package-layout-v1.md §2）
+# 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck → 逐包测试。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4 # 版本取自根 package.json 的 packageManager（pnpm@10.33.2）
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # engines.node >= 22；本仓开发机为 node 24
+          cache: pnpm
+
+      - name: 安装依赖（锁定文件，不可漂移）
+        run: pnpm install --frozen-lockfile
+
+      - name: 静态检查（逐包 + 根 scripts）
+        run: pnpm lint
+
+      - name: 类型检查（逐包 tsc --noEmit）
+        run: pnpm typecheck
+
+      - name: 单元测试（逐包 vitest）
+        run: pnpm test
+
+      # ---------------------------------------------------------------------------------
+      # 浏览器门禁挂点（随对应实现票接入，本票**不接**）：
+      #   - pnpm bench:verify-figma-page / -component / -states / -baseline（FE-01 起逐页对照）
+      #   - pnpm bench:verify-canvas（FE-02 / FE-06 接入：画布挂载 6 断言）
+      #   - pnpm e2e:smoke（FE-02 / FE-06 接入：10 步冒烟，拖画→持久化→导出/导入往返）
+      #   - pnpm bench:verify-electron-shell（FE-12 接入：壳内渲染一致性断言）
+      # 驱动口径：playwright-core 1.63.0 锁 chromium-1243，生产构建 + headless。
+      # 守卫脚本（scripts/guard-*.mjs）同样不接 CI：未实现时退出码 2 = 阻塞，
+      # 接入时随「四守卫」对应票一并改本文件。
+      # ---------------------------------------------------------------------------------

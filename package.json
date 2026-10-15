@@ -1,0 +1,26 @@
+{
+  "name": "designforge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "设界 · DesignForge —— 本地优先的类 Figma 设计工作台（monorepo 根包）",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "pnpm -r lint && pnpm run lint:scripts",
+    "lint:scripts": "biome check scripts .github",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run test",
+    "guard:deps": "node scripts/guard-deps.mjs",
+    "guard:electron-baseline": "node scripts/guard-electron-baseline.mjs",
+    "guard:mcp-contract": "node scripts/guard-mcp-contract.mjs",
+    "guard:channel-pairing": "node scripts/guard-channel-pairing.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "typescript": "catalog:"
+  }
+}

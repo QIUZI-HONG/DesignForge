@@ -3,3 +3,17 @@ node_modules/
 *.log
 .env
 .env.*
+
+# 构建产物
+.next/
+out/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# 测试与证据产物
+coverage/
+artifacts/
+
+# Next.js 自动生成（不进版本控制；tags 见 Next 文档）
+next-env.d.ts

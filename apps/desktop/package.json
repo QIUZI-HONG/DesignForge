@@ -1,0 +1,18 @@
+{
+  "name": "@dforge/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "设界桌面最小壳（Electron；FE-12 落地）",
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "electron": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

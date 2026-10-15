@@ -1,0 +1,17 @@
+/*
+ * 设界 · Web 全局样式基线（骨架期最小集）。
+ *
+ * 字体（ADR-0003 §3）：捆绑 Noto Sans SC，此处显式声明字体栈——禁止静默回退到系统字体。
+ * 令牌与组件样式归 packages/ui（FE-01）：双基准令牌（浅色首页族 / 深色编辑器族）+ 密度映射，
+ * 组件禁裸值。本文件在 FE-01 落地前不落任何颜色/尺寸裸值。
+ */
+:root {
+  --dfg-font-sans: "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--dfg-font-sans);
+}

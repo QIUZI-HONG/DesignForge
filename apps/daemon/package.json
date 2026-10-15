@@ -1,0 +1,21 @@
+{
+  "name": "@dforge/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "设界本地服务 daemon（Fastify 5；本段=前端所需子集）",
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dforge/contracts": "workspace:*",
+    "fastify": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
