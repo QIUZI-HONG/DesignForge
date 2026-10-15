@@ -12,6 +12,7 @@
  * `data-df-*` 挂点是门禁取样契约（`scripts/verify-figma-review.mjs`）。
  */
 import { Drawer } from '@dforge/ui';
+import { useState } from 'react';
 
 import { t } from '@/i18n';
 import { formatTimestamp } from '../format';
@@ -74,13 +75,20 @@ export function VersionsDrawer() {
 /** 一条版本记录（标签 / 时间戳 / 摘要 / 对比 + 删除）。 */
 function VersionRow({ snapshot }: { snapshot: VersionSnapshot }) {
   const session = useReviewSession();
+  const [hover, setHover] = useState(false);
   const summary = documentSummary(snapshot.document);
   return (
     <li
       data-df-version-row=""
       data-df-version-id={snapshot.id}
-      data-df-state="idle"
+      data-df-state={hover ? 'hover' : 'idle'}
       style={versionStyles.row}
+      onMouseEnter={() => {
+        setHover(true);
+      }}
+      onMouseLeave={() => {
+        setHover(false);
+      }}
     >
       <span style={versionStyles.rowHead}>
         <span style={reviewStyles.panelTitle}>
