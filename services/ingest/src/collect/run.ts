@@ -273,8 +273,11 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
       log(`凭据来源：${resolution.source}`);
       const productionFetch: FetchLike =
         opts.fetchImpl ?? ((url, init) => fetch(url, init) as Promise<Response>);
-      const recordingFetch = createRecordingFetch(productionFetch, (line) =>
-        recordedLines.push(line),
+      const recordingFetch = createRecordingFetch(
+        productionFetch,
+        (line) => recordedLines.push(line),
+        // 304 时用缓存正文还原为 200 记录（样本自包含，离线重放可完整还原）
+        { resolveCachedBody: (url) => cacheStore?.get(url)?.bodyText ?? null },
       );
       baseFetch = recordingFetch;
       // 跨运行 ETag 缓存（规格 §3.2：条件请求 304 不重复下载、不计主限额）。

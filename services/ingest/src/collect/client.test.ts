@@ -292,6 +292,24 @@ describe('录制与重放（规格 §4.3：离线复跑不触网）', () => {
     ).rejects.toBeInstanceOf(ReplayMissError);
   });
 
+  it('录制 304：以缓存正文还原为 200 记录（样本自包含，离线重放可完整还原）', async () => {
+    const lines: string[] = [];
+    const harness = makeHttpHarness([{ status: 304, headers: { etag: 'W/"e"' } }]);
+    const recordingFetch = createRecordingFetch(harness.deps.fetchImpl, (l) => lines.push(l), {
+      resolveCachedBody: () => JSON.stringify(REPO_JSON),
+    });
+    await recordingFetch('https://api.github.com/repos/a/b', { method: 'GET', headers: {} });
+    const recorded = JSON.parse(lines[0] ?? '{}');
+    expect(recorded.status).toBe(200); // 还原为 200，正文随样本落盘
+    expect(recorded.body.full_name).toBe('anthropics/skills');
+  });
+
+  it('304 但无缓存正文 → 明确抛错（禁止静默产出空记录）', async () => {
+    const harness = makeHttpHarness([{ status: 304, headers: { etag: 'W/"e"' } }]);
+    const client = createGitHubClient({ deps: harness.deps, token: null });
+    await expect(client.getRepoMeta('anthropics/skills')).rejects.toThrow(/无缓存正文/);
+  });
+
   it('重放端到端：client 走重放 fetch，零网络产出相同解析结果', async () => {
     const harness = makeHttpHarness([jsonStep(REPO_JSON, { etag: 'W/"e"' })]);
     const replayFetch = createReplayFetch([

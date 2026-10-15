@@ -276,7 +276,13 @@ export function createGitHubClient(opts: ClientOptions): GitHubClient {
       ...(cached !== undefined && cached.etag !== null ? { ifNoneMatch: cached.etag } : {}),
       ...(kind === 'search' ? { useEtag: false } : {}),
     });
-    if (outcome.cacheHit && cached !== undefined) {
+    if (outcome.cacheHit) {
+      // 304 必须有本地正文可还原，否则是样本/缓存不完整 → 明确报错（禁止静默空记录）。
+      if (cached === undefined) {
+        throw new NonRetryableFetchError(
+          `304 Not Modified 但本地无缓存正文：${url}（重放样本需含正文，或先跑一次真网采集填缓存）`,
+        );
+      }
       let json: unknown = null;
       try {
         json = JSON.parse(cached.bodyText);
@@ -360,19 +366,26 @@ export interface RecordedResponse {
  * 录制 fetch：把每次响应以 JSONL 行写入 `sink`，同时返回可再次读取的响应。
  * 录制的是**公开只读元数据与描述性文本**（合规口径：不落私有内容）。
  */
-export function createRecordingFetch(inner: FetchLike, sink: (line: string) => void): FetchLike {
+export function createRecordingFetch(
+  inner: FetchLike,
+  sink: (line: string) => void,
+  opts?: { resolveCachedBody?: (url: string) => string | null },
+): FetchLike {
   return async (url, init) => {
     const response: HttpResponseLike = await inner(url, init);
     const text = await response.text();
-    let body: unknown = text;
+    // 304 时以缓存正文还原为 200 记录——样本必须自包含（否则离线重放无法还原数据）。
+    const cachedBody = response.status === 304 ? (opts?.resolveCachedBody?.(url) ?? null) : null;
+    const effectiveText = cachedBody ?? text;
+    let body: unknown = effectiveText;
     try {
-      body = JSON.parse(text);
+      body = JSON.parse(effectiveText);
     } catch {
       // 非 JSON（理论上不会发生）：按原文记录。
     }
     const record: RecordedResponse = {
       url,
-      status: response.status,
+      status: cachedBody !== null ? 200 : response.status,
       etag: response.headers.get('etag'),
       linkNext: response.headers.get('link'),
       body,

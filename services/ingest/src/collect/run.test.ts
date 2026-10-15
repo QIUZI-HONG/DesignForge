@@ -202,6 +202,28 @@ describe('runCollect 真网路径（剧本化 fetch）', () => {
     expect(metrics?.coreCalls).toBe(0); // 304 不计入预算窗口
   });
 
+  it('增量链：首跑(200) → 二跑(全 304) → 二跑样本离线重放，三者记录一致', async () => {
+    const out = tempDir();
+    const run1 = await runCollect(
+      baseOptions(out, { fetchImpl: fetchFrom(fullScript()).fetchImpl }),
+    );
+    const run2 = await runCollect(
+      baseOptions(out, { fetchImpl: fetchFrom(all304Script()).fetchImpl }),
+    );
+    expect(run1.exitCode).toBe(0);
+    expect(run2.exitCode).toBe(0);
+    expect(run2.replayDir).not.toBeNull();
+
+    // 二跑的样本里 304 已还原为 200+正文：离线重放能完整还原，无需外网与缓存文件。
+    const replayOut = tempDir();
+    const replay = await runCollect(
+      baseOptions(replayOut, { replayDir: run2.replayDir, token: null }),
+    );
+    expect(replay.exitCode).toBe(0);
+    expect(replay.artifacts[0]?.sha256).toBe(run1.artifacts[0]?.sha256);
+    expect(replay.artifacts[0]?.sha256).toBe(run2.artifacts[0]?.sha256);
+  });
+
   it('离线复跑：同一样本集重放 → ODS 摘要与首跑一致（规格 §4.3）」', async () => {
     const out = tempDir();
     const { fetchImpl } = fetchFrom(fullScript());
