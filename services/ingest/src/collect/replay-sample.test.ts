@@ -92,7 +92,7 @@ describe('冻结样本集：离线复跑（不触网）', () => {
       const anthroSkill = anthro?.assets.find(
         (a) => a.id === 'gh:anthropics/skills#skills/academy-guide',
       );
-      expect(anthroSkill?.compliance).toBe('ok');
+      expect(anthroSkill?.compliance).toBe('ok'); // 该技能正文在样本内（预算 4：仓根 README + 3 个技能）
       // 未取回正文的技能如实标 deferred（预算 3：仓根 README + 2 个 SKILL.md——阶段 A 优先级口径）
       expect(anthro?.assets.some((a) => a.compliance === 'deferred')).toBe(true);
 
@@ -101,10 +101,9 @@ describe('冻结样本集：离线复跑（不触网）', () => {
       expect(bht?.license.evidence.path).toBe('LICENSE');
       expect(bht?.license.evidence.sha256).toMatch(/^sha256:/);
       const templates = (bht?.assets ?? []).filter((a) => a.kind === 'template');
-      // 预算 3 → 仓根 README + 2 个模板完成内容校验（ok），其余如实 deferred（不假装校验过）
+      // 预算 4 → 仓根 README + 1 个模板根**完整取回**（3 文件 = 完整资产根优先策略），其余如实 deferred
       expect(templates.filter((a) => a.compliance === 'ok').map((a) => a.id)).toEqual([
         'gh:zarazhangrui/beautiful-html-templates#templates/8-bit-orbit',
-        'gh:zarazhangrui/beautiful-html-templates#templates/biennale-yellow',
       ]);
       expect(templates.some((a) => a.compliance === 'deferred')).toBe(true);
 

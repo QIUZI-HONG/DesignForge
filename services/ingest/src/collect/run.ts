@@ -89,46 +89,219 @@ const README_ROOT_RANK = 0;
 const README_ASSET_RANK = 10;
 const CHANGELOG_RANK = 12;
 
+/**
+ * 文本类扩展名（与 MK-02 `classifyMediaType` 的 `text` 集同族——镜像登记为集成债）。
+ * 用途：判断一个资产根能否**完整取回**（digest 的前提，规格 §1.6）；含二进制的根直接跳过，
+ * 因为合规口径禁下载二进制（§8.1），而 digest 需要全部文件的内容 sha256（§1.6）。
+ */
+const TEXT_EXTENSIONS = new Set([
+  'md',
+  'markdown',
+  'mdx',
+  'txt',
+  'json',
+  'jsonc',
+  'css',
+  'scss',
+  'html',
+  'htm',
+  'svg',
+  'js',
+  'mjs',
+  'cjs',
+  'ts',
+  'tsx',
+  'jsx',
+  'yml',
+  'yaml',
+  'toml',
+  'sh',
+  'bash',
+  'py',
+  'rb',
+  'go',
+  'rs',
+  'java',
+  'kt',
+  'swift',
+  'php',
+  'csv',
+  'tsv',
+  'xml',
+  'gitignore',
+  'gitattributes',
+  'editorconfig',
+  'npmrc',
+  'prettierrc',
+  'eslintrc',
+]);
+/** 单文件取回上限（contents 端点 1MB 封顶；留余量）。 */
+const MAX_FETCH_BYTES = 900 * 1024;
+
+/** 文件名是否像许可/说明文件（无扩展名也要按文本取回）。 */
+const TEXT_BASENAME_RE =
+  /^(LICEN[CS]E|LICENCE|COPYING|NOTICE|AUTHORS|CONTRIBUTORS|CHANGELOG|CHANGES|README|Makefile|Dockerfile|AUTHORS\.md)(\.(md|txt|rst))?$/i;
+
+/** 该路径是否按文本取回（扩展名白名单 + 无扩展名的说明/许可文件 + 常见点文件）。 */
+export function isTextLikePath(path: string): boolean {
+  const base = path.split('/').pop() ?? path;
+  if (TEXT_BASENAME_RE.test(base)) return true;
+  if (base.startsWith('.') && !base.slice(1).includes('.')) return true; // .gitignore / .npmrc 等
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return false; // 无扩展名且不在白名单：不可判定 → 保守跳过
+  return TEXT_EXTENSIONS.has(base.slice(dot + 1).toLowerCase());
+}
+
+/**
+ * 完整资产根的类群（与识别层同目录多命中的优先级一致：plugin > design-system > template > skill，
+ * 规格 §2.1.3）；`other` 兜底（package.json / .mcp.json 等非认定结构件）。
+ */
+const CONTENT_ROOT_GROUPS: { name: string; pieces: string[] }[] = [
+  { name: 'plugin', pieces: ['plugin-manifest', 'marketplace-manifest'] },
+  { name: 'design-system', pieces: ['design-md', 'tokens-file', 'components-manifest', 'manifest-json'] },
+  { name: 'template', pieces: ['template-manifest'] },
+  { name: 'skill', pieces: ['skill-doc'] },
+  { name: 'other', pieces: ['package-json', 'mcp-json'] },
+];
+
+/** 类群序号（越小越优先；未知群排最后）。 */
+function groupRank(name: string): number {
+  const index = CONTENT_ROOT_GROUPS.findIndex((group) => group.name === name);
+  return index < 0 ? CONTENT_ROOT_GROUPS.length : index;
+}
+
 export interface ContentSelection {
   selected: string[];
   deferred: string[];
 }
 
 /**
- * 按优先级选取需要取回正文的路径（预算内）。
- * 候选 = 探针结构件 ∩ 优先级表 + README/CHANGELOG（文本抽取组来源，规格 §4.4）。
+ * 内容取回选择（预算内）。两级策略（阶段 A 对接面修复口径）：
+ *
+ * 1. **完整资产根优先**：把「结构件所在目录 = 资产根」下的**全部文本文件**按根一次性取回
+ *    （根按文件数升序排，贪心装填预算）。理由：规格 §1.6 的 `digest` 需要资产根内全部文件的
+ *    内容 sha256，缺一即 `digest=null`（MK-02 如实标注）→ 卡片契约（§1.2 digest 必填）无从落成。
+ *    含二进制/超大文件的根**直接跳过**（合规禁下载二进制，§8.1），不浪费预算。
+ * 2. **仓根 README/CHANGELOG**：全仓共用的兜底文本（`text.readme` 回退源，规格 §4.4）。
+ * 3. 余量（通常为 0）再按优先级表补单文件（SKILL.md 正文 / 清单 / tokens …）。
+ *
  * 未选中的进 `deferred`（识别层据此标 `compliance: 'deferred'`，不假装校验过）。
  */
 export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSelection {
-  const candidates: { path: string; rank: number }[] = [];
+  const blobs = tree.filter((entry) => entry.type === 'blob');
+  const priorityOf = (piece: string): number | null =>
+    CONTENT_PRIORITY.find((c) => c.piece === piece)?.rank ?? null;
+
+  // 候选登记（用于 deferred 集合与收尾补位）
+  const candidateRank = new Map<string, number>();
+  const register = (path: string, rank: number): void => {
+    const known = candidateRank.get(path);
+    if (known === undefined || rank < known) candidateRank.set(path, rank);
+  };
   for (const piece of probeTree(tree)) {
-    const priority = CONTENT_PRIORITY.find((c) => c.piece === piece.piece);
-    if (priority !== undefined) candidates.push({ path: piece.path, rank: priority.rank });
+    const rank = priorityOf(piece.piece);
+    if (rank !== null) register(piece.path, rank);
   }
-  for (const entry of tree) {
-    if (entry.type !== 'blob') continue;
+  for (const entry of blobs) {
     const base = entry.path.split('/').pop() ?? entry.path;
     if (base === README_BASENAME) {
-      candidates.push({
-        path: entry.path,
-        rank: entry.path === README_BASENAME ? README_ROOT_RANK : README_ASSET_RANK,
-      });
+      register(entry.path, entry.path === README_BASENAME ? README_ROOT_RANK : README_ASSET_RANK);
     } else if (CHANGELOG_BASENAMES.has(base)) {
-      candidates.push({ path: entry.path, rank: CHANGELOG_RANK });
+      register(entry.path, CHANGELOG_RANK);
     }
   }
 
-  const byPath = new Map<string, number>();
-  for (const candidate of candidates) {
-    const known = byPath.get(candidate.path);
-    if (known === undefined || candidate.rank < known) byPath.set(candidate.path, candidate.rank);
+  // 1) 仓根 README/CHANGELOG（兜底文本，先占 1–2 格预算）
+  const selected: string[] = [];
+  const selectedSet = new Set<string>();
+  const take = (path: string): void => {
+    if (selectedSet.has(path)) return;
+    selectedSet.add(path);
+    selected.push(path);
+  };
+  for (const entry of blobs) {
+    if (selected.length >= budget) break;
+    const base = entry.path.split('/').pop() ?? entry.path;
+    const isRootReadme = entry.path === README_BASENAME;
+    const isRootChangelog = entry.path === 'CHANGELOG.md' || entry.path === 'CHANGELOG';
+    if ((isRootReadme || isRootChangelog) && isTextLikePath(entry.path)) take(entry.path);
   }
-  const ranked = [...byPath.entries()]
+
+  // 2) 完整资产根（结构件目录 → 根内全部文本文件）
+  //    装填顺序 = **按资产类群轮转**（plugin → design-system → template → skill → 其他），
+  //    群内按根规模升序。为什么要轮转：只按规模会一路吃「1 文件小根」，四类卡片的分布被单类
+  //    挤空（实测 5 仓小跑：design-system 卡片 0 张）——市场是给四类看的，批次预算得先保均衡。
+  const sizeOf = new Map(blobs.map((entry) => [entry.path, entry.size ?? 0]));
+  const rootFiles = new Map<string, string[]>();
+  const rootGroup = new Map<string, string>();
+  for (const piece of probeTree(tree)) {
+    if (priorityOf(piece.piece) === null) continue;
+    const root = piece.root;
+    const group = CONTENT_ROOT_GROUPS.find((g) => g.pieces.includes(piece.piece))?.name ?? 'other';
+    const known = rootGroup.get(root);
+    if (known === undefined || groupRank(group) < groupRank(known)) rootGroup.set(root, group);
+    if (rootFiles.has(root)) continue;
+    const prefix = root === '' ? '' : `${root}/`;
+    rootFiles.set(
+      root,
+      blobs
+        .filter((entry) => (root === '' ? true : entry.path.startsWith(prefix)))
+        .map((entry) => entry.path),
+    );
+  }
+  const completableByGroup = new Map<string, { root: string; files: string[] }[]>();
+  for (const [root, files] of rootFiles) {
+    if (files.length === 0) continue;
+    const textOnly = files.every(
+      (path) => isTextLikePath(path) && (sizeOf.get(path) ?? 0) <= MAX_FETCH_BYTES,
+    );
+    if (!textOnly) continue;
+    const group = rootGroup.get(root) ?? 'other';
+    const list = completableByGroup.get(group) ?? [];
+    list.push({ root, files: [...files].sort() });
+    completableByGroup.set(group, list);
+  }
+  for (const list of completableByGroup.values()) {
+    list.sort((a, b) =>
+      a.files.length !== b.files.length ? a.files.length - b.files.length : a.root < b.root ? -1 : 1,
+    );
+  }
+  // 轮转装填：每轮各群取一个最小可装下的根；装不下就跳过（继续下一群/下一轮）
+  const groupOrder = CONTENT_ROOT_GROUPS.map((g) => g.name).concat('other');
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const group of groupOrder) {
+      const list = completableByGroup.get(group);
+      if (list === undefined) continue;
+      while (list.length > 0) {
+        const candidate = list[0];
+        if (candidate === undefined) break;
+        const pending = candidate.files.filter((path) => !selectedSet.has(path));
+        if (selected.length + pending.length > budget) {
+          list.shift(); // 装不下：本群这个根放弃（升序，后面的只会更大）
+          continue;
+        }
+        list.shift();
+        for (const path of pending) take(path);
+        progressed = true;
+        break;
+      }
+    }
+  }
+
+  // 3) 余量按优先级补单文件（SKILL.md 正文 / 清单 / tokens / 资产根 README / .mcp.json …）
+  const leftovers = [...candidateRank.entries()]
+    .filter(([path]) => !selectedSet.has(path))
     .map(([path, rank]) => ({ path, rank }))
     .sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.path < b.path ? -1 : 1));
+  for (const item of leftovers) {
+    if (selected.length >= budget) break;
+    if (isTextLikePath(item.path)) take(item.path);
+  }
 
-  const unique = ranked.map((item) => item.path);
-  return { selected: unique.slice(0, budget), deferred: unique.slice(budget) };
+  const deferred = [...candidateRank.keys()].filter((path) => !selectedSet.has(path)).sort();
+  return { selected, deferred };
 }
 
 export interface CollectOptions {

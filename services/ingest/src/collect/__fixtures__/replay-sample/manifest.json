@@ -1,12 +1,12 @@
 {
   "schema": "df.market.replay/v1",
-  "runId": "20261015-164204",
-  "asOfMs": 1792082524301,
-  "asOf": "2026-10-15T16:42:04.301Z",
-  "recordedFrom": "2026-10-15 真网小跑（MK-05 阶段 A 重录：内容优先级修复后 --limit 2 --max-content 3；仓库外全量样本见 ~/df-evidence/mk-01/replay/）",
+  "runId": "20261015-174931",
+  "asOfMs": 1792086571050,
+  "asOf": "2026-10-15T17:49:31.050Z",
+  "recordedFrom": "2026-10-15 真网小跑（MK-05 阶段 A 重录：完整资产根优先策略；--limit 2 --max-content 4；仓库外全量样本见 ~/df-evidence/mk-01/replay/）",
   "repos": ["anthropics/skills", "zarazhangrui/beautiful-html-templates"],
   "note": "冻结样本集（由仓库外真网响应裁剪）；仅含公开只读元数据与描述性文本；离线复跑不触网（参数取自本 manifest）",
-  "responses": 13,
+  "responses": 15,
   "params": {
     "seeds": ["anthropics/skills", "zarazhangrui/beautiful-html-templates"],
     "topics": [],
@@ -15,7 +15,7 @@
     "maxPagesPerQuery": 1,
     "limit": 2,
     "since": null,
-    "maxContentPerRepo": 3,
+    "maxContentPerRepo": 4,
     "starsHistory": false
   }
 }

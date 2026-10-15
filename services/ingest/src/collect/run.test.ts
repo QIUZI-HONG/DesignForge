@@ -371,35 +371,52 @@ describe('退出码：断言失败 → 1（真失败）', () => {
   });
 });
 
-describe('内容取回优先级（对接面修复：text 抽取组的关键文本优先）', () => {
+describe('内容取回策略（对接面修复：完整资产根优先 + 兜底文本）', () => {
   const tree = [
     { path: 'README.md', type: 'blob' as const, sha: 'r0', size: 10 },
     { path: 'skills/pdf/SKILL.md', type: 'blob' as const, sha: 'b1', size: 10 },
-    { path: 'skills/pdf/README.md', type: 'blob' as const, sha: 'b2', size: 10 },
-    { path: 'skills/pdf/.mcp.json', type: 'blob' as const, sha: 'b3', size: 10 },
-    { path: 'skills/pdf/CHANGELOG.md', type: 'blob' as const, sha: 'b4', size: 10 },
-    { path: 'plugin.json', type: 'blob' as const, sha: 'b5', size: 10 },
-    { path: 'docs/notes.md', type: 'blob' as const, sha: 'b6', size: 10 },
+    { path: 'skills/pdf/notes.md', type: 'blob' as const, sha: 'b2', size: 10 },
+    { path: 'skills/pdf/README.md', type: 'blob' as const, sha: 'b3', size: 10 },
+    { path: 'skills/pdf/.mcp.json', type: 'blob' as const, sha: 'b4', size: 10 },
+    { path: 'skills/pdf/CHANGELOG.md', type: 'blob' as const, sha: 'b5', size: 10 },
+    { path: 'plugin.json', type: 'blob' as const, sha: 'b6', size: 10 },
+    { path: 'docs/notes.md', type: 'blob' as const, sha: 'b7', size: 10 },
   ];
 
-  it('仓根 README 第一、SKILL.md 次之；未选的进 deferred（不假装读过）', () => {
-    const selection = selectContentPaths(tree, 3);
-    expect(selection.selected).toEqual(['README.md', 'skills/pdf/SKILL.md', 'plugin.json']);
-    expect(selection.deferred).toContain('skills/pdf/README.md');
-    // 非描述性文本文件永不入选（预算不被无关文件吃掉）
+  it('仓根 README 第一；随后整根取回最小资产根（digest 前提：根内文件齐）', () => {
+    const selection = selectContentPaths(tree, 6);
+    expect(selection.selected[0]).toBe('README.md');
+    // 最小根 = skills/pdf（5 个文件，纯文本）→ 整根取回（含非结构件的 notes.md）
+    expect(selection.selected.slice(1).sort()).toEqual([
+      'skills/pdf/.mcp.json',
+      'skills/pdf/CHANGELOG.md',
+      'skills/pdf/README.md',
+      'skills/pdf/SKILL.md',
+      'skills/pdf/notes.md',
+    ]);
+    expect(selection.deferred).toContain('plugin.json');
+    // 非结构件目录（docs/）不参与（预算不被无关文件吃掉）
     expect([...selection.selected, ...selection.deferred]).not.toContain('docs/notes.md');
   });
 
-  it('预算放大后：资产根 README / .mcp.json / CHANGELOG 依次进入（文本抽取组来源）', () => {
-    const selection = selectContentPaths(tree, 32);
-    expect(selection.selected).toEqual([
-      'README.md',
-      'skills/pdf/SKILL.md',
-      'plugin.json',
-      'skills/pdf/README.md',
-      'skills/pdf/.mcp.json',
-      'skills/pdf/CHANGELOG.md',
-    ]);
+  it('预算不足整根 → 跳过该根并按优先级补单文件（根不会被「半取」）', () => {
+    const selection = selectContentPaths(tree, 4);
+    expect(selection.selected).toContain('README.md');
+    expect(selection.selected).toContain('skills/pdf/SKILL.md'); // 余量走优先级补位
+    expect(selection.selected).toContain('plugin.json');
+    // 根未完整取回：非结构件的 notes.md 不入选（digest 不会「半齐」冒充完整）
+    expect(selection.selected).not.toContain('skills/pdf/notes.md');
+  });
+
+  it('含二进制的资产根不参与完整取回（合规禁下载二进制，§8.1）', () => {
+    const withBinary = [
+      ...tree,
+      { path: 'skills/art/SKILL.md', type: 'blob' as const, sha: 'c1', size: 10 },
+      { path: 'skills/art/preview.png', type: 'blob' as const, sha: 'c2', size: 99 },
+    ];
+    const selection = selectContentPaths(withBinary, 8);
+    expect(selection.selected).toContain('skills/pdf/SKILL.md');
+    expect(selection.selected).toContain('skills/pdf/notes.md');
   });
 });
 

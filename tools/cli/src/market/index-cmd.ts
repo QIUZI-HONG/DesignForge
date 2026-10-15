@@ -97,10 +97,34 @@ export async function runIndexCommand(
   const joined = joinTables(tables);
   const dwsRecords: ads.DwsAssetRecord[] = [];
   const missingQuality: string[] = [];
+  const excludedIncomplete: { assetId: string; repo: string; kind: string; reason: string }[] = [];
   for (const item of joined) {
     const quality = qualityByAsset.get(item.asset.asset_id);
     if (quality === undefined) {
       missingQuality.push(item.asset.asset_id);
+      continue;
+    }
+    // 卡片硬门槛（集成裁决，见跑通报告「漂移与裁决」）：
+    //   ① `digest` 必填且为规格 §1.6 口径（内容齐备才可算，MK-02 未齐时如实 null）；
+    //   ② 许可证据 `sha256` 需为真实哈希（§1.3）——空串会被 MK-04 的严格校验器拦下
+    //      （其构造器与校验器对「空证据」口径不一致，已登记集成债；本票不伪造证据，改为不入索引）。
+    if (item.asset.digest === null || item.asset.digest_status !== 'ok') {
+      excludedIncomplete.push({
+        assetId: item.asset.asset_id,
+        repo: item.asset.repo_full_name,
+        kind: item.asset.kind,
+        reason: `digest 未齐（status=${item.asset.digest_status}，coverage=${String(item.asset.digest_coverage)}）——内容未全量取回，不入首版索引`,
+      });
+      continue;
+    }
+    const evidenceSha = item.license?.evidence_sha256 ?? null;
+    if (evidenceSha === null) {
+      excludedIncomplete.push({
+        assetId: item.asset.asset_id,
+        repo: item.asset.repo_full_name,
+        kind: item.asset.kind,
+        reason: '许可原文 sha256 未取回（§1.3 证据缺失）——不入首版索引',
+      });
       continue;
     }
     dwsRecords.push(buildDwsRecord(item, quality));
@@ -130,13 +154,11 @@ export async function runIndexCommand(
   const facetArtifact = score.writeJsonFile(paths.facetFile, {
     schema: 'df.market.dws.asset_facet/v1',
     asOf: generatedAt,
-    rows: joined
-      .filter((item) => qualityByAsset.has(item.asset.asset_id))
-      .map((item) => ({
-        assetId: item.asset.asset_id,
-        kind: item.asset.kind,
-        facets: dwsRecords.find((record) => record.id === item.asset.asset_id)?.facets ?? null,
-      })),
+    rows: dwsRecords.map((record) => ({
+      assetId: record.id,
+      kind: record.kind,
+      facets: record.facets,
+    })),
   });
 
   const blockedCount = dwsRecords.filter(
@@ -202,6 +224,12 @@ export async function runIndexCommand(
       metrics: {
         dwsRecords: dwsRecords.length,
         excludedNoQuality: missingQuality.length,
+        excludedIncomplete: excludedIncomplete.length,
+        excludedNoDigest: excludedIncomplete.filter((item) => item.reason.startsWith('digest'))
+          .length,
+        excludedNoLicenseEvidence: excludedIncomplete.filter((item) =>
+          item.reason.startsWith('许可原文'),
+        ).length,
         blockedInBatch: blockedCount,
         assets: artifacts.index.counts.total,
         loadable: artifacts.index.counts.loadable,
@@ -210,6 +238,21 @@ export async function runIndexCommand(
       },
     },
   ];
+
+  // 排除留痕（不入索引的资产逐条可审计；不静默丢）
+  const excludedArtifact = score.writeJsonFile(`${paths.dws}/_index_excluded.json`, {
+    schema: 'df.market.dws.index-excluded/v1',
+    asOf: generatedAt,
+    counts: {
+      noQuality: missingQuality.length,
+      incompleteEvidence: excludedIncomplete.length,
+      noDigest: excludedIncomplete.filter((item) => item.reason.startsWith('digest')).length,
+      noLicenseEvidence: excludedIncomplete.filter((item) => item.reason.startsWith('许可原文'))
+        .length,
+    },
+    items: excludedIncomplete,
+    qualityGaps: missingQuality,
+  });
 
   const evidence = score.buildEvidence({
     runId,
@@ -238,6 +281,8 @@ export async function runIndexCommand(
       byKind: artifacts.index.counts.byKind,
       loadableByKind: countLoadableByKind(artifacts.index.assets),
       excludedNoQuality: missingQuality.length,
+      excludedIncomplete: excludedIncomplete.length,
+      excludedArtifact: excludedArtifact.path,
       blockedInBatch: blockedCount,
       indexSha256: written?.index.sha256 ?? null,
       searchIndexSha256: written?.searchIndex.sha256 ?? null,
