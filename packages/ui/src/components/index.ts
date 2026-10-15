@@ -7,11 +7,19 @@
 
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from './Button';
 export {
+  DropdownMenu,
+  type DropdownMenuProps,
+  type MenuItemSpec,
+  type MenuSectionSpec,
+  type MenuTriggerState,
+} from './DropdownMenu';
+export {
   IconButton,
   type IconButtonProps,
   type IconButtonSize,
   type IconButtonVariant,
 } from './IconButton';
+export { Input, type InputKind, type InputProps } from './Input';
 export {
   SegmentedControl,
   type SegmentedControlProps,

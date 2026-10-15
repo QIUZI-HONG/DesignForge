@@ -449,6 +449,7 @@
 .dfg-menu__separator {
   height: var(--dfg-border-width-hairline);
   margin-block: var(--dfg-space-1);
+  border: 0;
   background-color: var(--dfg-color-border);
 }
 
