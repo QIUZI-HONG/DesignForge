@@ -1,0 +1,20 @@
+{
+  "name": "@dforge/comfy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "设界出图适配（本地 ComfyUI 客户端；未启动态是验收对象）",
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dforge/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

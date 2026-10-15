@@ -1,0 +1,21 @@
+{
+  "name": "@dforge/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "设界共享类型与契约（Design IR / marketplace.index / 跨进程事件）",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

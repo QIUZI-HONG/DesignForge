@@ -1,0 +1,23 @@
+{
+  "name": "@dforge/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "设界 CLI `df`（首批：df market collect|score|index|search）",
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dforge/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "bin": {
+    "df": "./bin/df.mjs"
+  }
+}

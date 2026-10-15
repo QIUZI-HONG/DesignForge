@@ -1,0 +1,23 @@
+{
+  "name": "@dforge/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "设界设计系统（双基准令牌 + 组件；禁裸值）",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dforge/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

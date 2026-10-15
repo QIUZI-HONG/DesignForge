@@ -1,0 +1,20 @@
+{
+  "name": "@dforge/ingest",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "设界采集与市场数据管线（采集→四层→评分→索引；独立可跑）",
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dforge/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
