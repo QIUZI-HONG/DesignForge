@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'" />
+    <title>设界 · 壳内诊断页</title>
+    <style>
+      /* 壳内诊断页不是产品界面（无令牌约束）：仅用系统字体与灰阶，说明「为何没装到 web 产物」 */
+      body {
+        margin: 0;
+        padding: 48px;
+        background: #1e1e1e;
+        color: #e6e6e6;
+        font: 14px/1.7 system-ui, "Noto Sans SC", sans-serif;
+      }
+      h1 {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 16px;
+      }
+      code {
+        background: #2c2c2c;
+        border: 1px solid #3e3e3e;
+        border-radius: 3px;
+        padding: 1px 6px;
+      }
+      ol {
+        padding-left: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- data-dforge-shell-fallback 是壳自检读取的标记（markers 常量同名，勿改） -->
+    <main data-dforge-shell-fallback="web-artifact-missing">
+      <h1>未装载到 web 产物</h1>
+      <p>壳已按预期启动，但没有找到可装载的 <code>apps/web</code> 产物。三条出路任选其一：</p>
+      <ol>
+        <li>开发态：起 web dev server 后带 <code>DFORGE_SHELL_URL=http://localhost:3000</code> 启动壳；</li>
+        <li>构建态：<code>pnpm --filter @dforge/web build</code> 产出静态导出后重启壳（或指定 <code>DFORGE_SHELL_STATIC</code>）；</li>
+        <li>只想验证壳本身：跑 <code>pnpm exec node scripts/verify-shell-parity.mjs --stage=smoke</code>。</li>
+      </ol>
+      <p>此页只用于诊断，不参与产品验收对照。</p>
+    </main>
+  </body>
+</html>

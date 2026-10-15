@@ -1,0 +1,12 @@
+{
+  "types": {
+    "Color": "Color",
+    "Sizing": "Sizing",
+    "Spacing": "Spacing",
+    "Border Radius": "Border Radius"
+  },
+  "sets": {
+    "global": "Global",
+    "light": "Light"
+  }
+}
