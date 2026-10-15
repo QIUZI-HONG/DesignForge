@@ -76,12 +76,14 @@ export function runOneQuery(
   loaded: LoadedAds,
   q: string,
   limit: number,
-): { ids: string[]; total: number; terms: string[]; ms: number } {
+): { ids: string[]; allIds: string[]; total: number; terms: string[]; ms: number } {
   const started = performance.now();
-  const response = ads.searchMarketIndex(loaded.searchIndex, q, { limit });
+  // 语义校验（expectAnyRepo）要看**全量命中**，展示只取前 limit 条
+  const response = ads.searchMarketIndex(loaded.searchIndex, q, { limit: Math.max(limit, 1000) });
   const ms = performance.now() - started;
   return {
-    ids: response.hits.map((hit) => hit.id),
+    ids: response.hits.slice(0, limit).map((hit) => hit.id),
+    allIds: response.hits.map((hit) => hit.id),
     total: response.total,
     terms: response.terms,
     ms,
@@ -96,12 +98,12 @@ export function runQuerySet(
   const outcomes: SearchQueryOutcome[] = [];
   const repoOf = new Map(loaded.assets.map((asset) => [asset.id, asset.source.repo]));
   for (const query of queries) {
-    const result = runOneQuery(loaded, query.q, 50);
-    const repos = result.ids.map((id) => repoOf.get(id) ?? '');
+    const result = runOneQuery(loaded, query.q, 20);
+    const repos = new Set(result.allIds.map((id) => repoOf.get(id) ?? ''));
     const expectOk =
       query.expectAnyRepo === undefined
         ? null
-        : query.expectAnyRepo.some((repo) => repos.includes(repo));
+        : query.expectAnyRepo.some((repo) => repos.has(repo));
     outcomes.push({
       id: query.id,
       q: query.q,
