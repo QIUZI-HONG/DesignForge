@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * df —— 设界 CLI 入口（占位）。
+ * df —— 设界 CLI 可执行入口（Node 原生 TS 类型擦除直跑，独立于编辑器/桌面壳）。
  *
- * 状态：未实现（后续票接入）。
- * 退出码语义：0 通过 / 1 违规 / 2 阻塞（未实现即阻塞，禁止假绿）。
+ * 退出码语义（规格《市场首实现》§6.1）：0 通过 / 1 断言失败 / 2 阻塞（禁止假绿）。
  */
-console.error('df：未实现（后续票接入）——首批子命令 df market collect|score|index|search');
-process.exit(2);
+
+import { runCli } from '../src/index.ts';
+
+process.exit(await runCli(process.argv.slice(2)));

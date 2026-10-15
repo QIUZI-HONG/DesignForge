@@ -1,7 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    // CLI 与采集线同为「Node 原生 TS 类型擦除直跑」形态（bin/df.mjs → src/**）；消费 @dforge/ingest
+    // 的 `.ts` 相对导入需要同样开关（继承自 base 的模块解析不会自动放行）。
+    "allowImportingTsExtensions": true
   },
   "include": ["src"]
 }
