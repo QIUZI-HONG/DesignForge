@@ -74,7 +74,12 @@ function baseEvidence() {
     gate: 'verify-market',
     schema: 'df.market.state-coverage/v1',
     level: 'A（令牌一致性 + 六态挂点；风格同族与动效按 B 级人工复核）',
-    pages: ['/market（D1/D3）', '/market/[assetId]（D2/D4）', '/market/panel（D5）', '/dashboard（D6）'],
+    pages: [
+      '/market（D1/D3）',
+      '/market/[assetId]（D2/D4）',
+      '/market/panel（D5）',
+      '/dashboard（D6）',
+    ],
     params: { rules: RULES.map((rule) => rule.id), daemonUrl: DAEMON_URL, skipDaemon },
     startedAt: startedAt.toISOString(),
     checks: [],
@@ -174,9 +179,7 @@ function runStateCoverageCheck() {
       id: 'state-coverage',
       name: '状态覆盖挂点（六态，验收 §5）',
       verdict: 'blocked',
-      assertions: [
-        { name: '六态登记表存在', expected: COVERAGE_PATH, actual: '缺失', ok: false },
-      ],
+      assertions: [{ name: '六态登记表存在', expected: COVERAGE_PATH, actual: '缺失', ok: false }],
       missing: [],
       delegated: [],
     };
@@ -207,7 +210,10 @@ function runStateCoverageCheck() {
         return existsSync(abs) && readFileSync(abs, 'utf8').includes(entry.marker);
       });
       if (hit) pageStates.push(`${state}（marker 命中）`);
-      else missing.push(`${page.page}/${state}：marker 未在 ${page.sourceFiles.join(', ')} 命中 → ${entry.marker}`);
+      else
+        missing.push(
+          `${page.page}/${state}：marker 未在 ${page.sourceFiles.join(', ')} 命中 → ${entry.marker}`,
+        );
     }
     pages.push({ page: page.page, route: page.route, theme: page.theme, states: pageStates });
   }
@@ -245,7 +251,9 @@ async function runDaemonCheck() {
       id: 'daemon-market',
       name: 'daemon /market/query（真数据面）',
       verdict: 'blocked',
-      assertions: [{ name: '跳过探测（--skip-daemon）', expected: '可达', actual: '未探测', ok: false }],
+      assertions: [
+        { name: '跳过探测（--skip-daemon）', expected: '可达', actual: '未探测', ok: false },
+      ],
       blockedReason: '参数 --skip-daemon：未探测 daemon，按阻塞上报（不得当通过）。',
     };
   }
@@ -258,7 +266,12 @@ async function runDaemonCheck() {
         name: 'daemon /market/query（真数据面）',
         verdict: 'fail',
         assertions: [
-          { name: '查询响应为成功信封', expected: 'ok=true', actual: `code=${payload?.error?.code ?? 'unknown'}`, ok: false },
+          {
+            name: '查询响应为成功信封',
+            expected: 'ok=true',
+            actual: `code=${payload?.error?.code ?? 'unknown'}`,
+            ok: false,
+          },
         ],
       };
     }

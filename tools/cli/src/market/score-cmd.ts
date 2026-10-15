@@ -11,13 +11,11 @@
 import { readFile } from 'node:fs/promises';
 import { score, transform } from '@dforge/ingest';
 import { mapDwdToScoreInputs } from './dwd-map.ts';
+import type { MarketCommandOutcome } from './outcome.ts';
 import { type DataPaths, resolveDataPaths } from './paths.ts';
 
-export interface ScoreCommandResult {
-  exitCode: 0 | 1 | 2;
-  summary: Record<string, unknown>;
-  blockedReason: string | null;
-}
+/** 出口形状取全库唯一真源（见 outcome.ts）；保留本名，调用点不动。 */
+export type ScoreCommandResult = MarketCommandOutcome;
 
 /** 读 DWD 清单里的批次时点（同输入同输出：asOf 来自 ODS 记录，不依赖时钟）。 */
 export async function readDwdAsOf(paths: DataPaths): Promise<string | null> {

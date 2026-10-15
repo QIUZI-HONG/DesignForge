@@ -137,6 +137,83 @@ function inlineAllowReason(lines, index) {
 }
 
 /**
+ * 注释内容是否属「样式语法文本」（示例/说明，而非取值）。
+ *
+ * 判据：带 `{` 的样例对象、`rgb(` / `hsl(` 取色写法、或**令牌引用示例**（`var(--dfg-…)`）。
+ * 只写「#hex」或「12px」的注释**照抓**——那通常是规范泄漏的现场记录，正是 R1/R2 的靶子。
+ */
+function isStyleSyntaxComment(content) {
+  return (
+    content.includes('{') || /\b(?:rgba?|hsla?)\(/.test(content) || content.includes('var(--dfg-')
+  );
+}
+
+/** 字符串内容是否为样式语法文本：`{`（样式对象/CSS 块文本）或令牌引用示例；裸 `marginTop: 8` 仍照抓。 */
+function isStyleSyntaxString(content) {
+  return content.includes('{') || content.includes('var(--dfg-');
+}
+
+/**
+ * 把「不属于取值」的文本区段替换为空格（保持列号稳定），供规则逐行匹配：
+ * - 行注释 `//` 与块注释 `/* … *​/`：仅当内容属样式语法文本时屏蔽（跨行块注释整体屏蔽）；
+ * - 字符串：单/双引号不跨行；反引号模板串跨行时也把整行内容视作串内文本（不误报行尾）。
+ *
+ * @param {string[]} lines
+ * @returns {string[]}
+ */
+function maskNonCodeText(lines) {
+  const chars = lines.map((line) => line.split(''));
+  const blank = (index, from, to) => {
+    const row = chars[index];
+    if (row === undefined) return;
+    for (let at = Math.max(0, from); at < Math.min(row.length, to); at += 1) row[at] = ' ';
+  };
+  let inBlockComment = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    let at = 0;
+    while (at < line.length) {
+      const char = line[at];
+      if (!inBlockComment && char === '/' && line[at + 1] === '/') {
+        const content = line.slice(at + 2);
+        if (isStyleSyntaxComment(content)) blank(index, at, line.length);
+        break;
+      }
+      if (!inBlockComment && char === '/' && line[at + 1] === '*') {
+        const end = line.indexOf('*/', at + 2);
+        const content = line.slice(at + 2, end < 0 ? line.length : end);
+        if (isStyleSyntaxComment(content)) blank(index, at, end < 0 ? line.length : end + 2);
+        if (end < 0) {
+          inBlockComment = true;
+          break;
+        }
+        at = end + 2;
+        continue;
+      }
+      if (inBlockComment) {
+        const end = line.indexOf('*/', at);
+        const content = line.slice(at, end < 0 ? line.length : end);
+        if (isStyleSyntaxComment(content)) blank(index, at, end < 0 ? line.length : end + 2);
+        if (end < 0) break;
+        inBlockComment = false;
+        at = end + 2;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === '`') {
+        const close = line.indexOf(char, at + 1);
+        const content = line.slice(at + 1, close < 0 ? line.length : close);
+        if (isStyleSyntaxString(content)) blank(index, at, close < 0 ? line.length : close + 1);
+        if (close < 0) break; // 跨行模板串：按单行收束，后续行不再当串内处理
+        at = close + 1;
+        continue;
+      }
+      at += 1;
+    }
+  }
+  return chars.map((row) => row.join(''));
+}
+
+/**
  * 扫描单文件文本。
  *
  * @param {string} file 相对仓库根路径（用于报告与白名单判定）
@@ -148,6 +225,8 @@ export function scanText(file, text) {
   if (allowed.allowed) return [];
 
   const lines = text.split('\n');
+  // 规则在「屏蔽掉注释与样式语法字符串」的文本上跑；行内豁免标记仍按原文判断
+  const scanned = maskNonCodeText(lines);
   /** @type {Array<{file: string, line: number, column: number, rule: string, ruleTitle: string, text: string, hint: string}>} */
   const violations = [];
   const push = (ruleId, lineIndex, column, snippet) => {
@@ -164,9 +243,9 @@ export function scanText(file, text) {
     });
   };
 
-  lines.forEach((line, index) => {
+  scanned.forEach((line, index) => {
     if (inlineAllowReason(lines, index) !== null) return;
-    // 注释行整体跳过？不：注释里写死色值同样是口径泄漏的源头（除行内豁免外照抓）
+    // 注释里写死色值同样是口径泄漏的源头：除行内豁免与「样式语法文本」外照抓
     for (const { id, pattern } of COLOR_PATTERNS) {
       for (const match of line.matchAll(pattern)) {
         push(id, index, (match.index ?? 0) + 1, match[0]);

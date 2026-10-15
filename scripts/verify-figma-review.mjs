@@ -35,6 +35,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { bboxOfDiff } from './lib/pixels.mjs';
+
 const WEB_URL = process.env.DF_WEB_URL ?? 'http://127.0.0.1:3210';
 const REVIEW_URL = process.env.DF_REVIEW_URL ?? `${WEB_URL}/editor`;
 const REF_ROOT = resolve(process.env.DF_REF_DIR ?? join(homedir(), 'df-evidence', 'reference-v1'));
@@ -600,7 +602,7 @@ for (const sample of targets) {
     diffPixels,
     totalPixels: total,
     ratio: Number(ratio.toFixed(6)),
-    bbox: bboxOfDiff(diffPng, refPng.width, refPng.height),
+    bbox: bboxOfDiff(diffPng),
   };
   record.artifacts = {
     ref: fingerprint(refPath),
@@ -634,31 +636,7 @@ for (const state of STATES) {
 
 await browser.close();
 
-/** 差异像素包围盒（A 级几何断言的落点信息）。 */
-function bboxOfDiff(diffPng, width, height) {
-  let minX = width;
-  let minY = height;
-  let maxX = -1;
-  let maxY = -1;
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = (y * width + x) * 4;
-      // pixelmatch 把差异像素涂成红色（255,0,0）
-      if (
-        diffPng.data[index] === 255 &&
-        diffPng.data[index + 1] === 0 &&
-        diffPng.data[index + 2] === 0
-      ) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-  if (maxX < 0) return null;
-  return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
-}
+// 判定：拦截到的（pending 取样单元）= 阻塞；超差/缺参照 = 违规；否则通过。
 
 // 判定：pending（状态取不到）= 阻塞；超差/缺参照 = 违规；否则通过。
 if (pending > 0) {
