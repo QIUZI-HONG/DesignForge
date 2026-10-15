@@ -66,46 +66,45 @@ export function isListRepo(input: { name: string; description: string | null }):
 /** 从搜索响应解析候选（repo id 为收口键，研究 #4 §6.1：同一仓会被多 topic 召回）。 */
 export function parseSearchResponse(json: unknown): { items: Candidate[]; totalCount: number } {
   const record = (json ?? {}) as Record<string, unknown>;
-  const rawItems = Array.isArray(record['items']) ? record['items'] : [];
+  const rawItems = Array.isArray(record.items) ? record.items : [];
   const items: Candidate[] = [];
   for (const raw of rawItems) {
     if (raw === null || typeof raw !== 'object') continue;
     const item = raw as Record<string, unknown>;
-    const fullName = typeof item['full_name'] === 'string' ? item['full_name'] : null;
-    const repoId = typeof item['id'] === 'number' ? item['id'] : null;
+    const fullName = typeof item.full_name === 'string' ? item.full_name : null;
+    const repoId = typeof item.id === 'number' ? item.id : null;
     if (fullName === null || repoId === null) continue;
     const [owner = '', name = ''] = fullName.split('/');
-    const license = item['license'];
+    const license = item.license;
     const licenseSpdx =
       license !== null &&
       typeof license === 'object' &&
-      typeof (license as Record<string, unknown>)['spdx_id'] === 'string'
-        ? ((license as Record<string, unknown>)['spdx_id'] as string)
+      typeof (license as Record<string, unknown>).spdx_id === 'string'
+        ? ((license as Record<string, unknown>).spdx_id as string)
         : null;
-    const description = typeof item['description'] === 'string' ? item['description'] : null;
+    const description = typeof item.description === 'string' ? item.description : null;
     items.push({
       repoId,
       fullName,
       owner,
       name,
       description,
-      stars: typeof item['stargazers_count'] === 'number' ? item['stargazers_count'] : 0,
-      pushedAt: typeof item['pushed_at'] === 'string' ? item['pushed_at'] : '',
-      defaultBranch: typeof item['default_branch'] === 'string' ? item['default_branch'] : 'main',
-      archived: item['archived'] === true,
-      fork: item['fork'] === true,
-      sizeKb: typeof item['size'] === 'number' ? item['size'] : 0,
-      homepage: typeof item['homepage'] === 'string' ? item['homepage'] : null,
-      topics: Array.isArray(item['topics'])
-        ? item['topics'].filter((t): t is string => typeof t === 'string')
+      stars: typeof item.stargazers_count === 'number' ? item.stargazers_count : 0,
+      pushedAt: typeof item.pushed_at === 'string' ? item.pushed_at : '',
+      defaultBranch: typeof item.default_branch === 'string' ? item.default_branch : 'main',
+      archived: item.archived === true,
+      fork: item.fork === true,
+      sizeKb: typeof item.size === 'number' ? item.size : 0,
+      homepage: typeof item.homepage === 'string' ? item.homepage : null,
+      topics: Array.isArray(item.topics)
+        ? item.topics.filter((t): t is string => typeof t === 'string')
         : [],
       licenseSpdx,
       discoveredBy: [],
       isList: isListRepo({ name, description }),
     });
   }
-  const totalCount =
-    typeof record['total_count'] === 'number' ? record['total_count'] : items.length;
+  const totalCount = typeof record.total_count === 'number' ? record.total_count : items.length;
   return { items, totalCount };
 }
 

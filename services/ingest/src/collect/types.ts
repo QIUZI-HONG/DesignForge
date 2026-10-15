@@ -224,6 +224,27 @@ export interface Evidence {
   exitCode: 0 | 1 | 2;
 }
 
+/** 仓库元数据（`GET /repos/{owner}/{repo}` 的采集子集）。 */
+export interface RepoMeta {
+  id: number;
+  fullName: string;
+  owner: string;
+  name: string;
+  defaultBranch: string;
+  stars: number;
+  forks: number;
+  pushedAt: string;
+  updatedAt: string;
+  archived: boolean;
+  fork: boolean;
+  sizeKb: number;
+  homepage: string | null;
+  description: string | null;
+  topics: string[];
+  licenseSpdx: string | null;
+  licenseName: string | null;
+}
+
 /** 退出码语义（规格 §6.1：0 通过 / 1 失败 / 2 阻塞；禁止假绿）。 */
 export type ExitCode = 0 | 1 | 2;
 
