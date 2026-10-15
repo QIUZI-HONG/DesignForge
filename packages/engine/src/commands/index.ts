@@ -34,6 +34,7 @@ export type {
   RenameDocumentCommand,
   ReorderNodeCommand,
   ReparentNodeCommand,
+  ReplaceDocumentCommand,
   ResetInstanceOverrideCommand,
   RestoreNodeCommand,
   SetDocumentTokensCommand,
