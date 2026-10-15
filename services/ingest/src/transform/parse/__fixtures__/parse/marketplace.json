@@ -1,0 +1,36 @@
+{
+  "name": "anthropic-agent-skills",
+  "owner": {
+    "name": "Keith Lazuka"
+  },
+  "metadata": {
+    "description": "Anthropic agent skills marketplace"
+  },
+  "plugins": [
+    {
+      "name": "academy-guide",
+      "source": "./skills/academy-guide",
+      "description": "Skill 1"
+    },
+    {
+      "name": "algorithmic-art",
+      "source": "./skills/algorithmic-art",
+      "description": "Skill 2"
+    },
+    {
+      "name": "brand-guidelines",
+      "source": "./skills/brand-guidelines",
+      "description": "Skill 3"
+    },
+    {
+      "name": "canvas-design",
+      "source": "./skills/canvas-design",
+      "description": "Skill 4"
+    },
+    {
+      "name": "pdf",
+      "source": "./skills/pdf",
+      "description": "Skill 5"
+    }
+  ]
+}
