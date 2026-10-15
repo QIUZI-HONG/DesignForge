@@ -1,7 +1,7 @@
 /**
  * 市场索引 schema 校验器（MK-04）——`df.marketplace.index/v1`（规格 §1 逐字段定稿）。
  *
- * 定位：ADS 产物的**入库门**（判据链第 4 环：《市场首实现》§4）。独立成模块、零依赖，
+ * 定位：ADS 产物的**入库门**（判据链第 4 环：《市场首实现》§4）。独立成模块（仅依赖契约词表），
  * 供 daemon（§5.3 路由返回 `index-invalid` 判定）、FE-11（消费前自检）、MK-05（跑通判据）
  * 复用；`@dforge/contracts` 的 `parseMarketplaceIndex` 是**消费侧宽容解析**（未知字段忽略、
  * 未知枚举归 other），本模块是**生产侧严格校验**（缺字段/坏格式/计数不自洽必须拦住）——
@@ -15,7 +15,12 @@
  * 校验范围（只认规格字面，不做业务推断）：顶层/资产的必填与类型、枚举词表、digest 与 ref
  * 格式、ISO8601 时刻、id 形态与 source 一致性、counts 三项自洽、blocked 资产不得出现、
  * 重复 id；另记 warning 类问题（未知能力词、tags 超限、score 与加权分不符、双语皆空）。
+ *
+ * 词表单一真源：品类/形态词表与契约标识复用 `@dforge/contracts`（INF-01 已定稿），
+ * 本模块不另起一套（依赖方向 ingest → contracts 合法）。
  */
+
+import { MARKET_CATEGORIES, MARKET_MODES, MARKETPLACE_INDEX_SCHEMA } from '@dforge/contracts';
 
 /** 校验问题码（稳定标识，可进证据 JSON 与日志）。 */
 export type IndexIssueCode =
@@ -56,8 +61,8 @@ export interface IndexValidationOptions {
   mode?: 'strict' | 'forward-compatible';
 }
 
-/** 契约标识（与规格 §1.1 精确匹配）。 */
-export const MARKETPLACE_INDEX_SCHEMA_ID = 'df.marketplace.index/v1' as const;
+/** 契约标识（单一真源在 `@dforge/contracts`，此处仅作本地别名）。 */
+export const MARKETPLACE_INDEX_SCHEMA_ID = MARKETPLACE_INDEX_SCHEMA;
 
 /** 五维权重（规格 §5.1；score 自洽性交叉校验用）。 */
 export const QUALITY_WEIGHTS = {
@@ -68,33 +73,14 @@ export const QUALITY_WEIGHTS = {
   ecosystem: 0.15,
 } as const;
 
-/** 四类资产词表（规格 §1.2）。 */
+/** 四类资产词表（规格 §1.2；contracts 未导出运行时常量，此处保持同步）。 */
 const ASSET_KINDS = ['skill', 'plugin', 'design-system', 'template'] as const;
-/** 品类词表（规格 §1.4：9 场景种子 + 兜底）。 */
-const CATEGORIES = [
-  '网站设计',
-  '移动端App',
-  '设计系统',
-  'Web App',
-  'PPT设计',
-  '交互原型',
-  '品牌设计',
-  '图标&插画',
-  '视觉海报',
-  '其他',
-] as const;
+/** 品类词表（规格 §1.4；复用 contracts，未知值归「其他」）。 */
+const CATEGORIES = MARKET_CATEGORIES;
 /** 工作泳道词表（规格 §1.4）。 */
 const LANES = ['create', 'refine', 'deliver'] as const;
-/** 资产形态词表（规格 §1.4）。 */
-const MODES = [
-  'template',
-  'design-system',
-  'prototype',
-  'components',
-  'tokens',
-  'utility',
-  'other',
-] as const;
+/** 资产形态词表（规格 §1.4；复用 contracts，未知值归 other）。 */
+const MODES = MARKET_MODES;
 /** license 三档（规格 §7.2）。 */
 const GATES = ['loadable', 'view-only', 'blocked'] as const;
 /** 安全静态审计结论（规格 §1.2）。 */
