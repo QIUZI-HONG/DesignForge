@@ -250,6 +250,7 @@ function instanceOf(id: string, componentId: string) {
     visible: true,
     locked: false,
     opacity: 1,
+    blendMode: 'normal' as const,
     fills: [],
     strokes: [],
     effects: [],
