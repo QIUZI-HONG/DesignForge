@@ -8,7 +8,8 @@
  * 库中已有文件时本页只是分流提示（返回首页），不再重复冷启动动作。
  *
  * daemon 未启动是一等状态：错误态给「重启本地服务」引导 + 重试，不吞错也不假成功。
- * 编辑器 URL 约定 `?doc=<documentId>`（编辑器路由归 FE-03，届时由其解析；本页只负责跳转）。
+ * 编辑器地址形状归 FE-02 单点收敛（`features/home/lib/routes.ts` 的 `editorHref`，
+ * `?documentId=`）——本页只消费，不另立约定；FE-03 编辑器接管解析。
  *
  * 六态挂点：`loading`（查清单中）/ `empty`（空态）/ `error`（daemon 不可达 / 创建失败）。
  */
@@ -16,6 +17,7 @@ import { Button, EmptyState, ErrorState, Spinner } from '@dforge/ui';
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { editorHref } from '@/features/home/lib/routes';
 import { t } from '@/i18n';
 
 import { DaemonClientError } from '../api/daemon-client';
@@ -29,14 +31,14 @@ type ColdStartPhase = 'loading' | 'empty' | 'exists' | 'error';
 export interface ColdStartProps {
   /** 数据面注入（测试用）。 */
   api?: SettingsApi;
-  /** 进入编辑器（缺省整页跳转到 `/editor?doc=…`）。 */
+  /** 进入编辑器（缺省整页跳转到 FE-02 约定的 `/editor?documentId=…`）。 */
   onEnterEditor?: (documentId: string) => void;
 }
 
-/** 缺省进入编辑器：整页跳转（URL 约定见模块头注释）。 */
+/** 缺省进入编辑器：整页跳转（地址形状见 FE-02 的 `editorHref`）。 */
 function defaultEnterEditor(documentId: string): void {
   if (typeof window !== 'undefined') {
-    window.location.assign(`/editor?doc=${encodeURIComponent(documentId)}`);
+    window.location.assign(editorHref(documentId));
   }
 }
 

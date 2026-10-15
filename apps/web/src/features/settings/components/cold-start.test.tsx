@@ -132,4 +132,23 @@ describe('空库冷启动', () => {
     expect(onEnterEditor).toHaveBeenCalledWith('示例设计');
     expect(screen.queryByText(/创建示例失败/)).toBeNull();
   });
+
+  it('缺省跳转（未注入 onEnterEditor）：地址形状与 FE-02 首页一致（?documentId=）', async () => {
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...original, assign },
+    });
+    try {
+      const user = userEvent.setup();
+      renderWithToast(<ColdStart api={makeApi()} />);
+      await user.click(await screen.findByRole('button', { name: '一键示例' }));
+      expect(assign).toHaveBeenCalledWith(
+        '/editor?documentId=%E7%A4%BA%E4%BE%8B%E8%AE%BE%E8%AE%A1',
+      );
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
+  });
 });
