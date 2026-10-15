@@ -162,7 +162,6 @@
   "design.token.controlHeight": "控件高 md 随主题密度：浅色 32 ↔ 深色 28",
   "design.token.radius": "圆角档 3 / 6 / 8 / 13 / 999",
   "design.token.spacing": "间距刻度 4 的倍数（含 8 栅格档）",
-
   "settings.title": "设置",
   "settings.subtitle": "本地优先：配置与凭据只存在本机（本地服务的数据目录）。",
   "settings.nav.label": "设置分区",
@@ -221,7 +220,6 @@
   "settings.action.copyPath": "复制路径",
   "settings.dataDir.copied": "已复制数据目录路径",
   "settings.dataDir.copyFailed": "复制失败，请手动选择路径复制。",
-
   "onboarding.title": "四步引导",
   "onboarding.subtitle": "把本地能力配置好：工作目录 → AI → 出图 → 埋点；每一步都可以先跳过。",
   "onboarding.stepsLabel": "引导步骤",
@@ -236,7 +234,6 @@
   "onboarding.done.title": "引导完成",
   "onboarding.done.desc": "配置已保存到本地服务。下一步创建你的第一个文件。",
   "onboarding.done.action": "进入工作台",
-
   "coldstart.title": "欢迎使用设界",
   "coldstart.subtitle": "本地优先的类 Figma 设计工作台：文档都在你自己的机器上。",
   "coldstart.loading": "正在检查本地文件…",
@@ -703,5 +700,6 @@
   "editor.canvas.hint": "画布模块挂载至 canvas 插槽后自动替换本提示。",
   "editor.slot.panelHint": "面板模块挂载至本插槽后自动替换本提示。",
   "editor.topbar.brand": "设界",
-  "design.menu.archive": "归档"
+  "design.menu.archive": "归档",
+  "review.group": "评审"
 }

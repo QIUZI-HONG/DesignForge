@@ -98,7 +98,13 @@ export const commentStyles = {
     overflow: 'hidden',
     pointerEvents: 'none',
   } as CSSProperties,
-  /** 落点按钮：铺满视口的透明控件（评论模式下才渲染；键盘等价路径见组件头注释）。 */
+  /**
+   * 落点按钮：铺满视口的透明控件（评论模式下才渲染；键盘等价路径见组件头注释）。
+   *
+   * `pointerEvents: auto` 是必需的：覆盖层根节点是 `none`（不吃画布事件），
+   * 只靠继承的话落点按钮在**真浏览器**里点不到（jsdom 不算 pointer-events，
+   * 这正是「组件测试绿、门禁红」的那类差异——由 verify-figma-review 的交互断言兜住）。
+   */
   surface: {
     position: 'absolute',
     inset: 0,
@@ -108,6 +114,7 @@ export const commentStyles = {
     border: 'none',
     background: 'transparent',
     cursor: 'crosshair',
+    pointerEvents: 'auto',
   } as CSSProperties,
   pin: {
     position: 'absolute',

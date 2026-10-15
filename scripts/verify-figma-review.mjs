@@ -75,10 +75,10 @@ const SAMPLES = [
   {
     id: 'comments/pins',
     root: '[data-df-comment-layer]',
-    note: '评论模式下的钉点层（钉点按世界坐标换算定位；需宿主预置至少一条评论）',
+    note: '评论模式下的钉点层（含一条真实发布的评论；钉点按世界坐标换算定位）',
     prepare: async (page) => {
-      await page.locator('[data-df-comment-toggle]').first().click({ timeout: 3000 });
-      await page.waitForSelector('[data-df-comment-pin]', { timeout: 3000 });
+      await enterCommentMode(page);
+      await createComment(page, '这里的间距太大了');
     },
   },
   {
@@ -86,7 +86,8 @@ const SAMPLES = [
     root: '[data-df-comment-pin][data-df-state="hover"]',
     note: '钉点悬停展开（验收 §5 hover 挂点：data-df-state="hover"）',
     prepare: async (page) => {
-      await page.locator('[data-df-comment-toggle]').first().click({ timeout: 3000 });
+      await enterCommentMode(page);
+      await createComment(page, '标题层级有点乱');
       await page.locator('[data-df-comment-pin]').first().hover();
       await page.waitForSelector('[data-df-comment-pin][data-df-state="hover"]', { timeout: 3000 });
     },
@@ -94,27 +95,42 @@ const SAMPLES = [
   {
     id: 'comments/thread-panel',
     root: '[data-df-panel="comments"]',
-    note: '线程面板（未解决列表 + 回复/解决操作）',
+    note: '线程面板（未解决列表 + 回复/解决操作；含一条真实评论）',
     prepare: async (page) => {
-      await page.locator('[data-df-panel="comments"]').first().waitFor({ timeout: 3000 });
+      await enterCommentMode(page);
+      await createComment(page, '这条要留到评审看');
     },
   },
   {
     id: 'comments/resolved-collapsed',
     root: '[data-df-sample="comments/resolved"]',
     note: '已解决段默认折叠（C12 要点：已解决折叠）',
+    prepare: async (page) => {
+      await enterCommentMode(page);
+      await createComment(page, '已经处理完的问题');
+      // 发布后该线程即处于激活态 → 面板里点「解决」把它移进折叠段
+      await page
+        .getByRole('button', { name: '解决', exact: true })
+        .first()
+        .click({ timeout: 3000 });
+      await page.waitForSelector('[data-df-sample="comments/resolved"]', { timeout: 3000 });
+    },
   },
   {
     id: 'comments/empty',
     root: '[data-df-sample="comments/empty"]',
     note: '空态（无评论；验收 §5 empty）',
+    prepare: async (page) => {
+      await enterCommentMode(page);
+    },
   },
   {
     id: 'present/stage',
     root: '[data-df-presenter]',
     note: 'Present 浮层（黑底 + 顶部悬浮控制条）',
     prepare: async (page) => {
-      await page.locator('[data-df-present-toggle]').first().click({ timeout: 3000 });
+      // 顶栏「演示」入口（FE-03 预留 id）：**需要文档里有画板才可点**（FE-06 接入后满足）
+      await page.getByRole('button', { name: '演示' }).first().click({ timeout: 3000 });
       await page.waitForSelector('[data-df-presenter]', { timeout: 3000 });
     },
   },
@@ -123,7 +139,7 @@ const SAMPLES = [
     root: '[data-df-present-controls][data-df-state="hidden"]',
     note: '控制条自动隐藏（静止超时后 data-df-state="hidden"）',
     prepare: async (page) => {
-      await page.locator('[data-df-present-toggle]').first().click({ timeout: 3000 });
+      await page.getByRole('button', { name: '演示' }).first().click({ timeout: 3000 });
       // 等自动隐藏窗口走完（3s 阈值 + 500ms 推进间隔，留 1s 余量）
       await page.waitForSelector('[data-df-present-controls][data-df-state="hidden"]', {
         timeout: 6000,
@@ -140,8 +156,9 @@ const SAMPLES = [
     root: '[data-df-versions-root]',
     note: '版本抽屉（时间戳列表）',
     prepare: async (page) => {
-      await page.locator('[data-df-versions-toggle]').first().click({ timeout: 3000 });
-      await page.waitForSelector('[data-df-versions-root] [role="dialog"]', { timeout: 3000 });
+      // 顶栏入口（FE-03 预留 id，FE-07 注册后点亮）；抽屉经 portal 挂到 body
+      await page.getByRole('button', { name: '版本历史' }).first().click({ timeout: 3000 });
+      await page.waitForSelector('[role="dialog"]', { timeout: 3000 });
     },
   },
   {
@@ -149,7 +166,7 @@ const SAMPLES = [
     root: '[data-df-version-compare]',
     note: '并排对比（F10 第一步；恢复两步确认的第一击）',
     prepare: async (page) => {
-      await page.locator('[data-df-versions-toggle]').first().click({ timeout: 3000 });
+      await page.getByRole('button', { name: '版本历史' }).first().click({ timeout: 3000 });
       await page.locator('[data-df-version-capture]').first().click({ timeout: 3000 });
       await page.locator('[data-df-version-row] button', { hasText: '对比' }).first().click();
       await page.waitForSelector('[data-df-version-compare]', { timeout: 3000 });
@@ -165,7 +182,7 @@ const SAMPLES = [
     root: '[data-df-version-row][data-df-state="hover"]',
     note: '版本行悬停（验收 §5 hover；需宿主预置至少一条版本）',
     prepare: async (page) => {
-      await page.locator('[data-df-versions-toggle]').first().click({ timeout: 3000 });
+      await page.getByRole('button', { name: '版本历史' }).first().click({ timeout: 3000 });
       await page.locator('[data-df-version-capture]').first().click({ timeout: 3000 });
       await page.locator('[data-df-version-row]').first().hover();
       await page.waitForSelector('[data-df-version-row][data-df-state="hover"]', { timeout: 3000 });
@@ -175,27 +192,38 @@ const SAMPLES = [
 
 /**
  * 交互断言（非像素）：`data-df-*` 挂点上的逻辑行为，参照集冻结与否都要过。
- * 失败 = 逻辑缺陷（exit 1），不是「等参照集」的阻塞。
+ * 三态语义：
+ * - `passed` 过；`failed` = 逻辑缺陷（exit 1）；
+ * - `skipped` = 前置不成立（宿主还没接上，如「文档里没有画板 → 演示入口禁用」）——
+ *   如实记录并**阻塞（exit 2）**，绝不算通过（禁假绿）。
  */
 const INTERACTIONS = [
   {
     id: 'comments/pin-follows-viewport',
     note: '评论钉点位置 = 世界坐标 → 屏幕换算（缩放/平移跟随）',
     run: async (page) => {
-      await page.locator('[data-df-comment-toggle]').first().click({ timeout: 3000 });
+      await enterCommentMode(page);
+      await createComment(page, '跟随缩放的钉点');
       const pin = page.locator('[data-df-comment-pin]').first();
       await pin.waitFor({ timeout: 3000 });
       const before = await pin.boundingBox();
-      // 宿主若暴露缩放按钮就点它；没有则跳过（不假绿：记 skip 而不是 pass）
-      const zoomIn = page.locator('[data-df-zoom-in]').first();
-      if ((await zoomIn.count()) === 0)
-        return { status: 'skipped', reason: '宿主未提供缩放入口（data-df-zoom-in）' };
-      await zoomIn.click();
+      if (before === null) return { status: 'failed', reason: '钉点没有包围盒' };
+      // 走壳层真实缩放入口（FE-03 的缩放菜单；FE-07 的会话把外壳 zoom 桥成视口来源）
+      const trigger = page.locator('[data-df-zoom]').first();
+      if ((await trigger.count()) === 0) {
+        return { status: 'skipped', reason: '宿主未提供缩放入口（[data-df-zoom]）' };
+      }
+      await trigger.click({ timeout: 3000 });
+      await page.getByRole('menuitem', { name: '200%' }).first().click({ timeout: 3000 });
+      await page.keyboard.press('Escape');
       const after = await pin.boundingBox();
-      if (before === null || after === null) return { status: 'failed', reason: '钉点没有包围盒' };
-      const moved = before.x !== after.x || before.y !== after.y;
+      if (after === null) return { status: 'failed', reason: '缩放后钉点消失' };
+      const moved = Math.abs(after.x - before.x) > 1 || Math.abs(after.y - before.y) > 1;
       return moved
-        ? { status: 'passed', note: `位移 Δx=${(after.x - before.x).toFixed(1)}` }
+        ? {
+            status: 'passed',
+            note: `100%→200% 钉点位移 Δ=(${(after.x - before.x).toFixed(1)}, ${(after.y - before.y).toFixed(1)})`,
+          }
         : { status: 'failed', reason: '缩放后钉点未跟随（位置未变）' };
     },
   },
@@ -203,7 +231,14 @@ const INTERACTIONS = [
     id: 'present/keyboard-paging',
     note: 'Present ←/→ 翻页且边界不越界、Esc 退出',
     run: async (page) => {
-      await page.locator('[data-df-present-toggle]').first().click({ timeout: 3000 });
+      const entry = page.getByRole('button', { name: '演示' }).first();
+      if (await entry.isDisabled()) {
+        return {
+          status: 'skipped',
+          reason: '演示入口禁用：文档里没有画板（FE-06 画布/文档接入前为空文档）',
+        };
+      }
+      await entry.click({ timeout: 3000 });
       await page.waitForSelector('[data-df-presenter]', { timeout: 3000 });
       const indexOf = async () =>
         Number(await page.locator('[data-df-presenter]').getAttribute('data-df-slide-index'));
@@ -230,7 +265,7 @@ const INTERACTIONS = [
     id: 'versions/two-step-confirm',
     note: '版本恢复两步确认：对比不动文档、确认才回滚',
     run: async (page) => {
-      await page.locator('[data-df-versions-toggle]').first().click({ timeout: 3000 });
+      await page.getByRole('button', { name: '版本历史' }).first().click({ timeout: 3000 });
       await page.locator('[data-df-version-capture]').first().click({ timeout: 3000 });
       const row = page.locator('[data-df-version-row]').first();
       await row.waitFor({ timeout: 3000 });
@@ -244,6 +279,29 @@ const INTERACTIONS = [
     },
   },
 ];
+
+/**
+ * 进评论模式：顶栏预留入口 `review.comment.toggle`（FE-07 注册后点亮；
+ * 未注册时入口禁用——点击会超时，该单元如实记 pending）。
+ */
+async function enterCommentMode(page) {
+  await page.getByRole('button', { name: '评论' }).first().click({ timeout: 3000 });
+  await page.waitForSelector('[data-df-comment-surface]', { timeout: 3000 });
+}
+
+/**
+ * 走真实用户路径发一条评论：点画布落草稿 → 填文案 → 发布。
+ * 落点带上偏移，避免多条评论叠在同一坐标（钉点会互相贴住，截图不可判）。
+ */
+async function createComment(page, text) {
+  const surface = page.locator('[data-df-comment-surface]').first();
+  await surface.click({ position: { x: 120, y: 90 }, timeout: 3000 });
+  const input = page.locator('[data-df-comment-draft] textarea').first();
+  await input.waitFor({ timeout: 3000 });
+  await input.fill(text);
+  await page.locator('[data-df-comment-draft] button', { hasText: '发布' }).first().click();
+  await page.waitForSelector('[data-df-comment-pin]', { timeout: 3000 });
+}
 
 /** 证据骨架（字段按《前端验收标准 v1》§4；阻塞时也落盘，记录待办）。 */
 function baseEvidence() {
@@ -331,21 +389,8 @@ async function probeSite(url) {
 
 const evidence = baseEvidence();
 
-// —— 第一道：参照集（REF-01）。未冻结 = 阻塞，任何「通过」都是假绿。 ——
+// —— 第一道：参照集探测（只探测不即退：交互断言与参照集无关，先跑出真实信号）。 ——
 const reference = inspectReferenceDir();
-if (!reference.ready) {
-  evidence.blockedReason = reference.reason;
-  finish(
-    evidence,
-    2,
-    [
-      '阻塞：参照集未冻结（REF-01 未完成）。',
-      `原因：${reference.reason}`,
-      `评审参照集路径：${REF_DIR}（文件名 = 取样名把 / 换成 _，如 comments_pins.png）`,
-      '待办：冻结参照集后运行本门禁逐单元取证；在此之前不得以自截图/近似图假绿。',
-    ].join('\n'),
-  );
-}
 
 // —— 第二道：评审面是否已挂载（FE-03 的编辑器路由接线）。 ——
 const site = await probeSite(REVIEW_URL);
@@ -391,6 +436,13 @@ await page.goto(REVIEW_URL, { waitUntil: 'networkidle' });
 // 字体就绪后再取样（ADR-0003：禁止静默回退；字体未就绪的截图一律不可作判据）
 await page.evaluate(() => document.fonts.ready);
 
+// 等水合：插槽注册在客户端模块求值期发生，SSR 首屏还没有评审面
+await page
+  .waitForSelector('[data-df-comment-layer], [data-df-versions-root]', {
+    state: 'attached',
+    timeout: 8000,
+  })
+  .catch(() => null);
 const mounted = await page.locator('[data-df-comment-layer], [data-df-versions-root]').count();
 if (mounted === 0) {
   await browser.close();
@@ -407,8 +459,9 @@ if (mounted === 0) {
   );
 }
 
-// —— 第三道：交互断言（与参照集无关，失败即逻辑缺陷 → exit 1）。 ——
+// —— 第三道：交互断言（与参照集无关，失败即逻辑缺陷 → exit 1；跳过 = 阻塞 → exit 2）。 ——
 let interactionFailures = 0;
+let interactionSkips = 0;
 for (const interaction of INTERACTIONS) {
   const record = { id: interaction.id, note: interaction.note };
   try {
@@ -417,6 +470,7 @@ for (const interaction of INTERACTIONS) {
     if (result.note !== undefined) record.note = result.note;
     if (result.reason !== undefined) record.reason = result.reason;
     if (result.status === 'failed') interactionFailures += 1;
+    if (result.status === 'skipped') interactionSkips += 1;
   } catch (error) {
     record.status = 'failed';
     record.reason = error instanceof Error ? error.message : String(error);
@@ -434,6 +488,36 @@ if (interactionFailures > 0) {
     evidence,
     1,
     `违规：${String(interactionFailures)} 条交互断言失败（逻辑缺陷，不等参照集）。明细见证据 JSON。`,
+  );
+}
+
+if (interactionSkips > 0) {
+  await browser.close();
+  evidence.blockedReason = `${String(interactionSkips)} 条交互断言前置不成立（跳过）；${reference.ready ? '' : `参照集：${reference.reason}`}`;
+  finish(
+    evidence,
+    2,
+    [
+      `阻塞：${String(interactionSkips)} 条交互断言前置不成立（如实记 skipped，不计通过）。`,
+      '常见前置：文档里没有画板（FE-06 画布/文档接入）、宿主未暴露缩放入口等——见证据 JSON 的 interactions.reason。',
+    ].join('\n'),
+  );
+}
+
+// —— 第三道：参照集（REF-01）。未冻结 = 阻塞，任何「通过」都是假绿。 ——
+if (!reference.ready) {
+  await browser.close();
+  evidence.blockedReason = reference.reason;
+  finish(
+    evidence,
+    2,
+    [
+      '阻塞：参照集未冻结（REF-01 未完成）。',
+      `原因：${reference.reason}`,
+      `评审参照集路径：${REF_DIR}（文件名 = 取样名把 / 换成 _，如 comments_pins.png）`,
+      '交互断言已跑完（见证据 JSON 的 interactions；全绿也不代表通过——像素判定缺参照集）。',
+      '待办：冻结参照集后运行本门禁逐单元取证；在此之前不得以自截图/近似图假绿。',
+    ].join('\n'),
   );
 }
 

@@ -162,7 +162,6 @@
   "design.token.controlHeight": "Control height md follows theme density: 32 light vs 28 dark",
   "design.token.radius": "Radius steps 3 / 6 / 8 / 13 / 999",
   "design.token.spacing": "Spacing scale: multiples of 4 (incl. 8 grid)",
-
   "settings.title": "Settings",
   "settings.subtitle": "Local-first: configuration and credentials stay on this machine (the local service data root).",
   "settings.nav.label": "Settings sections",
@@ -221,7 +220,6 @@
   "settings.action.copyPath": "Copy path",
   "settings.dataDir.copied": "Data directory path copied",
   "settings.dataDir.copyFailed": "Copy failed; please select and copy the path manually.",
-
   "onboarding.title": "Four-step onboarding",
   "onboarding.subtitle": "Set up local capabilities: working directory → AI → image generation → telemetry; every step can be skipped.",
   "onboarding.stepsLabel": "Onboarding steps",
@@ -236,7 +234,6 @@
   "onboarding.done.title": "Onboarding complete",
   "onboarding.done.desc": "Configuration is saved to the local service. Next: create your first file.",
   "onboarding.done.action": "Open the workbench",
-
   "coldstart.title": "Welcome to DesignForge",
   "coldstart.subtitle": "A local-first Figma-like design workbench: your documents live on your own machine.",
   "coldstart.loading": "Checking local files…",
@@ -703,5 +700,6 @@
   "editor.canvas.hint": "This hint disappears once the canvas module mounts into the canvas slot.",
   "editor.slot.panelHint": "This hint disappears once the panel module mounts into this slot.",
   "editor.topbar.brand": "DesignForge",
-  "design.menu.archive": "Archive"
+  "design.menu.archive": "Archive",
+  "review.group": "Review"
 }
