@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@dforge/contracts": "workspace:*",
+    "@dforge/engine": "workspace:*",
     "@dforge/ui": "workspace:*",
     "@fontsource/noto-sans-sc": "catalog:",
     "intl-messageformat": "catalog:",
@@ -23,9 +24,11 @@
     "zustand": "catalog:"
   },
   "devDependencies": {
+    "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "jsdom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
