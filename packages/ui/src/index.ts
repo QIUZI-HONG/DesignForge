@@ -15,6 +15,13 @@
 export const UI_PACKAGE = '@dforge/ui' as const;
 
 export {
+  createIcon,
+  ICONS,
+  type IconComponent,
+  type IconName,
+  type IconProps,
+} from './icons/index';
+export {
   cssVar,
   cssVarName,
   DENSITY,
