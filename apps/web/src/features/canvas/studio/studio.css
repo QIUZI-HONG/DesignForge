@@ -27,6 +27,12 @@
   border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
 }
 
+.dfc-studio__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+}
+
 .dfc-studio__actions {
   display: flex;
   align-items: center;

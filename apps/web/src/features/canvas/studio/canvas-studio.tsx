@@ -23,13 +23,17 @@ import {
   serializeDocument,
 } from '@dforge/engine';
 import {
+  BoxIcon,
   Button,
   DownloadIcon,
+  FrameIcon,
   IconButton,
+  MoveIcon,
   RefreshIcon,
-  SegmentedControl,
+  TextIcon,
   Tooltip,
 } from '@dforge/ui';
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 
@@ -67,7 +71,10 @@ export interface CanvasStudioProps {
   theme?: 'light' | 'dark';
 }
 
-/** 工具行顺序（C2 的工具子集：选择/手型 + 创建类；正式工具栏归 FE-03）。 */
+/**
+ * 工具行（C2 的工具子集：选择/手型 + 创建类；**正式工具栏归 FE-03**，这里是宿主的临时工具行）。
+ * 每个按钮带 `data-df-studio-tool="<tool>"`：门禁与 e2e 用它确定性地切工具（不靠图标猜）。
+ */
 const TOOLS: ReadonlyArray<{ tool: CanvasTool; labelKey: string }> = [
   { tool: 'select', labelKey: 'canvas.tool.select' },
   { tool: 'hand', labelKey: 'canvas.tool.hand' },
@@ -76,6 +83,21 @@ const TOOLS: ReadonlyArray<{ tool: CanvasTool; labelKey: string }> = [
   { tool: 'text', labelKey: 'canvas.tool.text' },
   { tool: 'frame', labelKey: 'canvas.tool.frame' },
 ];
+
+/** 工具图标（手型/选择共用指针图标；图标几何归 FE-01，不另造）。 */
+function toolIcon(tool: CanvasTool): ReactNode {
+  switch (tool) {
+    case 'text':
+      return <TextIcon />;
+    case 'frame':
+      return <FrameIcon />;
+    case 'rect':
+    case 'ellipse':
+      return <BoxIcon />;
+    default:
+      return <MoveIcon />;
+  }
+}
 
 /** 夹具文档（无 daemon 时的确定性内容；含一个矩形与一段文本）。 */
 export function sampleDocument(): DesignDocument {
@@ -323,18 +345,23 @@ export function CanvasStudio({
     <div className="dfc-studio" data-df-studio="">
       {chrome ? (
         <div className="dfc-studio__bar">
-          <SegmentedControl
-            label={t('canvas.dev.tools')}
-            size="sm"
-            value={tool}
-            options={TOOLS.map((entry) => ({
-              value: entry.tool,
-              label: t(entry.labelKey),
-            }))}
-            onChange={(value) => {
-              session.setTool(value as CanvasTool);
-            }}
-          />
+          <div className="dfc-studio__tools" role="toolbar" aria-label={t('canvas.dev.tools')}>
+            {TOOLS.map((entry) => (
+              <Tooltip key={entry.tool} content={t(entry.labelKey)}>
+                <IconButton
+                  label={t(entry.labelKey)}
+                  icon={toolIcon(entry.tool)}
+                  size="sm"
+                  variant={tool === entry.tool ? 'primary' : 'ghost'}
+                  pressed={tool === entry.tool}
+                  data-df-studio-tool={entry.tool}
+                  onClick={() => {
+                    session.setTool(entry.tool);
+                  }}
+                />
+              </Tooltip>
+            ))}
+          </div>
           <div className="dfc-studio__actions">
             <span className="dfc-studio__notice" data-df-studio-notice="">
               {notice ?? (currentDocumentId === null ? t('canvas.dev.local') : currentDocumentId)}
