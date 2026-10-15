@@ -15,7 +15,8 @@
  * 用**真实指针与键盘事件**驱动，逐条记录证据；另附 C9 浮层工具条（13 胶囊）与
  * C11 右键菜单（条目 32 高 + 快捷键右对齐）的 DOM 断言。
  *
- * 截图对照段：与 REF-01 冻结的参照集逐像素比对；
+ * 截图对照段：与 REF-01 冻结的参照集逐像素比对（主基准视口 **1440×900 @DPR1.5**，
+ * 主题 **dark**——C8 属编辑器族；参照图名按清单规范 `figma-C-C8-canvas-dark-default.png`）；
  * **无参照集 → 该段 exit 2** 并打印「阻塞：参照集未冻结」——禁止用自截图假绿。
  *
  * 退出码（三态）：0 全过 / 1 功能断言违规 / 2 功能通过但截图段阻塞（参照集未冻结 / 站点不可达 /
@@ -49,9 +50,12 @@ const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df
 const REF_DIR = resolve(process.env.DF_REF_DIR ?? join(homedir(), 'df-evidence', 'reference-v1'));
 const EVIDENCE_DIR = join(EVIDENCE_ROOT, 'fe-06');
 const ARTIFACTS_DIR = join(EVIDENCE_DIR, 'actual');
-const VIEWPORT = { width: 1280, height: 800, dpr: 1.5 };
-/** 截图段的对标单元（C8 深色对标页）。 */
-const SCREENSHOT_UNIT = 'canvas_c8_editor';
+/** 验收标准 §3 主基准视口：1440×900 CSS @ DPR 1.5（1280×800 属「不破版」窄窗档，不用于对照）。 */
+const VIEWPORT = { width: 1440, height: 900, dpr: 1.5 };
+/** 截图段的对标单元（C8 画布；参照图名按清单规范 figma-<区段>-<ID>-<名称>-<主题>-<状态>.png）。 */
+const SCREENSHOT_UNIT = 'figma-C-C8-canvas-dark-default';
+/** C8 属编辑器族：主题恒深色（验收标准 §3 逐页对齐 Figma 本体，不得按浅色取样）。 */
+const SCREENSHOT_THEME = 'dark';
 const THRESHOLD = 0.1;
 const MAX_RATIO = 0.001;
 const DAEMON_PREFIX = '/df-daemon';
@@ -618,9 +622,17 @@ async function main() {
     );
   }
 
+  // 主题守卫：C8 属深色族，浅色取样 = 错基准（验收标准 §3）——先于一切截图判定记账
+  const observedTheme = await page
+    .evaluate(() => document.documentElement.dataset.theme ?? null)
+    .catch(() => null);
+  record(assertions, 'A7-c8-theme-dark', observedTheme === SCREENSHOT_THEME, {
+    expected: SCREENSHOT_THEME,
+    observed: observedTheme,
+  });
+
   const failures = assertions.filter((item) => item.ok !== true);
   const wiringFailures = wiring.filter((item) => item.ok !== true);
-  const mode = 'light';
 
   // --- 截图对照段（无参照集 → exit 2） ---
   mkdirSync(ARTIFACTS_DIR, { recursive: true });
@@ -642,7 +654,7 @@ async function main() {
     await browser.close();
     finish(
       1,
-      `违规：挂载断言失败 ${failures.length} 条、接线断言失败 ${wiringFailures.length} 条（明细见证据 JSON）。${mode}`,
+      `违规：挂载断言失败 ${failures.length} 条、接线断言失败 ${wiringFailures.length} 条（明细见证据 JSON）。`,
     );
   }
 
@@ -852,8 +864,8 @@ async function runWiring(page, api) {
       scaleAfter.y === scaleBefore.y,
     {
       size: [
-        scaleBefore.width + 'x' + scaleBefore.height,
-        scaleAfter.width + 'x' + scaleAfter.height,
+        `${scaleBefore.width}x${scaleBefore.height}`,
+        `${scaleAfter.width}x${scaleAfter.height}`,
       ],
       handlesDuring,
     },
@@ -1128,7 +1140,7 @@ async function runWiring(page, api) {
 }
 
 /** 确保页面上至少有两个顶层矩形（上一步的撤销可能回退了新建）。 */
-async function ensureTwoRectangles(page, api, preferredId) {
+async function ensureTwoRectangles(_page, api, preferredId) {
   const ids = await api.nodeIds();
   const usable = [];
   for (const id of ids.slice(0, 8)) {
