@@ -160,7 +160,13 @@ function reorderCommands(
 
 /**
  * 改父（拖拽排序/跨容器）：保持世界位置不变，落到新父级的指定下标。
- * 目标父级为自身或自身后代、或落点与当前位置一致 → 无操作。
+ *
+ * **下标坐标空间**：`index` 是「**先从原父级摘除，再插入新位置的列表**」中的下标——
+ * 与引擎 `node.reparent` 的语义一致（见 `scene/mutate.ts`）。同级拖动请把落点交给
+ * `commands/drop-target.ts` 的 `resolveDropTarget` 计算，它直接产出这一坐标空间的下标，
+ * 避免「向下拖一格却少移一位」的经典 off-by-one。
+ *
+ * 目标父级为自身或自身后代、或无实际位移 → 无操作（返回空列表）。
  */
 export function moveLayerCommands(
   page: ScenePage,
@@ -181,23 +187,14 @@ export function moveLayerCommands(
   const currentParent = parentIdOf(page, nodeId);
   const siblings = getChildrenIds(page, currentParent);
   const currentIndex = siblings.indexOf(nodeId);
+  const limit =
+    newParentId === null ? page.rootIds.length : getChildrenIds(page, newParentId).length;
+  const target = Math.max(0, Math.min(limit, index));
+  // 同父同下标 = 没有位移；同父时的合法下标上界是「摘除自身后的列表长度」
   if (currentParent === newParentId) {
-    // 同级重排：`reparentNode` 的 index 语义是「先从旧父级摘除，再插入」（见 scene/mutate.ts），
-    // 因此同父向下移动时要补偿 1（否则会比用户看到的位置少移一位）。
-    const adjusted = currentIndex >= 0 && index > currentIndex ? index - 1 : index;
-    const target = Math.max(0, Math.min(siblings.length - 1, adjusted));
-    if (target === currentIndex) return [];
-    return reparentPreservingWorldCommands(page, pageId, nodeId, newParentId, target);
+    if (target === currentIndex || (currentIndex < 0 && target === limit)) return [];
   }
-
-  const limit = newParentId === null ? page.rootIds.length : getChildrenIds(page, newParentId).length;
-  return reparentPreservingWorldCommands(
-    page,
-    pageId,
-    nodeId,
-    newParentId,
-    Math.max(0, Math.min(limit, index)),
-  );
+  return reparentPreservingWorldCommands(page, pageId, nodeId, newParentId, target);
 }
 
 /** `candidate` 是否 `nodeId` 自身或其后代（父级自身 → 环，引擎会拒；UI 侧提前判掉）。 */
