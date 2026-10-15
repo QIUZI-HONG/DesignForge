@@ -384,11 +384,7 @@ describe('内容取回优先级（对接面修复：text 抽取组的关键文�
 
   it('仓根 README 第一、SKILL.md 次之；未选的进 deferred（不假装读过）', () => {
     const selection = selectContentPaths(tree, 3);
-    expect(selection.selected).toEqual([
-      'README.md',
-      'skills/pdf/SKILL.md',
-      'plugin.json',
-    ]);
+    expect(selection.selected).toEqual(['README.md', 'skills/pdf/SKILL.md', 'plugin.json']);
     expect(selection.deferred).toContain('skills/pdf/README.md');
     // 非描述性文本文件永不入选（预算不被无关文件吃掉）
     expect([...selection.selected, ...selection.deferred]).not.toContain('docs/notes.md');

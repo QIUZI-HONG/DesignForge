@@ -183,7 +183,40 @@ interface AssetParseReport {
   tokensDiscarded: { path: string; reason: string }[];
 }
 
-/** 对资产根内的已采集正文做解析（frontmatter / 清单 / token 三类）。 */
+/** 描述性文本抽取组（DWD `text.*` 列，规格 §4.4；与评分输入契约 `DwdTextView` 同构）。 */
+interface AssetTextGroup {
+  frontmatter: Record<string, unknown> | null;
+  body: string | null;
+  readme: string | null;
+  manifest: Record<string, unknown> | null;
+  packageJson: Record<string, unknown> | null;
+  mcpJson: Record<string, unknown> | null;
+  changelog: string | null;
+}
+
+const README_NAME = 'README.md';
+const CHANGELOG_NAMES = new Set(['CHANGELOG.md', 'CHANGELOG']);
+
+/** JSON 原文解析为对象（数组/标量/坏 JSON → null，如实缺省不臆造）。 */
+function parseJsonObject(text: string | undefined): Record<string, unknown> | null {
+  if (text === undefined) return null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 主描述正文的类目判定：只有 SKILL.md / DESIGN.md 的正文进 `text.body`（其余类目可为 null）。 */
+function isBodyDoc(path: string): boolean {
+  const base = path.split('/').pop() ?? path;
+  return base === 'SKILL.md' || base === 'DESIGN.md';
+}
+
+/** 对资产根内的已采集正文做解析（frontmatter / 清单 / token 三类）+ 文本抽取组。 */
 function parseAssetContent(
   asset: IdentifiedAsset,
   files: { path: string; blobRef: string | null }[],
@@ -198,6 +231,7 @@ function parseAssetContent(
     linksRatio: number;
   } | null;
   parsedPaths: Set<string>;
+  text: AssetTextGroup;
 } {
   const report: AssetParseReport = {
     sources: [],
@@ -216,6 +250,11 @@ function parseAssetContent(
     bodyBytes: number;
     linksRatio: number;
   } | null = null;
+  /** frontmatter 平坦键值（首个可解析的 SKILL.md/DESIGN.md）与主正文（仅 SKILL/DESIGN 计入 body）。 */
+  let frontmatterFlat: Record<string, unknown> | null = null;
+  let bodyText: string | null = null;
+  /** 身份清单的原文路径（text.manifest 的原始 JSON 来源）。 */
+  let manifestRawPath: string | null = null;
 
   // 结构件优先级：技能正文 > 清单 > 设计系统件 > token 文件
   const preference: Record<AssetKind, string[]> = {
@@ -270,6 +309,8 @@ function parseAssetContent(
         name: parsed.data.name !== null,
         description: parsed.data.description !== null,
       };
+      if (frontmatterFlat === null && parsed.hasBlock) frontmatterFlat = parsed.flat;
+      if (bodyText === null && isBodyDoc(file.path)) bodyText = parsed.body;
       if (primary === null) {
         primary = {
           path: file.path,
@@ -296,6 +337,7 @@ function parseAssetContent(
           license: manifest.license,
           entries: manifest.entries,
         };
+        manifestRawPath = file.path;
         report.sources.push({ path: relative, blob_ref: file.blobRef, parser: 'manifest' });
       }
       if (/tokens\.json$/i.test(base)) {
@@ -350,7 +392,32 @@ function parseAssetContent(
   }
 
   report.primaryTextPath = primary?.path ?? null;
-  return { report, primary, parsedPaths };
+
+  // 文本抽取组（规格 §4.4）：资产根优先、回退仓库根；未采集到的一律 null（不臆造）
+  const ownedPathOf = new Map(
+    files.map((file) => [relativeToRoot(asset.root, file.path), file.path]),
+  );
+  /** 先取资产根同名文件，再回退仓库根（仓根 README 是全仓共用的兜底文本）。 */
+  const textAt = (relative: string): string | undefined => {
+    const owned = ownedPathOf.get(relative);
+    if (owned !== undefined) {
+      const text = texts.get(owned);
+      if (text !== undefined) return text;
+    }
+    return texts.get(relative);
+  };
+  const manifestSource = manifestRawPath === null ? undefined : texts.get(manifestRawPath);
+  const text: AssetTextGroup = {
+    frontmatter: frontmatterFlat,
+    body: bodyText,
+    readme: textAt(README_NAME) ?? null,
+    manifest: parseJsonObject(manifestSource),
+    packageJson: parseJsonObject(textAt('package.json')),
+    mcpJson: parseJsonObject(textAt('.mcp.json')),
+    changelog: textAt('CHANGELOG.md') ?? textAt('CHANGELOG') ?? null,
+  };
+
+  return { report, primary, parsedPaths, text };
 }
 
 /** 组装四表（确定性：全部按稳定键排序）。 */
@@ -433,6 +500,15 @@ export async function buildDwd(input: DwdBuildInput): Promise<DwdBuildResult> {
       upstream: upstream.upstream,
       upstream_source: upstream.source,
       asset_count: record.assets.length,
+      created_at:
+        record.repo.createdAt === undefined || record.repo.createdAt === ''
+          ? null
+          : record.repo.createdAt,
+      stars_90d_ago: record.repo.stars90dAgo ?? null,
+      // referenced_by 在四表组装完成后统一回填（同批 upstream 反向计数）
+      referenced_by: 0,
+      tree_truncated: record.tree.truncated,
+      tree_entry_count: record.tree.entryCount,
     });
 
     licenseRows.push({
@@ -461,7 +537,11 @@ export async function buildDwd(input: DwdBuildInput): Promise<DwdBuildResult> {
         .sort((a, b) => (a.path < b.path ? -1 : 1));
       const ownedWithBlobs = owned.map((file) => ({ path: file.path, blobRef: file.blobRef }));
 
-      const { report, primary, parsedPaths } = parseAssetContent(asset, ownedWithBlobs, texts);
+      const { report, primary, parsedPaths, text } = parseAssetContent(
+        asset,
+        ownedWithBlobs,
+        texts,
+      );
 
       const digest = computeAssetDigest(
         owned.map((file) => ({
@@ -542,6 +622,13 @@ export async function buildDwd(input: DwdBuildInput): Promise<DwdBuildResult> {
         parse_report: report as unknown as Record<string, unknown>,
         body_bytes: primary?.bodyBytes ?? null,
         body_links_ratio: primary?.linksRatio ?? null,
+        text_frontmatter: text.frontmatter,
+        text_body: text.body,
+        text_readme: text.readme,
+        text_manifest: text.manifest,
+        text_package_json: text.packageJson,
+        text_mcp_json: text.mcpJson,
+        text_changelog: text.changelog,
         file_count: owned.length,
         known_sha256_count: owned.filter((file) => file.sha256 !== null).length,
         digest: digest.digest,
@@ -621,6 +708,18 @@ export async function buildDwd(input: DwdBuildInput): Promise<DwdBuildResult> {
     row.cluster_reason = assignment.reason;
     row.review_queue = assignment.reviewQueue;
     row.review_with = [...assignment.reviewWith];
+  }
+
+  // 被引用数（规格 §5.2 生态维「被引用数」）：口径 = 同批仓中 `upstream` 指向本仓的仓数。
+  // 只在本批可观测范围内计数（批次外引用不可知）——口径随报告声明，不冒充全局值。
+  const referencedByCounts = new Map<string, number>();
+  for (const row of repoRows) {
+    if (row.upstream === null) continue;
+    const key = row.upstream.toLowerCase();
+    referencedByCounts.set(key, (referencedByCounts.get(key) ?? 0) + 1);
+  }
+  for (const row of repoRows) {
+    row.referenced_by = referencedByCounts.get(row.full_name.toLowerCase()) ?? 0;
   }
 
   // 稳定排序（确定性：同输入同字节）

@@ -399,7 +399,11 @@ describe('starsAtCutoff 星标历史水位（trend.stars90dAgo 来源）', () =>
       fetchPage: pages.fetchPage,
       maxCalls: 8,
     });
-    expect(result).toEqual({ count: 150, pagesFetched: expect.any(Number), method: 'binary-search' });
+    expect(result).toEqual({
+      count: 150,
+      pagesFetched: expect.any(Number),
+      method: 'binary-search',
+    });
     expect(pages.calls.length).toBeLessThanOrEqual(4); // 1 次首页 + 二分 ≤2 次 + 边界页 1 次
     expect(pages.calls).toEqual([...pages.calls].sort((a, b) => a - b)); // 页码升序访问
   });

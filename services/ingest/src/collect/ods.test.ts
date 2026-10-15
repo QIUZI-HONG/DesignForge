@@ -173,7 +173,8 @@ describe('validateOdsRepoRecord / validateRawEvent（schema 校验器，verify �
     expect(validateOdsRepoRecord(tolerated)).toEqual([]);
   });
 
-  it('缺 fetchedAt/etag/digest、digest 形态错、id 形态错 → 逐条报出', () => {    const bad = { ...repoRecord(1, 'a'), fetchedAt: undefined, digest: 'deadbeef' } as unknown;
+  it('缺 fetchedAt/etag/digest、digest 形态错、id 形态错 → 逐条报出', () => {
+    const bad = { ...repoRecord(1, 'a'), fetchedAt: undefined, digest: 'deadbeef' } as unknown;
     const issues = validateOdsRepoRecord(bad);
     expect(issues.map((i) => i.rule)).toContain('fetchedAt-present');
     expect(issues.map((i) => i.rule)).toContain('digest-format');

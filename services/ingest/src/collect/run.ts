@@ -200,7 +200,9 @@ function dateOf(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-/** 种子仓 → 候选形态（repo id 未知，取 meta 后回填；带去重用的 fullName）。 */function seedCandidates(seeds: string[]): Candidate[] {
+/** 种子仓 → 候选形态（repo id 未知，取 meta 后回填；带去重用的 fullName）。 */ function seedCandidates(
+  seeds: string[],
+): Candidate[] {
   return seeds.map((fullName) => ({
     repoId: -1,
     fullName,
