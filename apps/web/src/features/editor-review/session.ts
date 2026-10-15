@@ -26,6 +26,7 @@ import {
 } from '@dforge/engine';
 
 import { type CommentsStore, createCommentsStore } from './comments/comments-store';
+import { createPresentStore, type PresentStore } from './present/present-store';
 import type { KeyValueBackend } from './storage';
 import { createVersionStore, type VersionStore } from './versions/versions-store';
 
@@ -109,6 +110,8 @@ export interface ReviewSession {
   readonly viewport: ViewportSource;
   readonly comments: CommentsStore;
   readonly versions: VersionStore;
+  /** Present（演示）UI 态：入口按钮与全屏浮层同源读它。 */
+  readonly present: PresentStore;
   /** 当前文档快照（`useSyncExternalStore` 取值函数；引用稳定）。 */
   readonly getSnapshot: () => DesignDocument;
   /** 文档变更订阅（引用稳定）。 */
@@ -165,6 +168,7 @@ export function createReviewSession(options: ReviewSessionOptions = {}): ReviewS
     viewport: options.viewport ?? createViewportStore(),
     comments: createCommentsStore(commentsOptions),
     versions: createVersionStore(versionOptions),
+    present: createPresentStore(),
     getSnapshot: () => stack.getSnapshot(),
     subscribe: (listener) => stack.subscribe(listener),
     page: () => getPage(stack.document, pageId),
