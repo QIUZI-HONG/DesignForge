@@ -84,3 +84,10 @@ export function isUpdateAvailable(record: LoadRecord | null, current: { digest: 
   if (record === null) return false;
   return record.digest !== current.digest;
 }
+
+/** 删除某资产的装载记录（卸载）；返回新册。 */
+export function removeLoadRecord(storage: LoadStoreLike, assetId: string): LoadRecord[] {
+  const next = readLoadRecords(storage).filter((record) => record.assetId !== assetId);
+  storage.setItem(LOADED_RECORDS_KEY, JSON.stringify(next));
+  return next;
+}

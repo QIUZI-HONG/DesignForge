@@ -14,6 +14,7 @@ import {
   LOADED_RECORDS_KEY,
   loadedAssetIds,
   readLoadRecords,
+  removeLoadRecord,
   writeLoadRecord,
 } from './load-store';
 import type { LoadRecord } from './load-token';
@@ -88,5 +89,22 @@ describe('load-store · 更新判定（§7.4 digest 双条件之内容哈希）'
       isUpdateAvailable(makeRecord({ digest: 'sha256:same' }), { digest: 'sha256:same' }),
     ).toBe(false);
     expect(isUpdateAvailable(null, { digest: 'sha256:new' })).toBe(false);
+  });
+});
+
+describe('load-store · 卸载', () => {
+  it('删除指定资产记录，其余保留', () => {
+    const storage = makeMemoryStorage();
+    writeLoadRecord(storage, makeRecord({ assetId: 'a' }));
+    writeLoadRecord(storage, makeRecord({ assetId: 'b' }));
+    const next = removeLoadRecord(storage, 'a');
+    expect(next.map((record) => record.assetId)).toEqual(['b']);
+    expect(readLoadRecords(storage).map((record) => record.assetId)).toEqual(['b']);
+  });
+
+  it('删除不存在的 id 不改变册子', () => {
+    const storage = makeMemoryStorage();
+    writeLoadRecord(storage, makeRecord({ assetId: 'a' }));
+    expect(removeLoadRecord(storage, 'zzz').map((record) => record.assetId)).toEqual(['a']);
   });
 });

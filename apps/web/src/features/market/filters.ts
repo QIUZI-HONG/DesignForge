@@ -222,3 +222,19 @@ export function matchesQuery(text: string, query: string): boolean {
   if (needle.length === 0) return false;
   return text.toLowerCase().includes(needle);
 }
+
+/** 是否含中日韩表意文字（判断资产原文是否为中文；用于 §6.3 的翻译声明口径）。 */
+export function containsCjk(text: string): boolean {
+  return /[\u3400-\u4dbf\u4e00-\u9fff]/.test(text);
+}
+
+/** 精选（D1「发现 / 精选 / 分类」的精选口径）：质量分 Top-N（规格 §6.2）。 */
+export const FEATURED_COUNT = 6;
+
+/** 取精选集合（按综合评分降序取前 N；不足则全给，不补造）。 */
+export function selectFeatured(
+  assets: readonly MarketAsset[],
+  count: number = FEATURED_COUNT,
+): MarketAsset[] {
+  return sortAssets(assets, 'score').slice(0, count);
+}

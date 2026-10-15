@@ -13,11 +13,13 @@ import {
   applyClientFilters,
   clientFilterOf,
   collectScenes,
+  containsCjk,
   hasActiveFilters,
   highlightSegments,
   INITIAL_MARKET_FILTERS,
   MARKET_KIND_TABS,
   matchesQuery,
+  selectFeatured,
   sortAssets,
   toQueryParams,
 } from './filters';
@@ -219,5 +221,26 @@ describe('filters · 场景与高亮（D1 场景 chips / D3 命中高亮）', ()
     expect(matchesQuery('PDF Export', ' pdf ')).toBe(true);
     expect(matchesQuery('PDF Export', 'docx')).toBe(false);
     expect(matchesQuery('PDF Export', '   ')).toBe(false);
+  });
+});
+
+describe('filters · 语言判定（§6.3 翻译声明）', () => {
+  it('中文/中英混排判为中文；纯英文判为非中文', () => {
+    expect(containsCjk('把设计稿导出为 PDF')).toBe(true);
+    expect(containsCjk('Export designs to PDF 分页')).toBe(true);
+    expect(containsCjk('Export designs to paginated PDF')).toBe(false);
+    expect(containsCjk('')).toBe(false);
+  });
+});
+
+describe('filters · 精选（D1 发现/精选/分类）', () => {
+  it('按评分取 Top-N，不足则原样给出（不补造）', () => {
+    const assets = [
+      makeAsset({ id: 'a', quality: { ...makeAsset().quality, score: 0.1 } }),
+      makeAsset({ id: 'b', quality: { ...makeAsset().quality, score: 0.9 } }),
+      makeAsset({ id: 'c', quality: { ...makeAsset().quality, score: 0.5 } }),
+    ];
+    expect(selectFeatured(assets, 2).map((asset) => asset.id)).toEqual(['b', 'c']);
+    expect(selectFeatured(assets, 10)).toHaveLength(3);
   });
 });
