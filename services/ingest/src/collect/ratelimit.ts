@@ -208,7 +208,7 @@ export class BudgetLedger {
     }
   }
 
-  /** 记录一次 304 缓存命中（不计预算）。 */
+  /** 记录一次 304 缓存命中（规格 §3.2：不计主限额）。 */
   recordCacheHit(kind: 'core' | 'search'): void {
     if (kind === 'core') this.coreTotalCount += 1;
     else this.searchTotalCount += 1;
@@ -301,5 +301,36 @@ export class ConsecutiveRateLimitAbort extends Error {
   constructor(consecutive: number) {
     super(`连续 ${consecutive} 次限速失败，按纪律停止整条流水线（防封禁）`);
     this.name = 'ConsecutiveRateLimitAbort';
+  }
+}
+
+/**
+ * 连续限速失败看门狗：403/429 连续达阈值即抛熔断错误。
+ * 阈值为什么是 3：规格只给「连续限速失败 → 停」的定性口径，3 是在「一次瞬时抖动不误杀」
+ * 与「尽早停手防封禁」之间取的工程默认（可经构造参数调整，进证据 JSON metrics）。
+ */
+export class RateLimitWatch {
+  private consecutiveCount = 0;
+  private readonly threshold: number;
+
+  constructor(opts?: { threshold?: number }) {
+    this.threshold = opts?.threshold ?? 3;
+  }
+
+  get consecutive(): number {
+    return this.consecutiveCount;
+  }
+
+  /** 记录一次非限速结果（成功/404 等）：计数清零。 */
+  noteResolved(): void {
+    this.consecutiveCount = 0;
+  }
+
+  /** 记录一次 403/429；达阈值抛 `ConsecutiveRateLimitAbort`。 */
+  noteRateLimited(): void {
+    this.consecutiveCount += 1;
+    if (this.consecutiveCount >= this.threshold) {
+      throw new ConsecutiveRateLimitAbort(this.consecutiveCount);
+    }
   }
 }
