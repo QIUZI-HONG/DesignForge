@@ -123,6 +123,7 @@ const styles = {
     color: 'var(--dfg-color-text-secondary)',
     fontSize: 'var(--dfg-font-size-12)',
   },
+  errorLine: { margin: 0, color: 'var(--dfg-color-danger)', fontSize: 'var(--dfg-font-size-12)' },
   panelWrap: { flex: 1, minWidth: 0 },
   done: {
     display: 'grid',
@@ -204,13 +205,14 @@ export function OnboardingWizard({ api, onFinish }: OnboardingWizardProps) {
     );
   } else if (session.loadPhase === 'error') {
     content = (
-      <div data-df-state="error">
+      <div data-df-state="error" style={{ display: 'grid', gap: 'var(--dfg-space-2)' }}>
         <ErrorState
           title={t('settings.loadError.title')}
-          description={session.loadError ?? t('settings.loadError.description')}
+          description={t('settings.loadError.description')}
           retryLabel={t('settings.action.reload')}
           onRetry={session.reload}
         />
+        {session.loadError === null ? null : <p style={styles.errorLine}>{session.loadError}</p>}
       </div>
     );
   } else if (machine.finished) {

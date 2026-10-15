@@ -102,6 +102,7 @@ const styles = {
     color: 'var(--dfg-color-text-secondary)',
     fontSize: 'var(--dfg-font-size-12)',
   },
+  errorLine: { margin: 0, color: 'var(--dfg-color-danger)', fontSize: 'var(--dfg-font-size-12)' },
 } satisfies Record<string, CSSProperties>;
 
 /** 左导航项（hover 由 React 态驱动，见模块头注释）。 */
@@ -178,13 +179,14 @@ export function SettingsPage({ api }: SettingsPageProps) {
       ) : null}
 
       {session.loadPhase === 'error' ? (
-        <div data-df-state="error">
+        <div data-df-state="error" style={{ display: 'grid', gap: 'var(--dfg-space-2)' }}>
           <ErrorState
             title={t('settings.loadError.title')}
-            description={session.loadError ?? t('settings.loadError.description')}
+            description={t('settings.loadError.description')}
             retryLabel={t('settings.action.reload')}
             onRetry={session.reload}
           />
+          {session.loadError === null ? null : <p style={styles.errorLine}>{session.loadError}</p>}
         </div>
       ) : null}
 

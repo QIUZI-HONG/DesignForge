@@ -149,6 +149,7 @@
   "coldstart.exists.action": "返回首页",
   "coldstart.unreachable.title": "无法连接本地服务",
   "coldstart.unreachable.desc": "示例文件由本地服务创建。请先启动本地服务（daemon）再重试。",
+  "coldstart.action.retry": "重试",
   "coldstart.createFailed": "创建示例失败：{message}",
   "coldstart.exampleName": "示例设计"
 }

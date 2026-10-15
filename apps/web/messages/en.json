@@ -149,6 +149,7 @@
   "coldstart.exists.action": "Back to home",
   "coldstart.unreachable.title": "Cannot reach the local service",
   "coldstart.unreachable.desc": "The sample file is created by the local service. Start the daemon, then retry.",
+  "coldstart.action.retry": "Retry",
   "coldstart.createFailed": "Creating the sample failed: {message}",
   "coldstart.exampleName": "Sample design"
 }
