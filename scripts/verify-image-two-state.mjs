@@ -256,6 +256,27 @@ function trackViaFrontend(baseUrl, runId, options = {}) {
   return { tracker, updates, done };
 }
 
+/** 可选 UI 挂载探测（宿主页未挂载即如实记 pending，不影响本门禁的功能判定）。 */
+async function probeUiEvidence() {
+  const webUrl = process.env.DF_WEB_URL;
+  if (webUrl === undefined || webUrl.length === 0) {
+    return { status: 'not-configured', reason: '未设置 DF_WEB_URL（UI 截图门禁归参照集票）' };
+  }
+  try {
+    const response = await fetch(webUrl, { redirect: 'manual' });
+    const html = await response.text();
+    const mounted = html.includes('data-df-panel="image"');
+    return mounted
+      ? { status: 'captured-marker', reason: '宿主页 HTML 含 data-df-panel="image" 挂点' }
+      : {
+          status: 'pending',
+          reason: '宿主页未挂载出图面板（FE-03 编辑器壳未接入口）；功能两态已完成取证',
+        };
+  } catch (error) {
+    return { status: 'pending', reason: `宿主页不可达：${String(error)}` };
+  }
+}
+
 async function main() {
   const tempRoot = await mkdtemp(join(tmpdir(), 'df-verify-fe10-image-'));
   const dataRoot = join(tempRoot, 'data');
@@ -446,6 +467,10 @@ async function main() {
     };
     if (verbose) {
       console.log(`  轮询序列：${tracked.updates.map((update) => update.state).join(' > ')}`);
+    }
+    evidence.uiEvidence = await probeUiEvidence();
+    if (evidence.uiEvidence.status === 'pending') {
+      console.log(`  [待办] UI 挂点：${evidence.uiEvidence.reason}`);
     }
   } catch (error) {
     exitCode = 2;

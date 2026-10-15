@@ -86,6 +86,27 @@ async function call(baseUrl, method, path, body) {
   return { status: response.status, text, json };
 }
 
+/** 可选 UI 挂载探测（宿主页未挂载即如实记 pending，不影响本门禁的契约判定）。 */
+async function probeUiEvidence() {
+  const webUrl = process.env.DF_WEB_URL;
+  if (webUrl === undefined || webUrl.length === 0) {
+    return { status: 'not-configured', reason: '未设置 DF_WEB_URL（UI 截图门禁归参照集票）' };
+  }
+  try {
+    const response = await fetch(webUrl, { redirect: 'manual' });
+    const html = await response.text();
+    const mounted = html.includes('data-df-mcp-confirm');
+    return mounted
+      ? { status: 'captured-marker', reason: '宿主页 HTML 含 data-df-mcp-confirm 挂点' }
+      : {
+          status: 'pending',
+          reason: '宿主页未挂载 MCP 确认条（FE-03 编辑器壳未接确认条容器）；契约两态已完成取证',
+        };
+  } catch (error) {
+    return { status: 'pending', reason: `宿主页不可达：${String(error)}` };
+  }
+}
+
 async function main() {
   const tempRoot = await mkdtemp(join(tmpdir(), 'df-verify-fe10-mcp-'));
   let child = null;
@@ -324,6 +345,7 @@ async function main() {
       uiCopy: zhMessages['mcp.stub'],
       evidenceStubFlag: true,
     };
+    evidence.uiEvidence = await probeUiEvidence();
   } catch (error) {
     exitCode = 2;
     blockedReason = String(error);
