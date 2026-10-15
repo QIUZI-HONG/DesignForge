@@ -5,6 +5,8 @@
   "type": "module",
   "description": "设界本地服务 daemon（Fastify 5；本段=前端所需子集）",
   "scripts": {
+    "dev": "node src/main.ts",
+    "start": "node src/main.ts",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

@@ -103,6 +103,16 @@ export interface ConnectivityReport {
   items: ConnectivityItem[];
 }
 
+/** GET /health 响应（daemon 握手信息；本地回环，不含任何密钥）。 */
+export interface DaemonHealthResponse {
+  name: string;
+  version: string;
+  startedAt: string;
+  uptimeMs: number;
+  dataRoot: string;
+  workspaceDir: string;
+}
+
 /** 校验值是否为合法 DaemonConfig（daemon 读取 config.json 时使用）。 */
 export function isDaemonConfig(value: unknown): value is DaemonConfig {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
