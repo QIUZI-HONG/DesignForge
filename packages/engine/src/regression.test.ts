@@ -64,7 +64,9 @@ export function canonicalHash(json: string): string {
     }
     return value;
   };
-  return createHash('sha256').update(JSON.stringify(sortKeys(JSON.parse(json))), 'utf8').digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify(sortKeys(JSON.parse(json))), 'utf8')
+    .digest('hex');
 }
 const DOC_PATH = `${SNAPSHOT_DIR}fixed-document.json`;
 const HASH_PATH = `${SNAPSHOT_DIR}fixed-document.sha256`;

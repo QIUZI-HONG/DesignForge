@@ -65,10 +65,7 @@
             "y": 52
           },
           "comp_a": {
-            "children": [
-              "comp_child",
-              "comp_child2"
-            ],
+            "children": ["comp_child", "comp_child2"],
             "componentSetId": null,
             "cornerRadius": 0,
             "effects": [],
@@ -159,10 +156,7 @@
               "widthSizing": "fixed",
               "wrap": false
             },
-            "children": [
-              "auto_1",
-              "auto_2"
-            ],
+            "children": ["auto_1", "auto_2"],
             "clipsContent": true,
             "cornerRadius": 0,
             "effects": [],
@@ -189,14 +183,7 @@
           },
           "frame_root": {
             "autoLayout": null,
-            "children": [
-              "rect_a",
-              "rect_b",
-              "text_a",
-              "n_2000",
-              "frame_auto",
-              "inst_1000"
-            ],
+            "children": ["rect_a", "rect_b", "text_a", "n_2000", "frame_auto", "inst_1000"],
             "clipsContent": true,
             "cornerRadius": 0,
             "effects": [],
@@ -414,11 +401,7 @@
             "y": 120
           }
         },
-        "rootIds": [
-          "frame_root",
-          "comp_a",
-          "inst_a"
-        ]
+        "rootIds": ["frame_root", "comp_a", "inst_a"]
       }
     ],
     "tokens": {}
