@@ -116,10 +116,15 @@ export function AssetsPanel({
           />
         </div>
       ) : loading ? (
-        <div data-df-sample="assets/loading" style={{ ...assetStyles.grid, ...panelStyles.body }}>
-          {Array.from({ length: 4 }, (_, index) => (
-            <Skeleton key={`card-${String(index)}`} height="var(--dfg-size-drawer-sm)" />
-          ))}
+        <div data-df-sample="assets/loading" style={panelStyles.body}>
+          <span className="dfg-visually-hidden" role="status">
+            {t('panels.assets.loading')}
+          </span>
+          <div style={assetStyles.grid}>
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton key={`card-${String(index)}`} height="var(--dfg-size-drawer-sm)" />
+            ))}
+          </div>
         </div>
       ) : segment === 'components' ? (
         <div
@@ -200,6 +205,7 @@ export function AssetsPanel({
                   <div key={path} data-df-asset-token={path} style={assetStyles.tokenRow}>
                     <span
                       aria-hidden
+                      title={isColor ? t('panels.assets.token.color') : undefined}
                       data-df-token-swatch={isColor ? 'color' : 'plain'}
                       style={{
                         ...assetStyles.swatch,

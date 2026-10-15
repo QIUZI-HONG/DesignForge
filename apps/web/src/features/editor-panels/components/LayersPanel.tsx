@@ -365,6 +365,9 @@ export function LayersPanel({
         </div>
       ) : loading ? (
         <div data-df-sample="layers/loading" style={panelStyles.body}>
+          <span className="dfg-visually-hidden" role="status">
+            {t('panels.layers.loading')}
+          </span>
           {Array.from({ length: 6 }, (_, index) => (
             <div
               key={`skeleton-${String(index)}`}
