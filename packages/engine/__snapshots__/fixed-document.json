@@ -1,0 +1,409 @@
+{
+  "$format": "dforge.designir",
+  "$version": 1,
+  "document": {
+    "id": "doc_fixed",
+    "name": "ENG-01 回归夹具",
+    "pages": [
+      {
+        "backgroundColor": "#F5F5F5",
+        "grid": {
+          "size": 10,
+          "snapToGrid": false,
+          "style": "grid",
+          "visible": false
+        },
+        "id": "page_fixed",
+        "name": "主页面",
+        "nodes": {
+          "auto_1": {
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#D9D9D9",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 32,
+            "id": "auto_1",
+            "locked": false,
+            "name": "矩形",
+            "opacity": 1,
+            "rotation": 0,
+            "strokes": [],
+            "type": "rect",
+            "visible": true,
+            "width": 80,
+            "x": 10,
+            "y": 10
+          },
+          "auto_2": {
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#D9D9D9",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 32,
+            "id": "auto_2",
+            "locked": false,
+            "name": "矩形",
+            "opacity": 1,
+            "rotation": 0,
+            "strokes": [],
+            "type": "rect",
+            "visible": true,
+            "width": 120,
+            "x": 10,
+            "y": 52
+          },
+          "comp_a": {
+            "children": ["comp_child", "comp_child2"],
+            "componentSetId": null,
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#D9D9D9",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 96,
+            "id": "comp_a",
+            "locked": false,
+            "name": "组件",
+            "opacity": 1,
+            "rotation": 0,
+            "strokes": [],
+            "type": "component",
+            "variantProperties": null,
+            "visible": true,
+            "width": 160,
+            "x": 400,
+            "y": 24
+          },
+          "comp_child": {
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#D9D9D9",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 24,
+            "id": "comp_child",
+            "locked": false,
+            "name": "矩形",
+            "opacity": 1,
+            "rotation": 0,
+            "strokes": [],
+            "type": "rect",
+            "visible": true,
+            "width": 60,
+            "x": 12,
+            "y": 12
+          },
+          "comp_child2": {
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#D9D9D9",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 24,
+            "id": "comp_child2",
+            "locked": false,
+            "name": "矩形",
+            "opacity": 1,
+            "rotation": 0,
+            "strokes": [],
+            "type": "rect",
+            "visible": true,
+            "width": 60,
+            "x": 12,
+            "y": 48
+          },
+          "frame_auto": {
+            "autoLayout": {
+              "counterAxisAlign": "start",
+              "counterAxisSpacing": 10,
+              "direction": "vertical",
+              "heightSizing": "hug",
+              "padding": {
+                "bottom": 10,
+                "left": 10,
+                "right": 10,
+                "top": 10
+              },
+              "primaryAxisAlign": "start",
+              "spacing": 10,
+              "widthSizing": "fixed",
+              "wrap": false
+            },
+            "children": ["auto_1", "auto_2"],
+            "clipsContent": true,
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#FFFFFF",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 94,
+            "id": "frame_auto",
+            "locked": false,
+            "name": "画板",
+            "opacity": 1,
+            "rotation": 0,
+            "strokes": [],
+            "type": "frame",
+            "visible": true,
+            "width": 240,
+            "x": 24,
+            "y": 180
+          },
+          "frame_root": {
+            "autoLayout": null,
+            "children": ["rect_a", "rect_b", "text_a", "n_2000", "frame_auto", "inst_1000"],
+            "clipsContent": true,
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#FFFFFF",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 420,
+            "id": "frame_root",
+            "locked": false,
+            "name": "画板",
+            "opacity": 1,
+            "rotation": 0,
+            "strokes": [],
+            "type": "frame",
+            "visible": true,
+            "width": 640,
+            "x": 0,
+            "y": 0
+          },
+          "inst_1000": {
+            "componentId": "comp_a",
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#D9D9D9",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 100,
+            "id": "inst_1000",
+            "locked": false,
+            "name": "实例",
+            "opacity": 1,
+            "overrides": {
+              "comp_child": {
+                "fills": [
+                  {
+                    "color": "#9747FF",
+                    "opacity": 1,
+                    "type": "solid",
+                    "visible": true
+                  }
+                ],
+                "width": 96
+              }
+            },
+            "rotation": 0,
+            "strokes": [],
+            "type": "instance",
+            "visible": true,
+            "width": 100,
+            "x": 410,
+            "y": 170
+          },
+          "inst_a": {
+            "componentId": "comp_a",
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#D9D9D9",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 100,
+            "id": "inst_a",
+            "locked": false,
+            "name": "实例",
+            "opacity": 1,
+            "overrides": {
+              "comp_child": {
+                "fills": [
+                  {
+                    "color": "#9747FF",
+                    "opacity": 1,
+                    "type": "solid",
+                    "visible": true
+                  }
+                ],
+                "width": 96
+              }
+            },
+            "rotation": 0,
+            "strokes": [],
+            "type": "instance",
+            "visible": true,
+            "width": 100,
+            "x": 400,
+            "y": 160
+          },
+          "n_2000": {
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#000000",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 24,
+            "id": "n_2000",
+            "locked": false,
+            "name": "文本",
+            "opacity": 1,
+            "rotation": 12,
+            "strokes": [],
+            "text": {
+              "align": "left",
+              "autoResize": "width_and_height",
+              "characters": "",
+              "fontFamily": "Noto Sans SC",
+              "fontSize": 14,
+              "fontWeight": 400,
+              "letterSpacing": 0,
+              "lineHeight": 1.4
+            },
+            "type": "text",
+            "visible": true,
+            "width": 200,
+            "x": 24,
+            "y": 120
+          },
+          "rect_a": {
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#0D99FF",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 64,
+            "id": "rect_a",
+            "locked": false,
+            "name": "矩形",
+            "opacity": 1,
+            "rotation": 0,
+            "strokes": [],
+            "type": "rect",
+            "visible": true,
+            "width": 120,
+            "x": 86,
+            "y": 68
+          },
+          "rect_b": {
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#D9D9D9",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 64,
+            "id": "rect_b",
+            "locked": false,
+            "name": "矩形",
+            "opacity": 1,
+            "rotation": 0,
+            "strokes": [],
+            "type": "rect",
+            "visible": true,
+            "width": 120,
+            "x": 242,
+            "y": 68
+          },
+          "text_a": {
+            "cornerRadius": 0,
+            "effects": [],
+            "fills": [
+              {
+                "color": "#000000",
+                "opacity": 1,
+                "type": "solid",
+                "visible": true
+              }
+            ],
+            "height": 24,
+            "id": "text_a",
+            "locked": false,
+            "name": "文本",
+            "opacity": 1,
+            "rotation": 12,
+            "strokes": [],
+            "text": {
+              "align": "left",
+              "autoResize": "width_and_height",
+              "characters": "设界 DesignForge",
+              "fontFamily": "Noto Sans SC",
+              "fontSize": 14,
+              "fontWeight": 400,
+              "letterSpacing": 0,
+              "lineHeight": 1.4
+            },
+            "type": "text",
+            "visible": true,
+            "width": 200,
+            "x": 24,
+            "y": 120
+          }
+        },
+        "rootIds": ["frame_root", "comp_a", "inst_a"]
+      }
+    ],
+    "tokens": {}
+  }
+}

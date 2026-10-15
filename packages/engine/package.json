@@ -5,15 +5,13 @@
   "type": "module",
   "description": "设界编辑器内核（纯 TS 零 DOM：场景图/命令栈/布局/组件/Token/命中）",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./model": "./src/model/index.ts"
   },
   "scripts": {
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@dforge/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
