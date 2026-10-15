@@ -164,3 +164,15 @@ node scripts/verify-mk-05.mjs --data ~/df-evidence/mk-05/batch/data \
 node tools/cli/bin/df.mjs market search --data ~/df-evidence/mk-05/batch/data --query-set
 node tools/cli/bin/df.mjs market search --data ~/df-evidence/mk-05/batch/data --q "幻灯片模板" --limit 5
 ```
+
+---
+
+### 附录 B · 收尾门禁（合并 `integration/p0` 后）
+
+- `pnpm -r lint` ✅ 全绿（10 个 workspace 包）
+- `pnpm -r typecheck` ✅ 全绿
+- `pnpm -r test` ✅ 全绿：ingest 524 · cli 17 · engine 208 · ui 97 · web 1066 · daemon 84 · desktop 56 · comfy 1（合计 2053）
+- `node scripts/verify-mk-05.mjs --data … --replay-data …` ✅ **exit 0**（含包内 vitest 环）
+- 已知阻塞（**非本票引入**，来自集成分支既有提交）：`pnpm run lint:scripts` 在
+  `scripts/verify-canvas.mjs`（FE-06，提交 b9abf9a）与 `scripts/verify-market.mjs`（FE-11）上报
+  biome 格式/`useTemplate` 等问题——按其归属票收口（本票不改他人的门禁脚本）。
