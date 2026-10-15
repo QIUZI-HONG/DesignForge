@@ -22,7 +22,7 @@ export const CANVAS_ALPHA = {
 
 /** 画布配色（字段语义固定；值来自令牌）。 */
 export interface CanvasPalette {
-  /** 画布底（深色基准 #1E1E1E）。 */
+  /** 画布底（深色基准 canvas 令牌）。 */
   background: string;
   gridLine: string;
   gridDot: string;
@@ -31,7 +31,7 @@ export interface CanvasPalette {
   rulerText: string;
   rulerTick: string;
   rulerMarker: string;
-  /** 选中描边（主色 #0D99FF）。 */
+  /** 选中描边（主色令牌）。 */
   selectionOutline: string;
   selectionFill: string;
   hoverOutline: string;
@@ -50,6 +50,8 @@ export interface CanvasPalette {
   /** 标签（图层名/尺寸）底色与文字。 */
   labelBackground: string;
   labelText: string;
+  /** 无填充文本节点的默认文字色（主题正文色）。 */
+  textDefault: string;
   /** 网格 dots 的直径（屏幕 px，几何参数）。 */
   gridDotSize: number;
   /** 字号：标尺 / 标签（走令牌字号档）。 */
@@ -85,6 +87,7 @@ export function canvasPalette(theme: ThemeName): CanvasPalette {
     marqueeFill: colors.selection,
     labelBackground: colors.primary,
     labelText: colors.onPrimary,
+    textDefault: colors.text.primary,
     gridDotSize: borderWidth1 * 2,
     fontSize: { ruler: fontSize11, label: fontSize11 },
   };

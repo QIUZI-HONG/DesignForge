@@ -1,7 +1,7 @@
 /**
  * 颜色工具（渲染层）：令牌字符串 → Skia 颜色。
  *
- * 令牌里的颜色是 CSS 语法（`#RRGGBB` / `#RRGGBBAA` / `rgba(...)`）；CanvasKit 要 0–1 浮点四元组。
+ * 令牌里的颜色是 CSS 语法（hex / `rgb()` / `rgba()` 三族）；CanvasKit 要 0–1 浮点四元组。 guard-tokens:allow 文档描述颜色语法本身，非取值
  * 解析失败**抛错**（令牌写错时立刻炸，而不是画成透明）。
  */
 
@@ -49,9 +49,9 @@ export function parseHexColor(value: string): Rgba {
   };
 }
 
-/** `rgb(r, g, b)` / `rgba(r, g, b, a)` → RGBA（a 支持 0–1 小数与 0–255 整数两种写法）。 */
+/** `rgb(...)` / `rgba(...)` → RGBA（a 支持 0–1 小数与 0–255 整数两种写法）。 guard-tokens:allow 解析器说明，非取值 */
 export function parseRgbColor(value: string): Rgba {
-  const match = /^rgba?\(\s*([^)]+)\)$/i.exec(value.trim());
+  const match = /^rgba?\(\s*([^)]+)\)$/i.exec(value.trim()); // guard-tokens:allow 解析 CSS rgb 语法所需的正则
   if (match === null) throw new Error(`无法解析的颜色字面量：${value}`);
   const parts = (match[1] as string).split(',').map((part) => Number.parseFloat(part.trim()));
   if (parts.length < 3 || parts.some((part) => !Number.isFinite(part))) {

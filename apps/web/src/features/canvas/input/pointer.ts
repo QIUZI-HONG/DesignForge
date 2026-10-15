@@ -22,6 +22,21 @@ export interface PointerAdapterOptions {
   requestRender?: () => void;
   /** 右键按下时的回调（C11 菜单开在局部坐标处）。 */
   onContextMenu?: (point: { x: number; y: number }) => void;
+  /**
+   * 判定事件目标是否属于「画布表面」。
+   * 默认只认容器自身与 `<canvas>`——工具条/右键菜单/文本覆盖层/宿主壳的按钮点击
+   * **不能**被当成画布操作（否则点工具条会清空选择、按钮还会在 pointerdown 后被卸载而导致 click 不触发）。
+   */
+  isCanvasSurface?: (target: EventTarget | null) => boolean;
+}
+
+/** 默认的「画布表面」判定：容器自身或 canvas 元素。 */
+function defaultSurfaceCheck(element: HTMLElement) {
+  return (target: EventTarget | null): boolean => {
+    if (target === null) return false;
+    if (target === element) return true;
+    return target instanceof HTMLCanvasElement;
+  };
 }
 
 /** 适配器句柄。 */
@@ -61,8 +76,10 @@ export function buttonOf(event: { button: number }): PointerButton {
 export function attachPointerAdapter(options: PointerAdapterOptions): PointerAdapter {
   const { element, session } = options;
   const requestRender = options.requestRender ?? ((): void => undefined);
+  const isCanvasSurface = options.isCanvasSurface ?? defaultSurfaceCheck(element);
 
   const onPointerDown = (event: PointerEvent): void => {
+    if (!isCanvasSurface(event.target)) return;
     // 中键：阻止 autoscroll；右键：交给 contextmenu（这里不动默认行为）
     if (event.button === 1) event.preventDefault();
     if (event.button === 2) return;
@@ -79,6 +96,14 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
   };
 
   const onPointerMove = (event: PointerEvent): void => {
+    // 悬停只在画布表面更新（移过工具条/菜单不应改悬停高亮）
+    if (!isCanvasSurface(event.target)) {
+      if (session.store.getState().hoverId !== null) {
+        session.store.setState({ hoverId: null, hoverCursor: 'default' });
+        requestRender();
+      }
+      return;
+    }
     const local = localPoint(element, event);
     session.pointerMove({
       screen: local,
@@ -92,6 +117,7 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
 
   const onPointerUp = (event: PointerEvent): void => {
     if (event.button === 2) return;
+    if (!isCanvasSurface(event.target)) return;
     const local = localPoint(element, event);
     session.pointerUp({
       screen: local,
@@ -109,6 +135,7 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
   };
 
   const onWheel = (event: WheelEvent): void => {
+    if (!isCanvasSurface(event.target)) return;
     // 画布消费滚轮：不再滚动页面；⌘/Ctrl + 滚轮 = 缩放（Figma 口径）
     event.preventDefault();
     const local = localPoint(element, event);
@@ -127,6 +154,7 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
   };
 
   const onDoubleClick = (event: MouseEvent): void => {
+    if (!isCanvasSurface(event.target)) return;
     const local = localPoint(element, event);
     session.doubleClick({
       screen: local,

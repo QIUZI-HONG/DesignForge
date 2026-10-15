@@ -9,7 +9,10 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    // @dforge/contracts 的源码以 `.ts` 后缀互相 import（其包内 tsconfig 已开启本选项），
+    // web 端消费它必须同口径；noEmit 下 TS 强制要求本选项搭配 noEmit（基座已设）。
+    "allowImportingTsExtensions": true
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules", ".next"]

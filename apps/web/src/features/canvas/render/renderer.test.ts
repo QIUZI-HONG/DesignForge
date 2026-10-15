@@ -96,6 +96,7 @@ function frame(page: ScenePage, overrides: Partial<SceneFrame> = {}): SceneFrame
     interaction: { kind: 'idle' },
     preview: new Map(),
     marquee: null,
+    draft: null,
     rulers: false,
     editingNodeId: null,
     ...overrides,

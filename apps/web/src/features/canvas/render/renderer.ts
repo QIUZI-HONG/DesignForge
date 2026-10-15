@@ -26,6 +26,8 @@ export interface SceneRenderStats extends RenderStats {
   clipped: number;
   rulers: boolean;
   labels: number;
+  /** 是否绘制了拖画草稿（创建工具）。 */
+  draft: boolean;
   devicePixelRatio: number;
   canvasCssSize: Size;
 }
@@ -74,6 +76,7 @@ function emptyStats(palette: CanvasPalette): SceneRenderStats {
     clipped: 0,
     rulers: false,
     labels: 0,
+    draft: false,
     devicePixelRatio: 1,
     canvasCssSize: { width: 0, height: 0 },
   };
@@ -160,6 +163,7 @@ export function createSceneRenderer(options: SceneRendererOptions): SceneRendere
         snapGuides: overlayCounters.snapGuides,
         measurements: overlayCounters.measurements,
         marquee: overlayCounters.marquee,
+        draft: overlayCounters.draft,
         hoverId: frame.hoverId,
         selectedIds: [...frame.selection],
         textRuns: scene.textRuns,

@@ -42,6 +42,8 @@ export interface SceneFrame {
   preview: ReadonlyMap<NodeId, NodePatch>;
   /** 框选矩形（世界坐标；非框选态为 null）。 */
   marquee: Rect | null;
+  /** 拖画草稿矩形（世界坐标；创建工具拖动中，未落成节点）。 */
+  draft: Rect | null;
   /** 是否绘制标尺。 */
   rulers: boolean;
   /** 正在做 DOM 覆盖层编辑的文本节点（画布上跳过其字形，避免重影）。 */

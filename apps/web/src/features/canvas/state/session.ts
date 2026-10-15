@@ -66,6 +66,7 @@ import {
   moveNodesByWorldCommands,
   normalizeNodeSelection,
   panBy,
+  panDelta,
   parseClipboard,
   pasteCommands,
   reorderNodeCommands,
@@ -111,6 +112,8 @@ export interface CanvasUiState {
   hoverCursor: string;
   /** 拖画草稿矩形（世界坐标；创建工具用）。 */
   draft: Rect | null;
+  /** 视口尺寸（CSS 像素；缩放档位/适应画布/覆盖层定位共用）。 */
+  viewportSize: { width: number; height: number };
   /** 标尺显隐（C8）。 */
   rulers: boolean;
   /** 吸附开关（C8 吸附可关；默认开）。 */
@@ -233,10 +236,16 @@ export interface CanvasSession {
 
   zoomIn(screenCenter: Point): void;
   zoomOut(screenCenter: Point): void;
-  zoomToFit(screenSize: { width: number; height: number }): void;
-  zoom100(screenSize: { width: number; height: number }): void;
+  /** 适应画布（尺寸缺省取最近一次 resize 写入的视口尺寸）。 */
+  zoomToFit(screenSize?: { width: number; height: number }): void;
+  /** 缩放至 100%（以视口中心为锚点）。 */
+  zoom100(screenSize?: { width: number; height: number }): void;
+  /** 记录视口尺寸（CanvasStage 在 resize 时调用）。 */
+  setViewportSize(size: { width: number; height: number }): void;
 
   beginTextEditing(nodeId: NodeId, options?: { selectAll?: boolean }): void;
+  /** 覆盖层整段替换（DOM 缓冲 → 引擎会话；保留排版属性）。 */
+  replaceEditingContent(characters: string, selection: { start: number; end: number }): void;
   insertTextAtCaret(text: string): void;
   deleteBackward(): void;
   deleteForwardAtCaret(): void;
@@ -284,6 +293,7 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
     hoverId: null,
     hoverCursor: 'default',
     draft: null,
+    viewportSize: { width: 0, height: 0 },
     rulers: options.rulers ?? true,
     snapEnabled: options.snapEnabled ?? true,
     editing: null,
@@ -405,6 +415,10 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
     return session.createRect(bounds);
   };
 
+  /** 只保留合法的节点 id（外部调用方可能传脏值；引擎的解析函数不容忍 undefined）。 */
+  const saneIds = (values: readonly NodeId[]): NodeId[] =>
+    values.filter((value) => typeof value === 'string' && value.length > 0);
+
   const session: CanvasSession = {
     stack,
     store,
@@ -424,13 +438,13 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
     },
 
     setSelection(selectionIds, activeId) {
+      const ids = saneIds(selectionIds);
       applySelection(
-        activeId === undefined
-          ? createSelection(selectionIds)
-          : createSelection(selectionIds, activeId),
+        activeId === undefined ? createSelection(ids) : createSelection(ids, activeId),
       );
     },
     addNodeToSelection(id) {
+      if (typeof id !== 'string' || id.length === 0) return;
       applySelection(addToSelection(store.getState().selection, id));
     },
     selectAll() {
@@ -528,6 +542,20 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
             y: state.draft.y,
             width: input.world.x - state.draft.x,
             height: input.world.y - state.draft.y,
+          },
+        });
+        return;
+      }
+
+      // 画布平移（白名单第 6 类）：拖动中**实时**移动视口
+      if (state.interaction.kind === 'pan') {
+        const delta = panDelta({ ...state.interaction, currentScreen: input.screen });
+        store.setState({
+          viewport: panBy(state.viewport, delta.x, delta.y),
+          interaction: {
+            ...state.interaction,
+            startScreen: input.screen,
+            currentScreen: input.screen,
           },
         });
         return;
@@ -791,12 +819,18 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       store.setState({ viewport: zoomStep(store.getState().viewport, -1, screenCenter) });
     },
     zoomToFit(screenSize) {
+      const size = screenSize ?? store.getState().viewportSize;
       store.setState({
-        viewport: fitBounds(pageBounds(page()), screenSize, { padding: 40, maxZoom: 1 }),
+        // padding 是世界单位留白（几何参数，非 UI 间距令牌）
+        viewport: fitBounds(pageBounds(page()), size, { padding: 40, maxZoom: 1 }), // guard-tokens:allow 画布留白为世界单位
       });
     },
     zoom100(screenSize) {
-      store.setState({ viewport: zoomTo100(store.getState().viewport, screenSize) });
+      const size = screenSize ?? store.getState().viewportSize;
+      store.setState({ viewport: zoomTo100(store.getState().viewport, size) });
+    },
+    setViewportSize(size) {
+      store.setState({ viewportSize: size });
     },
 
     beginTextEditing(nodeId, editOptions = {}) {
@@ -809,6 +843,13 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       } catch (error) {
         session.setError(errorText(error));
       }
+    },
+    replaceEditingContent(characters, selection) {
+      const editing = store.getState().editing;
+      if (editing === null) return;
+      // 整段替换：引擎的 insertText 接受 TextContent（保留排版属性），再校正选区
+      const replaced = insertText(editing, { ...editing.content, characters });
+      store.setState({ editing: setTextSelection(replaced, selection) });
     },
     insertTextAtCaret(text) {
       const editing = store.getState().editing;

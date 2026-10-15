@@ -286,7 +286,7 @@ function drawNodeText(
   const content = patch?.text ?? node.text;
   if (content.characters.length === 0) return;
   const firstFill = node.fills[0];
-  const literal = firstFill?.type === 'solid' ? firstFill.color : '#000000';
+  const literal = firstFill?.type === 'solid' ? firstFill.color : context.palette.textDefault;
   const paragraph = context.paragraphs.get({
     text: content.characters,
     fontFamily: content.fontFamily,

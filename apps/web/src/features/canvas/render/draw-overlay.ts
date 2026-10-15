@@ -35,6 +35,8 @@ export interface OverlayCounters {
   snapGuides: number;
   measurements: number;
   marquee: boolean;
+  /** 是否绘制了拖画草稿（创建工具）。 */
+  draft: boolean;
   rulers: boolean;
   labels: number;
 }
@@ -99,7 +101,7 @@ export function drawChip(
     fontFamily: context.fonts.family,
     fontSize,
     fontWeight: 400,
-    lineHeight: 1,
+    lineHeight: 1, // guard-tokens:allow 单行标签的排版参数（几何/排版口径，非设计令牌）
     letterSpacing: 0,
     align: 'left',
     color: parseColor(foreground),
@@ -232,7 +234,7 @@ function drawChipText(
     fontFamily: context.fonts.family,
     fontSize: frame.palette.fontSize.ruler,
     fontWeight: 400,
-    lineHeight: 1,
+    lineHeight: 1, // guard-tokens:allow 单行标签的排版参数（几何/排版口径，非设计令牌）
     letterSpacing: 0,
     align: 'left',
     color: parseColor(context.palette.rulerText),
@@ -340,6 +342,7 @@ export function drawOverlay(
     snapGuides: 0,
     measurements: 0,
     marquee: false,
+    draft: false,
     rulers: false,
     labels: 0,
   };
@@ -442,6 +445,28 @@ export function drawOverlay(
       x += size.width + 4;
       counters.labels += 1;
     }
+  }
+
+  // 拖画草稿（创建工具）：与框选同一视觉族，但用主色填充稍重，并带尺寸标签
+  if (frame.draft !== null) {
+    const box = worldRectToScreen(normalizeRect(frame.draft), viewport);
+    const rect = kit.LTRBRect(box.x, box.y, box.x + box.width, box.y + box.height);
+    tools.fill.setColor(cachedColor(context, context.palette.marqueeFill, MARQUEE_ALPHA));
+    context.canvas.drawRect(rect, tools.fill);
+    tools.line.setColor(cachedColor(context, context.palette.selectionOutline));
+    tools.line.setStrokeWidth(OUTLINE_WIDTH_PX);
+    context.canvas.drawRect(rect, tools.line);
+    drawChip(
+      context,
+      `${rulerLabel(round2(Math.abs(frame.draft.width)))} × ${rulerLabel(round2(Math.abs(frame.draft.height)))}`,
+      box.x + box.width / 2 - WIDTH_GUESS,
+      box.y - frame.palette.fontSize.label - LABEL_PADDING_Y * 3,
+      context.palette.labelBackground,
+      context.palette.labelText,
+      frame.palette.fontSize.label,
+    );
+    counters.draft = true;
+    counters.labels += 1;
   }
 
   if (frame.marquee !== null) {

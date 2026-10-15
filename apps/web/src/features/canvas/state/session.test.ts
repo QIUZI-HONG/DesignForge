@@ -179,6 +179,13 @@ describe('会话 · 选择（白名单 1）', () => {
     expect(sessionRef.selection().ids).toEqual(['n_rect']);
   });
 
+  it('选择集接收脏值（未定义/空串）时不崩：按无效 id 处理', () => {
+    sessionRef.setSelection(['n_rect', undefined as unknown as string, '']);
+    expect(sessionRef.selection().ids).toEqual(['n_rect']);
+    sessionRef.addNodeToSelection(undefined as unknown as string);
+    expect(sessionRef.selection().ids).toEqual(['n_rect']);
+  });
+
   it('悬停命中给出节点与光标（拖动前的视觉反馈）', () => {
     sessionRef.pointerMove({ world: { x: 30, y: 20 }, screen: { x: 30, y: 20 } });
     expect(sessionRef.store.getState().hoverId).toBe('n_rect');
@@ -312,16 +319,20 @@ describe('会话 · 画布缩放与平移（白名单 5/6）', () => {
     expect(sessionRef.viewport().zoom).toBe(1);
   });
 
-  it('空格 + 拖拽平移；中键拖拽同样平移', () => {
+  it('空格 + 拖拽平移；中键拖拽同样平移（视口实时跟随）', () => {
     sessionRef.setSpacePressed(true);
     sessionRef.pointerDown({ world: { x: 0, y: 0 }, screen: { x: 0, y: 0 }, button: 'left' });
     sessionRef.pointerMove({ world: { x: 0, y: 0 }, screen: { x: 30, y: 20 } });
     expect(sessionRef.store.getState().interaction.kind).toBe('pan');
-    sessionRef.pointerUp({ world: { x: 0, y: 0 }, screen: { x: 30, y: 20 } });
-    // 平移由组件层按 panDelta 施加到视口（这里断言交互态产生了屏幕位移）
+    expect(sessionRef.viewport()).toMatchObject({ panX: 30, panY: 20 });
+    sessionRef.pointerMove({ world: { x: 0, y: 0 }, screen: { x: 40, y: 50 } });
+    expect(sessionRef.viewport()).toMatchObject({ panX: 40, panY: 50 });
+    sessionRef.pointerUp({ world: { x: 0, y: 0 }, screen: { x: 40, y: 50 } });
     sessionRef.setSpacePressed(false);
+
     sessionRef.pointerDown({ world: { x: 0, y: 0 }, screen: { x: 0, y: 0 }, button: 'middle' });
-    expect(sessionRef.store.getState().interaction.kind).toBe('pan');
+    sessionRef.pointerMove({ world: { x: 0, y: 0 }, screen: { x: -20, y: -10 } });
+    expect(sessionRef.viewport()).toMatchObject({ panX: 20, panY: 40 });
     sessionRef.cancelActiveInteraction();
   });
 

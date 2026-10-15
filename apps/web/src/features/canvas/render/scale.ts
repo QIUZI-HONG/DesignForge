@@ -138,6 +138,8 @@ export interface RenderStats {
   snapGuides: number;
   measurements: number;
   marquee: boolean;
+  /** 是否绘制了拖画草稿（创建工具）。 */
+  draft: boolean;
   hoverId: string | null;
   selectedIds: string[];
 }
