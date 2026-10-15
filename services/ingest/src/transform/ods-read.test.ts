@@ -225,13 +225,7 @@ describe('materializeOds + readOds（规格形状：gzip 事件 / files.json / b
 
     // 第二轮：同 (repoId, commit)，但多取回了 README.md 的正文（录制里补一条 contents 响应）
     const skillCommit = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
-    const snapshotPath = join(
-      out,
-      'raw_snapshots',
-      'acme__design-kit',
-      skillCommit,
-      'files.json',
-    );
+    const snapshotPath = join(out, 'raw_snapshots', 'acme__design-kit', skillCommit, 'files.json');
     const before = JSON.parse(await readFile(snapshotPath, 'utf8')) as {
       files: { path: string; sha256: string | null }[];
     };

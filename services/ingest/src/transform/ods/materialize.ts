@@ -140,10 +140,10 @@ async function writeAppendOnly(
 }
 
 /** 文件级事实（快照冲突判定只看这部分：代码里唯一代表「这一 commit 有哪些文件」的内容）。 */
-function snapshotFacts(snapshot: {
-  tree?: { listingDigest?: unknown };
-  files?: unknown;
-}): { listingDigest: unknown; files: unknown[][] } {
+function snapshotFacts(snapshot: { tree?: { listingDigest?: unknown }; files?: unknown }): {
+  listingDigest: unknown;
+  files: unknown[][];
+} {
   const files = Array.isArray(snapshot.files) ? snapshot.files : [];
   return {
     listingDigest: snapshot.tree?.listingDigest ?? null,
