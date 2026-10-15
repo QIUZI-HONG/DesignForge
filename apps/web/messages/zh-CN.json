@@ -61,5 +61,6 @@
   "design.tip": "hover / active 用状态强制类（dfg-state-hover / dfg-state-active）复现；focus-visible 由截图门禁真实聚焦取证。",
   "design.token.controlHeight": "控件高 md 随主题密度：浅色 32 ↔ 深色 28",
   "design.token.radius": "圆角档 3 / 6 / 8 / 13 / 999",
-  "design.token.spacing": "间距刻度 4 的倍数（含 8 栅格档）"
+  "design.token.spacing": "间距刻度 4 的倍数（含 8 栅格档）",
+  "design.menu.archive": "归档"
 }
