@@ -129,5 +129,8 @@
   "editor.export.state.done": "已导出 {fileName}（{length} 字节）",
   "editor.export.state.error": "导出失败：{message}",
   "editor.export.state.errorCode": "错误码：{code}",
-  "editor.export.daemonOffline": "本地服务未启动，无法导出"
+  "editor.export.daemonOffline": "本地服务未启动，无法导出",
+  "editor.components.badge.componentSet": "组件集",
+  "editor.components.set.variantCount": "{count} 个变体",
+  "editor.components.createDialog.close": "关闭对话框"
 }

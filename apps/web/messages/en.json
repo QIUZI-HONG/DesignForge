@@ -129,5 +129,8 @@
   "editor.export.state.done": "Exported {fileName} ({length} bytes)",
   "editor.export.state.error": "Export failed: {message}",
   "editor.export.state.errorCode": "Error code: {code}",
-  "editor.export.daemonOffline": "Local service is not running; export unavailable"
+  "editor.export.daemonOffline": "Local service is not running; export unavailable",
+  "editor.components.badge.componentSet": "Component set",
+  "editor.components.set.variantCount": "{count} variants",
+  "editor.components.createDialog.close": "Close dialog"
 }
