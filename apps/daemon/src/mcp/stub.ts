@@ -62,8 +62,9 @@ function tokenHash(token: string): string {
   return `sha256:${sha256(token)}`;
 }
 
-/** 创建 MCP 确认桩（auditPath 为注入点；提案登记在内存——桩不做崩溃恢复）。 */
-export function createMcpStub(options: { auditPath: string }): McpStub {
+/** 创建 MCP 确认桩（auditPath / ackTtlMs 为注入点；提案登记在内存——桩不做崩溃恢复）。 */
+export function createMcpStub(options: { auditPath: string; ackTtlMs?: number }): McpStub {
+  const ackTtlMs = options.ackTtlMs ?? MCP_ACK_TTL_MS;
   const pending = new Map<string, PendingProposal>();
 
   const appendAudit = async (record: McpAuditRecord): Promise<void> => {
@@ -82,7 +83,7 @@ export function createMcpStub(options: { auditPath: string }): McpStub {
       const ackToken = randomBytes(24).toString('hex');
       const argsDigest = tokenHash(JSON.stringify(input.args));
       const auditId = `audit_${randomBytes(6).toString('hex')}`;
-      const expiresAt = new Date(nowMs + MCP_ACK_TTL_MS).toISOString();
+      const expiresAt = new Date(nowMs + ackTtlMs).toISOString();
 
       const diff: McpDiffSummary = {
         documentId: input.documentId,
@@ -104,7 +105,7 @@ export function createMcpStub(options: { auditPath: string }): McpStub {
         caller: input.caller,
         argsDigest,
         auditId,
-        expiresAtMs: nowMs + MCP_ACK_TTL_MS,
+        expiresAtMs: nowMs + ackTtlMs,
         consumed: false,
         documentId: input.documentId,
       });

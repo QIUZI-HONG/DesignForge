@@ -64,6 +64,8 @@ export interface DaemonAppOptions {
   comfyProbeTtlMs?: number;
   /** AI 重试退避序列（测试即时化；缺省 [300, 900]ms，最多重试 2 次）。 */
   aiRetryDelaysMs?: number[];
+  /** MCP ackToken 时效（缺省 2 分钟；测试注入短时值）。 */
+  mcpAckTtlMs?: number;
 }
 
 /** 运行时上下文（路由注册共用；所有路径/存储的唯一入口）。 */
@@ -125,7 +127,10 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
       indexPath: options.marketIndexPath ?? null,
       candidatePaths: paths.marketIndexCandidates,
     }),
-    mcp: createMcpStub({ auditPath: paths.mcpAuditPath }),
+    mcp: createMcpStub({
+      auditPath: paths.mcpAuditPath,
+      ...(options.mcpAckTtlMs === undefined ? {} : { ackTtlMs: options.mcpAckTtlMs }),
+    }),
     // ComfyUI 客户端在读配置时取当前 baseUrl（设置页改地址立即生效）
     comfy: createComfyClient({
       baseUrl: () => config.get().comfy.baseUrl,

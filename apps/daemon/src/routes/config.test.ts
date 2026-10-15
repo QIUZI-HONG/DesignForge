@@ -11,9 +11,19 @@ describe('config · GET /config', () => {
   it('首启返回默认配置，凭据为未配置（不含任何 key 字段明文）', async () => {
     const daemon = await createTestDaemon();
     try {
-      const { statusCode, payload } = await injectJson(daemon.app, { method: 'GET', url: '/config' });
+      const { statusCode, payload } = await injectJson(daemon.app, {
+        method: 'GET',
+        url: '/config',
+      });
       expect(statusCode).toBe(200);
-      const result = (payload as { result: { config: Record<string, unknown>; credentials: { deepseek: Record<string, unknown> } } }).result;
+      const result = (
+        payload as {
+          result: {
+            config: Record<string, unknown>;
+            credentials: { deepseek: Record<string, unknown> };
+          };
+        }
+      ).result;
       expect(result.config.workspaceDir).toBe(daemon.workspaceDir);
       expect((result.config.ai as Record<string, unknown>).provider).toBe('deepseek');
       expect(result.credentials.deepseek.hasKey).toBe(false);
@@ -28,7 +38,9 @@ describe('config · GET /config', () => {
     const daemon = await createTestDaemon({ envApiKey: FAKE_KEY });
     try {
       const { payload } = await injectJson(daemon.app, { method: 'GET', url: '/config' });
-      const summary = (payload as { result: { credentials: { deepseek: Record<string, unknown> } } }).result.credentials.deepseek;
+      const summary = (
+        payload as { result: { credentials: { deepseek: Record<string, unknown> } } }
+      ).result.credentials.deepseek;
       expect(summary.hasKey).toBe(true);
       expect(summary.source).toBe('env');
       expect(summary.maskedKey).toBe('sk-…abcd');
@@ -54,9 +66,10 @@ describe('config · PUT /config（局部更新与校验）', () => {
       expect(config.workspaceDir).toBe(`${daemon.tempDir}/工作区`);
 
       const readBack = await injectJson(daemon.app, { method: 'GET', url: '/config' });
-      expect((readBack.payload as { result: { config: { workspaceDir: string } } }).result.config.workspaceDir).toBe(
-        `${daemon.tempDir}/工作区`,
-      );
+      expect(
+        (readBack.payload as { result: { config: { workspaceDir: string } } }).result.config
+          .workspaceDir,
+      ).toBe(`${daemon.tempDir}/工作区`);
     } finally {
       await daemon.cleanup();
     }
@@ -78,9 +91,10 @@ describe('config · PUT /config（局部更新与校验）', () => {
       expect(error.code).toBe('config_invalid');
 
       const readBack = await injectJson(daemon.app, { method: 'GET', url: '/config' });
-      expect((readBack.payload as { result: { config: { workspaceDir: string } } }).result.config.workspaceDir).toBe(
-        daemon.workspaceDir,
-      );
+      expect(
+        (readBack.payload as { result: { config: { workspaceDir: string } } }).result.config
+          .workspaceDir,
+      ).toBe(daemon.workspaceDir);
     } finally {
       await daemon.cleanup();
     }
@@ -94,7 +108,11 @@ describe('config · PUT /config（局部更新与校验）', () => {
         { ai: { provider: 'openai' } },
         { telemetry: { enabled: 'yes' } },
       ]) {
-        const { statusCode, payload: body } = await injectJson(daemon.app, { method: 'PUT', url: '/config', payload });
+        const { statusCode, payload: body } = await injectJson(daemon.app, {
+          method: 'PUT',
+          url: '/config',
+          payload,
+        });
         expect(statusCode).toBe(400);
         expect((body as { error: { code: string } }).error.code).toBe('config_invalid');
       }
@@ -114,7 +132,9 @@ describe('config · 凭据写入与清除（key 永不下行）', () => {
         payload: { apiKey: FAKE_KEY },
       });
       expect(statusCode).toBe(200);
-      const summary = (payload as { result: { summary: { maskedKey: string; hasKey: boolean; source: string } } }).result.summary;
+      const summary = (
+        payload as { result: { summary: { maskedKey: string; hasKey: boolean; source: string } } }
+      ).result.summary;
       expect(summary.hasKey).toBe(true);
       expect(summary.maskedKey).toBe('sk-…abcd');
       expect(summary.source).toBe('stored');
@@ -153,9 +173,14 @@ describe('config · 凭据写入与清除（key 永不下行）', () => {
         url: '/config/credentials',
         payload: { apiKey: FAKE_KEY },
       });
-      const cleared = await injectJson(daemon.app, { method: 'DELETE', url: '/config/credentials' });
+      const cleared = await injectJson(daemon.app, {
+        method: 'DELETE',
+        url: '/config/credentials',
+      });
       expect(cleared.statusCode).toBe(200);
-      const result = (cleared.payload as { result: { summary: { hasKey: boolean }; cleared: boolean } }).result;
+      const result = (
+        cleared.payload as { result: { summary: { hasKey: boolean }; cleared: boolean } }
+      ).result;
       expect(result.cleared).toBe(true);
       expect(result.summary.hasKey).toBe(false);
 
@@ -165,7 +190,8 @@ describe('config · 凭据写入与清除（key 永不下行）', () => {
         payload: { messages: [{ role: 'user', content: '画一个圆' }] },
       });
       expect(chat.statusCode).toBe(200);
-      const response = (chat.payload as { result: { degraded: boolean; degradedReason: string } }).result;
+      const response = (chat.payload as { result: { degraded: boolean; degradedReason: string } })
+        .result;
       expect(response.degraded).toBe(true);
       expect(response.degradedReason).toBe('no-credentials');
     } finally {
@@ -204,7 +230,14 @@ describe('config · POST /config/connectivity（诊断自检）', () => {
         url: '/config/connectivity',
       });
       expect(statusCode).toBe(200);
-      const report = (payload as { result: { items: { id: string; status: string; code: string | null; actions: string[] }[]; checkedAt: string } }).result;
+      const report = (
+        payload as {
+          result: {
+            items: { id: string; status: string; code: string | null; actions: string[] }[];
+            checkedAt: string;
+          };
+        }
+      ).result;
       expect(report.items.map((item) => item.id)).toEqual(['daemon', 'comfyui', 'ai']);
       expect(report.items[0]?.status).toBe('ok');
       const comfy = report.items[1];

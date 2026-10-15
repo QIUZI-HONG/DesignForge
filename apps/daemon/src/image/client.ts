@@ -384,6 +384,32 @@ export function createComfyClient(options: ComfyClientOptions): ComfyClient {
         };
       }
 
+      // 模板区间校验（模板可自定义更窄的合法区间——契约级区间是兜底，模板级是权威）
+      const rangedInputs: [string, number | undefined][] = [
+        ['width', request.inputs.width],
+        ['height', request.inputs.height],
+        ['steps', request.inputs.steps],
+        ['cfg', request.inputs.cfg],
+      ];
+      for (const [key, value] of rangedInputs) {
+        if (value === undefined) continue;
+        const range = template.params[key]?.range;
+        if (range === undefined) continue;
+        const [min, max] = range;
+        if (value < min || value > max) {
+          return {
+            ok: false,
+            failure: {
+              code: 'comfy_invalid_request',
+              message: `参数 ${key}=${value} 超出模板区间 [${min}, ${max}]`,
+              actions: ['adjust-params'],
+              missing: [],
+              available: [],
+            },
+          };
+        }
+      }
+
       const probe = await probeInternal();
       if (!probe.reachable) {
         return {
