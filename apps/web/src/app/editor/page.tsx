@@ -1,3 +1,8 @@
+// FE-06 宿主接线（画布 + 面板 + Inspector + 检查/导出 + AI/MCP 的挂载入口）。
+// 为什么用组件而不是「顶层 import 即注册」：`'use client'` 模块在服务端渲染时顶层代码不执行，
+// 顶层注册会造成「服务端空槽 / 客户端有槽」的 hydration 不匹配（整棵树停在空槽形态）。
+// 引导组件在挂载后注册插槽与命令，服务端/客户端首帧一致。
+import { WorkspaceBootstrap } from '@/features/canvas/register';
 import { ReviewBootstrap } from '@/features/editor-review/register';
 import { EditorShell } from '@/features/editor-shell';
 
@@ -25,6 +30,7 @@ export default function EditorPage() {
   return (
     <>
       <EditorShell />
+      <WorkspaceBootstrap />
       <ReviewBootstrap />
     </>
   );

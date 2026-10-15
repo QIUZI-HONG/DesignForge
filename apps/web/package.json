@@ -8,6 +8,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "copy:canvaskit": "node src/features/canvas/tools/copy-canvaskit-assets.mjs",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -17,6 +18,7 @@
     "@dforge/engine": "workspace:*",
     "@dforge/ui": "workspace:*",
     "@fontsource/noto-sans-sc": "catalog:",
+    "canvaskit-wasm": "catalog:",
     "intl-messageformat": "catalog:",
     "next": "catalog:",
     "react": "catalog:",
