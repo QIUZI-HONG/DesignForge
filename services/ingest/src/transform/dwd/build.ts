@@ -461,7 +461,7 @@ export async function buildDwd(input: DwdBuildInput): Promise<DwdBuildResult> {
         asset.name ??
         slugify(asset.root || repo.name);
       const summary =
-        frontmatter?.description ?? manifest?.description ?? null ?? repo.description ?? '';
+        frontmatter?.description ?? manifest?.description ?? repo.description ?? '';
       const summaryLang = detectLanguage(summary);
       const descriptionText = primary?.body ?? null;
       const descriptionLang = detectLanguage(descriptionText);
