@@ -15,7 +15,7 @@ import type { EditorTool } from './state/view';
 /** 一个工具的展示与命令元数据。 */
 export interface EditorToolSpec {
   id: EditorTool;
-  /** 16px 线性图标。 */
+  /** 16 线性图标（`--dfg-icon-size-md`）。 */
   icon: IconComponent;
   /** 文案键（i18n 真源在 apps/web/messages）。 */
   labelKey: string;

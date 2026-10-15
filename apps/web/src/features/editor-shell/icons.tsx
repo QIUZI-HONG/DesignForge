@@ -36,3 +36,17 @@ export const HistoryIcon = createIcon(
     <path d="M8 4.9V8l2.1 1.6" />
   </>,
 );
+
+/**
+ * 重做（`UndoIcon` 的水平镜像；同一 clean-room 口径的几何，箭头朝右）。
+ *
+ * 为什么在本目录补：`@dforge/ui` 图标集（FE-01）只有撤销没有重做，
+ * 而 `packages/ui/**` 归 FE-01（_shared §2），本票只能消费。
+ */
+export const RedoIcon = createIcon(
+  'RedoIcon',
+  <>
+    <path d="M12.5 6.5H6.3a3.4 3.4 0 0 0 0 6.8h3.2" />
+    <path d="M9.7 3.8 12.5 6.5 9.7 9.2" />
+  </>,
+);

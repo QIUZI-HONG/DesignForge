@@ -111,5 +111,6 @@
   "editor.slot.rightPanel": "Inspector",
   "editor.slot.pending": "{name} is not wired yet",
   "editor.canvas.hint": "This hint disappears once the canvas module mounts into the canvas slot.",
-  "editor.slot.panelHint": "This hint disappears once the panel module mounts into this slot."
+  "editor.slot.panelHint": "This hint disappears once the panel module mounts into this slot.",
+  "editor.topbar.brand": "DesignForge"
 }

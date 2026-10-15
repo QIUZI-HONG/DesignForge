@@ -1,0 +1,532 @@
+/*
+ * 编辑器壳层样式（FE-03；深色基准 UI3）。
+ *
+ * 纪律（_shared §3）：**禁裸值**——颜色/间距/圆角/字号一律 `var(--dfg-…)` 令牌引用
+ * （`scripts/guard-tokens.mjs` 会扫本文件）；几何适配用 calc/百分比，不算裸值。
+ * 主题：本文件只在 `.dfg-editor`（`app/editor` 路由）内生效，基准由 `EditorThemeScope`
+ * 把 `data-theme="dark"` 落到根元素上（令牌选择器是 `:root[data-theme=…]`）。
+ * 交互态：伪类表达真实态；另提供**状态强制类**（`dfg-state-hover`），供截图门禁复现非默认态。
+ */
+
+/* ---------- 壳层骨架 ---------- */
+
+.dfg-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--dfg-color-canvas);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-control);
+}
+
+.dfg-editor__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.dfg-editor__panel {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 var(--dfg-size-sidebar);
+  width: var(--dfg-size-sidebar);
+  min-height: 0;
+  overflow-y: auto;
+  background-color: var(--dfg-color-surface);
+}
+
+.dfg-editor__panel--left {
+  border-right: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-editor__panel--right {
+  border-left: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-editor__canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--dfg-color-canvas);
+}
+
+/* 画布槽空态（FE-06 挂载后自动替换） */
+.dfg-editor-slot-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dfg-space-1);
+  height: 100%;
+  padding: var(--dfg-space-4);
+  text-align: center;
+}
+
+.dfg-editor-slot-fallback--canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.dfg-editor-slot-fallback__title {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-15);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-editor-slot-fallback__title--small {
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-editor-slot-fallback__hint {
+  margin: 0;
+  color: var(--dfg-color-text-disabled);
+  font-size: var(--dfg-font-size-11);
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfg-editor-slot-fallback__hint--small {
+  font-size: var(--dfg-font-size-11);
+}
+
+/* ---------- 顶栏（C1 · 三区） ---------- */
+
+.dfg-editor-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  height: var(--dfg-size-topbar);
+  padding-inline: var(--dfg-space-2);
+  background-color: var(--dfg-color-surface);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-editor-topbar__zone {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+}
+
+.dfg-editor-topbar__zone--left {
+  flex: 1;
+  justify-content: flex-start;
+}
+
+.dfg-editor-topbar__zone--center {
+  flex: 0 1 auto;
+  justify-content: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-editor-topbar__zone--right {
+  flex: 1;
+  justify-content: flex-end;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-editor-topbar__title {
+  margin: 0;
+  max-width: var(--dfg-size-modal-sm);
+  overflow: hidden;
+  color: var(--dfg-color-text-primary);
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 主菜单触发器（左区第一件） */
+.dfg-editor-appmenu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  height: var(--dfg-control-height-md);
+  padding-inline: var(--dfg-control-padding-x-sm);
+  color: var(--dfg-color-text-primary);
+  font: inherit;
+  font-weight: var(--dfg-font-weight-medium);
+  background: none;
+  border: 0;
+  border-radius: var(--dfg-radius-md);
+  cursor: pointer;
+}
+
+.dfg-editor-appmenu__trigger:hover,
+.dfg-editor-appmenu__trigger.dfg-state-hover {
+  background-color: var(--dfg-color-hover);
+}
+
+.dfg-editor-appmenu__trigger:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+  outline-offset: var(--dfg-border-width-focus);
+}
+
+/* 品牌标记：组件紫方块的极简画布符号（自绘，无外部素材） */
+.dfg-editor-appmenu__mark {
+  width: var(--dfg-icon-size-sm);
+  height: var(--dfg-icon-size-sm);
+  background-color: var(--dfg-color-component);
+  border-radius: var(--dfg-radius-sm);
+}
+
+.dfg-editor-history {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+}
+
+.dfg-editor-entry {
+  flex: 0 0 auto;
+}
+
+/*
+ * 上游缺陷绕行（FE-01 的 DropdownMenu）：禁用条目带 `disabledReason` 时会包一层
+ * `<span class="dfg-tooltip-anchor">`（`display: inline-flex`），菜单里连续两个禁用条目
+ * 会并排成一行（文件区的「新建设计文件 / 导出…」即此例）。在编辑器壳内把锚点恢复成块级，
+ * 让禁用条目与其它条目同样纵向排列；不改 `packages/ui`（归 FE-01），修复建议已在交付报告登记。
+ */
+.dfg-editor .dfg-menu .dfg-tooltip-anchor {
+  display: block;
+}
+
+/* ---------- 工具栏（C2） ---------- */
+
+.dfg-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  height: var(--dfg-size-toolbar);
+  padding-inline: var(--dfg-space-2);
+  background-color: var(--dfg-color-surface);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-editor-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+}
+
+.dfg-editor-toolbar__slot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+}
+
+.dfg-editor-toolbar__divider {
+  width: var(--dfg-border-width-hairline);
+  height: var(--dfg-icon-size-lg);
+  background-color: var(--dfg-color-border);
+}
+
+.dfg-editor-toolbar__spacer {
+  flex: 1;
+}
+
+/* 工具按钮：图标为 16 线性（--dfg-icon-size-md）；active 底取「选中色」令牌（--dfg-color-selection，即 C2 的蓝块） */
+.dfg-editor-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dfg-control-height-md);
+  height: var(--dfg-control-height-md);
+  padding: 0;
+  color: var(--dfg-color-icon-secondary);
+  background-color: transparent;
+  border: 0;
+  border-radius: var(--dfg-radius-md);
+  cursor: pointer;
+  transition:
+    background-color var(--dfg-duration-fast) var(--dfg-easing-standard),
+    color var(--dfg-duration-fast) var(--dfg-easing-standard);
+}
+
+.dfg-editor-tool:hover,
+.dfg-editor-tool.dfg-state-hover {
+  color: var(--dfg-color-icon-primary);
+  background-color: var(--dfg-color-hover);
+}
+
+.dfg-editor-tool:active {
+  background-color: var(--dfg-color-pressed);
+}
+
+.dfg-editor-tool:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+  outline-offset: var(--dfg-border-width-focus);
+}
+
+.dfg-editor-tool[aria-pressed="true"],
+.dfg-editor-tool--active {
+  color: var(--dfg-color-selection-text);
+  background-color: var(--dfg-color-selection);
+}
+
+/* 缩放菜单触发器（C16） */
+.dfg-editor-zoom {
+  display: inline-flex;
+}
+
+.dfg-editor-zoom__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  height: var(--dfg-control-height-md);
+  padding-inline: var(--dfg-control-padding-x-sm);
+  color: var(--dfg-color-text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  background: none;
+  border: 0;
+  border-radius: var(--dfg-radius-md);
+  cursor: pointer;
+}
+
+.dfg-editor-zoom__trigger:hover,
+.dfg-editor-zoom__trigger.dfg-state-hover {
+  background-color: var(--dfg-color-hover);
+}
+
+.dfg-editor-zoom__trigger:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+  outline-offset: var(--dfg-border-width-focus);
+}
+
+.dfg-editor-zoom__value {
+  min-width: var(--dfg-space-8);
+  text-align: right;
+}
+
+.dfg-editor-help-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dfg-icon-size-md);
+  height: var(--dfg-icon-size-md);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  border: var(--dfg-border-width-hairline) solid currentColor;
+  border-radius: var(--dfg-radius-pill);
+}
+
+/* ---------- 画布 HUD（C20 · 11 号反白小条，--dfg-font-size-11） ---------- */
+
+.dfg-editor__hud-host {
+  position: absolute;
+  top: var(--dfg-space-3);
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.dfg-editor-hud {
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+  /* 反白：深色基准下 --dfg-color-text-primary 是白底、--dfg-color-canvas 是深字（清单 C20 的「反白小条」） */
+  color: var(--dfg-color-canvas);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  line-height: var(--dfg-line-height-tight);
+  white-space: nowrap;
+  background-color: var(--dfg-color-text-primary);
+  border-radius: var(--dfg-radius-sm);
+  box-shadow: var(--dfg-shadow-sm);
+}
+
+/* ---------- 命令面板（E7 · ⌘K） ---------- */
+
+.dfg-editor-palette {
+  position: fixed;
+  inset: 0;
+  z-index: var(--dfg-z-modal);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: var(--dfg-space-16);
+}
+
+.dfg-editor-palette__backdrop {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  background-color: var(--dfg-color-backdrop);
+  border: 0;
+  cursor: default;
+}
+
+.dfg-editor-palette__dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: var(--dfg-size-modal-md);
+  max-height: var(--dfg-size-modal-lg);
+  overflow: hidden;
+  background-color: var(--dfg-color-surface-raised);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-xl);
+  box-shadow: var(--dfg-shadow-popover);
+}
+
+.dfg-editor-palette__search {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+  color: var(--dfg-color-icon-secondary);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-editor-palette__input {
+  flex: 1;
+  min-width: 0;
+  color: var(--dfg-color-text-primary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-13);
+  background: none;
+  border: 0;
+  outline: none;
+}
+
+.dfg-editor-palette__input::placeholder {
+  color: var(--dfg-color-text-disabled);
+}
+
+.dfg-editor-palette__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--dfg-space-1);
+}
+
+.dfg-editor-palette__group-label {
+  margin: 0;
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-editor-palette__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+  width: 100%;
+  height: var(--dfg-row-height-md);
+  padding-inline: var(--dfg-space-2);
+  color: var(--dfg-color-text-primary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-13);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--dfg-radius-sm);
+  cursor: pointer;
+}
+
+.dfg-editor-palette__item--active,
+.dfg-editor-palette__item:hover {
+  background-color: var(--dfg-color-hover);
+}
+
+.dfg-editor-palette__item--disabled {
+  color: var(--dfg-color-text-disabled);
+  cursor: default;
+}
+
+.dfg-editor-palette__item-shortcut {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-editor-palette__item--disabled .dfg-editor-palette__item-shortcut {
+  color: var(--dfg-color-text-disabled);
+}
+
+.dfg-editor-palette__empty {
+  margin: 0;
+  padding: var(--dfg-space-6) var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+  text-align: center;
+}
+
+.dfg-editor-palette__error {
+  margin: 0;
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  color: var(--dfg-color-danger);
+  font-size: var(--dfg-font-size-12);
+  background-color: var(--dfg-color-danger-subtle);
+  border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-editor-palette__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  margin: 0;
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  color: var(--dfg-color-text-disabled);
+  font-size: var(--dfg-font-size-11);
+  border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+/* ---------- 快捷键说明（E8 · 两栏对照表） ---------- */
+
+.dfg-editor-shortcuts__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--dfg-font-size-13);
+}
+
+.dfg-editor-shortcuts__table th {
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-regular);
+  text-align: left;
+}
+
+.dfg-editor-shortcuts__table td {
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+  height: var(--dfg-row-height-md);
+  color: var(--dfg-color-text-primary);
+  border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-editor-shortcuts__section th {
+  padding-top: var(--dfg-space-3);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  text-transform: none;
+}
+
+.dfg-editor-shortcuts__keys-col {
+  width: var(--dfg-space-16);
+  text-align: right;
+}
+
+.dfg-editor-shortcuts__keys {
+  display: inline-block;
+  padding: var(--dfg-space-0) var(--dfg-space-1);
+  color: var(--dfg-color-text-secondary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-11);
+  background-color: var(--dfg-color-surface-subtle);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+}
+
+.dfg-editor-shortcuts__empty {
+  margin: 0;
+  padding: var(--dfg-space-6) var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+  text-align: center;
+}

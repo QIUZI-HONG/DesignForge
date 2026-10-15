@@ -111,5 +111,6 @@
   "editor.slot.rightPanel": "Inspector",
   "editor.slot.pending": "{name}待接入",
   "editor.canvas.hint": "画布模块挂载至 canvas 插槽后自动替换本提示。",
-  "editor.slot.panelHint": "面板模块挂载至本插槽后自动替换本提示。"
+  "editor.slot.panelHint": "面板模块挂载至本插槽后自动替换本提示。",
+  "editor.topbar.brand": "设界"
 }

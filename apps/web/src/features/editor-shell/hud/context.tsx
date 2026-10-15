@@ -41,7 +41,7 @@ export interface CanvasHudProps {
 }
 
 /**
- * HUD 反白小条（11px，`--dfg-font-size-11`）。
+ * HUD 反白小条（字号 `--dfg-font-size-11`，与清单 C20 的「11 反白小条」口径一致）。
  *
  * 位置由宿主容器给（编辑器壳把它放在画布区顶部居中），组件自身只管条的外观；
  * 不可见时渲染 `null`（不占位、不被读屏与截图采到）。
