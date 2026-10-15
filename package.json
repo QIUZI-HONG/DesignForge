@@ -21,9 +21,12 @@
     "guard:deps": "node scripts/guard-deps.mjs",
     "guard:tokens": "node scripts/guard-tokens.mjs",
     "verify:figma-component": "node scripts/verify-figma-component.mjs",
+    "verify:figma-inspector": "node scripts/verify-figma-inspector.mjs",
     "guard:electron-baseline": "node scripts/guard-electron-baseline.mjs",
     "guard:mcp-contract": "node scripts/guard-mcp-contract.mjs",
-    "guard:channel-pairing": "node scripts/guard-channel-pairing.mjs"
+    "guard:channel-pairing": "node scripts/guard-channel-pairing.mjs",
+    "verify:figma-home": "node scripts/verify-figma-home.mjs",
+    "e2e:smoke": "node scripts/e2e-smoke.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

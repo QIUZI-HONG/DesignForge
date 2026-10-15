@@ -1,0 +1,340 @@
+/*
+ * Inspector 面板样式（深色编辑器族）。
+ *
+ * 禁裸值（_shared §3）：颜色/间距/圆角/字号/控件高全部取 `@dforge/ui` 双基准令牌——
+ * 「控件 28、圆角 3–6」（清单 C5）在深色族里正好是 `--dfg-control-height-md`（28）
+ * 与 `--dfg-radius-sm|md`（3/6）；浅色族自动映射为 32 与同一圆角档。
+ * 面板宽度取 `--dfg-size-sidebar`（右侧栏 240，与 Figma 同宽）。
+ */
+
+.dfi-panel {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-3);
+  width: var(--dfg-size-sidebar);
+  padding: var(--dfg-space-3);
+  background: var(--dfg-color-surface);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+}
+
+/* ---------- 分区 ---------- */
+
+.dfi-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding-bottom: var(--dfg-space-3);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfi-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.dfi-section__title {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+}
+
+.dfi-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+}
+
+.dfi-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfi-row-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  width: 100%;
+}
+
+.dfi-hint {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* ---------- 对齐工具行（C6） ---------- */
+
+.dfi-alignrow {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+}
+
+.dfi-alignrow__gap {
+  width: var(--dfg-space-2);
+}
+
+.dfi-alignrow__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dfg-control-height-md);
+  height: var(--dfg-control-height-md);
+  padding: 0;
+  border: none;
+  border-radius: var(--dfg-radius-sm);
+  background: transparent;
+  color: var(--dfg-color-icon-primary);
+  cursor: pointer;
+}
+
+.dfi-alignrow__button:hover:not(:disabled) {
+  background: var(--dfg-color-hover);
+}
+
+.dfi-alignrow__button:active:not(:disabled) {
+  background: var(--dfg-color-pressed);
+}
+
+.dfi-alignrow__button:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+}
+
+.dfi-alignrow__button:disabled {
+  color: var(--dfg-color-icon-disabled);
+  cursor: default;
+}
+
+/* ---------- 数值输入（28 高、圆角 3） ---------- */
+
+.dfi-numberfield {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+  height: var(--dfg-control-height-md);
+  padding: 0 var(--dfg-control-padding-x-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  background: var(--dfg-color-surface-subtle);
+}
+
+.dfi-numberfield:focus-within {
+  border-color: var(--dfg-color-focus-ring);
+}
+
+.dfi-numberfield[data-df-state="disabled"] {
+  opacity: 0.6;
+}
+
+.dfi-numberfield__label {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.dfi-numberfield__input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dfg-color-text-primary);
+  font: inherit;
+  text-align: right;
+}
+
+.dfi-numberfield__input:focus {
+  outline: none;
+}
+
+.dfi-numberfield[data-df-state="mixed"] .dfi-numberfield__input {
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfi-numberfield__suffix {
+  flex: none;
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfi-numberfield[data-df-state="disabled"] .dfi-numberfield__label {
+  cursor: default;
+}
+
+/* ---------- 文本 / 颜色输入 ---------- */
+
+.dfi-textfield {
+  box-sizing: border-box;
+  display: flex;
+  flex: 2 1 0;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+  height: var(--dfg-control-height-md);
+  padding: 0 var(--dfg-control-padding-x-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  background: var(--dfg-color-surface-subtle);
+}
+
+.dfi-textfield:focus-within {
+  border-color: var(--dfg-color-focus-ring);
+}
+
+.dfi-textfield__label {
+  flex: none;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfi-textfield__swatch {
+  flex: none;
+  width: var(--dfg-icon-size-sm);
+  height: var(--dfg-icon-size-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border-strong);
+  border-radius: var(--dfg-radius-sm);
+}
+
+.dfi-textfield__input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dfg-color-text-primary);
+  font: inherit;
+}
+
+.dfi-textfield__input:focus {
+  outline: none;
+}
+
+/* 混选：标签与值统一走次级色（「—」是占位而非真值） */
+.dfi-textfield[data-df-state="mixed"] .dfi-textfield__label,
+.dfi-textfield[data-df-state="mixed"] .dfi-textfield__input {
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfi-textfield__error {
+  flex: none;
+  color: var(--dfg-color-danger);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* ---------- 开关 ---------- */
+
+.dfi-switch {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+  height: var(--dfg-control-height-md);
+}
+
+.dfi-switch__label {
+  color: var(--dfg-color-text-primary);
+}
+
+.dfi-switch__control {
+  position: relative;
+  width: var(--dfg-size-toolbar);
+  height: var(--dfg-row-height-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border-strong);
+  border-radius: var(--dfg-radius-pill);
+  background: var(--dfg-color-surface-subtle);
+  cursor: pointer;
+}
+
+.dfi-switch__control::after {
+  content: "";
+  position: absolute;
+  top: var(--dfg-space-0);
+  left: var(--dfg-space-0);
+  width: var(--dfg-row-height-sm);
+  height: var(--dfg-row-height-sm);
+  border-radius: var(--dfg-radius-pill);
+  background: var(--dfg-color-text-secondary);
+  transition: transform var(--dfg-duration-fast) var(--dfg-easing-standard);
+}
+
+.dfi-switch__control[aria-checked="true"] {
+  background: var(--dfg-color-selection);
+  border-color: var(--dfg-color-primary);
+}
+
+.dfi-switch__control[aria-checked="true"]::after {
+  transform: translateX(var(--dfg-space-5));
+  background: var(--dfg-color-on-primary);
+}
+
+.dfi-switch__control:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+}
+
+/* ---------- 下拉 ---------- */
+
+.dfi-select {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+}
+
+.dfi-select__label {
+  flex: none;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfi-select__control {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--dfg-control-height-md);
+  padding: 0 var(--dfg-control-padding-x-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  background: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-primary);
+  font: inherit;
+}
+
+.dfi-select__control:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+}
+
+/* ---------- 禁用桩（F15 口径） ---------- */
+
+.dfi-stub {
+  box-sizing: border-box;
+  height: var(--dfg-control-height-md);
+  padding: 0 var(--dfg-control-padding-x-md);
+  border: var(--dfg-border-width-hairline) dashed var(--dfg-color-border-strong);
+  border-radius: var(--dfg-radius-md);
+  background: transparent;
+  color: var(--dfg-color-text-disabled);
+  font: inherit;
+  cursor: default;
+}
+
+/* ---------- 空选态（C7 画布设置） ---------- */
+
+.dfi-panel--canvas .dfi-section__title {
+  color: var(--dfg-color-text-primary);
+  font-size: var(--dfg-font-size-12);
+}

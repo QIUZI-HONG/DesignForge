@@ -426,6 +426,22 @@ export function themeOf(name: ThemeName): Theme {
   return THEMES[name];
 }
 
+/**
+ * 把主题落到**文档根**（`<html data-theme="…">`）——消费方切主题的推荐入口。
+ *
+ * 口径（《前端验收标准 v1》§3「主题逐页对齐 Figma 本体，不做全站换肤」）：
+ * 主题是**文档级属性**，不是容器级属性。令牌选择器因此写成 `:root[data-theme=…]`——
+ * 这既保证「一个页面一套基准」，也保证**门户浮层**（Modal/Drawer/Toast 挂在 `document.body`）
+ * 能继承到同一套令牌。反面：在嵌套容器上写 `data-theme` 会**静默失效**（选择器不匹配，
+ * 全页仍用根上的令牌），所以不要再手写 `element.dataset.theme`——统一走本函数。
+ *
+ * SSR 安全：无 `document` 时不做事（首屏主题由服务端渲染的 `<html data-theme>` 决定）。
+ */
+export function applyDocumentTheme(name: ThemeName): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.dataset.theme = name;
+}
+
 // ---------------------------------------------------------------------------
 // 四、展平（TS → CSS 变量；tokens.css 与测试共用同一套命名规则）
 // ---------------------------------------------------------------------------

@@ -62,13 +62,16 @@ function waitForListening(child) {
   });
 }
 
-/** 极简 HTTP 客户端：返回 { status, json, text }。 */
-async function call(baseUrl, method, path, body) {
+/** 极简 HTTP 客户端：返回 { status, json, text, headers }。 */
+async function call(baseUrl, method, path, body, extraHeaders) {
+  const headers = {
+    ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    ...(extraHeaders ?? {}),
+  };
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    ...(body === undefined
-      ? {}
-      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    ...(Object.keys(headers).length === 0 ? {} : { headers }),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
   let json = null;
@@ -77,7 +80,7 @@ async function call(baseUrl, method, path, body) {
   } catch {
     json = null;
   }
-  return { status: response.status, json, text };
+  return { status: response.status, json, text, headers: response.headers };
 }
 
 function expectOk(condition, id, detail) {
@@ -94,6 +97,48 @@ async function runSmoke(baseUrl) {
       health.json?.result?.name === '@dforge/daemon',
     'health',
     `GET /health → ${health.status}`,
+  );
+
+  // ---- CORS（受控白名单）----
+  const corsAllowed = await call(baseUrl, 'GET', '/health', undefined, {
+    origin: 'http://localhost:3000',
+  });
+  expectOk(
+    corsAllowed.headers.get('access-control-allow-origin') === 'http://localhost:3000',
+    'cors.whitelisted',
+    `GET /health（Origin: localhost:3000）→ allow-origin=${corsAllowed.headers.get('access-control-allow-origin')}`,
+  );
+
+  const corsDenied = await call(baseUrl, 'GET', '/health', undefined, {
+    origin: 'http://evil.example.com',
+  });
+  expectOk(
+    corsDenied.status === 200 &&
+      corsDenied.headers.get('access-control-allow-origin') === null &&
+      corsDenied.json?.ok === true,
+    'cors.non-whitelisted',
+    `GET /health（Origin: evil）→ ${corsDenied.status}，无放行头（API 语义不变）`,
+  );
+
+  const corsNull = await call(baseUrl, 'GET', '/health', undefined, { origin: 'null' });
+  expectOk(
+    corsNull.headers.get('access-control-allow-origin') === 'null',
+    'cors.shell-null',
+    '打包壳 Origin: null → 放行（file:// 形态）',
+  );
+
+  const preflight = await call(baseUrl, 'OPTIONS', '/documents', undefined, {
+    origin: 'http://127.0.0.1:3000',
+    'access-control-request-method': 'POST',
+    'access-control-request-headers': 'content-type',
+  });
+  expectOk(
+    preflight.status === 204 &&
+      preflight.headers.get('access-control-allow-methods') === 'GET,POST,PUT,PATCH,DELETE' &&
+      preflight.headers.get('access-control-allow-headers') === 'content-type' &&
+      preflight.headers.get('access-control-max-age') === '600',
+    'cors.preflight',
+    `OPTIONS /documents → ${preflight.status}（methods/headers/max-age 齐备）`,
   );
 
   // ---- 配置与凭据（key 绝不下行）----
