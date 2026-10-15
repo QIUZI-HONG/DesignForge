@@ -9,7 +9,7 @@
 import type { DaemonConfig } from '@dforge/contracts';
 import { describe, expect, it } from 'vitest';
 
-import { draftFromConfig, EMPTY_DRAFT, patchesForSection } from './draft';
+import { draftFromConfig, EMPTY_DRAFT, isSectionDirty, patchesForSection } from './draft';
 import { validateComfyBaseUrl, validateWorkspaceDir } from './validation';
 
 const CONFIG: DaemonConfig = {
@@ -84,5 +84,26 @@ describe('分区 → 落库载荷（设置页与引导共用）', () => {
     expect(patchesForSection('telemetry', { ...draft, telemetryEnabled: false })).toEqual({
       config: { telemetry: { enabled: false } },
     });
+  });
+});
+
+describe('分区脏检查（决定保存按钮可用性）', () => {
+  it('与配置一致 = clean；任一字段改动 = dirty', () => {
+    const clean = draftFromConfig(CONFIG);
+    expect(isSectionDirty('workspace', clean, CONFIG)).toBe(false);
+    expect(isSectionDirty('comfy', clean, CONFIG)).toBe(false);
+    expect(isSectionDirty('telemetry', clean, CONFIG)).toBe(false);
+    expect(isSectionDirty('workspace', { ...clean, workspaceDir: '~/另一个' }, CONFIG)).toBe(true);
+    expect(
+      isSectionDirty('comfy', { ...clean, comfyBaseUrl: 'http://127.0.0.1:9000' }, CONFIG),
+    ).toBe(true);
+    expect(isSectionDirty('telemetry', { ...clean, telemetryEnabled: false }, CONFIG)).toBe(true);
+  });
+
+  it('AI 分区：只有输入了非空 key 才算 dirty（空白输入不启用保存）', () => {
+    const clean = draftFromConfig(CONFIG);
+    expect(isSectionDirty('ai', clean, CONFIG)).toBe(false);
+    expect(isSectionDirty('ai', { ...clean, apiKey: '   ' }, CONFIG)).toBe(false);
+    expect(isSectionDirty('ai', { ...clean, apiKey: 'sk-abcdefgh1234' }, CONFIG)).toBe(true);
   });
 });

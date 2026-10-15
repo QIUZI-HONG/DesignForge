@@ -60,3 +60,24 @@ export function patchesForSection(id: SettingsSectionId, draft: SettingsDraft): 
       return { config: { telemetry: { enabled: draft.telemetryEnabled } } };
   }
 }
+
+/**
+ * 分区脏检查（保存按钮可用性）：草稿与已落库配置有差异才算「有改动」。
+ * AI 分区特例：密钥不回显，草稿里有非空输入才是改动（空白输入不启用保存）。
+ */
+export function isSectionDirty(
+  id: SettingsSectionId,
+  draft: SettingsDraft,
+  config: DaemonConfig,
+): boolean {
+  switch (id) {
+    case 'workspace':
+      return draft.workspaceDir.trim() !== config.workspaceDir;
+    case 'ai':
+      return draft.apiKey.trim().length > 0;
+    case 'comfy':
+      return draft.comfyBaseUrl.trim() !== config.comfy.baseUrl;
+    case 'telemetry':
+      return draft.telemetryEnabled !== config.telemetry.enabled;
+  }
+}

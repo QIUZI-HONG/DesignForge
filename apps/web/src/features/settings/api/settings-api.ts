@@ -16,6 +16,7 @@ import {
   type CredentialSummary,
   DAEMON_ROUTES,
   type DaemonConfigPatch,
+  type DaemonHealthResponse,
   type DocumentListResponse,
   type DocumentResponse,
   type DocumentSummary,
@@ -35,6 +36,8 @@ export interface SettingsApi {
   clearApiKey(): Promise<CredentialSummary>;
   /** 连通性自检（daemon / ComfyUI / AI 配置；不真调云端）。 */
   checkConnectivity(): Promise<ConnectivityReport>;
+  /** 握手信息（数据目录展示用：dataRoot 是「埋点与数据」分区的展示真源）。 */
+  loadHealth(): Promise<DaemonHealthResponse>;
   /** 文档清单（冷启动判空）。 */
   listDocuments(): Promise<DocumentListResponse>;
   /** 新建文档（一键示例）。 */
@@ -60,6 +63,8 @@ export function createSettingsApi(client: DaemonClient = createDaemonClient()): 
       (await client.request<CredentialClearResponse>(DAEMON_ROUTES.configCredentialsClear)).summary,
 
     checkConnectivity: () => client.request<ConnectivityReport>(DAEMON_ROUTES.configConnectivity),
+
+    loadHealth: () => client.request<DaemonHealthResponse>(DAEMON_ROUTES.health),
 
     listDocuments: () => client.request<DocumentListResponse>(DAEMON_ROUTES.documents),
 

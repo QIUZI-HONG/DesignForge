@@ -250,6 +250,22 @@ describe('settings api：端点落点与载荷', () => {
     expect(created.directory).toBe('/home/u/设界/示例设计.dfg');
   });
 
+  it('loadHealth 走 GET /health（握手信息给数据目录展示用）', async () => {
+    const health = {
+      name: 'dforge-daemon',
+      version: '0.0.0',
+      startedAt: '2026-10-15T08:00:00.000Z',
+      uptimeMs: 1234,
+      dataRoot: '/home/u/.dforge',
+      workspaceDir: '/home/u/设界',
+    };
+    const { calls, fetchImpl } = makeFetch(() => jsonResponse({ ok: true, result: health }));
+    const api = createSettingsApi(createDaemonClient({ fetchImpl }));
+    const result = await api.loadHealth();
+    expect(calls[0]?.url).toBe(`${BASE}/health`);
+    expect(result.dataRoot).toBe('/home/u/.dforge');
+  });
+
   it('api 失败向上原样抛出（调用方按 code 分支）', async () => {
     const { fetchImpl } = makeFetch(() =>
       jsonResponse(
