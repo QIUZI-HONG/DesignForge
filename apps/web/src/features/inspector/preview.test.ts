@@ -6,7 +6,7 @@
  * 且三态各自满足对照口径（默认=四分区齐备、混选=存在混合值、空选=画布设置）。
  */
 
-import { readField as engineReadField, findPage } from '@dforge/engine';
+import { findPage } from '@dforge/engine';
 import { describe, expect, it } from 'vitest';
 
 import { readField, readNumberField } from './model/readers';
