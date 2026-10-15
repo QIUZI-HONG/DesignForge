@@ -15,6 +15,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { collect, score, transform } from '@dforge/ingest';
+import type { MarketCommandOutcome } from './outcome.ts';
 import { type DataPaths, resolveDataPaths } from './paths.ts';
 
 export interface CollectCommandOptions {
@@ -34,11 +35,8 @@ export interface CollectCommandOptions {
   stage: 'raw' | 'ods' | 'dwd' | 'all';
 }
 
-export interface CollectCommandResult {
-  exitCode: 0 | 1 | 2;
-  summary: Record<string, unknown>;
-  blockedReason: string | null;
-}
+/** 出口形状取全库唯一真源（见 outcome.ts）；保留本名，调用点不动。 */
+export type CollectCommandResult = MarketCommandOutcome;
 
 /** 路径是否存在（区分「阻塞」与「断言失败」）。 */
 async function exists(path: string): Promise<boolean> {

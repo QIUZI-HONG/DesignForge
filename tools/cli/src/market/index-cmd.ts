@@ -12,17 +12,15 @@ import { readFile } from 'node:fs/promises';
 import { ads, score, transform } from '@dforge/ingest';
 import { buildDwsRecord } from './ads-join.ts';
 import { joinTables } from './dwd-map.ts';
+import type { MarketCommandOutcome } from './outcome.ts';
 import { resolveDataPaths } from './paths.ts';
 import { indexRunId, readDwdAsOf } from './score-cmd.ts';
 
 /** 评分行类型（DWS JSONL 逐行解析后仍按契约校验）。 */
 type QualityRecord = ReturnType<typeof score.scoreBatch>['records'][number];
 
-export interface IndexCommandResult {
-  exitCode: 0 | 1 | 2;
-  summary: Record<string, unknown>;
-  blockedReason: string | null;
-}
+/** 出口形状取全库唯一真源（见 outcome.ts）；保留本名，调用点不动。 */
+export type IndexCommandResult = MarketCommandOutcome;
 
 /** 解析 DWS JSONL（坏行即报，不静默跳过）。 */
 export function parseDwsLines(text: string): { records: unknown[]; badLines: number[] } {

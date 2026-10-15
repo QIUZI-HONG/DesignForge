@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { type MarketAsset, parseMarketplaceIndex } from '@dforge/contracts';
 import { ads } from '@dforge/ingest';
+import type { MarketCommandOutcome } from './outcome.ts';
 import { type DataPaths, resolveDataPaths } from './paths.ts';
 import {
   MARKET_EXAMPLE_QUERIES,
@@ -24,11 +25,8 @@ import {
   QUERY_SET_MIN_TOTAL,
 } from './query-set.ts';
 
-export interface SearchCommandResult {
-  exitCode: 0 | 1 | 2;
-  summary: Record<string, unknown>;
-  blockedReason: string | null;
-}
+/** 出口形状取全库唯一真源（见 outcome.ts）；保留本名，调用点不动。 */
+export type SearchCommandResult = MarketCommandOutcome;
 
 export interface SearchQueryOutcome {
   id: string;
