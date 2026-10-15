@@ -266,28 +266,44 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
       a.files.length !== b.files.length ? a.files.length - b.files.length : a.root < b.root ? -1 : 1,
     );
   }
-  // 轮转装填：每轮各群取一个最小可装下的根；装不下就跳过（继续下一群/下一轮）
-  const groupOrder = CONTENT_ROOT_GROUPS.map((g) => g.name).concat('other');
-  let progressed = true;
-  while (progressed) {
-    progressed = false;
-    for (const group of groupOrder) {
-      const list = completableByGroup.get(group);
-      if (list === undefined) continue;
-      while (list.length > 0) {
-        const candidate = list[0];
-        if (candidate === undefined) break;
-        const pending = candidate.files.filter((path) => !selectedSet.has(path));
-        if (selected.length + pending.length > budget) {
-          list.shift(); // 装不下：本群这个根放弃（升序，后面的只会更大）
-          continue;
-        }
-        list.shift();
-        for (const path of pending) take(path);
-        progressed = true;
-        break;
-      }
+  // 装填：各群**均分预算份额**，群内按根规模升序尽量装；装不下的根放弃（升序，后面只会更大）；
+  // 用不完的份额顺延给下一群，最后仍有余量则按全群规模升序兜底——预算不会被空群浪费。
+  const groupOrder = CONTENT_ROOT_GROUPS.map((g) => g.name);
+  const perGroupShare = Math.floor(budget / groupOrder.length);
+  let carry = 0;
+  const consumed = new Map<string, number>();
+  const spendInGroup = (group: string, allowance: number): number => {
+    const list = completableByGroup.get(group);
+    if (list === undefined) return allowance;
+    let left = allowance;
+    let cursor = consumed.get(group) ?? 0;
+    // 升序列表：一旦装不下即停（后面只会更大），剩下的留给兜底装填
+    while (cursor < list.length) {
+      const candidate = list[cursor];
+      if (candidate === undefined) break;
+      const pending = candidate.files.filter((path) => !selectedSet.has(path));
+      if (pending.length > left) break;
+      cursor += 1;
+      for (const path of pending) take(path);
+      left -= pending.length;
     }
+    consumed.set(group, cursor);
+    return left;
+  };
+  for (const group of groupOrder) {
+    carry = spendInGroup(group, perGroupShare + carry);
+  }
+  // 兜底：全群剩余根按规模升序装填（用尽预算或无可装之根为止）
+  const leftoversRoots = [...completableByGroup.values()]
+    .flat()
+    .filter((root) => root.files.some((path) => !selectedSet.has(path)))
+    .sort((a, b) =>
+      a.files.length !== b.files.length ? a.files.length - b.files.length : a.root < b.root ? -1 : 1,
+    );
+  for (const root of leftoversRoots) {
+    const pending = root.files.filter((path) => !selectedSet.has(path));
+    if (selected.length + pending.length > budget) continue;
+    for (const path of pending) take(path);
   }
 
   // 3) 余量按优先级补单文件（SKILL.md 正文 / 清单 / tokens / 资产根 README / .mcp.json …）
