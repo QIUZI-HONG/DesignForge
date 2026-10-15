@@ -32,7 +32,7 @@ function renderField(props: Partial<Parameters<typeof NumberField>[0]> = {}) {
   const view = render(
     <NumberField label="X" fieldName="x" value={10} onCommit={onCommit} {...props} />,
   );
-  const input = screen.getByRole('textbox', { name: 'X' });
+  const input = screen.getByRole('textbox', { name: 'X' }) as HTMLInputElement;
   return { onCommit, input, view };
 }
 
@@ -52,7 +52,7 @@ describe('NumberField', () => {
     const view = render(
       <NumberField label="Y" fieldName="y" value={undefined} onCommit={vi.fn()} />,
     );
-    const mixedInput = screen.getByRole('textbox', { name: 'Y' });
+    const mixedInput = screen.getByRole('textbox', { name: 'Y' }) as HTMLInputElement;
     expect(mixedInput.value).toBe('—');
     expect(mixedInput.closest('[data-df-inspector-field]')?.getAttribute('data-df-state')).toBe(
       'mixed',

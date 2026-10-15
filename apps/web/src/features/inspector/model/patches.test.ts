@@ -127,9 +127,8 @@ describe('setTextCommands（文字分区）', () => {
     stack.dispatch(setTextCommands(pageOf(stack), 'p1', ['r1', 't1'], { fontSize: 20 }), {
       label: '字号',
     });
-    expect(pageOf(stack).nodes.t1?.type === 'text' && pageOf(stack).nodes.t1.text.fontSize).toBe(
-      20,
-    );
+    const textNode = pageOf(stack).nodes.t1;
+    expect(textNode?.type === 'text' ? textNode.text.fontSize : null).toBe(20);
     expect(pageOf(stack).nodes.r1?.width).toBe(100);
   });
 

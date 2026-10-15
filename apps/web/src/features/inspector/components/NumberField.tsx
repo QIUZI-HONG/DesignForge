@@ -40,15 +40,15 @@ export interface NumberFieldProps {
   /** 外部真值；undefined = 混选（显示「—」）。 */
   value: number | undefined;
   /** 混选时的拖拽/步进起始基准（主选中节点的值）。 */
-  baseValue?: number;
+  baseValue?: number | undefined;
   /** 步进量（默认 1；Shift 为 10 倍）。 */
-  step?: number;
-  min?: number;
-  max?: number;
+  step?: number | undefined;
+  min?: number | undefined;
+  max?: number | undefined;
   /** 显示与提交的小数位（默认 2）。 */
-  precision?: number;
+  precision?: number | undefined;
   /** 单位后缀（如 %），显示在输入框右侧。 */
-  suffix?: string;
+  suffix?: string | undefined;
   disabled?: boolean;
   /** 提交回调（提交时刻才调用；值已夹取与取整）。 */
   onCommit(value: number): void;
@@ -162,11 +162,15 @@ export function NumberField({
       data-df-state={disabled ? 'disabled' : value === undefined ? 'mixed' : 'default'}
     >
       {/* 标签双击即拖拽改值（Figma 惯例）；键盘用户走输入框的上下键 */}
-      <span
+      {/* 标签即拖拽把手：Figma 惯例；键盘步进由输入框的上下键承担（把手不进 Tab 序列） */}
+      <button
+        type="button"
         className="dfi-numberfield__label"
         data-testid={`numberfield-scrub-${fieldName}`}
         data-df-scrub=""
-        aria-hidden="true"
+        tabIndex={-1}
+        aria-disabled={disabled}
+        data-df-state={disabled ? 'disabled' : 'default'}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -174,11 +178,9 @@ export function NumberField({
           scrubRef.current.active = false;
         }}
         onDoubleClick={(event) => event.preventDefault()}
-        data-df-state={disabled ? 'disabled' : 'default'}
-        {...(disabled ? { 'aria-disabled': true } : {})}
       >
         {label}
-      </span>
+      </button>
       <input
         className="dfi-numberfield__input"
         type="text"

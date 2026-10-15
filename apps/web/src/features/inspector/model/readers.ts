@@ -148,6 +148,13 @@ export function readAutoLayoutField<T>(
   );
 }
 
+/** 读「自动布局是否启用」（画板适用；一部分启用一部分未启用 → mixed）。 */
+export function readAutoLayoutEnabled(page: ScenePage, selection: Selection) {
+  return readField<boolean>(page, selection, (node) =>
+    node.type === 'frame' ? node.autoLayout !== null : undefined,
+  );
+}
+
 /** 选择集是否含文本节点（文字分区显隐）。 */
 export function selectionHasText(page: ScenePage, selection: Selection): boolean {
   return selectionNodes(page, selection).some((node) => node.type === 'text');

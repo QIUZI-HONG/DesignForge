@@ -112,7 +112,8 @@ export function setStrokeCommands(
     // 只给宽度但该节点没有描边：没有可改的描边行，跳过
     if (patch.color === undefined && first === undefined) return null;
 
-    const basePaint = first?.paint ?? solidPaint('#000000');
+    // 文档数据色（Design IR 填充/描边真值，非界面令牌：engine paint.ts 明确文档值不引 UI 令牌）
+    const basePaint = first?.paint ?? solidPaint('#000000'); // guard-tokens:allow 文档数据色，非界面令牌
     const paint = patch.color === undefined ? basePaint : solidPaint(patch.color, 1);
     const width = patch.width ?? first?.width ?? 1;
     const align = first?.align ?? 'inside';
@@ -187,4 +188,29 @@ export function applyAutoLayoutCommands(
   // 预览补丁后的页面，再交引擎布局求解器定位子项与容器尺寸
   const nextPage = getPage(setNodeProps(doc, pageId, frameId, { autoLayout: config }), pageId);
   return [first, ...autoLayoutCommands(nextPage, pageId, frameId)];
+}
+
+/**
+ * 批量自动布局读写（多画板选中）：逐个画板求命令，并在**预览文档**上折叠前序补丁，
+ * 保证嵌套画板（自动布局套自动布局）的求解基准正确；全部命令一条事务提交。
+ */
+export function applyAutoLayoutToSelectionCommands(
+  doc: DesignDocument,
+  pageId: PageId,
+  frameIds: readonly NodeId[],
+  patch: Partial<AutoLayoutConfig> | null,
+): Command[] {
+  let commands: Command[] = [];
+  let preview: DesignDocument = doc;
+  for (const frameId of frameIds) {
+    const perFrame = applyAutoLayoutCommands(preview, pageId, frameId, patch);
+    if (perFrame.length === 0) continue;
+    commands = [...commands, ...perFrame];
+    for (const command of perFrame) {
+      if (command.type === 'node.update') {
+        preview = setNodeProps(preview, pageId, command.nodeId, command.patch);
+      }
+    }
+  }
+  return commands;
 }
