@@ -221,6 +221,7 @@ function evaluateSkill(root: string, pieces: ProbePiece[], input: IdentifyInput)
         ],
         treeDigest: digestForRoot(input.tree, root),
         capabilities: [],
+        brandDerived: false,
       },
       rejections: [],
     };
@@ -278,6 +279,7 @@ function evaluateSkill(root: string, pieces: ProbePiece[], input: IdentifyInput)
       checks,
       treeDigest: digestForRoot(input.tree, root),
       capabilities: [],
+      brandDerived: false,
     },
     rejections: [],
   };
@@ -320,6 +322,7 @@ function evaluatePlugin(root: string, pieces: ProbePiece[], input: IdentifyInput
           checks: [{ rule: 'content-fetched', ok: false, detail: `${kindLabel} 未取回，校验待补` }],
           treeDigest: digestForRoot(input.tree, root),
           capabilities: [],
+          brandDerived: false,
         },
         rejections: [],
       };
@@ -348,6 +351,7 @@ function evaluatePlugin(root: string, pieces: ProbePiece[], input: IdentifyInput
             ],
             treeDigest: digestForRoot(input.tree, root),
             capabilities: [],
+            brandDerived: false,
           },
           rejections,
         };
@@ -392,6 +396,7 @@ function evaluatePlugin(root: string, pieces: ProbePiece[], input: IdentifyInput
             ],
             treeDigest: digestForRoot(input.tree, root),
             capabilities: [],
+            brandDerived: false,
           },
           rejections,
         };
@@ -425,6 +430,7 @@ function evaluatePlugin(root: string, pieces: ProbePiece[], input: IdentifyInput
           ],
           treeDigest: digestForRoot(input.tree, root),
           capabilities: [],
+          brandDerived: false,
         },
         rejections,
       };
@@ -464,6 +470,7 @@ function evaluatePlugin(root: string, pieces: ProbePiece[], input: IdentifyInput
             ],
             treeDigest: digestForRoot(input.tree, root),
             capabilities: [],
+            brandDerived: false,
           },
           rejections,
         };
@@ -663,7 +670,7 @@ function evaluateDesignSystem(
     nameCandidate !== null && nameCandidate.trim() !== ''
       ? slugify(nameCandidate) || nameCandidate
       : fallbackName(root, input.repoFullName);
-  const _brandDerived = detectBrandDerived({ name: assetName, manifestSourceType });
+  const brandDerived = detectBrandDerived({ name: assetName, manifestSourceType });
 
   return {
     kind: 'design-system',
@@ -679,6 +686,7 @@ function evaluateDesignSystem(
       checks,
       treeDigest: digestForRoot(input.tree, root),
       capabilities: [],
+      brandDerived,
     },
     rejections,
   };
@@ -712,6 +720,7 @@ function evaluateTemplate(root: string, pieces: ProbePiece[], input: IdentifyInp
             checks: [{ rule: 'content-fetched', ok: false, detail: '模板清单未取回，校验待补' }],
             treeDigest: digestForRoot(input.tree, root),
             capabilities: [],
+            brandDerived: false,
           },
           rejections: [],
         };
@@ -817,6 +826,7 @@ function evaluateTemplate(root: string, pieces: ProbePiece[], input: IdentifyInp
         checks,
         treeDigest: digestForRoot(input.tree, root),
         capabilities: [],
+        brandDerived: false,
       },
       rejections,
     };

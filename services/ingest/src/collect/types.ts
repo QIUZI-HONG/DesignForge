@@ -121,6 +121,11 @@ export interface IdentifiedAsset {
   treeDigest: string;
   /** 能力证据（首版仅 `mcp`：`.mcp.json` 单独出现不升类，只作能力证据）。 */
   capabilities: string[];
+  /**
+   * 品牌复刻（规格 §2.4/§7.2）：true → 该资产守门 blocked。
+   * 资产粒度字段；仓级 license 判定不含此标记（避免一仓一品牌件拖累全仓）。
+   */
+  brandDerived: boolean;
 }
 
 /** 被拒绝的候选（内容校验未过），保留用于证据与调参。 */
