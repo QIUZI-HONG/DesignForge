@@ -14,6 +14,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run test",
+    "verify:daemon": "node scripts/verify-daemon.mjs",
     "guard:deps": "node scripts/guard-deps.mjs",
     "guard:electron-baseline": "node scripts/guard-electron-baseline.mjs",
     "guard:mcp-contract": "node scripts/guard-mcp-contract.mjs",
