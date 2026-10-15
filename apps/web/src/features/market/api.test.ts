@@ -13,6 +13,7 @@ import {
   buildMarketAssetUrl,
   buildMarketLoadPlanUrl,
   buildMarketQueryUrl,
+  buildSourceUrl,
   classifyMarketOutcome,
   classifyWarnings,
   DEFAULT_DAEMON_URL,
@@ -192,5 +193,23 @@ describe('api · 取数（假 fetch）', () => {
     expect(assetFromDetail({ found: true, asset: makeAsset() })?.id).toBe(
       'gh:acme/skills#skills/pdf-export',
     );
+  });
+});
+
+describe('api · 溯源链接', () => {
+  it('拼 GitHub commit 固定链接（路径为空时指仓库根）', () => {
+    const asset = makeAsset();
+    expect(buildSourceUrl(asset)).toBe(
+      'https://github.com/acme/skills/tree/a1b2c3d4e5f60718293a4b5c6d7e8f9012345678/skills/pdf-export',
+    );
+    const atRoot = makeAsset({ source: { ...asset.source, path: '' } });
+    expect(buildSourceUrl(atRoot)).toBe(
+      'https://github.com/acme/skills/tree/a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+    );
+  });
+
+  it('缺 repo/commit → null（不造死链）', () => {
+    const asset = makeAsset({ source: { ...makeAsset().source, ref: '' } });
+    expect(buildSourceUrl(asset)).toBeNull();
   });
 });

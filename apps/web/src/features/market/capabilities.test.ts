@@ -12,6 +12,7 @@ import {
   describeCapability,
   describeInstallButton,
   describeLicenseGate,
+  describeRequirementTags,
 } from './capabilities';
 
 describe('capabilities · 词表（§7.1，不新增词）', () => {
@@ -111,5 +112,22 @@ describe('capabilities · license 三档与安装按钮三态', () => {
       labelKey: 'market.install.loaded',
       disabled: false,
     });
+  });
+});
+
+describe('capabilities · 卡片运行前提标签（§6.1）', () => {
+  it('无联网/凭据/子进程需求 → 本地离线可用', () => {
+    expect(describeRequirementTags(['prompt:inject', 'fs:read'])).toEqual(['market.tag.localOnly']);
+  });
+
+  it('按需标出连接器/域名/云端 key/子进程授权', () => {
+    expect(
+      describeRequirementTags(['prompt:inject', 'connector:notion', 'network', 'llm:call', 'bash']),
+    ).toEqual([
+      'market.tag.needsConnector',
+      'market.tag.needsNetwork',
+      'market.tag.needsLlm',
+      'market.tag.needsSubprocess',
+    ]);
   });
 });

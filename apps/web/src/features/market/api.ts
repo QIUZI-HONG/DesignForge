@@ -207,3 +207,13 @@ export function classifyMarketOutcome(response: MarketQueryResponse): MarketOutc
 
 /** 采集指引命令（空态给用户「去跑采集」——MK 线的 CLI 口径，不假装能自动补数据）。 */
 export const MARKET_COLLECT_COMMAND = 'df market collect && df market score && df market index';
+
+/** 溯源链接（D2/D1「查看来源」）：GitHub 上该资产根目录的 commit 固定链接。 */
+export function buildSourceUrl(asset: MarketAsset): string | null {
+  const repo = asset.source.repo;
+  const ref = asset.source.ref;
+  if (repo.length === 0 || ref.length === 0) return null;
+  const path = asset.source.path;
+  const suffix = path.length > 0 ? `/${path}` : '';
+  return `https://github.com/${repo}/tree/${ref}${suffix}`;
+}

@@ -214,3 +214,19 @@ export function describeInstallButton(
       };
   }
 }
+
+/**
+ * 卡片标签（规格 §6.1：需连接器 / 需云端 key / 本地离线可用 + 许可档）。
+ * 返回 i18n 键：按能力推导「运行前提」，无联网/凭据/子进程需求时标「本地离线可用」。
+ */
+export function describeRequirementTags(capabilities: readonly string[]): string[] {
+  const tags: string[] = [];
+  if (capabilities.some((id) => id.startsWith('connector:')))
+    tags.push('market.tag.needsConnector');
+  if (capabilities.includes('network')) tags.push('market.tag.needsNetwork');
+  if (capabilities.includes('llm:call')) tags.push('market.tag.needsLlm');
+  if (capabilities.some((id) => id === 'subprocess' || id === 'bash'))
+    tags.push('market.tag.needsSubprocess');
+  if (tags.length === 0) tags.push('market.tag.localOnly');
+  return tags;
+}
