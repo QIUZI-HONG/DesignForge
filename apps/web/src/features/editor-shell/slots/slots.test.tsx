@@ -81,9 +81,7 @@ describe('插槽注册表', () => {
 
 describe('EditorSlotHost', () => {
   it('渲染注册项（按 order），空槽渲染 fallback', () => {
-    render(
-      <EditorSlotHost slot="left-panel" fallback={<span>空槽兜底</span>} />,
-    );
+    render(<EditorSlotHost slot="left-panel" fallback={<span>空槽兜底</span>} />);
     expect(screen.getByText('空槽兜底')).toBeDefined();
 
     act(() => {

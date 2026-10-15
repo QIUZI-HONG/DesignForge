@@ -7,8 +7,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  canRunCommand,
   type Command,
+  canRunCommand,
   commandRegistry,
   getCommand,
   registerCommand,
