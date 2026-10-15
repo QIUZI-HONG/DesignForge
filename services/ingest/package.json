@@ -10,7 +10,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dforge/contracts": "workspace:*"
+    "@dforge/contracts": "workspace:*",
+    "hyparquet": "1.31.4",
+    "hyparquet-writer": "0.16.12"
   },
   "devDependencies": {
     "@types/node": "catalog:",
