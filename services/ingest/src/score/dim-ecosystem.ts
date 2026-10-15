@@ -13,8 +13,13 @@
  * 冷启动托底（规格 §5.4）：新资产（<90 天）或零采纳（无星无 fork 无引用）→
  * 本维整体置空（null = 雷达空心），**由总分重归一化实现「spec + maintenance 托底」**：
  * 不给零采纳记 0 分，也不让它永远垫底。观测值照留在信号里（可解释）。
+ *
+ * 扣分记账：只有「分位 ≤ 0.5（不在批内前一半）」的轴才记 E 码——词表写「低」，
+ * 就不把分位 0.8 的轴也挂上「低」；分位 > 0.5 的分差照实落在分值里。
+ * 因此本维「Σ扣分 = 1 − 维度分」只在所有轴都可记时成立（其余维度无此例外）。
  */
 
+import type { ReasonCode } from './codes.ts';
 import { REASON_TEXT } from './codes.ts';
 import { batchPercentile, starsGrowthRate } from './percentile.ts';
 import { daysBetween } from './time.ts';
@@ -104,25 +109,26 @@ export function scoreEcosystem(
 
   const byCode = new Map(signals.map((s) => [s.code, s]));
 
-  /** 按信号当前子分记一笔扣分（理由带上分位与观测值）。 */
-  const deduct = (signalCode: string, reasonCode: string, describe: () => string) => {
+  /**
+   * 记一笔生态热度扣分。口径：**只有「不在批内前一半」（分位 ≤ 0.5）的轴才记 E 码**——
+   * 词表写的是「低」，分位 0.8 还挂「低」会与理由打架；分位 > 0.5 的分差照实落在
+   * 分值里（可观测量，不硬编一个人话标签）。
+   */
+  const deduct = (signalCode: string, reasonCode: ReasonCode, detail: string) => {
     const s = byCode.get(signalCode);
-    if (s === undefined || s.score === null || s.score >= 1) return null;
+    if (s === undefined || s.score === null || s.score > 0.5) return null;
     return makeDeduction(
       reasonCode,
-      `${describe()}（批内分位 ${roundTo(s.score, 2)}）`,
+      `${REASON_TEXT[reasonCode]}（${detail}，批内分位 ${roundTo(s.score, 2)}）`,
       normalizedWeight(signals, signalCode) * (1 - s.score),
     );
   };
 
+  const growthSignal = byCode.get('ecosystem.stars-growth');
   const deductions = collectDeductions([
-    deduct(
-      'ecosystem.stars-growth',
-      'E1',
-      () => `${REASON_TEXT.E1}（增速 ${byCode.get('ecosystem.stars-growth')?.value ?? '—'}）`,
-    ),
-    deduct('ecosystem.forks', 'E2', () => `${REASON_TEXT.E2}（fork ${input.repo.forks}）`),
-    deduct('ecosystem.referenced', 'E3', () => `${REASON_TEXT.E3}（被引用 ${referenced ?? '—'}）`),
+    deduct('ecosystem.stars-growth', 'E1', `增速 ${growthSignal?.value ?? '—'}`),
+    deduct('ecosystem.forks', 'E2', `fork ${input.repo.forks}`),
+    deduct('ecosystem.referenced', 'E3', `被引用 ${referenced ?? '—'}`),
   ]);
 
   return { score: finalizeScore(weightedMean(signals)), signals, deductions };
