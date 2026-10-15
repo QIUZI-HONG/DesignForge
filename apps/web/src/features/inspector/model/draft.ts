@@ -21,6 +21,11 @@ export interface DraftCommit<T> {
   draft: T | null;
   /** 记录一次变更（重置 300ms 计时）。 */
   setDraft(value: T): void;
+  /**
+   * 只改草稿、**不安排自动提交**（拖拽 scrub 期间用：连续位移最终由 `flush()` 收口，
+   * 保证「连续拖拽只落一次命令」，中途停顿也不会被 300ms 计时截断）。
+   */
+  setDraftLive(value: T): void;
   /** 立即提交（Enter/blur/pointerup）；无草稿时为空操作。 */
   flush(): void;
   /** 丢弃草稿（Esc/卸载）；不提交。 */
@@ -85,6 +90,15 @@ export function useDraftCommit<T>({
     [clearTimer, commitNow, delayMs],
   );
 
+  const setDraftLive = useCallback(
+    (next: T): void => {
+      clearTimer(); // 拖拽期间抑制自动提交（由 pointerup 的 flush 收口）
+      draftRef.current = next;
+      setDraftState(next);
+    },
+    [clearTimer],
+  );
+
   const cancel = useCallback((): void => {
     clearTimer();
     draftRef.current = null;
@@ -94,5 +108,5 @@ export function useDraftCommit<T>({
   // 卸载即丢弃草稿：不留悬挂计时器（提交必须在挂载期发生）
   useEffect(() => clearTimer, [clearTimer]);
 
-  return { draft, setDraft, flush: commitNow, cancel };
+  return { draft, setDraft, setDraftLive, flush: commitNow, cancel };
 }

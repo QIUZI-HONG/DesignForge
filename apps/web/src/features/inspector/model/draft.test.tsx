@@ -116,6 +116,35 @@ describe('useDraftCommit（300ms 提交语义）', () => {
     expect(commit).toHaveBeenCalledWith(7);
   });
 
+  it('setDraftLive 不安排自动提交（拖拽期间静默超窗也不提交，由 flush 收口）', () => {
+    const commit = vi.fn();
+    const { result } = renderHook(() => useDraftCommit<number>({ value: 0, commit }));
+
+    act(() => result.current.setDraftLive(1));
+    act(() => vi.advanceTimersByTime(COMMIT_DELAY_MS * 5));
+    act(() => result.current.setDraftLive(2));
+    act(() => vi.advanceTimersByTime(COMMIT_DELAY_MS * 5));
+    expect(commit).not.toHaveBeenCalled();
+
+    act(() => result.current.flush());
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledWith(2);
+  });
+
+  it('setDraftLive 会取消已安排的自动提交（先敲键再拖拽不会双提交）', () => {
+    const commit = vi.fn();
+    const { result } = renderHook(() => useDraftCommit<number>({ value: 0, commit }));
+
+    act(() => result.current.setDraft(1));
+    act(() => result.current.setDraftLive(2));
+    act(() => vi.advanceTimersByTime(COMMIT_DELAY_MS * 3));
+    expect(commit).not.toHaveBeenCalled();
+
+    act(() => result.current.flush());
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledWith(2);
+  });
+
   it('卸载时丢弃未提交的草稿（不留悬挂计时器）', () => {
     const commit = vi.fn();
     const { result, unmount } = renderHook(() => useDraftCommit<number>({ value: 0, commit }));
