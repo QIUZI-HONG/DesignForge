@@ -109,7 +109,7 @@
   opacity: 0;
 }
 
-/* C20 HUD：11px 反白小条 */
+/* C20 HUD：11 号字反白小条（--dfg-font-size-11） */
 .dfc-canvas-hud {
   position: absolute;
   left: 50%;

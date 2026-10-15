@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * C20 画布 HUD：**11px 反白小条**；**拖动出现、松手消失**。
+ * C20 画布 HUD：**11 号字反白小条**（`--dfg-font-size-11`）；**拖动出现、松手消失**。
  *
  * 分工说明（跨票排序）：正式接口是 FE-03 的 `useCanvasHud()`（`show/hide`）。
  * FE-03 尚未落地（integration/p0 上还没有 editor-shell），本票在自己的特征目录里
