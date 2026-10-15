@@ -59,7 +59,7 @@ export function probeTree(tree: TreeEntry[]): ProbePiece[] {
     if (type !== 'blob') continue;
 
     const name = baseName(path);
-    const piece = classifyBlob(name, path);
+    const piece = classifyBlob(name);
     if (piece === null) continue;
 
     let root = parentDir(path);
@@ -79,7 +79,7 @@ export function probeTree(tree: TreeEntry[]): ProbePiece[] {
 }
 
 /** 单个 blob 的探针判定（大小写敏感：只认规格列出的确切名字）。 */
-function classifyBlob(name: string, path: string): PieceKind | null {
+function classifyBlob(name: string): PieceKind | null {
   switch (name) {
     case 'SKILL.md':
       return 'skill-doc';
@@ -95,13 +95,13 @@ function classifyBlob(name: string, path: string): PieceKind | null {
       return 'template-manifest';
     case 'manifest.json':
       return 'manifest-json';
+    case 'components.manifest.json':
+      return 'components-manifest';
     case '.mcp.json':
       return 'mcp-json';
     default:
       break;
   }
   if (TOKENS_BASENAMES.has(name)) return 'tokens-file';
-  // 防御：路径末段即目录名形态（如 `a/preview` 被误标 blob）不在此处理。
-  void path;
   return null;
 }

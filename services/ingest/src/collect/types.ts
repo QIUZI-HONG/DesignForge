@@ -73,6 +73,8 @@ export type PieceKind =
   | 'template-manifest'
   /** `manifest.json`：设计系统清单与模板清单的共用文件名，由内容校验分流（规格 §2.4/§2.5）。 */
   | 'manifest-json'
+  /** `components.manifest.json`：设计系统组件清单（规格 §2.4 硬门槛的佐证件之一）。 */
+  | 'components-manifest'
   | 'preview-dir'
   | 'examples-dir'
   | 'mcp-json';
