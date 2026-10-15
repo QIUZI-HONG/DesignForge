@@ -23,11 +23,11 @@ import { buildMenuTemplate } from './menu.js';
 import { resolvePreloadPath } from './preload-path.js';
 import {
   evaluateSelfCheck,
-  splitSecurityFindings,
   type SecuritySnapshot,
   SHELL_SELF_CHECK_SCHEMA,
   type ShellBaselineProbeReport,
   type ShellSelfCheckReport,
+  splitSecurityFindings,
 } from './shell-selfcheck.js';
 import { startCorsProbeServer, startStaticServer } from './static-server.js';
 import { buildWindowOptions, WINDOW_SIZE } from './window-options.js';
@@ -110,6 +110,8 @@ async function readPageSnapshot(window: BrowserWindow) {
       bodyChildren: document.body ? document.body.children.length : 0,
       marker: document.querySelector('[data-dforge-shell-fallback]')?.getAttribute('data-dforge-shell-fallback') ?? null,
       devicePixelRatio: window.devicePixelRatio,
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
       nodeGlobals: {
         require: typeof require !== 'undefined',
         process: typeof process !== 'undefined',
@@ -129,9 +131,54 @@ interface PageProbe {
   bodyChildren: number;
   marker: string | null;
   devicePixelRatio: number;
+  innerWidth: number;
+  innerHeight: number;
   nodeGlobals: { require: boolean; process: boolean; module: boolean };
   contextIsolated: boolean | null;
   sandboxed: boolean | null;
+}
+
+/**
+ * 把**页面视口**校正到基准尺寸。
+ *
+ * 为什么需要：合成器按物理像素取整（本机 WSLg + `force-device-scale-factor=1.5` 实测内容区
+ * 1441×901 而非 1440×900）——差 1px 会让「壳内截图 vs 浏览器截图」的逐像素对照失去可比性
+ * （验收标准 §3）。这里做**有界**试探（至多 4 次），命中即止；一次都没命中就如实记进 notes，
+ * 不伪装成通过。
+ */
+async function fitViewportToBaseline(
+  window: BrowserWindow,
+  target: { width: number; height: number },
+): Promise<string[]> {
+  const notes: string[] = [];
+  const measure = async () => {
+    const raw = (await window.webContents.executeJavaScript(
+      'JSON.stringify([window.innerWidth, window.innerHeight])',
+    )) as string;
+    return JSON.parse(raw) as [number, number];
+  };
+
+  for (const [candidateWidth, candidateHeight] of [
+    [target.width, target.height],
+    [target.width - 1, target.height - 1],
+    [target.width - 2, target.height - 2],
+    [target.width + 1, target.height + 1],
+  ] as Array<[number, number]>) {
+    window.setContentSize(candidateWidth, candidateHeight);
+    const [innerWidth, innerHeight] = await measure();
+    if (innerWidth === target.width && innerHeight === target.height) {
+      notes.push(
+        `页面视口已校正：请求 ${candidateWidth}×${candidateHeight} → 实测 ${innerWidth}×${innerHeight}`,
+      );
+      return notes;
+    }
+  }
+
+  const [finalWidth, finalHeight] = await measure();
+  notes.push(
+    `页面视口无法精确校正到 ${target.width}×${target.height}（合成器取整），实测 ${finalWidth}×${finalHeight}`,
+  );
+  return notes;
 }
 
 /**
@@ -243,6 +290,9 @@ async function runSmoke(reportPath: string, pngPath?: string): Promise<never> {
     writeFileSync(pngPath, image.toPNG());
   }
 
+  // 对照态要求页面视口严格等于基准（合成器取整会偏 1px），故先做有界校正再看事实
+  const notes = await fitViewportToBaseline(window, WINDOW_SIZE);
+
   const page = await readPageSnapshot(window);
   const probe = await startCorsProbeServer();
   let security: SecuritySnapshot;
@@ -261,6 +311,8 @@ async function runSmoke(reportPath: string, pngPath?: string): Promise<never> {
       width: contentWidth ?? WINDOW_SIZE.width,
       height: contentHeight ?? WINDOW_SIZE.height,
       devicePixelRatio: page.devicePixelRatio,
+      innerWidth: page.innerWidth,
+      innerHeight: page.innerHeight,
     },
     security,
     page: {
@@ -270,6 +322,7 @@ async function runSmoke(reportPath: string, pngPath?: string): Promise<never> {
       bodyChildren: page.bodyChildren,
       marker: page.marker,
     },
+    notes,
   };
 
   const expectation = hasDpr

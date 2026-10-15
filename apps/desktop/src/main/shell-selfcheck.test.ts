@@ -22,7 +22,7 @@ const report = (over: Partial<ShellSelfCheckReport> = {}): ShellSelfCheckReport 
     url: 'http://127.0.0.1:45678/index.html',
     reason: 'apps/web/out（静态产物）',
   },
-  window: { width: 1440, height: 900, devicePixelRatio: 1.5 },
+  window: { width: 1440, height: 900, devicePixelRatio: 1.5, innerWidth: 1440, innerHeight: 900 },
   security: { ...SECURITY_BASELINE },
   page: {
     href: 'http://127.0.0.1:45678/index.html',
@@ -66,21 +66,56 @@ describe('壳自检判据（冒烟段的地基）', () => {
     expect(failures.join()).toContain('同源');
   });
 
-  it('窗口尺寸/DPR 与验收基准不符 → 点名（DPR 仅对照态约束）', () => {
+  it('窗口尺寸/DPR 与验收基准不符 → 点名（对照判据只看页面视口）', () => {
     const failures = evaluateSelfCheck(
-      report({ window: { width: 1280, height: 800, devicePixelRatio: 1 } }),
+      report({
+        window: {
+          width: 1280,
+          height: 800,
+          devicePixelRatio: 1,
+          innerWidth: 1280,
+          innerHeight: 800,
+        },
+      }),
       {
         expectViewport: { width: 1440, height: 900, dpr: 1.5 },
       },
     );
 
-    expect(failures.join()).toContain('窗口尺寸');
+    expect(failures.join()).toContain('页面视口');
     expect(failures.join()).toContain('devicePixelRatio');
+  });
+
+  it('窗口内容区比视口大 1px（合成器取整）不算失败——判据是页面视口', () => {
+    expect(
+      evaluateSelfCheck(
+        report({
+          window: {
+            width: 1441,
+            height: 901,
+            devicePixelRatio: 1.5,
+            innerWidth: 1440,
+            innerHeight: 900,
+          },
+        }),
+        { expectViewport: { width: 1440, height: 900, dpr: 1.5 } },
+      ),
+    ).toEqual([]);
   });
 
   it('未给基准时不做尺寸约束（普通启动冒烟只看装载与基线）', () => {
     expect(
-      evaluateSelfCheck(report({ window: { width: 1280, height: 800, devicePixelRatio: 1 } })),
+      evaluateSelfCheck(
+        report({
+          window: {
+            width: 1280,
+            height: 800,
+            devicePixelRatio: 1,
+            innerWidth: 1280,
+            innerHeight: 800,
+          },
+        }),
+      ),
     ).toEqual([]);
   });
 

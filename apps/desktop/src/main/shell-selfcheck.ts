@@ -37,10 +37,22 @@ export interface ShellSelfCheckReport {
   mode: 'smoke' | 'capture';
   /** 装载目标（含 reason，便于证据溯源）。 */
   target: { kind: string; url: string; reason: string };
-  /** 窗口实测尺寸与页面 DPR。 */
-  window: { width: number; height: number; devicePixelRatio: number };
+  /**
+   * 窗口实测尺寸与页面 DPR。`width/height` 是窗口内容区（诊断用）；
+   * **对照判据看 `innerWidth/innerHeight`**——那才是页面真正拿到的 CSS 视口（窗口装饰/合成器
+   * 取整都会让两者差 1px，而一致性对照只认视口）。
+   */
+  window: {
+    width: number;
+    height: number;
+    devicePixelRatio: number;
+    innerWidth: number;
+    innerHeight: number;
+  };
   security: SecuritySnapshot;
   page: ShellPageSnapshot;
+  /** 取自检过程的说明性事实（视口校正、装载来源等）——不参与判据，只作证据。 */
+  notes?: string[];
 }
 
 /** 基线探针报告（`--df-baseline-probe` 打印的 JSON；只需安全快照）。 */
@@ -121,9 +133,12 @@ export function evaluateSelfCheck(
 
   const viewport = expectation.expectViewport;
   if (viewport) {
-    if (report.window.width !== viewport.width || report.window.height !== viewport.height) {
+    if (
+      report.window.innerWidth !== viewport.width ||
+      report.window.innerHeight !== viewport.height
+    ) {
       failures.push(
-        `窗口尺寸与验收基准不符（期望 ${viewport.width}×${viewport.height}，实际 ${report.window.width}×${report.window.height}）`,
+        `页面视口与验收基准不符（期望 ${viewport.width}×${viewport.height} CSS，实际 ${report.window.innerWidth}×${report.window.innerHeight}；窗口内容区 ${report.window.width}×${report.window.height}）`,
       );
     }
     if (Math.abs(report.window.devicePixelRatio - viewport.dpr) > 1e-6) {

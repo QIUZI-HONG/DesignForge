@@ -99,7 +99,11 @@ function findExportedObjectLiteral(sourceFile, name) {
       return;
     }
     for (const declaration of node.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== name || !declaration.initializer) {
+      if (
+        !ts.isIdentifier(declaration.name) ||
+        declaration.name.text !== name ||
+        !declaration.initializer
+      ) {
         continue;
       }
       // 兼容 `as const` / `satisfies X` 包裹：基线常量常用它们约束形状，静态读须先剥壳。
@@ -133,7 +137,9 @@ function checkBaselineLiteral(sourceFile) {
     const actual = literalPropertyValue(objectLiteral, key);
     if (actual === undefined) {
       undeterminedKeys.push(key);
-      undetermined.push(`${BASELINE_CONST}.${key} 非字面量或缺失（静态无法判定，期望 ${String(expected)}）`);
+      undetermined.push(
+        `${BASELINE_CONST}.${key} 非字面量或缺失（静态无法判定，期望 ${String(expected)}）`,
+      );
       continue;
     }
     found[key] = actual;
@@ -196,7 +202,11 @@ function checkWindowPreferences(sourceFile) {
   }
 
   webPreferencesObject.properties.forEach((property, index) => {
-    if (index <= spreadIndex || !ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name)) {
+    if (
+      index <= spreadIndex ||
+      !ts.isPropertyAssignment(property) ||
+      !ts.isIdentifier(property.name)
+    ) {
       return;
     }
     if (property.name.text in EXPECTED_BASELINE) {
@@ -284,8 +294,16 @@ function main() {
     const preferences = checkWindowPreferences(sourceFile);
     const mainChecks = isFixtureRun ? { violations: [], undetermined: [] } : checkMainProcess();
 
-    report.violations.push(...literal.violations, ...preferences.violations, ...mainChecks.violations);
-    report.undetermined.push(...literal.undetermined, ...preferences.undetermined, ...mainChecks.undetermined);
+    report.violations.push(
+      ...literal.violations,
+      ...preferences.violations,
+      ...mainChecks.violations,
+    );
+    report.undetermined.push(
+      ...literal.undetermined,
+      ...preferences.undetermined,
+      ...mainChecks.undetermined,
+    );
     report.found = literal.found;
     for (const key of literal.undeterminedKeys ?? []) {
       staticallyUndeterminedKeys.add(key);
@@ -294,7 +312,11 @@ function main() {
 
   // 静态判不出（或显式 --probe 要求交叉验证）→ 跑一次运行时探针
   const wantProbe = probeFlag && !probeDisabled;
-  if (report.violations.length === 0 && (wantProbe || report.undetermined.length > 0) && !probeDisabled) {
+  if (
+    report.violations.length === 0 &&
+    (wantProbe || report.undetermined.length > 0) &&
+    !probeDisabled
+  ) {
     const probe = runRuntimeProbe();
     if (probe.blocked) {
       report.undetermined.push(probe.blocked);

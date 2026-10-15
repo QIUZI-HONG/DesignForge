@@ -55,6 +55,10 @@ export function buildWindowOptions({
   preloadPath,
 }: BuildWindowOptionsInput): BrowserWindowConstructorOptions {
   return {
+    // `useContentSize`：宽高指**网页内容区**（= 验收基准视口 1440×900 CSS），而非含窗口边框的外框。
+    // 少了这一项，壳内视口会随窗口装饰漂移（本机实测外框口径下内容区为 1442×902）——
+    // 一旦与浏览器侧 1440×900 不一致，验收标准 §3 的「同页同口径截图」就不成立。
+    useContentSize: true,
     width: WINDOW_SIZE.width,
     height: WINDOW_SIZE.height,
     minWidth: WINDOW_MIN_SIZE.width,

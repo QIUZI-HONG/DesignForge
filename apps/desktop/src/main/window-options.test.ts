@@ -26,6 +26,12 @@ describe('安全基线与窗口口径', () => {
     });
   });
 
+  it('宽高按内容区口径（useContentSize）——视口必须等于 1440×900，不含窗口装饰', () => {
+    const options = buildWindowOptions({ preloadPath: '/opt/df-preload.cjs' });
+
+    expect(options.useContentSize).toBe(true);
+  });
+
   it('窗口先隐藏、就绪后再显示（避免白屏闪烁，同 Figma 口径）', () => {
     const options = buildWindowOptions({ preloadPath: '/opt/df-preload.cjs' });
 

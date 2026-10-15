@@ -7,7 +7,7 @@
  * 测试面：请求解析（`resolveStaticFileRequest`）是纯函数，含路径穿越防护；
  * `startStaticServer` 只是 node:http 的薄壳，行为由启动冒烟段（scripts/verify-shell-parity.mjs）端到端覆盖。
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { extname, join, normalize } from 'node:path';
@@ -114,15 +114,6 @@ export function startStaticServer(rootDir: string): Promise<{ server: Server; or
       resolve({ server, origin: `http://127.0.0.1:${address.port}` });
     });
   });
-}
-
-/** 判断路径是否是目录（供调用方做「目录 or 单文件」分派）。 */
-export function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 /**
