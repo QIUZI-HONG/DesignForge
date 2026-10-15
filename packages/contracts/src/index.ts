@@ -21,4 +21,13 @@
 /** 包标识（供冒烟测试与契约快照校验使用）。 */
 export const CONTRACTS_PACKAGE = '@dforge/contracts' as const;
 
+export * from './ai/index.ts';
+export * from './config/index.ts';
+export * from './documents/index.ts';
+export * from './evidence/index.ts';
+export * from './export/index.ts';
+export * from './image/index.ts';
 export * from './ipc/index.ts';
+export * from './market/index.ts';
+export * from './mcp/index.ts';
+export * from './telemetry/index.ts';
