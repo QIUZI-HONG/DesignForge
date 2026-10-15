@@ -6,7 +6,7 @@
  * （安全维扣分推导：有 X1/X2/X3 类扣分 → warn，否则 pass）。
  */
 
-import type { ads, score } from '@dforge/ingest';
+import { type ads, score } from '@dforge/ingest';
 import type { JoinedAsset } from './dwd-map.ts';
 import { deriveFacets } from './facets.ts';
 
@@ -19,6 +19,44 @@ export function securityVerdict(record: AssetQualityRecord): 'pass' | 'warn' {
     (deduction) => deduction.delta > 0 && deduction.code.startsWith('X'),
   );
   return penalties.length > 0 ? 'warn' : 'pass';
+}
+
+/**
+ * 卡片 `quality` 投影（规格 §1.2/§5.1）。
+ *
+ * 卡片契约的五维是**数字**（无「空心」表达），故 DWS 的 `dim: null`（无信号，§5.3 雷达空心）
+ * 在本层折成 0 并重算总分 = Σ(权重 × 维度分)（§5.1 口径，两位小数）——让卡片自洽（总分与五维
+ * 对得上，与 MK-04 严格校验器的互证规则一致）；DWS 记录里保留 null 感知的原始总分，卡片
+ * `reasons` 里带「空心」说明（详情页据此显示空心轴，§5.3）。本批 26 处空心（均冷启动记录）走此路径。
+ */
+export function cardQuality(
+  quality: ReturnType<typeof score.scoreBatch>['records'][number],
+): ads.DwsAssetRecord['quality'] {
+  const dims = {
+    spec: quality.dims.spec ?? 0,
+    maintenance: quality.dims.maintenance ?? 0,
+    docs: quality.dims.docs ?? 0,
+    security: quality.dims.security ?? 0,
+    ecosystem: quality.dims.ecosystem ?? 0,
+  };
+  const weighted =
+    dims.spec * score.DIM_WEIGHTS.spec +
+    dims.maintenance * score.DIM_WEIGHTS.maintenance +
+    dims.docs * score.DIM_WEIGHTS.docs +
+    dims.security * score.DIM_WEIGHTS.security +
+    dims.ecosystem * score.DIM_WEIGHTS.ecosystem;
+  return {
+    score: Math.round(weighted * 100) / 100,
+    dims,
+    explain: quality.explain as unknown as NonNullable<ads.DwsAssetRecord['quality']['explain']>,
+  };
+}
+
+/** 摘要截断（规格 §1.2：卡片一句话简介中文 ≤80 字；超长保留前 79 字 + 省略号）。 */
+export function clipSummary(text: string, maxChars = 80): string {
+  const trimmed = text.trim().replace(/\s+/g, ' ');
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars - 1)}…`;
 }
 
 /** 单条联结：DWD 资产行 + 评分行 + 分类面 → ADS 输入契约。 */
@@ -40,7 +78,11 @@ export function buildDwsRecord(
     kind: asset.kind as ads.DwsAssetRecord['kind'],
     name: asset.name,
     displayName: { 'zh-CN': asset.display_name_zh_cn, en: asset.display_name_en },
-    summary: { 'zh-CN': asset.summary_zh_cn, en: asset.summary_en },
+    // 卡片摘要按规格 §1.2 截到一句话（中文 ≤80 字）；长文原文仍落 `description`（详情页「概述」）
+    summary: {
+      'zh-CN': clipSummary(asset.summary_zh_cn),
+      en: clipSummary(asset.summary_en),
+    },
     source: {
       repo: asset.repo_full_name,
       repoId: repo?.repo_id ?? asset.repo_id,
@@ -64,17 +106,7 @@ export function buildDwsRecord(
     },
     capabilities: Array.isArray(asset.capabilities) ? [...asset.capabilities] : [],
     facets: deriveFacets(joined),
-    quality: {
-      score: quality.score ?? 0,
-      dims: {
-        spec: quality.dims.spec ?? 0,
-        maintenance: quality.dims.maintenance ?? 0,
-        docs: quality.dims.docs ?? 0,
-        security: quality.dims.security ?? 0,
-        ecosystem: quality.dims.ecosystem ?? 0,
-      },
-      explain: quality.explain as unknown as NonNullable<ads.DwsAssetRecord['quality']['explain']>,
-    },
+    quality: cardQuality(quality),
     security: securityVerdict(quality),
     reasons: [
       ...(license?.reasons ?? []).slice(),
