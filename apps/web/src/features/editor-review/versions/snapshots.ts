@@ -34,7 +34,8 @@ export function createSnapshot(init: NewSnapshotInit): VersionSnapshot {
   return {
     id: init.id,
     documentId: init.documentId ?? init.document.id,
-    label: init.label ?? '手动保存',
+    // 文案归调用方（i18n：界面文案全走 ICU 消息，组件里不写死中文）
+    label: init.label ?? '',
     createdAt: init.createdAt,
     document: cloneViaJson(init.document),
   };

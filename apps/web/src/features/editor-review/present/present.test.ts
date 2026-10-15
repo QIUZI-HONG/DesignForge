@@ -62,7 +62,8 @@ describe('Present · 画板序列', () => {
   it('序号是 1 基连续编号；标签 = 页名 · 画板名', () => {
     const slides = buildSlides(presentDoc());
     expect(slides.map((slide) => slide.index)).toEqual([1, 2, 3]);
-    expect(slideLabel(slides[0]!)).toBe('页面 1 · 首屏');
+    const first = slides[0];
+    expect(first === undefined ? null : slideLabel(first)).toBe('页面 1 · 首屏');
   });
 });
 

@@ -43,7 +43,10 @@ function setup() {
     },
     backend,
     now: () => new Date(2026, 9, 15, 10, 0, clock++),
-    nextId: () => `snap-${String((counter += 1))}`,
+    nextId: () => {
+      counter += 1;
+      return `snap-${String(counter)}`;
+    },
   });
   return { store, handle, dispatched, backend };
 }

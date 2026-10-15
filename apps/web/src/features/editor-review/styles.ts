@@ -1,0 +1,245 @@
+'use client';
+
+/**
+ * 评论 / Present / 版本共享样式（内联样式对象，全部取 `@dforge/ui` 令牌变量）。
+ *
+ * 与 FE-04 面板同一口径（`editor-panels/components/styles.ts`）：样式对象随组件走，
+ * 令牌引用在 TS 里可见（`guard-tokens` 的禁裸值检查逐行兜住），jsdom 测试能直接读 `style`。
+ * 几何计算（钉点屏幕位置 = 世界坐标 × zoom + pan）显式写出，单位仍来自令牌/计算值。
+ *
+ * 主题：全部走**深色编辑器族**令牌（画布/面板/描边）；Present 的舞台底是克制的近黑，
+ * 用 `color.canvas` 的深色值并叠一层不透明的暗化由 Present 自己声明（见 `present/`）。
+ */
+import { cssVar } from '@dforge/ui';
+import type { CSSProperties } from 'react';
+
+const border = `${cssVar('border-width.hairline')} solid ${cssVar('color.border')}`;
+
+/** 文本/面板通用。 */
+export const reviewStyles = {
+  panel: {
+    display: 'flex',
+    flexDirection: 'column',
+    width: cssVar('size.sidebar'),
+    height: '100%',
+    minHeight: 0,
+    background: cssVar('color.surface'),
+    borderInline: border,
+    color: cssVar('color.text.primary'),
+    fontFamily: cssVar('font.sans'),
+    fontSize: cssVar('font-size-12'),
+    lineHeight: cssVar('line-height-base'),
+  } as CSSProperties,
+  panelHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: cssVar('space-2'),
+    padding: `${cssVar('space-2')} ${cssVar('space-3')}`,
+    borderBottom: border,
+  } as CSSProperties,
+  panelTitle: {
+    fontSize: cssVar('font-size-13'),
+    fontWeight: cssVar('font-weight-medium'),
+    color: cssVar('color.text.primary'),
+  } as CSSProperties,
+  body: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto' } as CSSProperties,
+  meta: {
+    color: cssVar('color.text.secondary'),
+    fontSize: cssVar('font-size-11'),
+  } as CSSProperties,
+  empty: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: cssVar('space-2'),
+    padding: `${cssVar('space-6')} ${cssVar('space-3')}`,
+    textAlign: 'center',
+  } as CSSProperties,
+  emptyTitle: {
+    fontSize: cssVar('font-size-13'),
+    color: cssVar('color.text.primary'),
+  } as CSSProperties,
+  emptyDesc: {
+    fontSize: cssVar('font-size-12'),
+    color: cssVar('color.text.secondary'),
+  } as CSSProperties,
+  /** 文本域（评论/回复共用；深度 4 行高由 token 最小高度给出）。 */
+  textarea: {
+    width: '100%',
+    boxSizing: 'border-box',
+    minHeight: cssVar('size.textarea-min-height'),
+    resize: 'none',
+    padding: cssVar('space-2'),
+    borderRadius: cssVar('radius-md'),
+    border,
+    background: cssVar('color.surfaceSubtle'),
+    color: cssVar('color.text.primary'),
+    fontFamily: cssVar('font.sans'),
+    fontSize: cssVar('font-size-12'),
+    lineHeight: cssVar('line-height-base'),
+  } as CSSProperties,
+  buttonRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: cssVar('space-2'),
+  } as CSSProperties,
+  error: { color: cssVar('color.danger'), fontSize: cssVar('font-size-11') } as CSSProperties,
+} satisfies Record<string, CSSProperties>;
+
+/** 评论层与钉点。 */
+export const commentStyles = {
+  /** 覆盖层：铺满画布视口，默认不吃指针事件（只有钉点/草稿卡片吃）。 */
+  layer: {
+    position: 'absolute',
+    inset: 0,
+    overflow: 'hidden',
+    pointerEvents: 'none',
+  } as CSSProperties,
+  /** 落点按钮：铺满视口的透明控件（评论模式下才渲染；键盘等价路径见组件头注释）。 */
+  surface: {
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    padding: 0,
+    border: 'none',
+    background: 'transparent',
+    cursor: 'crosshair',
+  } as CSSProperties,
+  pin: {
+    position: 'absolute',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: cssVar('icon-size-lg'),
+    height: cssVar('icon-size-lg'),
+    // 钉点锚点 = 世界坐标点：视觉中心对齐锚点（几何换算，非样式裸值）
+    transform: 'translate(-50%, -50%)',
+    borderRadius: cssVar('radius-pill'),
+    border: 'none',
+    background: cssVar('color.primary'),
+    color: cssVar('color.onPrimary'),
+    fontFamily: cssVar('font.sans'),
+    fontSize: cssVar('font-size-11'),
+    fontWeight: cssVar('font-weight-medium'),
+    cursor: 'pointer',
+    pointerEvents: 'auto',
+  } as CSSProperties,
+  pinResolved: { background: cssVar('color.success') } as CSSProperties,
+  pinActive: {
+    boxShadow: `0 0 0 ${cssVar('border-width.thick')} ${cssVar('color.focusRing')}`,
+  } as CSSProperties,
+  /** 悬停展开的预览卡（钉点右下方）。 */
+  hoverCard: {
+    position: 'absolute',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-1'),
+    minWidth: cssVar('size.menu-min-width'),
+    maxWidth: cssVar('size.tooltip-max-width'),
+    padding: cssVar('space-2'),
+    borderRadius: cssVar('radius-md'),
+    border,
+    background: cssVar('color.surfaceRaised'),
+    boxShadow: cssVar('shadow-popover'),
+    color: cssVar('color.text.primary'),
+    fontFamily: cssVar('font.sans'),
+    fontSize: cssVar('font-size-12'),
+    pointerEvents: 'none',
+  } as CSSProperties,
+  /** 草稿卡片（新评论落点处）。 */
+  draft: {
+    position: 'absolute',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-2'),
+    width: cssVar('size.sidebar'),
+    padding: cssVar('space-2'),
+    borderRadius: cssVar('radius-md'),
+    border,
+    background: cssVar('color.surfaceRaised'),
+    boxShadow: cssVar('shadow-popover'),
+    pointerEvents: 'auto',
+  } as CSSProperties,
+  /** 线程面板条目。 */
+  thread: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-1'),
+    padding: `${cssVar('space-2')} ${cssVar('space-3')}`,
+    borderBottom: border,
+    cursor: 'default',
+  } as CSSProperties,
+  threadActive: { background: cssVar('color.hover') } as CSSProperties,
+  threadHead: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: cssVar('space-2'),
+  } as CSSProperties,
+  author: {
+    fontWeight: cssVar('font-weight-medium'),
+    fontSize: cssVar('font-size-12'),
+  } as CSSProperties,
+  body: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' } as CSSProperties,
+  reply: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-1'),
+    paddingLeft: cssVar('space-3'),
+    borderLeft: `${cssVar('border-width.thick')} solid ${cssVar('color.border')}`,
+  } as CSSProperties,
+  /** 线程展开区（回复列表 + 输入 + 操作）。 */
+  threadDetail: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: cssVar('space-2'),
+    padding: `0 ${cssVar('space-3')} ${cssVar('space-3')}`,
+  } as CSSProperties,
+  /** 列表重置（ul/li 不显标记与缩进）。 */
+  listReset: { listStyle: 'none', margin: 0, padding: 0 } as CSSProperties,
+  /** 线程条目的整行按钮（内容由条目自身排版，这里只做重置）。 */
+  threadToggle: {
+    width: '100%',
+    textAlign: 'left',
+    border: 'none',
+    background: 'transparent',
+  } as CSSProperties,
+  /** 回复条目（作者行 + 正文纵向排列）。 */
+  replyItem: { display: 'flex', flexDirection: 'column' } as CSSProperties,
+  sectionToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    padding: `${cssVar('space-2')} ${cssVar('space-3')}`,
+    border: 'none',
+    borderTop: border,
+    background: 'transparent',
+    color: cssVar('color.text.secondary'),
+    fontFamily: cssVar('font.sans'),
+    fontSize: cssVar('font-size-11'),
+    textAlign: 'left',
+    cursor: 'pointer',
+  } as CSSProperties,
+  /** 模式开关（顶栏/工具栏插槽用）。 */
+  modeToggle: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: cssVar('icon-gap'),
+    height: cssVar('control-height-md'),
+    paddingInline: cssVar('control-padding-x-md'),
+    borderRadius: cssVar('radius-md'),
+    border,
+    background: 'transparent',
+    color: cssVar('color.text.secondary'),
+    fontFamily: cssVar('font.sans'),
+    fontSize: cssVar('font-size-12'),
+    cursor: 'pointer',
+  } as CSSProperties,
+  modeToggleOn: {
+    background: cssVar('color.primary'),
+    borderColor: cssVar('color.primary'),
+    color: cssVar('color.onPrimary'),
+  } as CSSProperties,
+} satisfies Record<string, CSSProperties>;

@@ -23,7 +23,10 @@ function makeStore(overrides: { author?: string } = {}) {
     author: overrides.author ?? '小林',
     backend,
     now: () => new Date('2026-10-15T10:00:00.000Z'),
-    nextId: () => `id-${String((counter += 1))}`,
+    nextId: () => {
+      counter += 1;
+      return `id-${String(counter)}`;
+    },
   });
   return { store, backend };
 }
@@ -113,7 +116,10 @@ describe('评论 store · 草稿与线程', () => {
       author: '小林',
       backend,
       now: () => new Date('2026-10-15T10:00:00.000Z'),
-      nextId: () => `id-${String((counter += 1))}`,
+      nextId: () => {
+        counter += 1;
+        return `id-${String(counter)}`;
+      },
     };
     const first = createCommentsStore(options);
     first.getState().beginDraft({ x: 1, y: 2 });

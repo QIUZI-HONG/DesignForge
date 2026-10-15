@@ -29,7 +29,7 @@ export interface VersionUiState {
   compareId: string | null;
 
   setOpen: (open: boolean) => void;
-  /** 保存当前文档为新版本快照（手动保存）。 */
+  /** 保存当前文档为新版本快照（手动保存）；label 省略取选项默认标签。 */
   capture: (label?: string) => VersionSnapshot;
   /** 删除一份快照。 */
   remove: (snapshotId: string) => void;
@@ -57,6 +57,10 @@ export interface VersionStoreOptions {
   now?: () => Date;
   nextId?: () => string;
   onWriteError?: (error: unknown) => void;
+  /** 「保存当前版本」的默认标签（组件传 ICU 文案，store 不写死中文）。 */
+  defaultLabel?: string;
+  /** 回滚前自动快照的标签（同上）。 */
+  autoLabel?: string;
 }
 
 /** 建版本 store。 */
@@ -88,7 +92,7 @@ export function createVersionStore(options: VersionStoreOptions): VersionStore {
         createdAt: now().toISOString(),
         document: options.getDocument(),
         documentId: options.documentId,
-        ...(label === undefined ? {} : { label }),
+        label: label ?? options.defaultLabel ?? '',
       });
       const snapshots = appendSnapshot(get().snapshots, snapshot);
       storage.save(snapshots);
@@ -127,7 +131,7 @@ export function createVersionStore(options: VersionStoreOptions): VersionStore {
       // 回滚前先给当前状态留一份自动快照：误回滚还能再回来（本地优先的兜底体验）
       const auto = createSnapshot({
         id: nextId(),
-        label: '回滚前自动保存',
+        label: options.autoLabel ?? '',
         createdAt: now().toISOString(),
         document: options.getDocument(),
         documentId: options.documentId,
