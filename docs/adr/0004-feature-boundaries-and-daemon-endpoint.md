@@ -190,3 +190,50 @@
   冷启动→编辑器与返回首页、引导→冷启动页。
 - **回归固定**：`scripts/e2e/scenarios/nav.mjs`（同源网关形态：跳转后 URL 携带端点参数、
   取数请求经网关 `/df`、全程无 4318 越权调用与 CORS 类错误）。
+
+## 补记 · ① app → services 依赖方向例外与 `./ads` 服务公开面登记（修复批次 4 · code-review 整改）
+
+日期：2026-10-16（复核 H1；上文 ① 的解析顺序结论不动，本条只**登记依赖方向与公开面**，
+不改任何解析行为。）
+
+- **事实**：daemon 的市场检索消费 `@dforge/ingest/ads`——`apps/daemon/src/market/search-index.ts`
+  与 `apps/daemon/src/market/service.ts` 直接引入 ingest 的 `searchMarketIndex`
+  （`import { searchMarketIndex } from '@dforge/ingest/ads'`）。
+- **为什么是必然的（不是随手跨界）**：检索语义（中文重叠二元组切词 + 术语等价类扩展 +
+  BM25 k1/b 打分）必须与 CLI `df market search` **同一条代码路径**——在 daemon 里重抄第二份
+  必然与 ingest 层漂移（中文分词口径漂移正是本仓已登记过的词表债同族），表现为
+  「UI 命中 ≠ CLI 命中」（UX-08 缺陷现场即此）。故按「实现单一真源」裁决保留该方向，
+  并在此登记为**依赖方向命名例外**：`apps/** → services/**` 允许（守卫预留口径
+  `apps → services/tools → packages` 本已涵盖此方向，此处补记防误判为越界）。
+- **`./ads` 子路径 = 服务包公开面**：`services/ingest/package.json` 的 `exports` 只暴露
+  `.`（采集全链）与 `./ads`（ADS 检索层：index/terms/search/schema/pipeline）两个入口。
+  daemon **只能经 `./ads` 子路径**消费（禁深导入 `services/ingest/src/**`）；运行时只装载 ADS 层，
+  **不**把采集线与 Parquet 依赖带进 daemon 进程（daemon 的 `package.json` 仅声明 `@dforge/ingest`）。
+  该子路径即服务包的公开面登记项（ADR-0004 ② 口径的「服务包版」）。
+- **门禁可见性**：`scripts/guard-deps.mjs` 是四守卫挂点之一（未接入 CI 前一律 `exit 2` 阻塞）；
+  其头注释已按本条口径写明预期（允许方向 + `./ads` 公开面 + 深导入判违规），
+  接入时无需再翻本 ADR 之外的出处。
+
+## 补记 · ② 新增公开面与登记例外清单增补（修复批次 4 · code-review 整改）
+
+日期：2026-10-16（复核 Spec b2/b3/b6 · P2-15；上文 ② 与「样式入口」补记的既有例外结论不动，
+本条按 ② 的「新增跨边界消费 = 显式加行」纪律**逐条登记**本轮新增面。）
+
+- **`packages/ui` 新增公开面（包级 `index.ts` 显式导出，正常加行）**：
+  `Overlay`（+ `type OverlayProps`）——演示舞台等全屏浮层与抽屉/模态走同一条浮层栈
+  （C1/D-4 修复的落点）；`MenuItemSpec.href`（链接条目渲染为 `<a role="menuitem">`）——
+  首页「设置 / 键盘快捷键」入口接通（D2/UX-09）的承载面；消费方为 `apps/web`（经包公开面导入，
+  不深导入 `packages/ui/src/**`）。
+- **canvas feature barrel 的 workspace 接缝**：`features/canvas/index.ts` 显式导出
+  `getWorkspace` / `setWorkspace` / `subscribeWorkspace` / `resetWorkspace` 与 `type EditorWorkspace`
+  ——评审会话（FE-07）的文档端口与画布必须读**同一份**文档真值（演示判定/版本快照），
+  这是刻意的跨 feature 公开面（不是深导入例外）。`connectDocumentBridge` 虽从 `./register.tsx`
+  导出，但按上文 ② 的 register 接缝口径，**只有** `app/**` 路由层与同 feature 测试可用。
+- **contracts `describeDocumentNameIssue`**：新建文件对话框的分因前置校验（空 / 超长 ≤64 /
+  非法字符 / 重名分流，G2/UX-11）由 `packages/contracts/src/documents` 公开面承载，
+  前端与 daemon 共源同判据（`DOCUMENT_NAME_MAX_LENGTH` 一并导出）；消费方经
+  `@dforge/contracts` 包公开面导入。
+- **无新增深导入例外**：以上三条都是「经公开面显式加行」的正常形态；本轮未出现
+  feature→feature 深导入或 `services/**` 深导入的新增（daemon→`./ads` 见上一条补记）。
+  若后续出现，仍按 ② 的纪律先在 `scripts/guard-feature-boundaries.mjs` 的
+  `REGISTERED_EXCEPTIONS` 登记并在此补行，未登记形态不得静默放行。
