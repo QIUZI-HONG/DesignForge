@@ -32,6 +32,7 @@ import {
   createRect,
   createText,
   type DesignDocument,
+  type SceneNode,
 } from '../model/index';
 import { isDomainError } from '../scene/errors';
 import { getPage, insertNode, insertNodes, reparentNode, validateDocument } from '../scene/index';
@@ -314,7 +315,7 @@ describe('[verify] 编组 · 撤销与还原', () => {
 });
 
 describe('[verify] 剪贴板 · 不受信载荷（系统剪贴板是外部输入）', () => {
-  it('载荷缺少节点字段时 parseClipboard 通过、粘贴产出畸形节点（缺陷，已复现）', () => {
+  it('载荷缺少节点字段时 parseClipboard 拒绝（invalid-argument，含字段路径），不产出畸形节点', () => {
     const crafted = JSON.stringify({
       $format: CLIPBOARD_FORMAT,
       $version: CLIPBOARD_VERSION,
@@ -322,18 +323,40 @@ describe('[verify] 剪贴板 · 不受信载荷（系统剪贴板是外部输入
       rootIds: ['x'],
       nodes: [{ id: 'x', type: 'rect', name: '偷袭', x: 0, y: 0 }],
     });
-    const payload = parseClipboard(crafted); // 只校验信封，不校验节点形状
+    let code: string | null = null;
+    let message = '';
+    try {
+      parseClipboard(crafted);
+    } catch (error) {
+      code = isDomainError(error) ? error.code : null;
+      message = error instanceof Error ? error.message : '';
+    }
+    expect(code).toBe('invalid-argument');
+    // 与文档校验同口径：指出问题码 + 字段路径（缺 width/height 的节点不许进文档）
+    expect(message).toContain('missing-field');
+    expect(message).toContain('nodes[0].width');
+    expect(message).toContain('nodes[0].height');
+  });
+
+  it('载荷节点数值非法（NaN/Infinity）、id 悬空、有不可达节点时均被拒绝', () => {
     const doc = twoPageDoc();
-    const stack = new CommandStack(doc);
-    stack.dispatch(pasteCommands(payload, { pageId: 'p1', ids: createIdFactory(900) }));
-    const page = getPage(stack.document, 'p1');
-    const pastedId = page.rootIds[page.rootIds.length - 1] as string;
-    const pasted = page.nodes[pastedId];
-    // 缺 width/height 的节点被写进文档：validateDocument 不报错（结构自洽），
-    // 但几何属性缺失 → 下游命中/渲染读到 undefined
-    expect(pasted).toBeDefined();
-    expect((pasted as unknown as { width?: unknown }).width).toBeUndefined();
-    expect(validateDocument(stack.document)).toEqual([]);
+    const payload = copyNodes(getPage(doc, 'p1'), 'p1', ['r1']);
+    const first = payload.nodes[0] as SceneNode;
+
+    // 数值非法（JSON 无法表达 NaN，但对象入口可直达）
+    expect(() =>
+      parseClipboard({
+        ...payload,
+        nodes: [{ ...first, width: Number.NaN }],
+      }),
+    ).toThrowError(/width/);
+    // 顶层引用悬空
+    expect(() => parseClipboard({ ...payload, rootIds: ['幽灵'] })).toThrowError(/幽灵/);
+    // 不在 rootIds 之下的节点：粘贴时会被静默插成顶层 → 拒绝（走私节点）
+    const smuggledNode = createRect({ id: 'ghost', x: 0, y: 0, width: 10, height: 10 });
+    expect(() =>
+      parseClipboard({ ...payload, nodes: [...payload.nodes, smuggledNode] }),
+    ).toThrowError(/ghost/);
   });
 
   it('信封不合法（缺 format / 非法 JSON）被 DomainError 拒绝', () => {

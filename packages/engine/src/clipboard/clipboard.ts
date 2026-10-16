@@ -15,6 +15,7 @@ import type { ComponentId, NodeId, PageId, SceneNode, ScenePage } from '../model
 import { childrenOf, isContainer } from '../model/index';
 import { domainError } from '../scene/errors';
 import { getDescendantIds } from '../scene/query';
+import { collectNonFiniteNumbers, type DocumentIssue, validateNodeShape } from '../scene/validate';
 
 /** 载荷格式标识（版本化，便于后续演进）。 */
 export const CLIPBOARD_FORMAT = 'dforge.clipboard' as const;
@@ -100,7 +101,101 @@ export function serializeClipboard(payload: ClipboardPayload): string {
   return JSON.stringify(payload);
 }
 
-/** 解析剪贴板字符串（校验格式标识与版本）。 */
+/**
+ * 载荷自检：**与文档校验同口径**（`scene/validate` 复用）——节点形状（必填字段与类型）、
+ * 非有限数、顶层/子级引用悬空、不可达节点（会被静默插成顶层 → 走私）。
+ * 系统剪贴板是不受信输入，任何一处不合法都整包拒绝，而不是把畸形节点写进文档（B5）。
+ */
+function validateClipboardPayload(payload: ClipboardPayload): DocumentIssue[] {
+  const issues: DocumentIssue[] = [];
+  const ids = new Set<NodeId>();
+  const childrenById = new Map<NodeId, NodeId[]>();
+
+  payload.nodes.forEach((node, index) => {
+    const nodePath = `nodes[${index}]`;
+    for (const issue of validateNodeShape(node, nodePath)) {
+      issues.push(issue);
+    }
+    for (const bad of collectNonFiniteNumbers(node, nodePath)) {
+      issues.push({
+        code: 'non-finite-number',
+        message: `${bad.path} 不是有限数：${String(bad.value)}`,
+        path: bad.path,
+      });
+    }
+    const raw = node as unknown as Record<string, unknown>;
+    const id = typeof raw.id === 'string' ? raw.id : null;
+    if (id === null) return; // 缺 id 已由形状校验报出
+    if (ids.has(id)) {
+      issues.push({
+        code: 'duplicate-child',
+        message: `载荷内节点 id 重复：${id}`,
+        nodeId: id,
+        path: nodePath,
+      });
+    }
+    ids.add(id);
+    childrenById.set(id, childrenOf(node));
+  });
+
+  // 顶层引用必须落在载荷内
+  payload.rootIds.forEach((rootId, index) => {
+    if (typeof rootId !== 'string') {
+      issues.push({
+        code: 'missing-field',
+        message: `rootIds[${index}] 不是字符串：${String(rootId)}`,
+        path: `rootIds[${index}]`,
+      });
+      return;
+    }
+    if (!ids.has(rootId)) {
+      issues.push({
+        code: 'missing-root',
+        message: `载荷顶层节点不在节点表内：${rootId}`,
+        nodeId: rootId,
+        path: `rootIds[${index}]`,
+      });
+    }
+  });
+
+  // 子级引用必须落在载荷内（否则粘贴时静默丢子树）
+  for (const [parentId, childIds] of childrenById) {
+    childIds.forEach((childId, index) => {
+      if (!ids.has(childId)) {
+        issues.push({
+          code: 'missing-child',
+          message: `载荷内子节点缺失：${childId}（父 ${parentId}）`,
+          nodeId: childId,
+          path: `nodes.${parentId}.children[${index}]`,
+        });
+      }
+    });
+  }
+
+  // 从 rootIds 出发计算可达集：不可达节点会在粘贴时被静默插成顶层 → 拒收
+  const reachable = new Set<NodeId>();
+  const stack: NodeId[] = [...payload.rootIds];
+  while (stack.length > 0) {
+    const current = stack.pop() as NodeId;
+    if (reachable.has(current) || !childrenById.has(current)) continue;
+    reachable.add(current);
+    stack.push(...(childrenById.get(current) ?? []));
+  }
+  for (const id of ids) {
+    if (!reachable.has(id)) {
+      issues.push({
+        code: 'orphan-node',
+        message: `载荷内节点不可达（不在 rootIds 之下）：${id}`,
+        nodeId: id,
+        path: `nodes.${id}`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/** 解析剪贴板字符串（校验信封 + 载荷自检；不合法的载荷整包拒绝）。 */
 export function parseClipboard(input: string | unknown): ClipboardPayload {
   let raw: unknown = input;
   if (typeof input === 'string') {
@@ -115,12 +210,20 @@ export function parseClipboard(input: string | unknown): ClipboardPayload {
     !payload ||
     payload.$format !== CLIPBOARD_FORMAT ||
     typeof payload.$version !== 'number' ||
+    typeof payload.sourcePageId !== 'string' ||
     !Array.isArray(payload.rootIds) ||
     !Array.isArray(payload.nodes)
   ) {
     throw domainError(
       'invalid-argument',
       '剪贴板内容格式不合法（缺少 dforge.clipboard 标识或字段缺失）',
+    );
+  }
+  const issues = validateClipboardPayload(payload as ClipboardPayload);
+  if (issues.length > 0) {
+    throw domainError(
+      'invalid-argument',
+      `剪贴板载荷非法：${issues.map((issue) => `${issue.code}:${issue.message}`).join('；')}`,
     );
   }
   return payload as ClipboardPayload;
