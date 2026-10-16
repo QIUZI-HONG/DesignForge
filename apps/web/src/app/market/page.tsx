@@ -14,7 +14,7 @@
 import type { MarketAsset } from '@dforge/contracts';
 import { Button } from '@dforge/ui';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { type ReactElement, useMemo, useState } from 'react';
 import {
   activeFilterCount,
   applyClientFilters,
@@ -54,7 +54,7 @@ export default function MarketHomePage() {
   const [pendingAsset, setPendingAsset] = useState<MarketAsset | null>(null);
 
   const params = useMemo(() => toQueryParams(filters), [filters]);
-  const { status, response, error, reload } = useMarketQuery(params);
+  const { status, response, error, errorCode, reload } = useMarketQuery(params);
   const { records, loadedIds, save, remove } = useLoadRecords();
   const loadPlan = useLoadPlan(pendingAsset?.id ?? null);
 
@@ -93,6 +93,61 @@ export default function MarketHomePage() {
         })
       : null;
 
+  /**
+   * 结果区（三态补齐：加载 / 错误 / 就绪；**任何输入都有分支可匹配**，不得静默空白）。
+   *
+   * 就绪但 `response` 缺失（形状校验后理论不可达，防御式保留）→ 错误态；
+   * 就绪时按 outcome 分发四类空态与卡片网格——`MarketOutcome` 的每支都落在某条分支上。
+   */
+  const renderResults = (): ReactElement => {
+    if (status === 'loading') {
+      return <MarketSkeletonGrid />;
+    }
+    if (status === 'error' || response === null) {
+      return (
+        <MarketErrorState
+          message={error ?? t('market.error.shapeMismatch')}
+          {...(errorCode === null ? {} : { code: errorCode })}
+          onRetry={reload}
+        />
+      );
+    }
+    if (outcome === 'index-missing') {
+      return <MarketEmptyState kind="index-missing" />;
+    }
+    if (outcome === 'index-invalid') {
+      return <MarketEmptyState kind="index-invalid" />;
+    }
+    if (visible.length === 0) {
+      return installedView ? (
+        <MarketEmptyState
+          kind="installed-empty"
+          onGoMarket={() => {
+            setInstalledView(false);
+          }}
+        />
+      ) : (
+        <MarketEmptyState kind="no-result" onClearFilters={clearFilters} />
+      );
+    }
+    return (
+      <CardGrid
+        assets={visible}
+        loadedIds={loadedIds}
+        query={filters.query}
+        onOpen={openDetail}
+        onInstall={(asset) => {
+          setPendingAsset(asset);
+        }}
+        onUninstall={uninstall}
+        isUpdateAvailable={(asset) => {
+          const record = records.find((item) => item.assetId === asset.id) ?? null;
+          return isUpdateAvailable(record, { digest: asset.digest });
+        }}
+      />
+    );
+  };
+
   return (
     <>
       <header style={headerStyle}>
@@ -130,47 +185,7 @@ export default function MarketHomePage() {
 
       {warningMessage === null ? null : <MarketWarningBanner message={warningMessage} />}
 
-      {status === 'loading' ? <MarketSkeletonGrid /> : null}
-
-      {status === 'error' ? <MarketErrorState message={error ?? ''} onRetry={reload} /> : null}
-
-      {status === 'ready' && outcome === 'index-missing' ? (
-        <MarketEmptyState kind="index-missing" />
-      ) : null}
-      {status === 'ready' && outcome === 'index-invalid' ? (
-        <MarketEmptyState kind="index-invalid" />
-      ) : null}
-
-      {status === 'ready' &&
-      (outcome === 'ok' || outcome === 'partial' || outcome === 'no-result') ? (
-        visible.length === 0 ? (
-          installedView ? (
-            <MarketEmptyState
-              kind="installed-empty"
-              onGoMarket={() => {
-                setInstalledView(false);
-              }}
-            />
-          ) : (
-            <MarketEmptyState kind="no-result" onClearFilters={clearFilters} />
-          )
-        ) : (
-          <CardGrid
-            assets={visible}
-            loadedIds={loadedIds}
-            query={filters.query}
-            onOpen={openDetail}
-            onInstall={(asset) => {
-              setPendingAsset(asset);
-            }}
-            onUninstall={uninstall}
-            isUpdateAvailable={(asset) => {
-              const record = records.find((item) => item.assetId === asset.id) ?? null;
-              return isUpdateAvailable(record, { digest: asset.digest });
-            }}
-          />
-        )
-      ) : null}
+      {renderResults()}
 
       {pendingAsset !== null && loadPlan.plan !== null ? (
         <LoadConfirmDialog

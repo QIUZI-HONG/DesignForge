@@ -34,6 +34,8 @@ export interface MarketQueryState {
   status: 'loading' | 'ready' | 'error';
   response: MarketQueryResponse | null;
   error: string | null;
+  /** 失败码（daemon 码或前端归一码；错误态展示用，`status!=='error'` 时为 null）。 */
+  errorCode: string | null;
 }
 
 /** 查询 hook（`params` 变化即重新取数；`reload` 手动重取）。 */
@@ -45,6 +47,7 @@ export function useMarketQuery(
     status: 'loading',
     response: null,
     error: null,
+    errorCode: null,
   });
   const [nonce, setNonce] = useState(0);
   const key = JSON.stringify(params);
@@ -62,9 +65,14 @@ export function useMarketQuery(
     void request.then((result) => {
       if (controller.signal.aborted) return;
       if (result.ok) {
-        setState({ status: 'ready', response: result.result, error: null });
+        setState({ status: 'ready', response: result.result, error: null, errorCode: null });
       } else {
-        setState({ status: 'error', response: null, error: result.error.message });
+        setState({
+          status: 'error',
+          response: null,
+          error: result.error.message,
+          errorCode: result.error.code,
+        });
       }
     });
     return () => {

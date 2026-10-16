@@ -7,8 +7,8 @@
  * 测试面：请求解析（`resolveStaticFileRequest`）是纯函数，含路径穿越防护；
  * `startStaticServer` 只是 node:http 的薄壳，行为由启动冒烟段（scripts/verify-shell-parity.mjs）端到端覆盖。
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { readFileSync, statSync } from 'node:fs';
+import { createServer, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { extname, join, normalize } from 'node:path';
 
@@ -90,21 +90,50 @@ export function resolveStaticFileRequest(input: {
   return { status: 404 };
 }
 
+/**
+ * 服务侧的存在性判定：只认**普通文件**。
+ *
+ * 为什么不用 `existsSync`：产物里目录是真实存在的（如 `/_next/static`），目录命中后
+ * `readFileSync` 会抛 `EISDIR` —— 在 Electron 主进程里就是未捕获异常，一个畸形请求
+ * 即可打断整个壳。目录一律不命中，落到该目录的 `index.html` 分支（不存在则 404）。
+ */
+function isRegularFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** 统一的 404 出口（响应体口径与既有实现一致）。 */
+function respondNotFound(response: ServerResponse): void {
+  response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+  response.end('404');
+}
+
 /** 启动内置静态服务；返回监听地址（端口为 0 时由系统分配，避免与 daemon 抢口）。 */
 export function startStaticServer(rootDir: string): Promise<{ server: Server; origin: string }> {
   const server = createServer((request, response) => {
     const resolved = resolveStaticFileRequest({
       rootDir,
       requestPath: request.url ?? '/',
-      exists: existsSync,
+      exists: isRegularFile,
     });
     if (resolved.status !== 200) {
-      response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-      response.end('404');
+      respondNotFound(response);
+      return;
+    }
+    let payload: Buffer;
+    try {
+      payload = readFileSync(resolved.filePath);
+    } catch {
+      // stat 与 read 之间的删除竞态 / 权限等读失败同样按 404 出口：
+      // 请求处理里抛异常 = 主进程未捕获异常，这条路径不存在任何出口，绝不能有。
+      respondNotFound(response);
       return;
     }
     response.writeHead(200, { 'content-type': contentTypeFor(resolved.filePath) });
-    response.end(readFileSync(resolved.filePath));
+    response.end(payload);
   });
 
   return new Promise((resolve, reject) => {

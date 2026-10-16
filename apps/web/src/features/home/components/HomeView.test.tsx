@@ -298,4 +298,15 @@ describe('HomeView · 市场结果线', () => {
     });
     expect(await screen.findByRole('menuitem', { name: '图标技能' })).toBeDefined();
   });
+
+  it('市场检索被拒 → 落「市场未就绪」降级（不留 unhandled rejection、不停在加载）', async () => {
+    const searchMarket = vi.fn(async () => {
+      throw new Error('ECONNREFUSED');
+    });
+    renderHome({ docs: [], searchMarket });
+    await screen.findByText('还没有设计文件');
+    await userEvent.type(screen.getByRole('searchbox', { name: '搜索文件与技能资产' }), '图标');
+
+    expect(await screen.findByText('技能市场未就绪（索引未生成）')).toBeDefined();
+  });
 });

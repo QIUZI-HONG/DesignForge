@@ -1,6 +1,10 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
-import { resolveStaticFileRequest } from './static-server.js';
+import { resolveStaticFileRequest, startStaticServer } from './static-server.js';
 
 const ROOT = '/repo/apps/web/out';
 const existing = new Set([
@@ -64,5 +68,33 @@ describe('内置静态服务的请求解析（web 产物装载口径）', () => 
     ).toEqual({
       status: 404,
     });
+  });
+});
+
+describe('内置静态服务 · 目录请求不得打断服务（产物里的目录是真实存在的）', () => {
+  it('请求已存在的目录（无尾斜杠）→ 404，且服务仍能继续响应（不把 EISDIR 抛成未捕获异常）', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'df-static-server-'));
+    try {
+      await mkdir(join(root, 'assets'));
+      await writeFile(join(root, 'index.html'), '<!doctype html>');
+      const { server, origin } = await startStaticServer(root);
+      try {
+        // 目录请求：产物里 `assets` 是目录 → 不能当文件读（readFileSync 抛 EISDIR 会打断主进程）
+        const dirResponse = await fetch(`${origin}/assets`);
+        expect(dirResponse.status).toBe(404);
+        // 服务没被打断：后续正常文件请求照常 200
+        const fileResponse = await fetch(`${origin}/index.html`);
+        expect(fileResponse.status).toBe(200);
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => {
+            if (error) reject(error);
+            else resolve();
+          });
+        });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

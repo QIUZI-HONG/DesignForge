@@ -43,6 +43,7 @@ export function CreateDocumentDialog({
   const invalid = touched && !isValidDocumentName(name);
 
   const submit = (): void => {
+    if (pending) return; // 创建在飞：Enter 与按钮的二次触发一律丢弃（父级在飞守卫的同侧防线）
     setTouched(true);
     if (!isValidDocumentName(name)) return;
     onSubmit(name);

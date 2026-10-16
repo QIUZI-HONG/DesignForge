@@ -5,6 +5,7 @@
  * 不测实现细节（不 mock 内部函数），网络一律用假 fetch（不真连 daemon）。
  */
 
+import { MARKETPLACE_INDEX_SCHEMA } from '@dforge/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
 import { makeAsset, makeMissingIndexResponse, makeQueryResponse } from './__fixtures__/market';
@@ -22,6 +23,8 @@ import {
   fetchMarketQuery,
   MARKET_COLLECT_COMMAND,
   readEnvelope,
+  validateMarketAssetDetail,
+  validateMarketQueryResponse,
 } from './api';
 
 describe('api · URL 构造', () => {
@@ -219,5 +222,133 @@ describe('api · 溯源链接', () => {
   it('缺 repo/commit → null（不造死链）', () => {
     const asset = makeAsset({ source: { ...makeAsset().source, ref: '' } });
     expect(buildSourceUrl(asset)).toBeNull();
+  });
+});
+
+describe('api · 信封与内层形状校验（脏数据不静默）', () => {
+  it('result 为 null → 判失败（含 result 键但值为空，绝不当成功）', () => {
+    const result = readEnvelope({ ok: true, result: null });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('null');
+  });
+
+  it('result 为 undefined（键存在但无值）→ 判失败', () => {
+    expect(readEnvelope({ ok: true, result: undefined }).ok).toBe(false);
+  });
+
+  it('泛型调用（无形状校验器）仍取 result（字符串等标量合法）', () => {
+    expect(readEnvelope<string>({ ok: true, result: 'x' })).toEqual({ ok: true, result: 'x' });
+  });
+
+  it('查询响应形状校验：items / warnings 必须为数组，元素必须为对象', () => {
+    const base = {
+      schema: MARKETPLACE_INDEX_SCHEMA,
+      state: 'empty' as const,
+      generatedAt: null,
+      total: 0,
+      counts: null,
+      items: [],
+      warnings: [],
+    };
+    expect(validateMarketQueryResponse(base)).toEqual(base);
+    // items 为 null / 对象 / 含 null 元素 → 形状坏
+    expect(validateMarketQueryResponse({ ...base, items: null })).toBeNull();
+    expect(validateMarketQueryResponse({ ...base, items: {} })).toBeNull();
+    expect(validateMarketQueryResponse({ ...base, items: [null] })).toBeNull();
+    // warnings 为 null / 含 null 元素 → 形状坏（渲染期读 warning.code 会 TypeError）
+    expect(validateMarketQueryResponse({ ...base, warnings: null })).toBeNull();
+    expect(validateMarketQueryResponse({ ...base, warnings: [null] })).toBeNull();
+    // 标量类型不符 → 形状坏
+    expect(validateMarketQueryResponse({ ...base, total: '3' })).toBeNull();
+    expect(validateMarketQueryResponse({ ...base, state: 'broken' })).toBeNull();
+    expect(validateMarketQueryResponse(null)).toBeNull();
+    expect(validateMarketQueryResponse('boom')).toBeNull();
+  });
+
+  it('取数：result 为 null → 失败信封（码不是 daemon_unreachable，文案可读）', async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ ok: true, result: null }), { status: 200 }),
+    );
+    const result = await fetchMarketQuery(
+      {},
+      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).not.toBe('daemon_unreachable');
+      expect(result.error.message).toContain('null');
+    }
+  });
+
+  it('取数：warnings 为 null → 失败信封（页面落错误态，不在渲染期抛 TypeError）', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            result: {
+              schema: MARKETPLACE_INDEX_SCHEMA,
+              state: 'empty',
+              generatedAt: null,
+              total: 0,
+              counts: null,
+              items: [],
+              warnings: null,
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    const result = await fetchMarketQuery(
+      {},
+      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it('取数：items 为对象而非数组 → 失败信封（不静默当空结果）', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            result: {
+              schema: MARKETPLACE_INDEX_SCHEMA,
+              state: 'empty',
+              generatedAt: null,
+              total: 0,
+              counts: null,
+              items: {},
+              warnings: [],
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    const result = await fetchMarketQuery(
+      {},
+      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it('详情响应形状校验：found 缺失 / asset 为 null → 形状坏', () => {
+    expect(validateMarketAssetDetail({ found: false, assetId: 'x' })).toEqual({
+      found: false,
+      assetId: 'x',
+    });
+    expect(validateMarketAssetDetail({ found: true, asset: makeAsset() })?.found).toBe(true);
+    expect(validateMarketAssetDetail(null)).toBeNull();
+    expect(validateMarketAssetDetail({})).toBeNull();
+    expect(validateMarketAssetDetail({ found: true, asset: null })).toBeNull();
+  });
+
+  it('分类函数容错：warnings 为空/脏输入不抛（防渲染期 TypeError 逃逸）', () => {
+    expect(classifyWarnings([]).partial).toBe(false);
+    // 契约外的脏输入（页面兜底路径）不允许抛
+    const dirty = { items: [], warnings: null } as unknown as Parameters<
+      typeof classifyMarketOutcome
+    >[0];
+    expect(classifyMarketOutcome(dirty)).toBe('no-result');
   });
 });

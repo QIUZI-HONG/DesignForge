@@ -13,6 +13,9 @@
 | `/dashboard` | **D6** 数据看板 | 浅色 | 采集进度 / 四层状态 / 质量三看板（完整性·一致性·时效性） |
 
 - `assetId` 形如 `gh:owner/repo#path`，路由段用 `encodeURIComponent` 编码，页面**防御式解码**。
+- **段级错误边界**：`error.tsx` 把 `/market` 段的渲染期未预期异常收敛为可见错误态
+  （六态之一的 error 挂点 + 重试），不留白屏；数据面的坏形状另在解包点归一为带码失败
+  （见 `features/market/api.ts` 的形状校验器）。
 - **D5 挂点说明**：编辑器壳层（FE-03）未并入集成分支前，面板以独立深色路由完整呈现
   （进入时把 `document.documentElement.dataset.theme` 切到 `dark`，离开恢复）；壳层落地后
   由壳层持有主题并直接把 `MarketPanel` 挂进右栏。
