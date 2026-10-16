@@ -32,7 +32,12 @@ import {
 import { buildEvidence } from './evidence.ts';
 import type { FetchLike } from './http.ts';
 import { sha256Hex } from './http.ts';
-import { digestForRoot, defaultViewOnlyLicense, findLicensePath, identifyAssets } from './identify.ts';
+import {
+  defaultViewOnlyLicense,
+  digestForRoot,
+  findLicensePath,
+  identifyAssets,
+} from './identify.ts';
 import { assessLicense } from './license.ts';
 import type { OdsArtifact } from './ods.ts';
 import { validateOdsRepoRecord, validateRawEvent, writeOds } from './ods.ts';
