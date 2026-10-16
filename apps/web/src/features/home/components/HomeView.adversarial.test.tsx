@@ -11,9 +11,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DocumentApiError } from '../api/documents';
+import { createDocumentsGateway, DocumentApiError } from '../api/documents';
+import { GATEWAY_TIMEOUT_MS } from '../api/gateway-timeout';
 import { createHomeStore } from '../state/home-store';
-import { HomeView } from './HomeView';
+import { HomeView, MARKET_SEARCH_DEADLINE_MS } from './HomeView';
 
 const NOW = new Date('2026-10-15T12:00:00.000Z');
 
@@ -242,5 +243,46 @@ describe('对抗 · 搜索与市场降级', () => {
     await userEvent.type(screen.getByRole('searchbox', { name: '搜索文件与技能资产' }), '海');
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(screen.getByRole('heading', { name: '最近' })).toBeTruthy();
+  });
+});
+
+describe('对抗 · 网关超时归一（页面级，修复批次 3 · 工作包 C）', () => {
+  // 页面级证据：**真网关 + 注入的悬挂 fetch 桩**（不经过任何替身 gateway），
+  // 走的是浏览器里的真实装配路径——daemon 活着但不回话时，界面必须给确定降级。
+  it('文档网关悬挂（fetch 桩永不落定）→ 到上限落错误态 E_DF_DAEMON_TIMEOUT，不假成功、不永久骨架', async () => {
+    const never = (async () => new Promise<Response>(() => undefined)) as unknown as typeof fetch;
+    const gateway = createDocumentsGateway({
+      baseUrl: 'http://127.0.0.1:4399',
+      fetchImpl: never,
+      timeoutMs: 20, // 注入短上限：验证同一条逻辑路径，不真等缺省 3s
+    });
+    renderHome(gateway);
+
+    // 确定出口：错误态 + 展示码 + 重试（不是永久「正在载入文档」）
+    expect(await screen.findByText('E_DF_DAEMON_TIMEOUT')).toBeTruthy();
+    expect(screen.getByText(/请求超时/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+    // 不假成功：骨架已撤，且没有把「超时」渲染成空列表空态
+    expect(screen.queryByRole('status', { name: '正在载入文档' })).toBeNull();
+    expect(screen.queryByText('还没有设计文件')).toBeNull();
+    // 页面仍在（非白屏）
+    expect(screen.getByRole('heading', { name: '最近' })).toBeTruthy();
+  });
+
+  it('不可达（fetch 桩立即抛错）→ 落 daemon_unreachable 错误态（两类失败可分辨）', async () => {
+    const refused = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const gateway = createDocumentsGateway({
+      baseUrl: 'http://127.0.0.1:4399',
+      fetchImpl: refused,
+      timeoutMs: 20,
+    });
+    renderHome(gateway);
+    expect(await screen.findByText('E_DF_DAEMON_UNREACHABLE')).toBeTruthy();
+  });
+
+  it('市场兜底上限与网关统一超时同源（同一数字，不两处各写）', () => {
+    expect(MARKET_SEARCH_DEADLINE_MS).toBe(GATEWAY_TIMEOUT_MS);
   });
 });
