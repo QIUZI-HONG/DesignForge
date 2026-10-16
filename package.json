@@ -13,7 +13,7 @@
     "lint:scripts": "biome check scripts .github",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "test:scripts": "node scripts/tests/bbox-of-diff.test.mjs",
+    "test:scripts": "node --test \"scripts/tests/**/*.test.mjs\"",
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run test",
     "verify:daemon": "node scripts/verify-daemon.mjs",
     "verify:engine": "node scripts/verify-engine.mjs",

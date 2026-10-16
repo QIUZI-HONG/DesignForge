@@ -5,7 +5,13 @@
  * 做什么：**静态读** `apps/desktop/src/main/window-options.ts` 的对象字面量，断言五项安全开关：
  *   contextIsolation=true / sandbox=true / nodeIntegration=false / webSecurity=true /
  *   allowRunningInsecureContent=false；
- * 并断言「基线是直接展开、不得被后置覆盖」——防「先展开基线、随后悄悄放宽」的写法；
+ * 并断言基线的**声明点纪律**（防「先展开基线、随后悄悄放宽」这类可绕过写法）：
+ *   1. 全文件 `webPreferences` 声明点唯一（多声明点 = 宽松分支可绕过静态判定 → exit 1）；
+ *   2. 声明点必须**直接展开** `SECURITY_BASELINE`；
+ *   3. 展开之后不得以**任意语法**再引入基线键——标识符键 / 字符串键 / 计算字符串键 /
+ *      简写属性 / 展开对象字面量 / 展开局部常量（含多跳展开链，递归解析）；
+ *   4. 展开的目标若**静态判不出**（外部对象、重名定义、展开成环）→ 记「无法判定」→ exit 2（阻塞），
+ *      既不放行也不误报。
  * 再看 `main.ts`：必须有 `setWindowOpenHandler` 且一律 deny（外链走白名单，见 external-links.ts）。
  *
  * 为什么静态优先：静态读能给出点位级违规信息且不必起窗；只有当某项**静态判不出来**时，才退到运行时
@@ -150,68 +156,202 @@ function checkBaselineLiteral(sourceFile) {
   return { violations, undetermined, undeterminedKeys, found };
 }
 
-/** 静态检查二：`buildWindowOptions` 的 `webPreferences` 必须是基线的直接展开且无后置覆盖。 */
-function checkWindowPreferences(sourceFile) {
+/**
+ * 静态属性名：标识符 / 字符串字面量 / 数字字面量 / 计算属性里的字符串字面量。
+ * 返回 `string` = 静态可判的名字；`null` = 不是数据属性（方法/存取器/展开）；`undefined` = 动态键（判不出）。
+ */
+function propertyKeyName(property) {
+  if (ts.isSpreadAssignment(property)) return null;
+  if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property))
+    return null;
+  const name = property.name;
+  if (ts.isIdentifier(name) || ts.isPrivateIdentifier(name)) return name.text;
+  if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  if (ts.isComputedPropertyName(name) && ts.isStringLiteral(name.expression)) {
+    return name.expression.text;
+  }
+  return undefined;
+}
+
+/** 收集同文件内的「变量名 → 初始值表达式」（任意作用域）；重名进 ambiguous（判不出即阻塞，禁瞎猜）。 */
+function collectVariableInitializers(sourceFile) {
+  const initializers = new Map();
+  const ambiguous = new Set();
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const name = node.name.text;
+      if (initializers.has(name)) ambiguous.add(name);
+      else initializers.set(name, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return { initializers, ambiguous };
+}
+
+/**
+ * 解析「展开表达式」可能引入的键集合（递归跟进同文件常量与多跳展开链）。
+ * 返回 `{ ok: true, keys, unresolved }` 或 `{ ok: false, reason }`；不可判定一律交给调用方记阻塞。
+ */
+function resolveSpreadKeys(expression, context, visited = new Set()) {
+  if (ts.isObjectLiteralExpression(expression)) {
+    return collectObjectKeys(expression, context, visited);
+  }
+  if (ts.isIdentifier(expression)) {
+    const name = expression.text;
+    if (context.ambiguous.has(name)) {
+      return { ok: false, reason: `...${name} 重名定义，无法静态确定指向` };
+    }
+    const initializer = context.initializers.get(name);
+    if (initializer === undefined) {
+      return { ok: false, reason: `...${name} 无同文件字面量定义（外部/动态对象）` };
+    }
+    if (visited.has(name)) return { ok: false, reason: `...${name} 展开成环` };
+    return resolveSpreadKeys(initializer, context, new Set(visited).add(name));
+  }
+  return { ok: false, reason: `${expression.getText()} 非字面量展开（静态判不出）` };
+}
+
+/** 对象字面量引入的键集合（含嵌套展开，递归）；`unresolved` 收集判不出的子项。 */
+function collectObjectKeys(objectLiteral, context, visited) {
+  const keys = new Set();
+  const unresolved = [];
+  for (const property of objectLiteral.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      const resolved = resolveSpreadKeys(property.expression, context, visited);
+      if (!resolved.ok) {
+        unresolved.push(resolved.reason);
+        continue;
+      }
+      for (const key of resolved.keys) keys.add(key);
+      for (const item of resolved.unresolved) unresolved.push(item);
+      continue;
+    }
+    const key = propertyKeyName(property);
+    if (typeof key === 'string') keys.add(key);
+    else if (key === undefined) unresolved.push('展开对象内出现动态计算属性名');
+  }
+  return { ok: true, keys, unresolved };
+}
+
+/**
+ * 静态检查二：全文件 `webPreferences` 声明点唯一（宽松分支/变量返回均可绕过单点检查）。
+ */
+function checkWebPreferencesUniqueness(sourceFile) {
   const violations = [];
   const undetermined = [];
-  let webPreferencesObject;
-
-  sourceFile.forEachChild((node) => {
-    if (!ts.isFunctionDeclaration(node) || node.name?.text !== 'buildWindowOptions' || !node.body) {
-      return;
+  const declarationPoints = [];
+  const visit = (node) => {
+    if (ts.isPropertyAssignment(node) && propertyKeyName(node) === 'webPreferences') {
+      declarationPoints.push(node);
     }
-    for (const statement of node.body.statements) {
-      if (!ts.isReturnStatement(statement) || !statement.expression) {
-        continue;
-      }
-      if (!ts.isObjectLiteralExpression(statement.expression)) {
-        continue;
-      }
-      for (const property of statement.expression.properties) {
-        if (
-          ts.isPropertyAssignment(property) &&
-          ts.isIdentifier(property.name) &&
-          property.name.text === 'webPreferences' &&
-          ts.isObjectLiteralExpression(property.initializer)
-        ) {
-          webPreferencesObject = property.initializer;
-        }
-      }
-    }
-  });
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
 
-  if (!webPreferencesObject) {
-    undetermined.push('未找到 buildWindowOptions 里 `webPreferences` 的对象字面量（静态无法判定）');
+  if (declarationPoints.length === 0) {
+    undetermined.push(
+      '未找到 `webPreferences` 声明点（静态无法判定；动态键或另一文件写入即钻空子）',
+    );
+    return { violations, undetermined, declarationPoints };
+  }
+  if (declarationPoints.length > 1) {
+    const lines = declarationPoints
+      .map((node) =>
+        String(node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1),
+      )
+      .join('、');
+    violations.push(
+      `webPreferences 声明点不唯一（${String(declarationPoints.length)} 处：行 ${lines}）——` +
+        '安全基线必须只有一处声明，多余声明点可让宽松配置绕过静态判定',
+    );
+  }
+  return { violations, undetermined, declarationPoints };
+}
+
+/**
+ * 静态检查三：单个 `webPreferences` 声明点必须是基线的直接展开且展开后不得再引入基线键。
+ * 键写法（标识符/字符串/计算字符串/简写）与展开放宽（字面量/局部常量/多跳链）一视同仁。
+ */
+function checkWebPreferencesObject(declaration, context) {
+  const violations = [];
+  const undetermined = [];
+  const line =
+    declaration.getSourceFile().getLineAndCharacterOfPosition(declaration.getStart()).line + 1;
+  const label = `webPreferences（行 ${String(line)}）`;
+
+  // 声明点取值允许「标识符 ← 本地对象字面量」间接一层；其余形态判不出即阻塞（禁当通过）。
+  let initializer = declaration.initializer;
+  while (ts.isAsExpression(initializer) || ts.isSatisfiesExpression(initializer)) {
+    initializer = initializer.expression;
+  }
+  if (ts.isIdentifier(initializer)) {
+    const resolved = resolveSpreadKeys(initializer, context);
+    if (!resolved.ok) {
+      undetermined.push(`${label}：取值 ${resolved.reason}`);
+      return { violations, undetermined };
+    }
+    // 解析成功时只能拿到键集合：无基线展开键即视为未展开基线（下同口径）。
+    if (!resolved.keys.has(BASELINE_CONST)) {
+      violations.push(`${label}：经变量指向的对象没有直接展开 ${BASELINE_CONST}`);
+      return { violations, undetermined };
+    }
+    return { violations, undetermined };
+  }
+  if (!ts.isObjectLiteralExpression(initializer)) {
+    undetermined.push(`${label}：取值非对象字面量（${initializer.getText()}）——静态判不出`);
     return { violations, undetermined };
   }
 
-  let spreadIndex = -1;
-  webPreferencesObject.properties.forEach((property, index) => {
+  let baselineSpreadIndex = -1;
+  initializer.properties.forEach((property, index) => {
     if (
       ts.isSpreadAssignment(property) &&
       ts.isIdentifier(property.expression) &&
       property.expression.text === BASELINE_CONST
     ) {
-      spreadIndex = index;
+      baselineSpreadIndex = index;
     }
   });
 
-  if (spreadIndex < 0) {
-    violations.push(`buildWindowOptions 的 webPreferences 没有直接展开 ${BASELINE_CONST}`);
+  if (baselineSpreadIndex < 0) {
+    violations.push(`${label}：没有直接展开 ${BASELINE_CONST}（安全基线必须就地唯一展开）`);
     return { violations, undetermined };
   }
 
-  webPreferencesObject.properties.forEach((property, index) => {
-    if (
-      index <= spreadIndex ||
-      !ts.isPropertyAssignment(property) ||
-      !ts.isIdentifier(property.name)
-    ) {
+  initializer.properties.forEach((property, index) => {
+    if (index <= baselineSpreadIndex) return;
+    if (ts.isSpreadAssignment(property)) {
+      const resolved = resolveSpreadKeys(property.expression, context);
+      if (!resolved.ok) {
+        undetermined.push(
+          `webPreferences 在展开 ${BASELINE_CONST} 之后又展开：${resolved.reason}——无法确认是否覆盖基线键`,
+        );
+        return;
+      }
+      for (const key of resolved.keys) {
+        if (key in EXPECTED_BASELINE) {
+          violations.push(
+            `webPreferences 在展开 ${BASELINE_CONST} **之后**经展开又覆盖了 ${key}（后置放宽不被允许）`,
+          );
+        }
+      }
+      for (const item of resolved.unresolved) {
+        undetermined.push(`webPreferences 内的展开存在无法判定的键：${item}`);
+      }
       return;
     }
-    if (property.name.text in EXPECTED_BASELINE) {
+    const key = propertyKeyName(property);
+    if (key === undefined) {
+      undetermined.push(
+        `webPreferences 在展开 ${BASELINE_CONST} 之后出现动态计算属性名——静态判不出，禁止当作合规`,
+      );
+      return;
+    }
+    if (key === null) return; // 方法/存取器：不对基线五项构成数据覆盖
+    if (key in EXPECTED_BASELINE) {
       violations.push(
-        `webPreferences 在展开 ${BASELINE_CONST} **之后**又覆盖了 ${property.name.text}（后置放宽不被允许）`,
+        `webPreferences 在展开 ${BASELINE_CONST} **之后**又覆盖了 ${key}（后置放宽不被允许）`,
       );
     }
   });
@@ -291,20 +431,31 @@ function main() {
   } else {
     const sourceFile = parse(sourcePath, text);
     const literal = checkBaselineLiteral(sourceFile);
-    const preferences = checkWindowPreferences(sourceFile);
+    const uniqueness = checkWebPreferencesUniqueness(sourceFile);
+    const context = collectVariableInitializers(sourceFile);
+    const preferencesViolations = [];
+    const preferencesUndetermined = [];
+    for (const declaration of uniqueness.declarationPoints) {
+      const result = checkWebPreferencesObject(declaration, context);
+      preferencesViolations.push(...result.violations);
+      preferencesUndetermined.push(...result.undetermined);
+    }
     const mainChecks = isFixtureRun ? { violations: [], undetermined: [] } : checkMainProcess();
 
     report.violations.push(
       ...literal.violations,
-      ...preferences.violations,
+      ...uniqueness.violations,
+      ...preferencesViolations,
       ...mainChecks.violations,
     );
     report.undetermined.push(
       ...literal.undetermined,
-      ...preferences.undetermined,
+      ...uniqueness.undetermined,
+      ...preferencesUndetermined,
       ...mainChecks.undetermined,
     );
     report.found = literal.found;
+    report.declarationPoints = uniqueness.declarationPoints.length;
     for (const key of literal.undeterminedKeys ?? []) {
       staticallyUndeterminedKeys.add(key);
     }
