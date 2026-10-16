@@ -87,6 +87,13 @@ function baseEvidence() {
       stateCoverage: { verdict: 'pending', states: {} },
       styleFamily: { verdict: 'pending', note: '人工 B 级：需对照相邻对照页截图复核' },
     },
+    // 验收标准 §4 字段族：自设计页不逐像素对照（§6）→ 无像素比对（三项 null + 说明）。
+    diff: {
+      bbox: null,
+      diffPixels: null,
+      ratio: null,
+      note: '自设计页不逐像素对照（验收标准 §6）：无像素比对；判定走令牌一致性/六态覆盖/同族人工项三类检查',
+    },
     pages: [],
     artifacts: {},
     humanReview: {
