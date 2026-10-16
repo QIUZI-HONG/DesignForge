@@ -16,11 +16,22 @@
  * 格式、ISO8601 时刻、id 形态与 source 一致性、counts 三项自洽、blocked 资产不得出现、
  * 重复 id；另记 warning 类问题（未知能力词、tags 超限、score 与加权分不符、双语皆空）。
  *
- * 词表单一真源：品类/形态词表与契约标识复用 `@dforge/contracts`（INF-01 已定稿），
- * 本模块不另起一套（依赖方向 ingest → contracts 合法）。
+ * 词表单一真源：kind/品类/泳道/形态/license 三档/安全结论/五维权重的词表真源一律在
+ * `@dforge/contracts`（`market/vocab.ts`，ADR-0004 ③ 收敛 · 修复批次 3），本模块只消费
+ * 守卫与常量，不另起一套（依赖方向 ingest → contracts 合法）。
  */
 
-import { MARKET_CATEGORIES, MARKET_MODES, MARKETPLACE_INDEX_SCHEMA } from '@dforge/contracts';
+import {
+  isLicenseGate,
+  isMarketAssetKind,
+  isMarketLane,
+  isMarketSecurityLevel,
+  MARKET_ASSET_KINDS,
+  MARKET_CATEGORIES,
+  MARKET_MODES,
+  MARKET_QUALITY_WEIGHTS,
+  MARKETPLACE_INDEX_SCHEMA,
+} from '@dforge/contracts';
 
 /** 校验问题码（稳定标识，可进证据 JSON 与日志）。 */
 export type IndexIssueCode =
@@ -64,27 +75,16 @@ export interface IndexValidationOptions {
 /** 契约标识（单一真源在 `@dforge/contracts`，此处仅作本地别名）。 */
 export const MARKETPLACE_INDEX_SCHEMA_ID = MARKETPLACE_INDEX_SCHEMA;
 
-/** 五维权重（规格 §5.1；score 自洽性交叉校验用）。 */
-export const QUALITY_WEIGHTS = {
-  spec: 0.25,
-  maintenance: 0.2,
-  docs: 0.2,
-  security: 0.2,
-  ecosystem: 0.15,
-} as const;
+/**
+ * 五维权重（规格 §5.1；score 自洽性交叉校验用）。
+ * 真源 `MARKET_QUALITY_WEIGHTS`（ADR-0004 ③ 收敛）——评分与索引校验共用一份权重。
+ */
+export const QUALITY_WEIGHTS = MARKET_QUALITY_WEIGHTS;
 
-/** 四类资产词表（规格 §1.2；contracts 未导出运行时常量，此处保持同步）。 */
-const ASSET_KINDS = ['skill', 'plugin', 'design-system', 'template'] as const;
-/** 品类词表（规格 §1.4；复用 contracts，未知值归「其他」）。 */
+/** 品类词表（规格 §1.4；真源 `MARKET_CATEGORIES`，未知值归「其他」）。 */
 const CATEGORIES = MARKET_CATEGORIES;
-/** 工作泳道词表（规格 §1.4）。 */
-const LANES = ['create', 'refine', 'deliver'] as const;
-/** 资产形态词表（规格 §1.4；复用 contracts，未知值归 other）。 */
+/** 资产形态词表（规格 §1.4；真源 `MARKET_MODES`，未知值归 other）。 */
 const MODES = MARKET_MODES;
-/** license 三档（规格 §7.2）。 */
-const GATES = ['loadable', 'view-only', 'blocked'] as const;
-/** 安全静态审计结论（规格 §1.2）。 */
-const SECURITY_LEVELS = ['pass', 'warn', 'fail'] as const;
 /** 能力白名单（规格 §7.1；`connector:<id>` 另行按前缀匹配）。 */
 export const CAPABILITY_WHITELIST = [
   'prompt:inject',
@@ -249,7 +249,7 @@ function checkSource(collector: Collector, value: unknown, path: string): void {
     if (license.spdx !== null && typeof license.spdx !== 'string') {
       collector.error('invalid-type', lp('spdx'), '应为 string 或 null');
     }
-    if (!GATES.includes(license.gate as (typeof GATES)[number])) {
+    if (!isLicenseGate(license.gate)) {
       collector.unknownEnum(
         'invalid-enum',
         lp('gate'),
@@ -318,7 +318,7 @@ function checkFacets(collector: Collector, value: unknown, path: string): void {
       `category 不在词表：${String(value.category)}`,
     );
   }
-  if (!LANES.includes(value.lane as (typeof LANES)[number])) {
+  if (!isMarketLane(value.lane)) {
     collector.unknownEnum('invalid-enum', p('lane'), `lane 不在词表：${String(value.lane)}`);
   }
   if (value.mode !== null && value.mode !== undefined) {
@@ -391,11 +391,11 @@ function checkInstallGate(collector: Collector, value: unknown, path: string): v
   }
   const p = (key: string) => `${path}.${key}`;
   for (const key of ['mode', 'licenseGate'] as const) {
-    if (!GATES.includes(value[key] as (typeof GATES)[number])) {
+    if (!isLicenseGate(value[key])) {
       collector.unknownEnum('invalid-enum', p(key), `${key} 不在三档词表：${String(value[key])}`);
     }
   }
-  if (!SECURITY_LEVELS.includes(value.security as (typeof SECURITY_LEVELS)[number])) {
+  if (!isMarketSecurityLevel(value.security)) {
     collector.unknownEnum(
       'invalid-enum',
       p('security'),
@@ -428,7 +428,7 @@ function checkAsset(collector: Collector, value: unknown, index: number): void {
     );
   }
 
-  if (!ASSET_KINDS.includes(value.kind as (typeof ASSET_KINDS)[number])) {
+  if (!isMarketAssetKind(value.kind)) {
     collector.unknownEnum('invalid-enum', p('kind'), `kind 不在四类词表：${String(value.kind)}`);
   }
   requireString(collector, value.name, p('name'));
@@ -569,7 +569,7 @@ function checkCounts(collector: Collector, value: unknown, assets: unknown[]): v
   if (!isRecord(byKind)) {
     collector.error('missing-field', 'counts.byKind', 'byKind 必填且为对象');
   } else {
-    for (const kind of ASSET_KINDS) {
+    for (const kind of MARKET_ASSET_KINDS) {
       const declared = byKind[kind];
       if (typeof declared !== 'number') {
         collector.error('invalid-type', `counts.byKind.${kind}`, '应为数字');
