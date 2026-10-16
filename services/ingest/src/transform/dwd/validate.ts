@@ -4,7 +4,18 @@
  * 为什么把引用完整性放进校验：D6 看板的「一致性（重复率、孤儿引用率）」需要一个可机器
  * 判定的真值来源；孤儿引用（asset_file/license 指向不存在的资产）在表里是不变量破坏，
  * 必须在 DWD 层就报出来，而不是等前端展示时才发现。
+ *
+ * 词表同源：kind / license 三档 / 细档 / 合规结论的词表真源在 `@dforge/contracts`
+ * （ADR-0004 ③ 收敛），本层只消费守卫；`DIGEST_STATUS` / `CLUSTER_REASONS` 是 DWD 层
+ * 本地词表（无跨层重复声明），不属同源范围。
  */
+
+import {
+  isLicenseGate,
+  isMarketAssetKind,
+  isMarketCompliance,
+  isMarketLicenseTier,
+} from '@dforge/contracts';
 
 import type { OdsValidationIssue } from '../types.ts';
 import type { DwdTables } from './tables.ts';
@@ -14,17 +25,9 @@ const COMMIT_RE = /^[0-9a-f]{40}$/;
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/;
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
 
-const ASSET_KINDS = ['skill', 'plugin', 'design-system', 'template'];
-const LICENSE_GATES = ['loadable', 'view-only', 'blocked'];
-const LICENSE_TIERS = [
-  'permissive',
-  'noassertion',
-  'none',
-  'strong-copyleft',
-  'weak-copyleft',
-  'custom',
-];
+/** digest 结论（DWD 层本地词表）。 */
 const DIGEST_STATUS = ['ok', 'incomplete-content', 'empty'];
+/** 簇归因（DWD 层本地词表，§5.5）。 */
 const CLUSTER_REASONS = [
   'exact-dup',
   'near-dup',
@@ -52,7 +55,7 @@ export function validateDwd(tables: DwdTables): OdsValidationIssue[] {
       push(at, 'repo-full-name', 'full_name 必须为 owner/repo');
     }
     if (!COMMIT_RE.test(row.ref)) push(at, 'repo-ref-format', 'ref 必须为 40 位 commit hex');
-    if (!LICENSE_GATES.includes(row.license_gate)) {
+    if (!isLicenseGate(row.license_gate)) {
       push(at, 'license-gate', `license_gate 非法：${row.license_gate}`);
     }
     if (!isNonEmptyString(row.fetched_at)) push(at, 'repo-fetched-at', '缺 fetched_at');
@@ -72,7 +75,7 @@ export function validateDwd(tables: DwdTables): OdsValidationIssue[] {
     if (!repoIds.has(row.repo_id)) {
       push(at, 'orphan-asset-repo', `repo_id=${row.repo_id} 不在 repo 表（孤儿引用）`);
     }
-    if (!ASSET_KINDS.includes(row.kind)) push(at, 'asset-kind', `kind 非法：${row.kind}`);
+    if (!isMarketAssetKind(row.kind)) push(at, 'asset-kind', `kind 非法：${row.kind}`);
     if (!isNonEmptyString(row.name)) push(at, 'asset-name', 'name 必须非空（slug）');
     if (!COMMIT_RE.test(row.ref)) push(at, 'asset-ref-format', 'ref 必须为 40 位 commit hex');
     if (row.digest !== null && !SHA256_RE.test(row.digest)) {
@@ -81,10 +84,10 @@ export function validateDwd(tables: DwdTables): OdsValidationIssue[] {
     if (!DIGEST_STATUS.includes(row.digest_status)) {
       push(at, 'asset-digest-status', `digest_status 非法：${row.digest_status}`);
     }
-    if (!['ok', 'non-compliant', 'deferred'].includes(row.compliance)) {
+    if (!isMarketCompliance(row.compliance)) {
       push(at, 'asset-compliance', `compliance 非法：${row.compliance}`);
     }
-    if (!LICENSE_GATES.includes(row.license_gate)) {
+    if (!isLicenseGate(row.license_gate)) {
       push(at, 'license-gate', `license_gate 非法：${row.license_gate}`);
     }
     if (!Number.isInteger(row.cluster_size) || row.cluster_size < 1) {
@@ -159,8 +162,8 @@ export function validateDwd(tables: DwdTables): OdsValidationIssue[] {
         push(at, 'orphan-license-asset', `asset_id=${row.asset_id} 不在 asset 表（孤儿引用）`);
       }
     }
-    if (!LICENSE_GATES.includes(row.gate)) push(at, 'license-gate', `gate 非法：${row.gate}`);
-    if (!LICENSE_TIERS.includes(row.tier)) push(at, 'license-tier', `tier 非法：${row.tier}`);
+    if (!isLicenseGate(row.gate)) push(at, 'license-gate', `gate 非法：${row.gate}`);
+    if (!isMarketLicenseTier(row.tier)) push(at, 'license-tier', `tier 非法：${row.tier}`);
     if (row.evidence_sha256 !== null && !SHA256_RE.test(row.evidence_sha256)) {
       push(at, 'license-evidence-format', 'evidence_sha256 必须为 null 或 sha256:<64hex>');
     }
