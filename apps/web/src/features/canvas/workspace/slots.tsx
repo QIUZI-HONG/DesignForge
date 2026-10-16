@@ -82,6 +82,8 @@ export function CanvasSlot() {
             error: null,
           },
         stats: () => statsRef.current,
+        // 落盘的 daemon 文档 id（D-2）：门禁/e2e 据此断言「打开的是哪一份、保存到哪一份」
+        documentId: () => workspace.documents.store.getState().documentId,
       }),
     );
   }, [mounted, workspace]);

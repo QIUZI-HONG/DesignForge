@@ -193,6 +193,37 @@ describe('载入（?documentId= → daemon 文档）', () => {
     expect(workspace.canvas.document().name).toBe('未命名文件');
     expect(workspace.canvas.page().id).toBe('page-editor');
   });
+
+  it('打开新建（daemon 尚无设计内容，正文为空对象）的文档：给空画布可编辑，不是错误态', async () => {
+    const daemon = createFakeDaemon();
+    // 首页「新建设计文件」在 daemon 侧留下的就是这种文档：页面正文 `{}`（opaque 空 JSON）
+    daemon.documents.set('刚建的文件', {
+      name: '刚建的文件',
+      pages: new Map([['page-1', {}]]),
+      nextPageNumber: 2,
+    });
+    const workspace = makeWorkspace(daemon);
+
+    const result = await workspace.documents.load('刚建的文件');
+    expect(result.ok).toBe(true);
+    expect(workspace.canvas.document().name).toBe('刚建的文件');
+    expect(workspace.canvas.page().nodes).toEqual({});
+    expect(workspace.documents.store.getState()).toMatchObject({
+      documentId: '刚建的文件',
+      status: 'saved',
+    });
+
+    // 画一笔再保存：写回**同一个**文档（不是另建一份），正文换成画布信封
+    const rectId = workspace.canvas.createRect({ x: 10, y: 10, width: 40, height: 30 });
+    expect((await workspace.documents.save()).ok).toBe(true);
+    expect(daemon.documents.size).toBe(1);
+    const stored = [...(daemon.documents.get('刚建的文件')?.pages.values() ?? [])][0] as {
+      $format?: string;
+      page: { nodes: Record<string, unknown> };
+    };
+    expect(stored.$format).toBe('dforge.canvas.page');
+    expect(stored.page.nodes[rectId]).toBeDefined();
+  });
 });
 
 describe('保存（⌘S / 顶栏按钮）', () => {

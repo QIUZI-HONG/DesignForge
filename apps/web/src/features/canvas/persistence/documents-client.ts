@@ -10,7 +10,7 @@
 
 import { DAEMON_ROUTES } from '@dforge/contracts';
 import type { DesignDocument, ScenePage } from '@dforge/engine';
-import { emptyTokenSet, parseDocument, type TokenSet } from '@dforge/engine';
+import { createPage, emptyTokenSet, parseDocument, type TokenSet } from '@dforge/engine';
 
 /** 页面正文信封。 */
 export interface CanvasPageBody {
@@ -239,7 +239,15 @@ export async function saveDesignDocument(
   return { ok: true, value: { documentId, pageIds } };
 }
 
-/** 读取设计文档（顺序探测 `page-{N}` 直到缺失）。 */
+/**
+ * 读取设计文档（顺序探测 `page-{N}` 直到缺失）。
+ *
+ * **空文档口径**（D-2 闭环的必要一环）：daemon 的「新建设计文件」只写 `{}` 作为页正文
+ * （daemon 只做 opaque JSON 存储，不写设计语义）。因此「首屏正文是空对象」= 这份文档
+ * 尚无设计内容 → 给一份含一个空页面的文档（页面 id 与 daemon 的 `page-1` 对齐），
+ * 用户从首页点开新文件就是**空画布可画**，而不是「结构非法」错误态。
+ * 反过来：正文是非空但非本格式的 JSON（外来/损坏内容）仍按结构错误上报——不静默吞掉别人的数据。
+ */
 export async function loadDesignDocument(
   client: DocumentsClient,
   documentId: string,
@@ -248,13 +256,21 @@ export async function loadDesignDocument(
   if (!summary.ok) return summary;
   const pages: ScenePage[] = [];
   let tokens: TokenSet | null = null;
+  let firstBodyEmpty = false;
   for (let index = 0; index < 64; index += 1) {
     const body = await client.readPage(documentId, daemonPageId(index));
     if (!body.ok) break;
     const decoded = decodePageBody(body.value);
-    if (decoded === null) break;
+    if (decoded === null) {
+      if (index === 0) firstBodyEmpty = isEmptyBody(body.value);
+      break;
+    }
     pages.push(decoded.page);
     tokens = tokens ?? decoded.tokens;
+  }
+  if (pages.length === 0 && firstBodyEmpty) {
+    // 新建文档的空白首页：名字沿用 daemon 的默认页面名（数据默认值，不是界面文案）
+    pages.push(createPage({ id: daemonPageId(0), name: '页面 1' }));
   }
   try {
     const parsed = parseDocument({
@@ -270,4 +286,11 @@ export async function loadDesignDocument(
       error: `文档结构非法：${error instanceof Error ? error.message : String(error)}`,
     };
   }
+}
+
+/** 是否为「空正文」（daemon 新建文档的 `{}`；也容忍显式 null）。 */
+function isEmptyBody(body: unknown): boolean {
+  if (body === null) return true;
+  if (typeof body !== 'object') return false;
+  return Object.keys(body as Record<string, unknown>).length === 0;
 }
