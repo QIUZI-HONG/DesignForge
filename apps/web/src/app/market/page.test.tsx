@@ -11,7 +11,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { makeAsset, makeQueryResponse } from '@/features/market/__fixtures__/market';
+import { marketFixtures } from '@/features/market';
+
+// 夹具经 market 公开面取（`marketFixtures` 命名空间），不引 `__fixtures__` 深路径
+const { makeAsset, makeQueryResponse } = marketFixtures;
 
 // 路由能力：只测页面渲染与筛选，不做真实跳转。
 const push = vi.fn();

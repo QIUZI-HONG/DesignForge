@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { pageStyle } from '@/features/market/styles';
+import { pageStyle } from '@/features/market';
 
 /**
  * 市场路由段布局（FE-11 自设计页族）。

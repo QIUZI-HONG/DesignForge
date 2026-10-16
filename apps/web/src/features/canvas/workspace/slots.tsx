@@ -20,9 +20,7 @@ import { useStore } from 'zustand';
 import { AiDrawer, createAiPort } from '@/features/ai';
 import { EditorPanels, PanelsProvider } from '@/features/editor-panels';
 import { useCanvasHud } from '@/features/editor-shell';
-import { CodeExportPanel } from '@/features/inspect-export/components/CodeExportPanel';
-import { ExportPanel } from '@/features/inspect-export/components/ExportPanel';
-import { InspectPanel } from '@/features/inspect-export/components/InspectPanel';
+import { CodeExportPanel, ExportPanel, InspectPanel } from '@/features/inspect-export';
 import { InspectorPanel } from '@/features/inspector';
 import { t } from '@/i18n';
 

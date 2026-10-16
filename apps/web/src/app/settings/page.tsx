@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-import { SettingsPage } from '@/features/settings/components/settings-page';
+import { SettingsPage } from '@/features/settings';
 import { t } from '@/i18n';
 
 /**

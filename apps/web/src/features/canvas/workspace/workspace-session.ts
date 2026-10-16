@@ -22,13 +22,13 @@ import {
   type ComponentPreviewState,
   createComponentsPreviewDocument,
   previewSelection as previewComponentsSelection,
-} from '@/features/editor-components/preview';
+} from '@/features/editor-components';
 import { createPanelsSession, type PanelsSession } from '@/features/editor-panels';
 import {
   createInspectPreviewDocument,
   type InspectPreviewState,
   previewSelection as previewInspectSelection,
-} from '@/features/inspect-export/preview';
+} from '@/features/inspect-export';
 import type { InspectorPreviewState } from '@/features/inspector';
 import { createPreviewDocument, previewSelection } from '@/features/inspector';
 
