@@ -118,7 +118,11 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     fetchCalls,
     async cleanup(): Promise<void> {
       await app.close();
-      await rm(tempDir, { recursive: true, force: true });
+      // 遥测/审计是**追加式落盘**：`app.close()` 返回后仍可能有已在途的写入落在
+      // `data/telemetry` 等目录里，与递归删除竞速会抛 ENOTEMPTY（CI runner 上实测：
+      // export.test.ts 的 PDF 用例红于 `ENOTEMPTY: rmdir '.../data/telemetry'`）。
+      // Node 的 `fs.rm` 对 EBUSY/ENOTEMPTY 一类瞬时错误内置重试——这正是它存在的场景。
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     },
   };
 }
