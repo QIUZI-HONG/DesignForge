@@ -77,6 +77,10 @@ interface AliveStageReport {
   notes: string[];
   failures: string[];
   windowMs: number;
+  /** 二进制来源（复核 J2 增记：stub 证据不得冒充验收凭据）。 */
+  binarySource?: string;
+  /** 装载落点（壳自报；stub 不打印标记 → null）。 */
+  target?: { kind?: string; url?: string | null } | null;
   observed?: { aliveMs: number; alive: boolean; exitCode: number | null };
 }
 
@@ -135,6 +139,8 @@ describe('verify-shell-parity：交互存活段（D-8 回归）', () => {
     expect(stage.observed?.alive).toBe(false);
     expect(stage.failures.join('\n')).toContain('在存活窗口');
     expect(stage.failures.join('\n')).toContain('exit=1');
+    // 注入证据如实标注来源（复核 J2：stub 不得冒充真壳证据）
+    expect(stage.binarySource).toBe('env-stub');
   });
 
   it('壳过窗口仍存活 → exit 0（存活夹具；门禁须回收进程组后返回）', () => {
@@ -150,6 +156,42 @@ describe('verify-shell-parity：交互存活段（D-8 回归）', () => {
     expect(stage.failures).toEqual([]);
     expect(stage.observed?.alive).toBe(true);
     expect(stage.notes.join('\n')).toContain('仍存活');
+    expect(stage.binarySource).toBe('env-stub');
+    // stub 不打印装载标记 → target 记 null（如实，不猜），note 说明原因
+    expect(stage.target).toBeNull();
+    expect(stage.notes.join('\n')).toContain('env-stub');
+  });
+
+  it('存活段如实记录装载落点（夹具打印 fallback 标记 → target.kind=fallback）', () => {
+    const fixture = makeFixture(
+      '#!/bin/sh\necho \'DFORGE_LOAD_TARGET:{"kind":"fallback","url":"file:///tmp/fallback.html"}\'\nsleep 30\n',
+    );
+    const { status, stdout } = run(
+      ['--stage=alive', '--alive-window=1500', '--json'],
+      fixtureEnv(fixture),
+    );
+
+    expect(status).toBe(0);
+    const stage = aliveStageOf(stdout);
+    expect(stage.target?.kind).toBe('fallback');
+    expect(stage.notes.join('\n')).toContain('kind=fallback');
+  });
+
+  it('--alive-window 跌破下限（真壳跑）→ 用法错误 exit 2（复核 J2：短窗口不得把存活段跑成假绿）', () => {
+    // 不带注入（binarySource=real）：窗口必须略超壳内自检硬超时（30s），31s 是下限
+    const { status, stderr } = run(['--stage=alive', '--alive-window=2000', '--json']);
+
+    expect(status).toBe(2);
+    expect(stderr).toContain('用法错误');
+    expect(stderr).toContain('31000');
+    expect(stderr).toContain('30');
+  });
+
+  it('前置阻塞用例（如下）不受下限影响：注入下短窗口仍可用', () => {
+    const fixture = makeFixture('#!/bin/sh\nexit 0\n');
+    const { status } = run(['--stage=alive', '--alive-window=2000', '--json'], fixtureEnv(fixture));
+    // 壳秒退 → exit 1（违规），不是用法错误 2——证明注入面的短窗口确实被放行
+    expect(status).toBe(1);
   });
 
   it('Electron 二进制缺失 → exit 2 阻塞（CI 属此列，不得出红）', () => {
@@ -189,13 +231,29 @@ describe('verify-shell-parity：交互存活段（D-8 回归）', () => {
   });
 
   it('存活窗口必须**略超**壳内自检硬超时，否则误杀会被窗口漏掉', () => {
-    const aliveWindow = numericConstant(readFileSync(script, 'utf8'), 'ALIVE_WINDOW_MS');
+    const gateSource = readFileSync(script, 'utf8');
+    const aliveWindow = numericConstant(gateSource, 'ALIVE_WINDOW_MS');
+    const aliveWindowMin = numericConstant(gateSource, 'ALIVE_WINDOW_MIN_MS');
+    const gateSelfCheckTimeout = numericConstant(gateSource, 'SELF_CHECK_TIMEOUT_MS');
     const selfCheckTimeout = numericConstant(
       readFileSync(runModeSourcePath, 'utf8'),
       'SELF_CHECK_TIMEOUT_MS',
     );
 
     expect(selfCheckTimeout).toBe(30_000);
+    expect(gateSelfCheckTimeout).toBe(selfCheckTimeout); // 门禁基准与壳内常量同步（两处改动须同批）
     expect(aliveWindow).toBeGreaterThan(selfCheckTimeout);
+    // 下限（复核 J2）：真壳跑的窗口不得跌破 31s（< 31s 即用法错误）
+    expect(aliveWindowMin).toBe(31_000);
+    expect(aliveWindow).toBeGreaterThanOrEqual(aliveWindowMin);
+  });
+
+  it('装载目标标记前缀两处一致（壳打印 ↔ 门禁解析）', () => {
+    const marker = /LOAD_TARGET_MARKER_PREFIX = '([^']+)'/.exec(
+      readFileSync(`${repoRoot}/apps/desktop/src/main/load-target.ts`, 'utf8'),
+    )?.[1];
+    expect(marker).toBeDefined();
+    // 门禁的解析前缀字面量必须与壳的打印前缀逐字一致，否则存活段 target 恒为 null
+    expect(readFileSync(script, 'utf8')).toContain(`LOAD_TARGET_MARKER = '${String(marker)}'`);
   });
 });

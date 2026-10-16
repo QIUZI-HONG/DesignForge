@@ -27,8 +27,10 @@
  *
  * 环境变量：DF_REF_DIR（参照集根，默认 ~/df-evidence/reference-v1）、DF_EVIDENCE_DIR（证据根，默认
  *   ~/df-evidence）、DFORGE_PARITY_URL（`--live-browser` 的站点，默认 http://127.0.0.1:3000/）、
- *   BENCH_CHROME_EXECUTABLE、DFORGE_ELECTRON_BINARY / DFORGE_SHELL_APP_DIR（**测试注入**：覆盖
- *   Electron 二进制与壳目录，供违规/存活夹具在无 Electron 的环境里回归；默认即仓库内的真壳）。
+ *   BENCH_CHROME_EXECUTABLE、DFORGE_ELECTRON_BINARY / DFORGE_SHELL_APP_DIR（**测试注入，验收禁用**：
+ *   覆盖 Electron 二进制与壳目录，供违规/存活夹具在无 Electron 的环境里回归；默认即仓库内的真壳。
+ *   注入=stub：证据 JSON 记 `binarySource:"env-stub"`，且在注入下 `--alive-window` 才允许跌破下限——
+ *   验收跑（binarySource:"real"）不得注入、不得短窗口）。
  * 证据：`<DF_EVIDENCE_DIR>/fe-12/shell-parity-<时间戳>/`：evidence.json（字段依验收标准 §4）+ 壳自检 JSON + PNG。
  */
 import { spawn, spawnSync } from 'node:child_process';
@@ -67,6 +69,24 @@ const ALIVE_WINDOW_MS = 35_000;
 const PROCESS_REAP_GRACE_MS = 3_000;
 const PROCESS_REAP_KILL_MS = 2_000;
 
+/**
+ * 壳内自检硬超时（`apps/desktop/src/main/run-mode.ts` 的 `SELF_CHECK_TIMEOUT_MS`）——存活窗口的基准。
+ * `apps/desktop/src/guards/shell-parity-gate.test.ts` 对着源码常量钉住两边同步。
+ */
+const SELF_CHECK_TIMEOUT_MS = 30_000;
+/**
+ * `--alive-window` 下限：必须**略超**自检硬超时（31s > 30s），否则 D-8 类「存活恰好 30 秒后自行退出」
+ * 会被窗口漏判（复核 J2：此前只校验「正数」，`--alive-window=1` 就能把存活段跑成假绿）。
+ */
+const ALIVE_WINDOW_MIN_MS = 31_000;
+/**
+ * 二进制来源：默认仓库内真壳（`real`）；`DFORGE_ELECTRON_BINARY` 覆盖 = 测试注入（`env-stub`，
+ * **验收禁用**）。stub 证据会被如实标注（且只有 stub 允许跌破 `--alive-window` 下限）。
+ */
+const BINARY_SOURCE = process.env.DFORGE_ELECTRON_BINARY === undefined ? 'real' : 'env-stub';
+/** 装载目标标记（壳在装载后打一行；`apps/desktop/src/main/load-target.ts` 的同名前缀）。 */
+const LOAD_TARGET_MARKER = 'DFORGE_LOAD_TARGET:';
+
 const REFS_BLOCKED = '阻塞：参照集未冻结（REF-01 未完成）——不得以自截图/近似图假绿';
 const TOOLCHAIN_BLOCKED =
   '阻塞：截图工具链不可用（playwright-core / pixelmatch / pngjs 或 Chromium 缺失）';
@@ -96,6 +116,15 @@ const runParityStage = stageArg === 'parity' || stageArg === 'both';
 const aliveWindowMs = Number(readArg('alive-window') ?? ALIVE_WINDOW_MS);
 if (!Number.isFinite(aliveWindowMs) || aliveWindowMs <= 0) {
   process.stderr.write(`用法错误：--alive-window=${readArg('alive-window')} 须为正数毫秒\n`);
+  process.exit(BLOCKED);
+}
+if (BINARY_SOURCE === 'real' && aliveWindowMs < ALIVE_WINDOW_MIN_MS) {
+  process.stderr.write(
+    `用法错误：--alive-window=${String(aliveWindowMs)} 低于下限 ${String(ALIVE_WINDOW_MIN_MS)}ms` +
+      `——存活窗口必须**略超**壳内自检硬超时（${String(SELF_CHECK_TIMEOUT_MS)}ms），` +
+      '否则 D-8 类「恰好 30 秒自行退出」会被窗口漏判。\n' +
+      '短窗口只对测试注入（DFORGE_ELECTRON_BINARY，验收禁用）放开；注入证据会标注 binarySource="env-stub"。\n',
+  );
   process.exit(BLOCKED);
 }
 const refsDir = resolve(readArg('refs') ?? REF_DIR);
@@ -155,6 +184,8 @@ function runSmoke() {
     stage: 'shell-smoke',
     level: 'A',
     exitCode: BLOCKED,
+    /** 二进制来源（真壳 / 测试注入 stub）——与存活段同一口径。 */
+    binarySource: BINARY_SOURCE,
     artifacts,
     notes: [],
     failures: [],
@@ -263,6 +294,24 @@ function tailLines(text, count = 3) {
     .filter((line) => line !== '')
     .slice(-count)
     .join(' | ');
+}
+
+/**
+ * 解析壳打印的装载目标标记（`DFORGE_LOAD_TARGET:{kind,url}` 一行）。
+ *
+ * 真壳在装载完成后打印（见 `apps/desktop/src/main/load-target.ts`）；测试注入的 stub 二进制
+ * 不打印 → null（证据里记 null + note，**不猜**）。前缀两处一致性由
+ * `apps/desktop/src/guards/shell-parity-gate.test.ts` 对着两份源码钉住。
+ */
+function parseLoadTarget(stdout) {
+  const line = stdout.split('\n').find((entry) => entry.startsWith(LOAD_TARGET_MARKER));
+  if (line === undefined) return null;
+  try {
+    const parsed = JSON.parse(line.slice(LOAD_TARGET_MARKER.length));
+    return parsed !== null && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /** 等若干毫秒（进程回收的容差窗口用）。 */
@@ -381,6 +430,8 @@ async function runAlive() {
     stage: 'shell-alive',
     level: 'A',
     windowMs: aliveWindowMs,
+    /** 二进制来源（真壳 / 测试注入 stub）——stub 证据不作验收凭据（见头注释）。 */
+    binarySource: BINARY_SOURCE,
     exitCode: BLOCKED,
     artifacts: {},
     notes: [],
@@ -428,6 +479,17 @@ async function runAlive() {
     exitCode: outcome.exitCode ?? null,
     signal: outcome.signal ?? null,
   };
+  // 装载落点如实记（fallback 诊断页也如实记；stub 不打印标记 → null + note，不猜）
+  result.target = parseLoadTarget(outcome.stdout);
+  if (result.target === null) {
+    result.notes.push(
+      BINARY_SOURCE === 'env-stub'
+        ? '装载目标不可判定：注入二进制（env-stub，验收禁用）不产 `DFORGE_LOAD_TARGET:` 标记——target 记 null，不猜'
+        : '装载目标不可判定：壳未打印 `DFORGE_LOAD_TARGET:` 标记（装载失败会先以「窗口内自行退出」暴露）',
+    );
+  } else {
+    result.notes.push(`装载目标：kind=${String(result.target.kind)}（壳自报，含 fallback 诊断页）`);
+  }
 
   if (outcome.alive) {
     result.notes.push(

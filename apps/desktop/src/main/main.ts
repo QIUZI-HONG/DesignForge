@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, Menu, type NativeImage, shell } from 'electron';
 
 import { decideExternalOpen, decideInPageNavigation } from './external-links.js';
-import { resolveLoadPlanFromDisk } from './load-target.js';
+import { formatLoadTargetMarker, resolveLoadPlanFromDisk } from './load-target.js';
 import { buildMenuTemplate } from './menu.js';
 import { resolvePreloadPath } from './preload-path.js';
 import {
@@ -183,26 +183,32 @@ async function fitViewportToBaseline(
 /**
  * 装载目标页：dev URL 直装；静态产物起**内置静态服务**装载（Next 导出资源是绝对路径，
  * file:// 会 404）；两者都没有则装壳内诊断页。
+ *
+ * 装载完成后往 stdout 打一行 `DFORGE_LOAD_TARGET:` 标记：门禁存活段据此**如实**记录
+ * `target.kind`（fallback 诊断页也如实记，不许猜）——见 `load-target.ts` 的同名导出。
  */
 async function loadTarget(window: BrowserWindow) {
   const plan = resolveLoadPlanFromDisk({ shellRoot: SHELL_ROOT, repoRoot: REPO_ROOT });
 
+  let target: { kind: string; url: string; reason: string };
   if (plan.kind === 'dev-server') {
     await window.loadURL(plan.url);
-    return { kind: plan.kind, url: window.webContents.getURL(), reason: plan.reason };
-  }
-  if (plan.kind === 'static-export') {
+    target = { kind: plan.kind, url: window.webContents.getURL(), reason: plan.reason };
+  } else if (plan.kind === 'static-export') {
     const { origin } = await startStaticServer(plan.rootDir);
     await window.loadURL(`${origin}/`);
-    return {
+    target = {
       kind: plan.kind,
       url: window.webContents.getURL(),
       reason: `${plan.reason} @ ${origin}`,
     };
+  } else {
+    await window.loadFile(join(SHELL_ROOT, 'resources', 'fallback.html'));
+    target = { kind: plan.kind, url: window.webContents.getURL(), reason: plan.reason };
   }
 
-  await window.loadFile(join(SHELL_ROOT, 'resources', 'fallback.html'));
-  return { kind: plan.kind, url: window.webContents.getURL(), reason: plan.reason };
+  writeStdout(formatLoadTargetMarker(target));
+  return target;
 }
 
 /** 建壳窗口：选项全量来自 `buildWindowOptions`（守卫静态断言其 `webPreferences` 段）。 */
