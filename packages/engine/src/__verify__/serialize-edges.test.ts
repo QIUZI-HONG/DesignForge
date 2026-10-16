@@ -19,6 +19,7 @@ import {
 import { type DomainError, isDomainError } from '../scene/errors';
 import { getPage, insertNode, validateDocument } from '../scene/index';
 import {
+  cloneDocument,
   DESIGN_IR_FORMAT,
   DESIGN_IR_VERSION,
   parseDocument,
@@ -348,33 +349,49 @@ describe('[verify] 序列化 · 深嵌套（导入守门：显式深度上限 51
   });
 });
 
-describe('[verify] 序列化 · 原型污染', () => {
-  it('导入 JSON 中节点的自有 __proto__ 键：不污染全局，但再序列化会丢字段', () => {
+describe('[verify] 序列化 · 原型污染（同口径：自有 __proto__ 键一律丢弃）', () => {
+  it('导入 JSON 里的自有 __proto__ 键：解析即丢弃，不进载荷也不改写原型', () => {
     const doc = baseDoc();
     const once = serializeDocument(doc);
     // 只在 rect 节点上注入（"id": "r" 在文档中唯一）
     const injected = once.replace('"id": "r"', '"id": "r", "__proto__": { "polluted": "yes" }');
     expect(injected).not.toBe(once);
+
     const parsed = parseDocument(injected).document;
     const node = parsed.pages[0]?.nodes.r as unknown as Record<string, unknown>;
-    // JSON.parse 把 __proto__ 解析为**自有属性**（不改原型），全局 Object.prototype 未被污染
-    expect(Object.hasOwn(node, '__proto__')).toBe(true);
+    // 旧缺陷：JSON.parse 留下自有 __proto__ 键 → 再序列化被静默丢字段（半保留半丢弃）
+    expect(Object.hasOwn(node, '__proto__')).toBe(false);
+    expect(Object.getPrototypeOf(node)).toBe(Object.prototype);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    expect(
-      (Object.getPrototypeOf(node) as Record<string, unknown> | null)?.polluted,
-    ).toBeUndefined();
-    // 但稳定序列化时 sortKeysDeep 用 obj['__proto__'] = 赋值 → 键静默丢失
-    const reserialized = serializeDocument(parsed);
-    expect(reserialized).not.toContain('__proto__');
+    // 丢弃是唯一差异：再序列化与注入前逐字节一致
+    expect(serializeDocument(parsed)).toBe(once);
   });
 
-  it('sortKeysDeep 对 __proto__ 键的赋值会改写出参对象原型（局部影响，已复现）', () => {
+  it('sortKeysDeep / cloneDocument / parseDocument 三处同口径：丢弃且绝不改写原型', () => {
     const polluted = JSON.parse('{"__proto__": {"marker": 1}, "ok": 2}') as Record<string, unknown>;
     const sorted = sortKeysDeep(polluted) as Record<string, unknown>;
     expect(Object.hasOwn(sorted, '__proto__')).toBe(false);
-    // 出参对象的原型被 "__proto__" 的值改写（marker 可继承读到）
-    expect((Object.getPrototypeOf(sorted) as Record<string, unknown> | null)?.marker).toBe(1);
-    // 全局未被污染
+    // 旧缺陷：out['__proto__'] = … 走到原型 setter → 出参对象原型被改写（marker 可继承读到）
+    expect(Object.getPrototypeOf(sorted)).toBe(Object.prototype);
+    expect((Object.getPrototypeOf(sorted) as Record<string, unknown>).marker).toBeUndefined();
+    expect(sorted.ok).toBe(2);
     expect(({} as Record<string, unknown>).marker).toBeUndefined();
+
+    // 克隆入口：JSON 往返会把自有 __proto__ 键原样带回来 → 克隆体里同样丢弃
+    const doc = baseDoc();
+    const node = getPage(doc, 'p1').nodes.r as unknown as Record<string, unknown>;
+    Object.defineProperty(node, '__proto__', {
+      value: { marker: 1 },
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    const copy = cloneDocument(doc);
+    const copied = getPage(copy, 'p1').nodes.r as unknown as Record<string, unknown>;
+    expect(Object.hasOwn(copied, '__proto__')).toBe(false);
+    expect(Object.getPrototypeOf(copied)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>).marker).toBeUndefined();
+    // 序列化入口（键排序）同样丢弃：载荷里不含原型污染语义
+    expect(serializeDocument(doc)).not.toContain('__proto__');
   });
 });

@@ -27,6 +27,7 @@ import {
   roundTripDocument,
   serializeDocument,
   serializePage,
+  sortKeysDeep,
   stableStringify,
 } from './index';
 
@@ -204,6 +205,45 @@ function deepChain(depth: number): DesignDocument {
     pages: [{ ...createPage({ id: 'p1' }), nodes: nodes as never, rootIds: ['f0'] }],
   };
 }
+
+describe('serialize · 原型污染同口径（A2：三处入口一律丢弃）', () => {
+  it('sortKeysDeep / cloneDocument / parseDocument 丢弃自有 __proto__ 键，且不改写原型', () => {
+    // 键排序入口：不是「赋值后再丢字段」，而是根本不进入出参对象（原型不被改写）
+    const polluted = JSON.parse('{"__proto__": {"marker": 1}, "ok": 2}') as Record<string, unknown>;
+    const sorted = sortKeysDeep(polluted) as Record<string, unknown>;
+    expect(Object.hasOwn(sorted, '__proto__')).toBe(false);
+    expect(Object.getPrototypeOf(sorted)).toBe(Object.prototype);
+    expect(sorted.ok).toBe(2);
+    expect(({} as Record<string, unknown>).marker).toBeUndefined();
+    expect(stableStringify(polluted)).not.toContain('__proto__');
+
+    // 克隆入口：JSON 往返会把自有键带回来，cloneDocument 负责丢
+    const doc = fixture();
+    const node = getPage(doc, 'p1').nodes.r1 as unknown as Record<string, unknown>;
+    Object.defineProperty(node, '__proto__', {
+      value: { marker: 1 },
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    const copy = cloneDocument(doc);
+    const copied = getPage(copy, 'p1').nodes.r1 as unknown as Record<string, unknown>;
+    expect(Object.hasOwn(copied, '__proto__')).toBe(false);
+    expect(Object.getPrototypeOf(copied)).toBe(Object.prototype);
+    expect(serializeDocument(doc)).not.toContain('__proto__');
+
+    // 解析入口：字符串与已解析对象两条输入都丢弃
+    const json = serializeDocument(fixture()).replace(
+      '"id": "r1"',
+      '"id": "r1", "__proto__": { "marker": 1 }',
+    );
+    const parsed = parseDocument(json).document;
+    const parsedNode = getPage(parsed, 'p1').nodes.r1 as unknown as Record<string, unknown>;
+    expect(Object.hasOwn(parsedNode, '__proto__')).toBe(false);
+    expect(Object.getPrototypeOf(parsedNode)).toBe(Object.prototype);
+    expect(serializeDocument(parsed)).toBe(serializeDocument(fixture()));
+  });
+});
 
 describe('serialize · 辅助', () => {
   it('cloneDocument 深拷贝（改副本不影响原文档）', () => {

@@ -11,6 +11,11 @@
  * （节点链深度 → 结构深度 → 非有限数），超限抛 `DomainError('invalid-argument')` 并带路径。
  * 为什么序列化也要守：`sortKeysDeep` 是递归实现，超深载荷同样会以原生栈溢出击穿调用方；
  * 且导出与导入必须同口径——否则引擎自己导出的文档会导不回来。
+ *
+ * 原型污染同口径（修复批次 3 · A2）：解析（`parseDocument`）、克隆（`cloneDocument`）与
+ * 键排序（`sortKeysDeep`）三处一律**丢弃**自有 `__proto__` 键——与命令栈入栈深拷
+ * （`commands/stack.ts` 的 `cloneCommand`）一致。为什么丢弃而不转义：Design IR 没有该字段，
+ * 而 `obj[key] = v` 形态的任何赋值路径都会退化成原型改写，载荷里保留它只有风险没有语义。
  */
 
 import type { DesignDocument } from '../model/index';
@@ -21,6 +26,7 @@ import {
   assertValidDocument,
   assertValueDepthWithinLimit,
   collectNonFiniteNumbers,
+  dropProtoKeys,
   validateDocument,
 } from '../scene/validate';
 
@@ -37,13 +43,16 @@ export interface DesignIrEnvelope {
   document: DesignDocument;
 }
 
-/** 递归按键名排序（数组顺序保持）。 */
+/** 递归按键名排序（数组顺序保持）。自有 `__proto__` 键直接丢弃（见模块头：原型污染同口径）。 */
 export function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => sortKeysDeep(item));
   if (value !== null && typeof value === 'object') {
     const source = value as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(source).sort()) {
+      // 为什么跳过（而不是赋值后再删）：out['__proto__'] = v 会走到 Object.prototype 的
+      // 原型 setter，把出参对象的原型改写掉——键没进载荷，原型却被污染（旧缺陷）。
+      if (key === '__proto__') continue;
       const item = source[key];
       if (item === undefined) continue; // JSON 语义：undefined 不落盘
       out[key] = sortKeysDeep(item);
@@ -125,17 +134,19 @@ export function parseDocument(input: string | unknown): ParsedDocument {
     throw domainError('invalid-argument', `未知的文档格式：${String(record.$format)}`);
   }
   const version = typeof record.$version === 'number' ? record.$version : DESIGN_IR_VERSION;
-  const document = (enveloped ? record.document : record) as DesignDocument | undefined;
-  if (!document || typeof document !== 'object') {
+  const rawDocument = (enveloped ? record.document : record) as DesignDocument | undefined;
+  if (!rawDocument || typeof rawDocument !== 'object') {
     throw domainError('invalid-argument', '信封缺少 document 字段');
   }
-  if (!Array.isArray(document.pages) || document.pages.length === 0) {
+  if (!Array.isArray(rawDocument.pages) || rawDocument.pages.length === 0) {
     throw domainError('invalid-argument', '文档缺少页面');
   }
   // 深度守门：与序列化同一组上限（见模块头）——超限在这里就拒绝，绝不落到 validateDocument
   // 的递归结构检查或后续 sortKeysDeep 上（旧缺陷：导入超深文档抛原生 TypeError/RangeError）。
-  assertNodeDepthWithinLimit(document, '文档');
-  assertValueDepthWithinLimit(document, '文档');
+  assertNodeDepthWithinLimit(rawDocument, '文档');
+  assertValueDepthWithinLimit(rawDocument, '文档');
+  // 原型污染同口径：自有 __proto__ 键在解析处即丢弃（深拷重建，先过上面的结构深度守门）
+  const document = dropProtoKeys(rawDocument);
   const issues = validateDocument(document);
   if (issues.length > 0) {
     throw domainError(
@@ -153,9 +164,12 @@ export function roundTripDocument(doc: DesignDocument): DesignDocument {
   return parsed.document;
 }
 
-/** 深拷贝文档（结构共享的不可变路径之外的场景：导出快照/对比）。 */
+/**
+ * 深拷贝文档（结构共享的不可变路径之外的场景：导出快照/对比）。
+ * JSON 往返后按统一步调丢弃自有 `__proto__` 键（JSON 往返会把它原样带回来）。
+ */
 export function cloneDocument(doc: DesignDocument): DesignDocument {
-  return JSON.parse(JSON.stringify(doc)) as DesignDocument;
+  return dropProtoKeys(JSON.parse(JSON.stringify(doc)) as DesignDocument);
 }
 
 /** 文档统计（状态栏/看板：页面数、节点数）。 */

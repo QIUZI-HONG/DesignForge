@@ -103,6 +103,26 @@ export function collectNonFiniteNumbers(
 }
 
 /**
+ * 丢弃对象树中的自有 `__proto__` 键（重建拷贝，不改出入参）。
+ *
+ * 为什么丢弃而不转义：Design IR（与命令载荷、剪贴板载荷）没有这个字段的任何合法语义，
+ * 而 `obj[key] = v` 形态的赋值路径会退化成原型改写——载荷里保留它只有风险没有收益。
+ * 与命令栈入栈深拷（`commands/stack.ts` 的 `cloneCommand`）同口径；
+ * 本函数是递归实现，深拷前请先过 `assertValueDepthWithinLimit`。
+ */
+export function dropProtoKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => dropProtoKeys(item)) as unknown as T;
+  if (value === null || typeof value !== 'object') return value;
+  const source = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(source)) {
+    if (key === '__proto__') continue;
+    out[key] = dropProtoKeys(item);
+  }
+  return out as unknown as T;
+}
+
+/**
  * 节点形状校验（结构 + 类型，不判数值有限性——后者由 `collectNonFiniteNumbers` 报出）。
  * 文档校验与剪贴板载荷校验（B5）同口径复用。
  */

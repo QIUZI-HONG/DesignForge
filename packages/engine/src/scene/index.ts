@@ -79,6 +79,7 @@ export {
   collectNonFiniteNumbers,
   deepFreeze,
   deepFreezeDocument,
+  dropProtoKeys,
   MAX_NESTING_DEPTH,
   MAX_VALUE_DEPTH,
   nodeKeys,
