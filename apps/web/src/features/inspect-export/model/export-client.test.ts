@@ -5,8 +5,10 @@
  * 失败解包（错误码 + 文案）、进程不可达（离线码）、超时——面板据这些分支出错误态与重试。
  */
 
-import { DAEMON_PORT_BASE, DAEMON_ROUTES } from '@dforge/contracts';
+import { DAEMON_ROUTES } from '@dforge/contracts';
 import { describe, expect, it, vi } from 'vitest';
+
+import { DAEMON_ENDPOINT_DEFAULT } from '@/lib/daemon-endpoint';
 
 import { createExportClient } from './export-client';
 
@@ -34,7 +36,7 @@ function artifactPayload(): Record<string, unknown> {
 }
 
 describe('createExportClient · 请求形状', () => {
-  it('POST 到契约路由，缺省基址为 daemon 端口基准', async () => {
+  it('POST 到契约路由，缺省基址 = 收敛模块的端口窗起点', async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse(200, { ok: true, result: { artifact: artifactPayload() } }),
     );
@@ -43,7 +45,7 @@ describe('createExportClient · 请求形状', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe(`http://127.0.0.1:${DAEMON_PORT_BASE}${DAEMON_ROUTES.exportDocument.path}`);
+    expect(url).toBe(`${DAEMON_ENDPOINT_DEFAULT}${DAEMON_ROUTES.exportDocument.path}`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(String(init.body))).toEqual({
       documentId: 'doc1',

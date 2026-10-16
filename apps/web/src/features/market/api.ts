@@ -22,8 +22,8 @@ import { DAEMON_ROUTES, isApiSuccess } from '@dforge/contracts';
 import { DAEMON_ENDPOINT_DEFAULT, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 /**
- * daemon 缺省地址（端口窗起点）。解析顺序（`?daemon=` → `NEXT_PUBLIC_DF_DAEMON_URL` →
- * 缺省起点）**全站收敛**在 `@/lib/daemon-endpoint`（ADR-0004 裁决 ①）——本模块不另立口径。
+ * daemon 缺省地址（端口窗起点）。解析顺序**全站收敛**在 `@/lib/daemon-endpoint`
+ * （ADR-0004 裁决 ①）——本模块不另立口径，env 读取也只在收敛模块内发生。
  */
 export const DEFAULT_DAEMON_URL = DAEMON_ENDPOINT_DEFAULT;
 
@@ -45,15 +45,11 @@ export interface MarketClientOptions {
 }
 
 /**
- * 从收敛模块取 daemon 基址（顺序与 env 读取口径见 `@/lib/daemon-endpoint`）。
- *
- * `env` 参数用于测试注入（给出即以此为准，不再读 `process.env`）；
- * 不传则读静态 `process.env.NEXT_PUBLIC_DF_DAEMON_URL`（Next 构建期内联口径）。
+ * 取 daemon 基址——纯委托 `@/lib/daemon-endpoint`（解析顺序与环境变量读取都在那里，
+ * 本模块不再暴露 env 注入口；测试要注入环境请用收敛模块的 `envUrl` 选项或其单测）。
  */
-export function daemonBaseUrl(env?: Record<string, string | undefined>): string {
-  return resolveDaemonEndpointSync(
-    env === undefined ? {} : { envUrl: env.NEXT_PUBLIC_DF_DAEMON_URL },
-  );
+export function daemonBaseUrl(): string {
+  return resolveDaemonEndpointSync();
 }
 
 /** 规范化未知的 JSON 为信封（缺 result 视为失败——形状不符绝不当成功）。 */

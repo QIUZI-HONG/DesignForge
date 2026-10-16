@@ -7,13 +7,14 @@
  */
 
 import {
-  DAEMON_PORT_BASE,
   DAEMON_ROUTES,
   type ExportArtifact,
   type ExportRequest,
   isApiFailure,
   isApiSuccess,
 } from '@dforge/contracts';
+
+import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 /** 客户端结果：成功给产物；失败给稳定错误码 + 文案（面板映射为文案）。 */
 export type ExportOutcome =
@@ -22,7 +23,7 @@ export type ExportOutcome =
 
 /** 客户端选项。 */
 export interface ExportClientOptions {
-  /** daemon 基址（缺省 `http://127.0.0.1:${DAEMON_PORT_BASE}`——契约的端口基准）。 */
+  /** daemon 基址（缺省经 `@/lib/daemon-endpoint` 单点解析；ADR-0004 裁决 ①）。 */
   baseUrl?: string;
   /** fetch 注入（测试用；缺省全局 fetch）。 */
   fetchImpl?: typeof fetch;
@@ -35,9 +36,13 @@ export interface ExportClient {
   exportDocument(request: ExportRequest): Promise<ExportOutcome>;
 }
 
-/** 缺省基址（daemon 端口探测起点；实际端口以 config/evidence 为准，宿主可覆盖）。 */
+/**
+ * 缺省基址：经 `@/lib/daemon-endpoint` 全站单点解析
+ * （`?daemon=` → `NEXT_PUBLIC_DF_DAEMON_URL` → 缺省端口窗起点；ADR-0004 裁决 ①）——
+ * 本模块不另立端口口径，宿主仍可经 `baseUrl` 显式覆盖。
+ */
 export function defaultDaemonBaseUrl(): string {
-  return `http://127.0.0.1:${DAEMON_PORT_BASE}`;
+  return resolveDaemonEndpointSync();
 }
 
 /** 构造导出客户端。 */
