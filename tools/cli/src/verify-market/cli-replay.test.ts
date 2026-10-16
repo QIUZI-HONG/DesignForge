@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { transform } from '@dforge/ingest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { runCollectCommand } from '../market/collect-cmd.ts';
 
 const REPLAY_SAMPLE = join(
@@ -130,6 +130,22 @@ describe('collect --replay 的样本位置耦合', () => {
 });
 
 describe('collect 真网路径的失败分类（CLI 层）', () => {
+  /**
+   * 凭据注入（CI 可复现的关键）：本组用例测的是**网络失败分类**，而本机 `gh auth token`
+   * 恰好可用会掩盖环境依赖——CI runner 无任何凭据，凭据预检会先于 404/429 分类阻塞
+   * （exit 2 + 「无 GitHub 凭据」），两条断言因此误红。这里注入占位 token 让预检确定性
+   * 通过（`resolveGitHubToken` 的 env 优先于 `gh`）；真实请求已被 fetch 桩拦截，不触网。
+   */
+  let savedGhToken: string | undefined;
+  beforeAll(() => {
+    savedGhToken = process.env.GH_TOKEN;
+    process.env.GH_TOKEN = 'verify-dummy-token';
+  });
+  afterAll(() => {
+    if (savedGhToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = savedGhToken;
+  });
+
   it('全仓 404 → exit 1（断言失败「仓数 > 0」），不得以 0 仓冒充通过', async () => {
     const dataRoot = join(workDir, 'notfound-data');
     const original = globalThis.fetch;
