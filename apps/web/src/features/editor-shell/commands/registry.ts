@@ -33,6 +33,21 @@ export interface Command {
   shortcut?: string;
   /** 置灰判定：返回 false 时命令不可运行（面板置灰 + 键盘漫游跳过）。缺省视为可运行。 */
   enabled?: () => boolean;
+  /** 置灰原因（入口的 tooltip/原因提示；缺省取标题）。 */
+  disabledReason?: () => string;
+  /**
+   * 按下态（开关类入口：评论模式 / 演示）。声明后入口渲染 `aria-pressed` 与激活样式。
+   * 未声明 = 非开关入口（不渲染 aria-pressed，避免给普通按钮发错误语义）。
+   */
+  pressed?: () => boolean;
+  /** 按下态的入口文案（如「退出评论模式」）；缺省沿用入口自身文案。 */
+  pressedTitle?: () => string;
+  /**
+   * 命令状态订阅（`enabled` / `pressed` / `disabledReason` 依赖外部状态时给出）：
+   * 外部状态变化 → 通知入口重新取快照；**引用稳定**（注册表在注册时挂一次）。
+   * @returns 退订函数
+   */
+  subscribe?: (notify: () => void) => () => void;
   /** 执行体（可为异步：调用方等其结算后再记「最近使用」）。 */
   run: () => void | Promise<void>;
 }
@@ -54,6 +69,8 @@ interface CommandStore {
   get(id: string): Command | undefined;
   clear(): void;
   subscribe(listener: () => void): () => void;
+  /** 订阅「命令状态可能变化」（注册/反注册 + 各命令自己的 `subscribe` 通知）。 */
+  subscribeStates(listener: () => void): () => void;
 }
 
 /** 建表（每次调用一份独立存储，便于测试）。 */
@@ -61,22 +78,45 @@ function createCommandStore(): CommandStore {
   // Map 的插入序即展示序：同 id 再次 set 不改变已占位置——「覆盖但不跳位」
   const entries = new Map<string, Command>();
   const listeners = new Set<() => void>();
+  /** 入口状态订阅者（`enabled`/`pressed` 重算）；与命令表订阅者分开——文档高频变更时不该重渲染命令面板。 */
+  const stateListeners = new Set<() => void>();
+  /** 各已注册命令的 `subscribe` 退订函数（注册时挂、覆盖/移除时摘）。 */
+  const detached = new Map<string, () => void>();
   // React 快照缓存：引用稳定是 useSyncExternalStore 的硬要求（每次返回新数组会无限重渲染）
   let cached: Command[] = [];
 
   const refresh = (): void => {
     cached = [...entries.values()];
     for (const listener of [...listeners]) listener();
+    // 注册表变化同时影响入口状态（新命令注册/反注册）
+    for (const listener of [...stateListeners]) listener();
+  };
+
+  /** 命令自己的状态通知：只通知入口订阅者（命令表本身没变）。 */
+  const notifyStates = (): void => {
+    for (const listener of [...stateListeners]) listener();
+  };
+
+  /** 摘掉某命令的状态订阅（覆盖注册与反注册都要摘，避免订阅泄漏/双份通知）。 */
+  const detach = (id: string): void => {
+    const unsubscribe = detached.get(id);
+    if (unsubscribe === undefined) return;
+    detached.delete(id);
+    unsubscribe();
   };
 
   return {
     register(cmd: Command): () => void {
+      // 同 id 覆盖：先摘旧订阅（否则两份通知、且旧订阅永不释放）
+      detach(cmd.id);
       entries.set(cmd.id, cmd);
+      if (cmd.subscribe !== undefined) detached.set(cmd.id, cmd.subscribe(notifyStates));
       refresh();
       return () => {
         // 只移除「本次注册的那条」：若期间有同 id 覆盖，反注册不得误删新实现
         if (entries.get(cmd.id) === cmd) {
           entries.delete(cmd.id);
+          detach(cmd.id);
           refresh();
         }
       };
@@ -92,6 +132,7 @@ function createCommandStore(): CommandStore {
       return entries.get(id);
     },
     clear(): void {
+      for (const id of [...detached.keys()]) detach(id);
       if (entries.size === 0) return;
       entries.clear();
       refresh();
@@ -100,6 +141,12 @@ function createCommandStore(): CommandStore {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
+      };
+    },
+    subscribeStates(listener: () => void): () => void {
+      stateListeners.add(listener);
+      return () => {
+        stateListeners.delete(listener);
       };
     },
   };
@@ -128,6 +175,21 @@ export function registerCommand(cmd: Command): () => void {
  */
 export function subscribeCommands(listener: () => void): () => void {
   return store.subscribe(listener);
+}
+
+/**
+ * 订阅「命令状态可能变化」——入口按钮（`useCommandEntry`）专用。
+ *
+ * 与 `subscribeCommands`（命令表本身）分开的原因：命令的 `enabled` / `pressed` 会随外部
+ * 状态高频变化（画布文档每步编辑一次），如果走命令表订阅，命令面板与快捷键说明会跟着
+ * 无谓重渲染；入口只需要「状态可能变了，重新取一次快照」，且取快照时做等值判定（不变不重渲染）。
+ *
+ * 通知来源：注册/反注册 + 各命令自报的 `subscribe`（如评论 store、文档订阅）。
+ *
+ * @returns 取消订阅函数
+ */
+export function subscribeCommandStates(listener: () => void): () => void {
+  return store.subscribeStates(listener);
 }
 
 /** 按 id 取命令（未注册 → `undefined`）。 */

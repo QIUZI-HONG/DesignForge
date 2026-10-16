@@ -3,6 +3,8 @@
  *
  * 组装（口径同 FE-04 `createPanelsSession`）：
  * 1. `CommandStack`：文档真值与唯一写入口（版本回滚 = `document.replace` 命令）；
+ *    **编辑器路由下与画布工作区共享同一栈**（`documentPort`，C3/D-4 修复）——
+ *    评审侧不再自建空文档，否则「演示判定 / 版本快照 / 评论锚点」会与画布脱钩；
  * 2. `CommentsStore` / `VersionStore`：评论线程与版本列表（UI 态 + 本地持久化）；
  * 3. `ViewportSource`：**视口来源**——评论钉点要随画布缩放/平移跟随，
  *    因此必须与画布读同一份视口。FE-03/FE-06 落地后注入它们持有的视口 store；
@@ -17,7 +19,7 @@ import {
   createDocument,
   createViewport,
   type DesignDocument,
-  getPage,
+  findPage,
   type PageId,
   panBy as panViewport,
   type ScenePage,
@@ -34,6 +36,25 @@ import { createVersionStore, type VersionStore } from './versions/versions-store
 export interface ViewportSource {
   getViewport: () => Viewport;
   subscribeViewport: (listener: () => void) => () => void;
+}
+
+/**
+ * 文档端口——评审会话与**画布工作区共享同一份文档真值**的接缝（C3/D-4 修复）。
+ *
+ * 为什么是「端口 + 动态解析」而不是创建时注入一份 `CommandStack`：编辑器宿主在
+ * 载入/导入时会替换工作区会话（栈也换新的），评审侧若在创建时抓住旧栈，
+ * 演示判定（`buildSlides` 读快照）与版本快照就会与画布脱钩——这正是
+ * 「文档 root 已有画板、演示入口仍恒禁用」的根因（评审会话自建空文档）。
+ *
+ * 引用稳定性：三个成员都必须是稳定引用（会被 `useSyncExternalStore` 与命令订阅长期持有）。
+ */
+export interface ReviewDocumentPort {
+  /** 当前文档真值的命令栈（唯一写入口）。 */
+  getStack: () => CommandStack;
+  /** 当前页面 id（载入/切页后跟随；评论落在当前页）。 */
+  getPageId: () => PageId;
+  /** 文档或栈身份变化订阅（退订函数返回值同形）。 */
+  subscribe: (listener: () => void) => () => void;
 }
 
 /** 自建视口 store（独立挂载/测试用；FE-03/FE-06 落地后可被替换）。 */
@@ -99,13 +120,20 @@ export interface ReviewSessionOptions {
   freeze?: boolean;
   /** 本地写入失败回调（配额满提示）。 */
   onWriteError?: (error: unknown) => void;
+  /**
+   * 文档端口（编辑器路由注入画布工作区的文档真值；省略时用注入/自建的独立栈——
+   * 独立挂载、门禁取样与单测走这条）。
+   */
+  documentPort?: ReviewDocumentPort;
 }
 
 /** 会话：命令栈 + 评论 + 版本 + 视口。 */
 export interface ReviewSession {
+  /** 文档真值的命令栈（注入端口时按端口动态解析——载入/换栈后跟随）。 */
   readonly stack: CommandStack;
+  /** 持久化键空间（会话创建时固定；评论/版本按它隔离）。 */
   readonly documentId: string;
-  /** 当前页面 id（评论落在当前页）。 */
+  /** 当前页面 id（评论落在当前页；注入端口时跟随工作区）。 */
   readonly pageId: PageId;
   readonly viewport: ViewportSource;
   readonly comments: CommentsStore;
@@ -124,18 +152,23 @@ export interface ReviewSession {
 
 /** 建会话。 */
 export function createReviewSession(options: ReviewSessionOptions = {}): ReviewSession {
-  const document = options.document ?? emptyDocument();
+  const port = options.documentPort;
+  const document = options.document ?? port?.getStack().document ?? emptyDocument();
   const stackOptions: { freeze?: boolean; historyLimit?: number } = {};
   if (options.freeze !== undefined) stackOptions.freeze = options.freeze;
   if (options.historyLimit !== undefined) stackOptions.historyLimit = options.historyLimit;
-  const stack = new CommandStack(document, stackOptions);
-  const pageId = options.pageId ?? (stack.document.pages[0]?.id as PageId);
-  const documentId = options.documentId ?? stack.document.id;
+  const ownStack = new CommandStack(document, stackOptions);
+  /** 文档真值的命令栈：有端口时**每次都问端口**（载入/换栈后自动跟随）。 */
+  const getStack = (): CommandStack => port?.getStack() ?? ownStack;
+  /** 当前页面 id：缺省取创建时文档首页（`findPage` 兜底——换文档后旧 id 失效不炸）。 */
+  const fallbackPageId = options.pageId ?? (document.pages[0]?.id as PageId);
+  const getPageId = (): PageId => port?.getPageId() ?? fallbackPageId;
+  const documentId = options.documentId ?? getStack().document.id;
 
   const run = (commands: Command | readonly Command[], label: string): void => {
     const list = Array.isArray(commands) ? (commands as readonly Command[]) : [commands as Command];
     if (list.length === 0) return;
-    stack.dispatch(list, { label });
+    getStack().dispatch(list, { label });
   };
 
   const now = options.now ?? (() => new Date());
@@ -143,7 +176,8 @@ export function createReviewSession(options: ReviewSessionOptions = {}): ReviewS
 
   const commentsOptions: Parameters<typeof createCommentsStore>[0] = {
     documentId,
-    pageId,
+    // 函数形式：新评论按**当时**的当前页落点（载入/切页后跟随）
+    pageId: getPageId,
     author: options.author ?? '我',
     now,
     nextId,
@@ -153,7 +187,7 @@ export function createReviewSession(options: ReviewSessionOptions = {}): ReviewS
 
   const versionOptions: Parameters<typeof createVersionStore>[0] = {
     documentId,
-    getDocument: () => stack.getSnapshot(),
+    getDocument: () => getStack().getSnapshot(),
     run,
     now,
     nextId,
@@ -162,16 +196,31 @@ export function createReviewSession(options: ReviewSessionOptions = {}): ReviewS
   if (options.onWriteError !== undefined) versionOptions.onWriteError = options.onWriteError;
 
   return {
-    stack,
+    get stack() {
+      return getStack();
+    },
     documentId,
-    pageId,
+    get pageId() {
+      return getPageId();
+    },
     viewport: options.viewport ?? createViewportStore(),
     comments: createCommentsStore(commentsOptions),
     versions: createVersionStore(versionOptions),
     present: createPresentStore(),
-    getSnapshot: () => stack.getSnapshot(),
-    subscribe: (listener) => stack.subscribe(listener),
-    page: () => getPage(stack.document, pageId),
+    getSnapshot: () => getStack().getSnapshot(),
+    subscribe: (listener) => {
+      // 无端口：栈自身就是真源（自建栈不会被替换）
+      if (port === undefined) return ownStack.subscribe(listener);
+      // 有端口：端口负责「文档变了 / 栈被换了」两类通知；快照按通知时的当前栈读
+      return port.subscribe(() => {
+        listener(getStack().getSnapshot());
+      });
+    },
+    page: () => {
+      const current = getStack().document;
+      // 换文档后旧页面 id 可能失效：退回首页（读路径不抛错，写路径由命令栈兜住）
+      return findPage(current, getPageId()) ?? (current.pages[0] as ScenePage);
+    },
     run,
   };
 }
