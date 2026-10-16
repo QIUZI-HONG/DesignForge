@@ -58,4 +58,10 @@ describe('FilterRow', () => {
     renderFilterRow({ resultCount: 7 });
     expect(screen.getByText('7 个文档')).toBeDefined();
   });
+
+  it('计数不可得（加载中 / daemon 不可达）显示「—」，不显示 0（UX-19）', () => {
+    renderFilterRow({ resultCount: null });
+    expect(screen.getByText('—')).toBeDefined();
+    expect(screen.queryByText('0 个文档')).toBeNull();
+  });
 });

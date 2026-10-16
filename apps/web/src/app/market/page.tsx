@@ -175,6 +175,8 @@ export default function MarketHomePage() {
         globalTotal={response?.counts?.total ?? null}
         loadableCount={response?.counts?.loadable ?? null}
         generatedAt={response?.generatedAt ?? null}
+        // 服务不可达时计数显示「—」而不是「0 个资源」/「正在加载」（UX-19）
+        countUnavailable={status === 'error'}
         onChange={updateFilters}
         onInstalledViewChange={setInstalledView}
         onClear={clearFilters}

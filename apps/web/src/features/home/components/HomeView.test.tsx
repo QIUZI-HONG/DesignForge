@@ -115,10 +115,14 @@ describe('HomeView · 加载与三态', () => {
 
     await screen.findByText('无法连接本地服务');
     expect(screen.getByText('E_DF_DAEMON_UNREACHABLE')).toBeDefined();
+    // 计数不可得时说「—」，不谎报「0 个文档」（UX-19）
+    expect(screen.queryByText('0 个文档')).toBeNull();
+    expect(screen.getByText('—')).toBeDefined();
 
     fake.list.mockResolvedValueOnce({ documents: [summary('海报 A')], warnings: [] });
     await userEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(await screen.findByRole('link', { name: '打开「海报 A」' })).toBeDefined();
+    expect(screen.getByText('1 个文档')).toBeDefined();
   });
 
   it('列表告警（目录损坏）显示为提示条，不阻塞列表', async () => {
