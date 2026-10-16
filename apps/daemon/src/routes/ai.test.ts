@@ -325,4 +325,134 @@ describe('ai · 请求校验', () => {
       await daemon.cleanup();
     }
   });
+
+  it('stream:true 且参数非法：建立 SSE 通道并以契约 error 帧返回（不是 JSON 400）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const response = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json' },
+        // maxTokens=0 非法（须正整数）——但客户端已声明 stream:true，通道形状不换
+        payload: JSON.stringify({
+          messages: [{ role: 'user', content: 'x' }],
+          stream: true,
+          maxTokens: 0,
+        }),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toContain('text/event-stream');
+      expect(response.payload).toContain('event: error');
+      expect(response.payload).toContain('"code":"ai_invalid_request"');
+      expect(daemon.fetchCalls).toHaveLength(0);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
+describe('ai · 流式健壮性（上游非 SSE / 客户端断开）', () => {
+  it('上游 200 但体非 SSE：不假成功——done 携带 degraded invalid-response', async () => {
+    const daemon = await createTestDaemon({
+      envApiKey: FAKE_KEY,
+      fetchImpl: async () => openAiOk('你好'),
+    });
+    try {
+      const response = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.payload).toContain('event: done');
+      // 逐帧断言：done 必须是降级帧（不能是 degraded:false 的假成功）
+      const doneLine = response.payload
+        .split('\n')
+        .find((line) => line.startsWith('data: {"type":"done"'));
+      expect(doneLine).toBeDefined();
+      const done = JSON.parse((doneLine ?? '').slice('data: '.length)) as {
+        response: { degraded: boolean; degradedReason: string; content: string };
+      };
+      expect(done.response.degraded).toBe(true);
+      expect(done.response.degradedReason).toBe('invalid-response');
+      expect(done.response.content).toBe('');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('上游 200 + event-stream 但零 data 帧：同样归 invalid-response（不假成功）', async () => {
+    const daemon = await createTestDaemon({
+      envApiKey: FAKE_KEY,
+      fetchImpl: async () => sseResponse([': keep-alive\n\n', '\n']),
+    });
+    try {
+      const response = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+      });
+      expect(response.payload).toContain('"degradedReason":"invalid-response"');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('客户端断开：立即中止上游并停止推流（abort 传播）', async () => {
+    const encoder = new TextEncoder();
+    let upstreamAborted = false;
+    let upstreamCancelled = false;
+    const daemon = await createTestDaemon({
+      envApiKey: FAKE_KEY,
+      fetchImpl: async (_url, init) => {
+        const upstreamSignal = init?.signal ?? null;
+        upstreamSignal?.addEventListener('abort', () => {
+          upstreamAborted = true;
+        });
+        const timer = setInterval(() => undefined, 1_000);
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            // 持续推帧：客户端不断开就会一直推下去（上游占用）
+            setInterval(() => {
+              try {
+                controller.enqueue(
+                  encoder.encode('data: {"choices":[{"delta":{"content":"x"}}]}\n\n'),
+                );
+              } catch {
+                // 已关闭
+              }
+            }, 10);
+          },
+          cancel() {
+            upstreamCancelled = true;
+            clearInterval(timer);
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      },
+    });
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      const controller = new AbortController();
+      const response = await fetch(`${baseUrl}/ai/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+        signal: controller.signal,
+      });
+      const reader = response.body?.getReader();
+      const first = await reader?.read();
+      expect(first?.done).toBe(false); // 已进入流
+      controller.abort(); // 客户端断开
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(upstreamAborted || upstreamCancelled).toBe(true);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
 });

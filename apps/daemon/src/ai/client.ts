@@ -101,8 +101,14 @@ export interface AiClient {
   /** 是否已配置 key 与运行时模型/baseUrl（供 /ai/status 与连通性自检）。 */
   runtime(): { apiKey: string | null; model: string; baseUrl: string; provider: 'deepseek' };
   chat(request: AiChatRequest): Promise<AiChatResponse>;
-  /** 流式（SSE）：start → delta* → done（降级时 done 携带降级响应，不再发 error）。 */
-  streamChat(request: AiChatRequest): AsyncGenerator<AiStreamEvent>;
+  /**
+   * 流式（SSE）：start → delta* → done（降级时 done 携带降级响应，不再发 error）。
+   * `options.signal` 中止（客户端断开）时：立即中止上游请求/读取，且不再产出任何帧。
+   */
+  streamChat(
+    request: AiChatRequest,
+    options?: { signal?: AbortSignal },
+  ): AsyncGenerator<AiStreamEvent>;
 }
 
 /** 创建 AI 客户端（fetchImpl 注入；retryDelaysMs 注入让测试即时）。 */
@@ -278,11 +284,21 @@ export function createAiClient(options: {
       });
     },
 
-    async *streamChat(request: AiChatRequest): AsyncGenerator<AiStreamEvent> {
+    async *streamChat(
+      request: AiChatRequest,
+      streamOptions: { signal?: AbortSignal } = {},
+    ): AsyncGenerator<AiStreamEvent> {
       const { model } = options.config();
       const runId = `ai_${randomBytes(8).toString('hex')}`;
       const apiKey = options.resolveApiKey();
       const effectiveModel = request.model ?? model;
+      // 客户端断开（signal）与上游超时任一触发都会中止本次上游请求
+      const clientSignal = streamOptions.signal;
+      const isClientGone = (): boolean => clientSignal?.aborted === true;
+      const upstreamSignal =
+        clientSignal === undefined
+          ? AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)
+          : AbortSignal.any([clientSignal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]);
 
       if (apiKey === null) {
         yield { type: 'start', runId, provider: 'deepseek', model: effectiveModel, degraded: true };
@@ -302,6 +318,7 @@ export function createAiClient(options: {
       yield { type: 'start', runId, provider: 'deepseek', model: effectiveModel, degraded: false };
 
       let content = '';
+      let sawData = false;
       try {
         const { baseUrl } = options.config();
         const response = await options.fetchImpl(`${baseUrl}/chat/completions`, {
@@ -311,11 +328,12 @@ export function createAiClient(options: {
             authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({ model: effectiveModel, messages: request.messages, stream: true }),
-          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+          signal: upstreamSignal,
         });
         if (!response.ok || response.body === null) {
           const reason: AiDegradeReason =
             response.status === 429 ? 'rate-limited' : 'upstream-error';
+          if (isClientGone()) return;
           yield {
             type: 'done',
             response: degradedResponse({
@@ -328,12 +346,34 @@ export function createAiClient(options: {
           };
           return;
         }
+        // 上游 200 但体不是 SSE（如一次性 JSON）：不得当成功——归 invalid-response 降级
+        const contentType = response.headers.get('content-type') ?? '';
+        if (!contentType.includes('text/event-stream')) {
+          await response.body.cancel().catch(() => undefined);
+          if (isClientGone()) return;
+          yield {
+            type: 'done',
+            response: degradedResponse({
+              runId,
+              provider: 'deepseek',
+              model: effectiveModel,
+              reason: 'invalid-response',
+              partialContent: content,
+            }),
+          };
+          return;
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
         let finishReason: AiChatResponse['finishReason'] = null;
         for (;;) {
+          // 客户端已断开：停止读取并取消上游流（不再占用上游连接）
+          if (isClientGone()) {
+            await reader.cancel().catch(() => undefined);
+            return;
+          }
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
@@ -342,6 +382,7 @@ export function createAiClient(options: {
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed.startsWith('data:')) continue;
+            sawData = true;
             const data = trimmed.slice(5).trim();
             if (data === '[DONE]') continue;
             let parsed: unknown;
@@ -371,6 +412,22 @@ export function createAiClient(options: {
           }
         }
 
+        if (isClientGone()) return;
+        // 一帧 data 都没解析到 → 上游「200 但非事件流」的另一种形态：不假成功
+        if (!sawData) {
+          yield {
+            type: 'done',
+            response: degradedResponse({
+              runId,
+              provider: 'deepseek',
+              model: effectiveModel,
+              reason: 'invalid-response',
+              partialContent: content,
+            }),
+          };
+          return;
+        }
+
         yield {
           type: 'done',
           response: {
@@ -386,6 +443,8 @@ export function createAiClient(options: {
           },
         };
       } catch (error) {
+        // 客户端断开导致的中止：静默收尾（连接已不在，不再产出任何帧）
+        if (isClientGone()) return;
         const isTimeout = error instanceof Error && error.name === 'TimeoutError';
         yield {
           type: 'done',
