@@ -73,6 +73,7 @@
   "home.error.title": "无法连接本地服务",
   "home.error.desc": "请确认设界本地服务（daemon）已启动，然后重试。",
   "home.error.retry": "重试",
+  "home.error.daemonTimeout": "本地服务 {ms} 毫秒内没有响应（请求超时）。",
   "home.loading.list": "正在载入文档",
   "home.warning.title": "{count} 个目录未能读取",
   "home.warning.desc": "已跳过这些目录，列表其余部分仍可用。",

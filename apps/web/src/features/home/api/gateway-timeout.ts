@@ -20,6 +20,8 @@
  * 界面用错误码区分（{@link describeApiErrorCode} 的展示码挂点）。
  */
 
+import { t } from '@/i18n';
+
 /** 统一超时上限（毫秒）。
  *
  * 取值 3s：本机回环的 daemon 若 3 秒还不回应，等下去也不会自己好；同时该数字在
@@ -32,13 +34,17 @@ export const GATEWAY_TIMEOUT_MS = 3000;
  *
  * 消息面向用户（经错误态原样展示）：说清「等到了上限」而不说「连不上」——
  * 后者会误导用户去启动一个其实已在运行的 daemon。
+ *
+ * 文案经 i18n 目录（键 `home.error.daemonTimeout`，code-review #5）：本模块属数据面，
+ * 但这条消息会被 `HomeView` 直渲染（`DocumentApiError.message` → 错误态 description），
+ * 故取目录而不是硬编码中文；改文案只改 `apps/web/messages/*.json`。
  */
 export class GatewayTimeoutError extends Error {
   /** 触发的上限（毫秒；诊断用）。 */
   readonly timeoutMs: number;
 
   constructor(timeoutMs: number) {
-    super(`本地服务 ${timeoutMs} 毫秒内没有响应（请求超时）。`);
+    super(t('home.error.daemonTimeout', { ms: timeoutMs }));
     this.name = 'GatewayTimeoutError';
     this.timeoutMs = timeoutMs;
   }
