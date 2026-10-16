@@ -309,10 +309,11 @@ describe('[verify] 序列化 · 深嵌套（导入守门：显式深度上限 51
     expect((fromObject as Error).message).toContain('f512');
   });
 
-  it('任意深度都不再出现原生错误（扫描 2000–24000：校验只报 issue、序列化只抛领域错误）', {
+  it('任意深度都不再出现原生错误（扫描 2000–100000：校验只报 issue、序列化只抛领域错误）', {
     timeout: 60000,
   }, () => {
-    for (const depth of [2000, 4000, 8000, 16000, 24000]) {
+    // 10 万层远超任何递归实现能承受的深度：能过 = 守门确实是迭代扫描而非「把阈值挪深」
+    for (const depth of [2000, 4000, 8000, 16000, 24000, 100000]) {
       const doc = deepDoc(depth);
       const issues = validateDocument(doc); // 不抛原生错误
       expect(issues.some((issue) => issue.code === 'max-depth-exceeded')).toBe(true);
