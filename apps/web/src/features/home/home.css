@@ -529,15 +529,13 @@
 
 /* ---------- 窄窗不破版（1280 / 1024：网格降列，侧栏自动折叠由交互给） ---------- */
 
-/* guard-tokens:allow 断点是排版口径（验收标准 §3 的窄窗口径），非设计令牌范畴 */
-@media (max-width: 1280px) {
+@media (max-width: 1280px) /* guard-tokens:allow 断点是排版口径（验收标准 §3 的窄窗口径），非设计令牌范畴 */ {
   .dfg-home__files {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-/* guard-tokens:allow 同上：窄窗断点 */
-@media (max-width: 1024px) {
+@media (max-width: 1024px) /* guard-tokens:allow 窄窗断点（验收标准 §3 的窄窗口径），非设计令牌范畴 */ {
   .dfg-home__files {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

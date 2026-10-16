@@ -96,7 +96,7 @@ describe('guard-tokens · 规则', () => {
     expect(withoutReason.length).toBe(1);
   });
 
-  it('注释里的「样式语法文本」跳过：带令牌引用示例或样式对象记号的说明文字', () => {
+  it('注释里的说明文本跳过：带令牌引用示例或样式对象记号的说明文字', () => {
     const violations = scanText(
       'apps/web/src/a.ts',
       [
@@ -107,12 +107,13 @@ describe('guard-tokens · 规则', () => {
     expect(violations).toEqual([]);
   });
 
-  it('字符串里的样式文本跳过，但裸取值写法照抓（守卫辨别力不因精度修复丢失）', () => {
+  it('字符串里的取值写法照抓，示例与自然语言文案跳过（守卫辨别力不因精度修复丢失）', () => {
     const violations = scanText(
       'apps/web/src/a.ts',
       [
         "const extracted = 'fontSize: 16';",
-        "const note = '不要写 marginTop: 8';",
+        "const raw = 'gap: 12';",
+        "const hint = '请把 marginTop: 8 改成令牌';",
         '// 这里曾经写过 #0d99ff（规范泄漏记录，仍应被抓）',
         ' * 取色：rgb(13, 153, 255)',
       ].join('\n'),
@@ -120,8 +121,8 @@ describe('guard-tokens · 规则', () => {
     expect(violations.map((item) => `${item.rule}@${String(item.line)}`)).toEqual([
       'R3@1',
       'R3@2',
-      'R1@3',
       'R1@4',
+      'R1@5',
     ]);
   });
 
