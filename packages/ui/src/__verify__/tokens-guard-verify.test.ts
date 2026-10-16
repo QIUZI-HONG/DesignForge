@@ -150,7 +150,7 @@ describe('[verify] guard-tokens · 真违规（必须抓到）', () => {
     const violations = scanText(
       'apps/web/src/a.tsx',
       [
-        'const s = { marginTop: 8, gap: -4, padding: 1.5, rowGap: 0, inset: 12 };',
+        'const s = { marginTop: 8, gap: -4, padding: 1.5, rowGap: 0, borderRadius: 12 };',
         'const ok = { width: 240, zIndex: 10, flex: 1 };',
       ].join('\n'),
     );
@@ -159,26 +159,27 @@ describe('[verify] guard-tokens · 真违规（必须抓到）', () => {
       'marginTop: 8',
       'gap: -4',
       'padding: 1.5',
-      'inset: 12',
+      'borderRadius: 12',
     ]);
   });
 
-  it('行内豁免的边界：标记必须在**本行或上一行**且带理由', () => {
+  it('行内豁免的边界：标记必须**同行**且带理由（上一行不豁免下一行）', () => {
     const sameLine = scanText(
       'apps/web/src/a.ts',
       "const a = '#fff'; // guard-tokens:allow 品牌色",
     );
     expect(sameLine).toEqual([]);
+    // 旧实现「本行或上一行」会把带标记的下一行真实违规静默豁免（实测 #ff0000 漏抓）
     const prevLine = scanText(
       'apps/web/src/a.ts',
-      ['// guard-tokens:allow 规格硬值', "const a = '#fff';"].join('\n'),
+      ['// guard-tokens:allow 规格硬值', "const a = '#ff0000';"].join('\n'),
     );
-    expect(prevLine).toEqual([]);
+    expect(prevLine.map((item) => `${item.rule}:${item.text}`)).toEqual(['R1:#ff0000']);
     const twoLinesAbove = scanText(
       'apps/web/src/a.ts',
       ['// guard-tokens:allow 规格硬值', 'const other = 1;', "const a = '#fff';"].join('\n'),
     );
-    expect(twoLinesAbove).toHaveLength(1); // 隔行不生效
+    expect(twoLinesAbove).toHaveLength(1); // 隔行更不生效
     const noReason = scanText('apps/web/src/a.ts', "const a = '#fff'; // guard-tokens:allow");
     expect(noReason).toHaveLength(1);
   });
@@ -197,41 +198,36 @@ describe('[verify] guard-tokens · 误报与漏报边界', () => {
     expect(violations).toEqual([]);
   });
 
-  it('【误报】普通文案/文档数据里出现 `marginTop: 8` 或 `12px` 会被判违规', () => {
+  it('字符串里的自然语言文案不判（纯文案里的取值样例不再误报）', () => {
     const violations = scanText(
       'apps/web/src/a.ts',
       ["const hint = '请把 marginTop: 8 改成令牌';", "const doc = '规范：内边距 12px';"].join('\n'),
     );
-    // 字符串屏蔽只认 `{` 或 `var(--dfg-`；纯文案里的样例照抓 → 文案类误报（可用行内豁免兜底）
-    expect(violations.map((item) => `${item.rule}:${item.text}`)).toEqual([
-      'R3:marginTop: 8',
-      'R2:12px',
-    ]);
+    // 文案（含中日韩文字）不是样式取值：整体跳过；取值写法串仍照抓（见「字符串 CSS」用例）
+    expect(violations).toEqual([]);
   });
 
-  it('【误报】带小数单位的合法取值被 R3 误判为裸数字（正则只吃到小数点前）', () => {
-    // 期望：带单位 → 只应触发 R2（长度裸值），不应再报 R3（裸数字）
+  it('带小数单位的合法取值只报 R2（长度裸值），不再被 R3 误判为裸数字', () => {
     const violations = scanText('apps/web/src/a.css', 'gap: 1.5rem;');
-    expect(violations.map((item) => `${item.rule}:${item.text}`)).toEqual([
-      'R2:1.5rem',
-      'R3:gap: 1', // 实际多报一条：正则回溯到整数部分后单位断言失效
-    ]);
+    expect(violations.map((item) => `${item.rule}:${item.text}`)).toEqual(['R2:1.5rem']);
+    // 计算表达式里的字面量仍按裸数字报（0.5 是取值文本，不是文案）
     const px = scanText('apps/web/src/a.tsx', 'const s = { marginTop: 0.5 + 1 };');
-    expect(px.map((item) => item.rule)).toContain('R3'); // 计算表达式同样被当裸数字
+    expect(px.map((item) => item.rule)).toContain('R3');
   });
 
-  it('【漏报】形近绕过：rgb 与括号间有空格、大写单位、省略前导 0、负号长度值', () => {
+  it('形近写法不再绕过：rgb 与括号间空格、大写单位、省略前导 0、负号长度值全抓', () => {
     const spacedRgb = scanText('apps/web/src/a.ts', "const c = 'rgba (0, 0, 0, .5)';");
-    expect(spacedRgb).toEqual([]); // 期望至少 1 条；实际 0 → 绕过窗口
+    expect(spacedRgb.map((item) => item.rule)).toEqual(['R1']);
     const upperUnit = scanText('apps/web/src/a.css', 'padding: 12PX;');
-    expect(upperUnit).toEqual([]); // 大写单位不被识别
-    // LENGTH_PATTERN 的 (?<![\w.-]) 前置断言把「省略前导 0」与「负号」两种常见写法一起放过
+    expect(upperUnit.map((item) => item.rule)).toEqual(['R2']);
+    // 旧版前置断言 (?<![\w.-]) 把「省略前导 0」与「负号」两种写法一起放过
     const leadingDot = scanText('apps/web/src/a.css', 'gap: .5rem;');
-    expect(leadingDot).toEqual([]); // .5rem 未被抓
+    expect(leadingDot.map((item) => item.rule)).toEqual(['R2']);
     const negative = scanText('apps/web/src/a.css', 'margin-left: -12px;');
-    expect(negative).toEqual([]); // -12px 未被抓（负号落在排除集内）
+    expect(negative.map((item) => item.rule)).toEqual(['R2']);
+    // 对照：紧邻非词字符的 hex 仍然抓，说明不是「一律漏」
     const emoji = scanText('apps/web/src/a.tsx', "const c = '🎨#0d99ff';");
-    expect(emoji).toHaveLength(1); // 对照：紧邻非词字符的 hex 仍然抓，说明不是「一律漏」
+    expect(emoji).toHaveLength(1);
   });
 
   it('【漏报】注释里裸写 hex 或 px 照抓（口径：注释仅屏蔽「样式语法文本」）', () => {
@@ -254,5 +250,86 @@ describe('[verify] guard-tokens · 误报与漏报边界', () => {
 
   it('规则表：三条规则的 id/文案齐备（CLI 输出依赖）', () => {
     expect(RULES.map((rule) => rule.id)).toEqual(['R1', 'R2', 'R3']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 「样式语法上下文才判」四类样例 × 各变体
+// ---------------------------------------------------------------------------
+
+describe('[verify] guard-tokens · 四类样例（真违规 / 注释样例 / 字符串 CSS / 数据型数值）', () => {
+  it('真违规（代码取值）：四类变体逐条全抓', () => {
+    const violations = scanText(
+      'apps/web/src/a.tsx',
+      [
+        "const a = '#ff0000';",
+        "const b = 'rgba (0, 0, 0, .5)';",
+        'const c = { gap: .5rem, marginLeft: -12px };',
+        'padding: 12PX;',
+      ].join('\n'),
+    );
+    expect(violations.map((item) => `${item.rule}:${item.text}`)).toEqual([
+      'R1:#ff0000',
+      'R1:rgba (',
+      'R2:.5rem',
+      'R2:-12px',
+      'R2:12PX',
+    ]);
+  });
+
+  it('注释样例（说明文本）：整行跳过；注释里的裸泄漏记录仍照抓', () => {
+    const violations = scanText(
+      'apps/web/src/a.ts',
+      [
+        '// 示例：{ gap: var(--dfg-icon-gap), marginTop: var(--dfg-space-2) }',
+        '/* 取色走 var(--dfg-color-primary)；间距一律 var(--dfg-space-2) */',
+        '// 取色：rgb(13, 153, 255)',
+        'const leaked = 1; // 这里曾经写过 #0d99ff（规范泄漏记录，仍应被抓）',
+      ].join('\n'),
+    );
+    // 前两行的样式语法示例与第三行的取色说明（注释里的 rgb() 属说明）跳过；第四行的泄漏记录照抓
+    expect(violations.map((item) => `${item.rule}@${String(item.line)}`)).toEqual(['R1@4']);
+  });
+
+  it('字符串 CSS（取值写法）：CSS 函数与 `key: 数值` 取值串照抓', () => {
+    const violations = scanText(
+      'apps/web/src/a.ts',
+      [
+        "const color = 'rgba (0, 0, 0, .5)';",
+        "const size = 'padding: 12px; gap: 1.5rem';",
+        "const raw = 'marginTop: 8';",
+      ].join('\n'),
+    );
+    expect(violations.map((item) => `${item.rule}:${item.text}`)).toEqual([
+      'R1:rgba (',
+      'R2:12px',
+      'R2:1.5rem',
+      'R3:marginTop: 8',
+    ]);
+  });
+
+  it('数据型数值：文档数据里的 lineHeight/inset 不判；字号族 fontSize 仍是真违规', () => {
+    const violations = scanText(
+      'apps/web/src/a.ts',
+      [
+        'const doc = { lineHeight: 1.5, inset: 24, fontSize: 16 };',
+        "const hint = '请把 marginTop: 8 改成令牌';",
+      ].join('\n'),
+    );
+    // lineHeight 无单位值是乘数、inset 是定位几何（规格豁免「几何计算」）→ 不判；
+    // fontSize 属字号族 → 仍报（文档数据场景用同行 allow 注释登记理由）；
+    // 第二行是自然语言文案（非取值写法）→ 跳过
+    expect(violations.map((item) => `${item.rule}:${item.text}`)).toEqual(['R3:fontSize: 16']);
+  });
+
+  it('自然语言文案里的各变体一律不判（纯文案非样式取值）', () => {
+    const violations = scanText(
+      'apps/web/src/a.ts',
+      [
+        "const hint = '请把 gap: 1.5rem 改成 var(--dfg-icon-gap)';",
+        "const doc = '规范：12PX / .5rem / -12px / rgba (0,0,0,.5) 都不是取值写法';",
+      ].join('\n'),
+    );
+    expect(violations).toEqual([]);
   });
 });
