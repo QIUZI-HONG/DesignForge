@@ -15,7 +15,7 @@ import { DropdownMenu, FrameIcon, IconButton, MoreHorizontalIcon } from '@dforge
 import type { MouseEvent } from 'react';
 
 import { t } from '@/i18n';
-import { useDaemonEndpointHref } from '@/lib/daemon-endpoint';
+import { useDaemonEndpointHref } from '@/lib/daemon-href';
 
 import { describeRelativeTime } from '../lib/format';
 import { editorHref } from '../lib/routes';

@@ -19,7 +19,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { editorHref } from '@/features/home';
 import { t } from '@/i18n';
-import { useDaemonEndpointHref, withDaemonEndpoint } from '@/lib/daemon-endpoint';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
+import { useDaemonEndpointHref } from '@/lib/daemon-href';
 
 import { DaemonClientError } from '../api/daemon-client';
 import { createSettingsApi, type SettingsApi } from '../api/settings-api';

@@ -28,10 +28,15 @@
  *
  * 第三个入口（修复批次 4 · 工作包 B / D-3 / UX-01）：**站内跳转的端点传递**——
  * `withDaemonEndpoint(href)` 把「当前页面的 `?daemon=`」续写到站内地址上（React 侧经
- * `useDaemonEndpointHref(href)` 消费）。为什么必须单点：客户端跳转（首页卡片→编辑器、
- * 市场卡片→详情、各回跳）一旦丢了查询参数，下一页面就会回退到端口窗探测——在同源网关/
- * 非默认端口形态下整页「无法连接本地服务」（UX-01 第一手复现）。只做**查询参数形态**的传递：
- * 当前页没有 `?daemon=`（env 注入的壳/部署形态）时不追加，canonical URL 保持干净。
+ * `@/lib/daemon-href` 的 `useDaemonEndpointHref(href)` 消费）。为什么必须单点：客户端跳转
+ * （首页卡片→编辑器、市场卡片→详情、各回跳）一旦丢了查询参数，下一页面就会回退到端口窗
+ * 探测——在同源网关/非默认端口形态下整页「无法连接本地服务」（UX-01 第一手复现）。只做
+ * **查询参数形态**的传递：当前页没有 `?daemon=`（env 注入的壳/部署形态）时不追加，
+ * canonical URL 保持干净。
+ *
+ * 本模块**不得依赖 React**（也不得加 `'use client'`）：它经 `features/market` 的数据面被
+ * Server Component（如 `app/market/layout.tsx`）间接导入——挂 React hook 在这里会让
+ * `next build` 直接失败（RSC 边界）。React 绑定刻意放在 `daemon-href.ts`。
  */
 
 import {
@@ -40,7 +45,6 @@ import {
   daemonEndpointDefault,
   daemonEndpointForPort,
 } from '@dforge/contracts';
-import { useEffect, useState } from 'react';
 
 /** daemon 缺省端点（端口纪律的起点，本机回环；端点串由契约包单点构造）。 */
 export const DAEMON_ENDPOINT_DEFAULT = daemonEndpointDefault();
@@ -170,22 +174,6 @@ export function withDaemonEndpoint(href: string, options: DaemonEndpointOptions 
   }
   const separator = base.includes('?') ? '&' : '?';
   return `${base}${separator}${assignment}${hash}`;
-}
-
-/**
- * `withDaemonEndpoint` 的 React 绑定：返回**渲染期安全**的地址。
- *
- * 首帧返回基址（与 SSR 输出逐字一致——客户端组件在 App Router 里也会被服务端预渲染，
- * 渲染期直接读 `window.location` 会造成 hydration 属性不一致），挂载后经 effect 补上端点
- * 参数。消费方：`<a href>` 这类进标记的地址（卡片、回首页链接）；只走事件回调的跳转
- * （`router.push` / `location.assign`）直接在回调里调纯函数，不需要本 hook。
- */
-export function useDaemonEndpointHref(href: string): string {
-  const [resolved, setResolved] = useState(href);
-  useEffect(() => {
-    setResolved(withDaemonEndpoint(href));
-  }, [href]);
-  return resolved;
 }
 
 /** 端口窗候选（顺序 = 探测顺序：起点 → 起点 + 上限偏移；端点串由契约包单点构造）。 */

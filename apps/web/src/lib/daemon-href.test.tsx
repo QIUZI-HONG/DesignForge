@@ -8,7 +8,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { useDaemonEndpointHref } from './daemon-endpoint';
+import { useDaemonEndpointHref } from './daemon-href';
 
 const ENDPOINT = 'http://127.0.0.1:4999';
 const ENCODED = encodeURIComponent(ENDPOINT);

@@ -167,3 +167,26 @@
 - **待裁决项**：v2 `digestScope`（文本子集摘要）+ 双写过渡（《技能市场规格 v1》§1.5.3）；
   裁决后按该路径实施，并同步更新规格、`guard:vocab` 相关门禁口径与本 ADR 的结论条目。
 - **本批状态**：仅预留接入点（本补记即登记）；不改 `computeAssetDigest` 的行为与签名。
+
+## 补记 · ① daemon 端点随站内导航传递（修复批次 4 · 工作包 B）
+
+日期：2026-10-16（缺陷来源 D-3 / UX-01：客户端跳转丢 `?daemon=`，下一页面回退端口窗探测，
+在同源网关/非默认端口形态下整页「无法连接本地服务」。上文 ① 的解析顺序结论不动，
+本条只**追加**「端点的站内传递」这一子口径。）
+
+- **单点新增（纯函数，仍在 `apps/web/src/lib/daemon-endpoint.ts`）**：
+  `withDaemonEndpoint(href, options?)` —— 当前页带**合法** `?daemon=`（http/https 绝对地址）
+  时把同一参数续写到站内地址；否则**原样返回**（canonical / env 注入形态的 URL 保持干净）。
+  只动 `daemon` 这一个参数（不用 `URLSearchParams` 重建整串——它会把 `%20` 规范化成 `+`，
+  改变既有地址的字节形态）；幂等（已有同名参数则覆盖）；保留 `#hash`；站外地址不改
+  （不把本地端点泄到站外）。
+- **React 绑定拆独立模块**：`apps/web/src/lib/daemon-href.ts` 的 `useDaemonEndpointHref(href)`
+  —— 首帧返回基址（与 SSR 输出逐字一致，避免 hydration 属性不一致），挂载后经 effect 补写。
+  为什么不在单点模块里：单点模块经 `features/market` 数据面被 Server Component
+  （`app/market/layout.tsx`）间接导入，挂 React hook 会让 `next build` 失败（RSC 边界）。
+- **纪律**：站内 `Link`/客户端跳转一律经该单点构造地址（`href=` / `router.push` /
+  `window.location.assign` 三类入口一次收口），不得各自拼查询串；本轮覆盖首页卡片→编辑器、
+  首页市场命中→市场、市场卡片→详情、详情→返回市场、市场面板→详情、看板→市场、
+  冷启动→编辑器与返回首页、引导→冷启动页。
+- **回归固定**：`scripts/e2e/scenarios/nav.mjs`（同源网关形态：跳转后 URL 携带端点参数、
+  取数请求经网关 `/df`、全程无 4318 越权调用与 CORS 类错误）。
