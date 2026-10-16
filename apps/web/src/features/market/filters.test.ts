@@ -173,7 +173,35 @@ describe('filters · 客户端过滤与排序', () => {
       loadedOnly: true,
       loadedIds: ['x'],
       sort: 'score',
+      preserveOrder: false,
     });
+  });
+
+  it('搜索态保留 daemon 的相关度序（相关度 × 质量分不在客户端重排）', () => {
+    const lowQuality = makeAsset({
+      id: 'gh:a/s#low',
+      quality: { ...makeAsset().quality, score: 0.2 },
+    });
+    const highQuality = makeAsset({
+      id: 'gh:a/s#high',
+      quality: { ...makeAsset().quality, score: 0.9 },
+    });
+    // daemon 已在服务端按相关度 × 质量分排序（此处 [low, high] 即服务端序）
+    const ordered = [lowQuality, highQuality];
+    const searched = clientFilterOf({ ...INITIAL_MARKET_FILTERS, query: '幻灯片' }, []);
+    expect(searched.preserveOrder).toBe(true);
+    expect(applyClientFilters(ordered, searched).map((asset) => asset.id)).toEqual([
+      'gh:a/s#low',
+      'gh:a/s#high',
+    ]);
+    // 非搜索态仍走质量分兜底排序；显式换排序维度时不保留检索序
+    expect(
+      applyClientFilters(ordered, clientFilterOf(INITIAL_MARKET_FILTERS, [])).map((a) => a.id),
+    ).toEqual(['gh:a/s#high', 'gh:a/s#low']);
+    expect(
+      clientFilterOf({ ...INITIAL_MARKET_FILTERS, query: '幻灯片', sort: 'updated' }, [])
+        .preserveOrder,
+    ).toBe(false);
   });
 });
 

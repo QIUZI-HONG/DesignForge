@@ -1,10 +1,12 @@
 /**
  * @dforge/daemon · 市场服务（读取 MK-04 产出的索引）。
  *
- * 口径（简报 §2 / 市场规格 §1.5）：
+ * 口径（简报 §2 / 市场规格 §1.5、§6.2 D3）：
  * - **无索引 → 空态**（state='empty' + warning 'index-missing'），不是错误；
  * - 索引损坏 → 空态 + warning 'index-invalid'（不 500，前端在结果区提示）；
- * - 查询/排序在 daemon 内存内做（BM25/HNSW 检索属 MK-04；本段为过滤 + 质量分排序）；
+ * - `q` 非空 → 消费 ADS **BM25 倒排产物**（`market_search_index.v1.json`，MK-04）：排序 =
+ *   质量分 × 归一相关度，与 CLI `df market search` 同款路径同口径（见 `./search-index.ts`）；
+ * - 检索索引缺失/损坏 → 降级**字面过滤** + warning 'search-index-missing'/'search-index-invalid'；
  * - 装载真实写入走 MCP 确认桩（dryRun → ackToken → 审计），本服务只出**装载提案**。
  */
 
@@ -21,6 +23,9 @@ import type {
   MarketQueryWarning,
 } from '@dforge/contracts';
 import { displayText, MARKETPLACE_INDEX_SCHEMA, parseMarketplaceIndex } from '@dforge/contracts';
+import { searchMarketIndex } from '@dforge/ingest/ads';
+
+import { loadSearchIndex, siblingSearchIndexPath } from './search-index.ts';
 
 /** 市场服务接口。 */
 export interface MarketService {
@@ -85,7 +90,7 @@ export function createMarketService(options: {
     return { index: null, sourcePath: null, warning: null };
   };
 
-  const match = (asset: MarketAsset, params: MarketQueryParams): boolean => {
+  const matchFacets = (asset: MarketAsset, params: MarketQueryParams): boolean => {
     if (
       params.kinds !== undefined &&
       params.kinds.length > 0 &&
@@ -102,20 +107,21 @@ export function createMarketService(options: {
       if (!params.tags.some((tag) => haystack.has(tag.toLowerCase()))) return false;
     }
     if (params.loadableOnly === true && asset.installGate.mode !== 'loadable') return false;
-    if (params.q !== undefined && params.q.trim().length > 0) {
-      const needle = params.q.trim().toLowerCase();
-      const haystack = [
-        asset.name,
-        displayText(asset.displayName, asset.name),
-        displayText(asset.summary, ''),
-        asset.source.repo,
-        ...asset.facets.tags,
-      ]
-        .join(' ')
-        .toLowerCase();
-      if (!haystack.includes(needle)) return false;
-    }
     return true;
+  };
+
+  /** 字面兜底（检索索引缺失/损坏时的降级路径；大小写不敏感的包含匹配）。 */
+  const matchLiteral = (asset: MarketAsset, needle: string): boolean => {
+    const haystack = [
+      asset.name,
+      displayText(asset.displayName, asset.name),
+      displayText(asset.summary, ''),
+      asset.source.repo,
+      ...asset.facets.tags,
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(needle.toLowerCase());
   };
 
   const sortAssets = (assets: MarketAsset[], sort: MarketQueryParams['sort']): MarketAsset[] => {
@@ -152,7 +158,10 @@ export function createMarketService(options: {
       const warnings: MarketQueryWarning[] = [];
       if (state.warning !== null) warnings.push(state.warning);
 
-      if (state.index === null) {
+      const index = state.index;
+      const sourcePath = state.sourcePath;
+      // index 非空时必有来源路径（loadIndex 不变式）；防御式合并处理，绝不半读半用
+      if (index === null || sourcePath === null) {
         return {
           schema: MARKETPLACE_INDEX_SCHEMA,
           state: 'empty',
@@ -164,18 +173,54 @@ export function createMarketService(options: {
         };
       }
 
-      const matched = state.index.assets.filter((asset) => match(asset, params));
-      const sorted = sortAssets(matched, params.sort);
+      const q = params.q === undefined ? '' : params.q.trim();
+      const facetMatched = index.assets.filter((asset) => matchFacets(asset, params));
+
+      // 检索面（E1）：q 非空 → BM25 倒排（相关度 × 质量分，CLI 同口径）；
+      // 检索索引缺失/损坏 → 字面过滤兜底 + 稳定 warning（不报错、不 500）。
+      let matched: MarketAsset[];
+      if (q.length === 0) {
+        matched = sortAssets(facetMatched, params.sort);
+      } else {
+        const searchState = await loadSearchIndex(siblingSearchIndexPath(sourcePath));
+        if (searchState.warning !== null) warnings.push(searchState.warning);
+        const searchIndex = searchState.index;
+        if (searchIndex === null) {
+          matched = sortAssets(
+            facetMatched.filter((asset) => matchLiteral(asset, q)),
+            params.sort,
+          );
+        } else {
+          // 全量命中（limit = docCount）→ 与筛选面求交 → 按 BM25 排名序回填卡片；
+          // 检索真值 = 倒排产物：卡片不在产物 docs 里（批次不一致/手工拼装）即不进检索结果。
+          const ranked = searchMarketIndex(searchIndex, q, { limit: searchIndex.docCount });
+          const positionOf = new Map(ranked.hits.map((hit, position) => [hit.id, position]));
+          const hits = facetMatched
+            .map((asset) => ({ asset, position: positionOf.get(asset.id) }))
+            .filter(
+              (entry): entry is { asset: MarketAsset; position: number } =>
+                entry.position !== undefined,
+            );
+          matched =
+            params.sort === undefined || params.sort === 'score'
+              ? hits.sort((a, b) => a.position - b.position).map((entry) => entry.asset)
+              : sortAssets(
+                  hits.map((entry) => entry.asset),
+                  params.sort,
+                );
+        }
+      }
+
       const offset = Math.max(0, params.offset ?? 0);
       const limit = Math.min(Math.max(1, params.limit ?? 24), 200);
-      const items = sorted.slice(offset, offset + limit);
+      const items = matched.slice(offset, offset + limit);
 
       return {
         schema: MARKETPLACE_INDEX_SCHEMA,
         state: matched.length === 0 ? 'empty' : 'ok',
-        generatedAt: state.index.generatedAt,
+        generatedAt: index.generatedAt,
         total: matched.length,
-        counts: state.index.counts,
+        counts: index.counts,
         items,
         warnings,
       };

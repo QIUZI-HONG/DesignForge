@@ -87,37 +87,63 @@ export function useMarketQuery(
   return { ...state, reload };
 }
 
-/** 资产详情 hook（未命中 → `asset=null`；请求失败 → `status='error'`）。 */
+/** 资产详情 hook（未命中 → `asset=null`；请求失败 → `status='error'` + `errorCode`）。
+ *
+ * `errorCode` 是 E2 的分流依据：daemon 对「资产不存在」回 `market_asset_not_found`
+ * （404），页面据此渲染独立 not-found 空态；其余码（含 `daemon_unreachable`）才是连接/服务错误。
+ */
 export function useMarketAsset(
   assetId: string,
   options: { baseUrl?: string } = {},
-): { status: 'loading' | 'ready' | 'error'; asset: MarketAsset | null; error: string | null } {
+): {
+  status: 'loading' | 'ready' | 'error';
+  asset: MarketAsset | null;
+  error: string | null;
+  errorCode: string | null;
+  reload: () => void;
+} {
   const [state, setState] = useState<{
     status: 'loading' | 'ready' | 'error';
     asset: MarketAsset | null;
     error: string | null;
-  }>({ status: 'loading', asset: null, error: null });
+    errorCode: string | null;
+  }>({ status: 'loading', asset: null, error: null, errorCode: null });
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
-    setState({ status: 'loading', asset: null, error: null });
+    setState({ status: 'loading', asset: null, error: null, errorCode: null });
     void fetchMarketAsset(assetId, {
       signal: controller.signal,
       ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
     }).then((result) => {
       if (controller.signal.aborted) return;
       if (result.ok) {
-        setState({ status: 'ready', asset: assetFromDetail(result.result), error: null });
+        setState({
+          status: 'ready',
+          asset: assetFromDetail(result.result),
+          error: null,
+          errorCode: null,
+        });
       } else {
-        setState({ status: 'error', asset: null, error: result.error.message });
+        setState({
+          status: 'error',
+          asset: null,
+          error: result.error.message,
+          errorCode: result.error.code,
+        });
       }
     });
     return () => {
       controller.abort();
     };
-  }, [assetId, options.baseUrl]);
+  }, [assetId, options.baseUrl, nonce]);
 
-  return state;
+  const reload = useCallback(() => {
+    setNonce((value) => value + 1);
+  }, []);
+
+  return { ...state, reload };
 }
 
 /** 装载提案 hook（`assetId=null` 表示未选资产：不请求）。 */

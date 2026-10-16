@@ -107,6 +107,9 @@ export interface ClientFilterInput {
   loadedOnly: boolean;
   loadedIds: readonly string[];
   sort: MarketFilters['sort'];
+  /** 保留 daemon 给的次序（搜索态 = 相关度 × 质量分序；E1 口径：不在客户端重排）。
+   *  缺省 false = 按 `sortAssets` 兜底排序（浏览态）。 */
+  preserveOrder?: boolean;
 }
 
 /** 从筛选状态取客户端过滤输入。 */
@@ -120,6 +123,8 @@ export function clientFilterOf(
     loadedOnly: filters.loadedOnly,
     loadedIds,
     sort: filters.sort,
+    // 搜索 + 综合评分：daemon 按 BM25 相关度 × 质量分排序，客户端不得按质量分重排
+    preserveOrder: filters.query.trim().length > 0 && filters.sort === 'score',
   };
 }
 
@@ -127,6 +132,10 @@ export function clientFilterOf(
  * 客户端过滤 + 兜底排序（许可档/来源仓库/已装载）。
  * 排序与 daemon 同口径（score 降序→stars；updated 按 pushedAt；name 按中文展示名），
  * 仅作为「daemon 未排序字段」的兜底，不改变 daemon 已给的相对次序语义。
+ *
+ * `preserveOrder = true`（搜索 + 综合评分）：daemon 已按 BM25 相关度 × 质量分给出次序
+ * （与 CLI `df market search` 同口径），客户端**只过滤不重排**——否则相关度序会被质量分
+ * 重排抹掉，UI 就与 CLI 口径不一致了。
  */
 export function applyClientFilters(
   assets: readonly MarketAsset[],
@@ -142,6 +151,7 @@ export function applyClientFilters(
     if (input.loadedOnly && !loaded.has(asset.id)) return false;
     return true;
   });
+  if (input.preserveOrder === true) return filtered;
   return sortAssets(filtered, input.sort);
 }
 

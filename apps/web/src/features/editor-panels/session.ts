@@ -41,6 +41,11 @@ export interface PanelsSession {
   readonly ui: PanelsUiStore;
   /** 当前页面 id（P0 单页面；多页面切换归 FE-03 壳层）。 */
   readonly pageId: PageId;
+  /**
+   * 切换当前页面（载入的文档替换装配文档后，页面 id 会变——由装配层调用本方法收口）。
+   * 读法保持 `session.pageId` 不变：各面板组件在渲染期取值，文档变更触发重渲染后即拿到新值。
+   */
+  readonly setPageId: (pageId: PageId) => void;
   /** 当前文档快照（`useSyncExternalStore` 的取值函数；引用稳定）。 */
   readonly getSnapshot: () => DesignDocument;
   /** 文档变更订阅（引用稳定；返回退订函数）。 */
@@ -62,13 +67,18 @@ export function createPanelsSession(options: PanelsSessionOptions = {}): PanelsS
   if (options.historyLimit !== undefined) stackOptions.historyLimit = options.historyLimit;
   const stack = new CommandStack(document, stackOptions);
 
-  const pageId = options.pageId ?? (stack.document.pages[0]?.id as PageId);
+  let pageId = options.pageId ?? (stack.document.pages[0]?.id as PageId);
   const ui = createPanelsUiStore();
 
   return {
     stack,
     ui,
-    pageId,
+    get pageId(): PageId {
+      return pageId;
+    },
+    setPageId(next) {
+      pageId = next;
+    },
     getSnapshot: () => stack.getSnapshot(),
     subscribe: (listener) => stack.subscribe(listener),
     page: () => getPage(stack.document, pageId),

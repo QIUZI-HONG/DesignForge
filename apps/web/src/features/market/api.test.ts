@@ -141,6 +141,24 @@ describe('api · 视图状态归一（空态不伪造数据）', () => {
     expect(classifyMarketOutcome(makeQueryResponse())).toBe('ok');
   });
 
+  it('检索索引降级（search-index-*）→ searchDegraded；不计 partial，有结果仍是 ok', () => {
+    const missing = makeQueryResponse({
+      warnings: [{ code: 'search-index-missing', message: '未找到 BM25 检索索引：当前按字面匹配' }],
+    });
+    expect(classifyWarnings(missing.warnings).searchDegraded).toBe(true);
+    expect(classifyWarnings(missing.warnings).partial).toBe(false);
+    expect(classifyMarketOutcome(missing)).toBe('ok');
+
+    const invalid = makeQueryResponse({
+      items: [],
+      total: 0,
+      warnings: [{ code: 'search-index-invalid', message: '检索索引不兼容' }],
+    });
+    expect(classifyWarnings(invalid.warnings).searchDegraded).toBe(true);
+    // 空结果仍是 no-result（降级说明由空态附加「暂按字面匹配」），不是索引缺失空态
+    expect(classifyMarketOutcome(invalid)).toBe('no-result');
+  });
+
   it('采集指引是 CLI 口径（不假装前端能补数据）', () => {
     expect(MARKET_COLLECT_COMMAND).toContain('df market collect');
     expect(MARKET_COLLECT_COMMAND).toContain('df market index');
