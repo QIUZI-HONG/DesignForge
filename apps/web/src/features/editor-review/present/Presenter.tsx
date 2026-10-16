@@ -92,9 +92,12 @@ export function Presenter() {
     // 层级口径（C1/D-4）：演示舞台走 `@dforge/ui` 的 `Overlay`——与抽屉/模态同一条浮层栈
     // （后开必在上、焦点入层、滚动锁同源）。修复前舞台自持 `position: fixed` + z 令牌，
     // 与「后挂到 body 的抽屉」同值 → 抽屉开着时舞台会被压在下面。
-    // Esc：本层与控制器都会退出（幂等）；焦点在层内时由本层接走，焦点在 body 时由控制器兜住。
+    // Esc 单一真源（复核 J4）：演示的 Esc 语义**只**归本组件的 window 级处理器（`keyboardActionOf`
+    // → exit）——浮层层的 Esc 关层显式关掉（`closeOnEsc={false}`），不再出现「同一次 Esc 走两条
+    // 退出路径」；`use-overlay` 的 `closeOnEsc` 由此被真实消费（此前是无人使用的预留项）。
     <Overlay
       open
+      closeOnEsc={false}
       onOpenChange={(next) => {
         if (next) return;
         session.present.getState().exitPresentation();
