@@ -385,7 +385,7 @@ describe('[verify] 浮层 · 焦点陷阱与 Esc 冒泡', () => {
     expect(dialog.contains(document.activeElement)).toBe(true);
   });
 
-  it('[缺陷] 嵌套浮层：初始焦点落在**外层**（抽屉自己的关闭键），Esc 归外层而非最内层', async () => {
+  it('嵌套浮层：初始焦点落在**最内层**（不是外层抽屉自己的关闭键），Esc 只关最内层', async () => {
     const user = userEvent.setup();
     const onDrawerOpenChange = vi.fn();
     const onModalOpenChange = vi.fn();
@@ -399,17 +399,67 @@ describe('[verify] 浮层 · 焦点陷阱与 Esc 冒泡', () => {
     const drawerDialog = screen.getByRole('dialog', { name: 'AI 面板' });
     const modalDialog = screen.getByRole('dialog', { name: '嵌套确认' });
     const active = document.activeElement as HTMLElement;
-    // 期望（文档契约）：焦点在最内层浮层里；实际：落在抽屉自己的关闭键上
-    expect(modalDialog.contains(active)).toBe(false);
-    expect(drawerDialog.contains(active)).toBe(true);
-    expect(active.getAttribute('aria-label')).toBe('关闭面板');
+    // 焦点入层只作用于栈顶：外层抽屉的效果后跑，不得把焦点从内层模态夺回来
+    expect(modalDialog.contains(active)).toBe(true);
+    expect(drawerDialog.contains(active)).toBe(false);
 
-    // 期望（文档注释：「嵌套浮层的 Esc 归属：只有最内层关闭」）：抽屉保持打开、模态关闭
+    // Esc 归属最内层：模态收关闭请求，外层抽屉保持打开
     await user.keyboard('{Escape}');
-    // 实际：Esc 的 keydown 目标是抽屉自己的元素，抽屉处理器先跑并 stopPropagation
-    // → 只有抽屉收到关闭请求，模态的 onOpenChange 从未被调用
-    expect(onDrawerOpenChange).toHaveBeenCalledWith(false);
-    expect(onModalOpenChange).not.toHaveBeenCalled();
+    expect(onModalOpenChange).toHaveBeenCalledWith(false);
+    expect(onDrawerOpenChange).not.toHaveBeenCalled();
+  });
+
+  it('[必验] 三层套娃 Modal→Drawer→Modal：逐层 Esc 只关最内层，焦点在最内层且 z 序与栈序一致', async () => {
+    const user = userEvent.setup();
+    function Host() {
+      const [outer, setOuter] = useState(true);
+      const [middle, setMiddle] = useState(true);
+      const [inner, setInner] = useState(true);
+      return (
+        <Modal open={outer} onOpenChange={setOuter} title="外层模态" closeLabel="关闭外层">
+          <Drawer open={middle} onOpenChange={setMiddle} title="中层抽屉" closeLabel="关闭中层">
+            <Modal open={inner} onOpenChange={setInner} title="内层模态" closeLabel="关闭内层">
+              <span>内容</span>
+            </Modal>
+          </Drawer>
+        </Modal>
+      );
+    }
+    render(<Host />);
+    const outerDialog = screen.getByRole('dialog', { name: '外层模态' });
+    const middleDialog = screen.getByRole('dialog', { name: '中层抽屉' });
+    const innerDialog = screen.getByRole('dialog', { name: '内层模态' });
+    /** 浮层根（遮罩）承载的层叠号：嵌套越深越靠上。 */
+    const layerZ = (dialog: HTMLElement): number =>
+      Number((dialog.parentElement as HTMLElement).style.zIndex);
+
+    // 三层同时打开 → 焦点在最内层
+    expect(innerDialog.contains(document.activeElement)).toBe(true);
+    // 栈序与实际 z 序一致：内层 > 中层 > 外层
+    expect(layerZ(innerDialog)).toBeGreaterThan(layerZ(middleDialog));
+    expect(layerZ(middleDialog)).toBeGreaterThan(layerZ(outerDialog));
+
+    // 逐层 Esc：只关最内层，并把焦点交接给新的栈顶
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '内层模态' })).toBeNull();
+    });
+    expect(screen.getByRole('dialog', { name: '中层抽屉' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '外层模态' })).toBeTruthy();
+    expect(middleDialog.contains(document.activeElement)).toBe(true);
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '中层抽屉' })).toBeNull();
+    });
+    expect(screen.getByRole('dialog', { name: '外层模态' })).toBeTruthy();
+    expect(outerDialog.contains(document.activeElement)).toBe(true);
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe('');
   });
 
   it('单层浮层的 Esc 与焦点归还正常（对照：缺陷只在嵌套时出现）', async () => {
@@ -426,7 +476,7 @@ describe('[verify] 浮层 · 焦点陷阱与 Esc 冒泡', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('[缺陷] 滚动锁无引用计数：先关外层（抽屉）会让 body 永久停在 overflow:hidden', async () => {
+  it('滚动锁引用计数：先关外层（抽屉）让内层随之卸载后，body 必定恢复（不再永久锁死）', async () => {
     const user = userEvent.setup();
     document.body.style.overflow = '';
     function Host() {
@@ -447,9 +497,72 @@ describe('[verify] 浮层 · 焦点陷阱与 Esc 冒泡', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
-    // 期望：无浮层 → 恢复打开前的 ''；实际：内层卸载时把「打开时捕获的 hidden」写回 → 永久锁死
-    expect(document.body.style.overflow).toBe('hidden');
+    // 无浮层 → 必须恢复打开前的 ''（引用计数：两层各归还一次；旧实现会把「打开时捕获的 hidden」写回）
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  it('[必验] 交叉开关序列（外层与内层相互独立）：先关外层时锁不提前归还，全部关闭后恢复', async () => {
+    const user = userEvent.setup();
     document.body.style.overflow = '';
+    function Host() {
+      const [drawerOpen, setDrawerOpen] = useState(true);
+      const [modalOpen, setModalOpen] = useState(true);
+      return (
+        <>
+          <Drawer open={drawerOpen} onOpenChange={setDrawerOpen} title="面板" closeLabel="关闭面板">
+            <span>抽屉内容</span>
+          </Drawer>
+          <Modal
+            open={modalOpen}
+            onOpenChange={setModalOpen}
+            title="独立模态"
+            closeLabel="关闭模态"
+          >
+            <span>模态内容</span>
+          </Modal>
+        </>
+      );
+    }
+    render(<Host />);
+    expect(document.body.style.overflow).toBe('hidden');
+    // 关外层：内层还开着 → 锁必须继续持有
+    await user.click(screen.getByRole('button', { name: '关闭面板' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '面板' })).toBeNull();
+    });
+    expect(screen.getByRole('dialog', { name: '独立模态' })).toBeTruthy();
+    expect(document.body.style.overflow).toBe('hidden');
+    // 内层（栈顶）Esc 关闭 → 全部清空 → 恢复
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  it('外部点击只作用于栈顶：点非栈顶层的遮罩不生效，点栈顶遮罩才关闭', async () => {
+    const user = userEvent.setup();
+    const onDrawerOpenChange = vi.fn();
+    const onModalOpenChange = vi.fn();
+    render(
+      <>
+        <Drawer open onOpenChange={onDrawerOpenChange} title="外层抽屉" closeLabel="关闭面板">
+          <span>内容</span>
+        </Drawer>
+        <Modal open onOpenChange={onModalOpenChange} title="内层模态" closeLabel="关闭">
+          <span>内容</span>
+        </Modal>
+      </>,
+    );
+    const drawerBackdrop = screen.getByRole('dialog', { name: '外层抽屉' })
+      .parentElement as HTMLElement;
+    const modalBackdrop = screen.getByRole('dialog', { name: '内层模态' })
+      .parentElement as HTMLElement;
+    await user.click(drawerBackdrop);
+    expect(onDrawerOpenChange).not.toHaveBeenCalled();
+    await user.click(modalBackdrop);
+    expect(onModalOpenChange).toHaveBeenCalledWith(false);
+    expect(onDrawerOpenChange).not.toHaveBeenCalled();
   });
 
   it('打开它的元素在关闭前被移除：还原焦点不抛错（焦点落回 body）', async () => {
