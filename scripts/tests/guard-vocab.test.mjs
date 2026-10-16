@@ -100,6 +100,14 @@ test('违规⑤：五维权重表写死对象字面量 → exit 1 且点名 QUAL
   assert.match(violationsOf(report), /QUALITY_WEIGHTS/);
 });
 
+test('违规⑥：内联字面量数组（.includes 链，非声明处）→ exit 1 且点名 kind 词表', () => {
+  const { status, report } = runGuard({ layers: fixture('inline-literal') });
+
+  assert.equal(status, 1, `未抓到内联字面量：${violationsOf(report) || undeterminedOf(report)}`);
+  assert.match(violationsOf(report), /inline-literal\/layer\.ts/);
+  assert.match(violationsOf(report), /kind/);
+});
+
 // --- 阻塞语义（exit 2，禁当通过也禁误报违规）---
 
 test('阻塞①：初始化表达式静态判不出根（函数调用）→ exit 2', () => {

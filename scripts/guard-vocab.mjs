@@ -16,6 +16,8 @@
  *      根指向别处的模块 → exit 1；静态完全判不出根 → exit 2（阻塞）。
  *   R4 类型词表（违规）：登记类型的别名写死字面量联合（`type AssetKind = 'skill' | …`）
  *      即 exit 1；类型别名指向契约真源类型（含 import 改名）放行。
+ *   R5 内联字面量（违规）：非声明处的数组字面量（如 `.includes(['skill', …])` 链），
+ *      元素（≥2 个）全部落在同一登记词表即 exit 1（真源文件自身豁免——它就是字面量的家）。
  *
  * 扫描面（登记清单，评审可见）：
  *   - 真源：`packages/contracts/src/market/vocab.ts`（`--source=` 可覆盖，夹具测试用）；
@@ -392,8 +394,8 @@ function describeLiteralMatch(literal, sourceValue) {
   return null;
 }
 
-/** 分析单个层文件：返回违规与「无法判定」清单。 */
-function analyzeLayerFile(path, text, sourceValues) {
+/** 分析单个层文件：返回违规与「无法判定」清单（真源文件自身跳过内联规则 R5）。 */
+function analyzeLayerFile(path, text, sourceValues, scanInline) {
   const violations = [];
   const undetermined = [];
   const at = displayPath(path);
@@ -406,10 +408,12 @@ function analyzeLayerFile(path, text, sourceValues) {
     node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1;
 
   // R2/R3：登记值名的声明
+  const registeredInitializers = new Set();
   for (const entry of VOCAB_REGISTRY) {
     for (const name of entry.values) {
       const declaration = findExportedConst(sourceFile, name);
       if (declaration === undefined) continue;
+      registeredInitializers.add(declaration.initializer);
       const initializer = unwrap(declaration.initializer);
       let isLiteral = false;
       if (entry.form === 'array' && ts.isArrayLiteralExpression(initializer)) {
@@ -454,6 +458,36 @@ function analyzeLayerFile(path, text, sourceValues) {
           `（${roots.unresolved.join('、') || '无可用标识符'}）——阻塞，禁当通过`,
       );
     }
+  }
+
+  // R5：内联字面量数组（非登记声明处，如 `.includes([…])` 链）——数组元素（≥2）全部落在
+  // 同一登记词表即违规：不是 const 声明，但同样是「层内再写一份词表」的漂移源。
+  if (scanInline) {
+    const vocabSets = VOCAB_REGISTRY.map((entry) => ({
+      entry,
+      values: sourceValues.get(entry),
+    })).filter((item) => Array.isArray(item.values));
+    const visitArrays = (node) => {
+      if (registeredInitializers.has(node)) return; // 登记声明处由 R2/R3 判定
+      if (ts.isArrayLiteralExpression(node) && node.elements.length >= 2) {
+        const elements = node.elements;
+        if (elements.every((element) => ts.isStringLiteral(element))) {
+          const tokens = elements.map((element) => element.text);
+          const hit = vocabSets.find(({ values }) =>
+            tokens.every((token) => values.includes(token)),
+          );
+          if (hit !== undefined) {
+            violations.push(
+              `${at}:${lineOf(node)} 内联字面量数组 [${tokens.join(', ')}]：` +
+                `层内不得再写词表「${hit.entry.id}」——改 import ${CONTRACTS_MODULE} 的 ` +
+                `${hit.entry.source} 后派生（判定用运行时类型守卫）`,
+            );
+          }
+        }
+      }
+      ts.forEachChild(node, visitArrays);
+    };
+    visitArrays(sourceFile);
   }
 
   // R4：登记类型的别名（字面量联合即违规；类型别名递归跟进到 import 绑定）。
@@ -616,7 +650,7 @@ function main() {
           continue;
         }
         report.checked.push(displayPath(file));
-        const result = analyzeLayerFile(file, text, source.values);
+        const result = analyzeLayerFile(file, text, source.values, file !== sourcePath);
         report.violations.push(...result.violations);
         report.undetermined.push(...result.undetermined);
       }
