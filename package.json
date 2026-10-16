@@ -40,6 +40,7 @@
     "guard:deps": "node scripts/guard-deps.mjs",
     "guard:tokens": "node scripts/guard-tokens.mjs",
     "guard:vocab": "node scripts/guard-vocab.mjs",
+    "guard:feature-boundaries": "node scripts/guard-feature-boundaries.mjs",
     "guard:channel-pairing": "node scripts/guard-channel-pairing.mjs",
     "guard:electron-baseline": "node scripts/guard-electron-baseline.mjs",
     "guard:mcp-contract": "node scripts/guard-mcp-contract.mjs",

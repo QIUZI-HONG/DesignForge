@@ -1,0 +1,4 @@
+/* 违规夹具样式：被 feature→feature 深引（样式入口例外限 app 根，故应点名）。 */
+.alpha {
+  color: #223344;
+}
