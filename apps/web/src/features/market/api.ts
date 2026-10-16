@@ -276,7 +276,10 @@ export function assetFromDetail(response: MarketAssetDetailResponse): MarketAsse
 /** 视图状态：ok / 无结果 / 索引缺失（空态·去跑采集）/ 索引损坏（空态）/ 部分失败。 */
 export type MarketOutcome = 'ok' | 'no-result' | 'index-missing' | 'index-invalid' | 'partial';
 
-/** 告警分类（`index-*` 归空态；其余归部分失败）。
+/** 告警分类（`index-*` 归空态；`search-index-*` 归检索降级提示；其余归部分失败）。
+ *
+ * 三族**不合并**（E1 口径）：`index-*` 表示连卡片都没有（空态给采集指引）；
+ * `search-index-*` 表示有卡片但检索退化为字面匹配（结果照常展示 + 「暂按字面匹配」提示）。
  *
  * 脏输入（非数组）容错为空告警：本函数是**页面渲染路径**上的一环，抛 TypeError 会
  * 让整树卸载（无错误边界时 = 白屏）；形状该在解包点被拦（见 `validateMarketQueryResponse`），
@@ -285,18 +288,35 @@ export type MarketOutcome = 'ok' | 'no-result' | 'index-missing' | 'index-invali
 export function classifyWarnings(warnings: readonly MarketQueryWarning[] | null | undefined): {
   indexMissing: boolean;
   indexInvalid: boolean;
+  searchDegraded: boolean;
   partial: boolean;
 } {
   const list = Array.isArray(warnings) ? warnings : [];
   const indexMissing = list.some((warning) => warning?.code === 'index-missing');
   const indexInvalid = list.some((warning) => warning?.code === 'index-invalid');
+  const searchDegraded = list.some(
+    (warning) =>
+      warning?.code === 'search-index-missing' || warning?.code === 'search-index-invalid',
+  );
   return {
     indexMissing,
     indexInvalid,
+    searchDegraded,
     partial: list.some(
-      (warning) => warning?.code !== 'index-missing' && warning?.code !== 'index-invalid',
+      (warning) =>
+        warning?.code !== 'index-missing' &&
+        warning?.code !== 'index-invalid' &&
+        warning?.code !== 'search-index-missing' &&
+        warning?.code !== 'search-index-invalid',
     ),
   };
+}
+
+/** 检索索引降级判定（`search-index-*`）——页面据此给「暂按字面匹配」提示（E1）。 */
+export function isSearchDegraded(
+  warnings: readonly MarketQueryWarning[] | null | undefined,
+): boolean {
+  return classifyWarnings(warnings).searchDegraded;
 }
 
 /**

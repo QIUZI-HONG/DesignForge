@@ -61,6 +61,8 @@ export interface FilterBarProps {
   installedView: boolean;
   /** 结果计数（索引缺失时为 null，不显示「0 个资源」误导）。 */
   total: number | null;
+  /** 全局资源数（索引 counts.total；用于与「当前结果」分流，E3）。 */
+  globalTotal: number | null;
   /** 可装载计数（索引缺失时 null）。 */
   loadableCount: number | null;
   /** 索引生成时刻（ISO；无索引不显示）。 */
@@ -76,6 +78,7 @@ export function FilterBar({
   scenes,
   installedView,
   total,
+  globalTotal,
   loadableCount,
   generatedAt,
   onChange,
@@ -84,6 +87,8 @@ export function FilterBar({
 }: FilterBarProps) {
   const filterCount = activeFilterCount(filters);
   const kindLabelKeys = new Map(MARKET_KIND_TABS.map((tab) => [tab.value, tab.labelKey]));
+  // E3 口径：筛选/检索后「当前结果」≠ 全局资源数时分别报数，不把筛选后的 0 混说成全量
+  const scoped = total !== null && globalTotal !== null && total !== globalTotal;
 
   return (
     <section style={filterBarStyle} data-df-page="market-home" data-df-market="filter-bar">
@@ -270,10 +275,16 @@ export function FilterBar({
         <span style={hintStyle} data-df-market="result-count">
           {total === null
             ? t('market.loading')
-            : t('market.summary', {
-                total,
-                loadable: loadableCount ?? 0,
-              })}
+            : scoped
+              ? t('market.summaryScoped', {
+                  global: globalTotal,
+                  total,
+                  loadable: loadableCount ?? 0,
+                })
+              : t('market.summary', {
+                  total,
+                  loadable: loadableCount ?? 0,
+                })}
         </span>
         {generatedAt === null ? null : (
           <span style={hintStyle}>{t('market.generatedAt', { at: generatedAt })}</span>
