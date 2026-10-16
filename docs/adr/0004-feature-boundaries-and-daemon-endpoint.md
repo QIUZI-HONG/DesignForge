@@ -116,3 +116,54 @@
 - **遗留（未纳入本批扫描登记）**：`apps/daemon/src/routes/market.ts` 与
   `apps/web/src/features/market/components/FilterBar.tsx` 各有一份 kind/lane 字面量
   （属各自票目录，未在本批范围内触碰）；接入 `guard:vocab` 登记清单即可收口，留待后续票。
+
+## 补记 · ③ 续：「各层」登记面补漏（修复批次 3 收口 · code-review 整改）
+
+日期：2026-10-16（同上 ③ 补记之后追加；③ 的清偿清单结论不动，本条记**补漏**。）
+
+- **事实**：③ 补记的清偿清单漏了三处层内字面量，且 `guard:vocab` 的登记面**看不见**它们
+  （登记名清单未覆盖），即「收敛已完成但判据缺席」的半做状态：
+  `packages/contracts/src/market/index.ts` 的 `InstallGateMode`（第二份
+  `'loadable' | 'view-only' | 'blocked'`）与 `MarketInstallGate.security`（内联联合）、
+  `services/ingest/src/collect/run.ts` 的两处 `Record<'loadable' | 'view-only' | 'blocked', …>`。
+- **收口（已清偿）**：前两处改为真源派生（`InstallGateMode = LicenseGate`、
+  `security: MarketSecurityLevel`），`run.ts` 改 `Record<LicenseGate, …>`。
+- **登记面补漏（不得静默）**：`LicenseGate` 条目登记 `InstallGateMode` 为层内类型别名
+  （`guard:vocab` 的 `VOCAB_REGISTRY`），R4 判据即可直接点名该形态；报告**始终**带
+  `registry`（登记词表 + 放行别名）与 `limits`（静态判据覆盖不到的形态：
+  接口属性内联联合 / 类型实参字面量 / 跨文件类型链），`--registry` 可人类可读打印。
+- **同包相对导入**：R3/R4 的「真源根」判据补充——契约包内的市场模块只能相对引
+  `./vocab.ts`（自引包名成环），该相对导入视作真源根；层树外的相对路径仍判 foreign
+  （正/负例夹具各一，双侧证据见 `scripts/tests/guard-vocab.test.mjs`）。
+
+## 补记 · ② feature 公开面「样式入口 `*.css`」登记为第二类例外（修复批次 3 收口）
+
+日期：2026-10-16（批次 3 · 工作包 E 收口；上文 ② 的「唯一第二入口（具名例外）」结论不动，
+此为**追加登记**——E 线实现（`scripts/guard-feature-boundaries.mjs` 的 `REGISTERED_EXCEPTIONS`）
+把此前字面上属越界的样式直引补记为具名例外，让实现与 ADR 字面一致。）
+
+- **例外内容**：`features/<name>/*.css`（样式入口）是公开面之外的**第二类登记例外**，
+  **只对 `app/**` 路由层生效**。
+- **为什么不经 `index.ts` 转出**（与 register 接缝同理）：公开面按 ② 只导出「组件 / 工厂 /
+  hook / 类型 / 页面级纯逻辑」，CSS 资源无从 `index.ts` 转出——转出即等于给**所有**公开面
+  消费方带上全局样式副作用（含只想要一个展示组件的路由页），属行为与包体双重回归。
+- **为什么限 app 路由层**：Next 路由层直引 feature 样式是既有接线（`app/page.tsx` →
+  `home.css`、`app/editor/layout.tsx` → `editor-shell.css`）；feature→feature 引他 feature
+  样式仍判违规（避免把别人的全局样式带进本 feature 包体），门禁报错会注明依据。
+- **门禁可见性**：例外在守卫的登记面（`REGISTERED_EXCEPTIONS`）与报告 `scope.exceptions`
+  中逐条列出（含依据文案），未登记形态不得静默放行。
+
+## 补记 · ④ digest v2「接入点预留」（修复批次 3 收口）
+
+日期：2026-10-16（批次 3 收口；上文 ④ 的「留待 D 线报告与用户裁决」结论不动，
+本条只**预留接入点**，不改变 v1 行为、不实现 v2。）
+
+- **接入点（真实路径已核实）**：`services/ingest/src/transform/lineage/digest.ts` 的
+  `computeAssetDigest(files: readonly AssetFileHash[])` —— 现行 v1 口径：资产根目录内全部文件
+  逐个取内容 sha256，按相对路径字典序拼清单流后取 `sha256:`（规格 §1.6）。
+- **调用链**：`transform/dwd/build.ts` 的 build 阶段装配（`computeAssetDigest(...)`）是唯一
+  消费点，v2 口径若定，参数与返回结构在此扩展（如新增 `digestScope` 字段），
+  DWD 表与 ADS 卡片的透出随之下游同步。
+- **待裁决项**：v2 `digestScope`（文本子集摘要）+ 双写过渡（《技能市场规格 v1》§1.5.3）；
+  裁决后按该路径实施，并同步更新规格、`guard:vocab` 相关门禁口径与本 ADR 的结论条目。
+- **本批状态**：仅预留接入点（本补记即登记）；不改 `computeAssetDigest` 的行为与签名。
