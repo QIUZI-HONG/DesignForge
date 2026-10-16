@@ -145,7 +145,21 @@ export function parseDocument(input: string | unknown): ParsedDocument {
   // 的递归结构检查或后续 sortKeysDeep 上（旧缺陷：导入超深文档抛原生 TypeError/RangeError）。
   assertNodeDepthWithinLimit(rawDocument, '文档');
   assertValueDepthWithinLimit(rawDocument, '文档');
-  // 原型污染同口径：自有 __proto__ 键在解析处即丢弃（深拷重建，先过上面的结构深度守门）
+  // 原型污染同口径：自有 __proto__ 键在解析处即丢弃（深拷重建，先过上面的结构深度守门）。
+  //
+  // 为什么**静默**丢弃是安全且确定的（修复批次 3 A2 收口 · code-review #6 选 (ii)，不计数）：
+  //   1) 判据确定：只命中键名恰为 `__proto__` 的**自有可枚举**键——`Object.entries` 只列自有
+  //      可枚举属性，`JSON.parse` 产出的 `__proto__` 是普通自有数据属性（不走 setter），
+  //      判定与输入顺序、深度、平台、时钟全无关；同一载荷每次结果逐字节相同（用例已锁定）。
+  //   2) 不产生未判定态：丢弃点排在 `assertValueDepthWithinLimit` **之后**，超深载荷先被
+  //      领域错误拒绝，不存在「丢弃过程本身栈溢出」的灰区。
+  //   3) 不改变任何调用方决策：Design IR 的类型（`DesignDocument`）没有任何 `__proto__`
+  //      字段，合法文档不可能携带它；携带它的只能是外部注入/畸形载荷，其处置与「未知字段」
+  //      同一裁决——导入的两态出口（成功 + 结构校验 / 领域错误）不因「丢了几个键」而变
+  //      （`obj['__proto__'] = v` 形态的「还原」本身就会退化成原型改写，即不可消费）。
+  //   4) 因此计数只服务于审计留痕，而引擎当前没有校验证据通道；为它新开
+  //      engine → contracts → daemon → web 的跨包证据链，收益不抵本批范围（详见票面报告）。
+  // 语义等价声明：丢弃后 `validateDocument` 的结论与「载荷本就不含该键」完全一致。
   const document = dropProtoKeys(rawDocument);
   const issues = validateDocument(document);
   if (issues.length > 0) {
@@ -166,7 +180,8 @@ export function roundTripDocument(doc: DesignDocument): DesignDocument {
 
 /**
  * 深拷贝文档（结构共享的不可变路径之外的场景：导出快照/对比）。
- * JSON 往返后按统一步调丢弃自有 `__proto__` 键（JSON 往返会把它原样带回来）。
+ * JSON 往返后按统一步调丢弃自有 `__proto__` 键（JSON 往返会把它原样带回来）；
+ * 静默丢弃的安全性与确定性论证见 `parseDocument` 丢弃点（同一处裁决，不重复声明）。
  */
 export function cloneDocument(doc: DesignDocument): DesignDocument {
   return dropProtoKeys(JSON.parse(JSON.stringify(doc)) as DesignDocument);
