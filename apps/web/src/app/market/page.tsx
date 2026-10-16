@@ -170,6 +170,7 @@ export default function MarketHomePage() {
         scenes={scenes}
         installedView={installedView}
         total={response?.total ?? null}
+        globalTotal={response?.counts?.total ?? null}
         loadableCount={response?.counts?.loadable ?? null}
         generatedAt={response?.generatedAt ?? null}
         onChange={updateFilters}
