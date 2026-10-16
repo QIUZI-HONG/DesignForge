@@ -25,6 +25,7 @@ export {
   createRecordingFetch,
   createReplayFetch,
   decodeContentsText,
+  MissingCachedBodyError,
   parseRecordedResponses,
   parseRepoMeta,
   parseTree,

@@ -23,6 +23,7 @@ import {
   createReplayFetch,
   ghAuthTokenRunner,
   loadFileCacheStore,
+  MissingCachedBodyError,
   parseRecordedResponses,
   ReplayMissError,
   resolveGitHubToken,
@@ -834,6 +835,11 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
       } catch (error) {
         if (error instanceof ReplayMissError) {
           blockedReason = `${error.message}——阻塞`;
+        } else if (error instanceof MissingCachedBodyError) {
+          // 304-无正文 = 样本/缓存不完整（D3）：与 ReplayMissError 同口径判阻塞 exit 2，
+          // 不得降级成「单仓跳过」后以 0 记录收场（那会把「缺数据」冒充成「跑完了」）。
+          skippedRepos.push({ repo: target.fullName, reason: String(error) });
+          blockedReason = `${error.message}——阻塞（样本/缓存不完整，不伪造数据）`;
         } else if (error instanceof ConsecutiveRateLimitAbort) {
           blockedReason = `${error.message}——阻塞`;
         } else if (error instanceof UpstreamError && error.status === 404) {

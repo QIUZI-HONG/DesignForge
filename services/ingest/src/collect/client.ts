@@ -39,6 +39,23 @@ export class ReplayMissError extends NonRetryableFetchError {
   }
 }
 
+/**
+ * 304 命中但本地无缓存正文（样本/缓存不完整；不可重试）。
+ *
+ * 与 `ReplayMissError` 同族语义：数据面依赖（样本/缓存）缺内容，属**阻塞**而非
+ * 「单仓跳过」——调用方必须以 exit 2 收场，不得吞成 0 记录后报 exit 0（禁止假绿）。
+ */
+export class MissingCachedBodyError extends NonRetryableFetchError {
+  readonly url: string;
+  constructor(url: string) {
+    super(
+      `304 Not Modified 但本地无缓存正文：${url}（重放样本需含正文，或先跑一次真网采集填缓存）`,
+    );
+    this.name = 'MissingCachedBodyError';
+    this.url = url;
+  }
+}
+
 /** 凭据解析结果（来源可审计）。 */
 export interface TokenResolution {
   token: string;
@@ -365,9 +382,7 @@ export function createGitHubClient(opts: ClientOptions): GitHubClient {
     if (outcome.cacheHit) {
       // 304 必须有本地正文可还原，否则是样本/缓存不完整 → 明确报错（禁止静默空记录）。
       if (cached === undefined) {
-        throw new NonRetryableFetchError(
-          `304 Not Modified 但本地无缓存正文：${url}（重放样本需含正文，或先跑一次真网采集填缓存）`,
-        );
+        throw new MissingCachedBodyError(url);
       }
       let json: unknown = null;
       try {
