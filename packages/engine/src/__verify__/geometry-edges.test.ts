@@ -209,47 +209,57 @@ describe('[verify] 命中 · 负尺寸与零尺寸', () => {
     ).toEqual(['neg']);
   });
 
-  it('零宽/零高矩形：任意点（含线段之外）都被判为命中（退化边缺陷，已复现）', () => {
+  it('零宽/零高矩形：线段之内的点命中、线段之外不命中（退化边不参与命中）', () => {
     const { page } = pageWith([
       { node: createRect({ id: 'line', x: 10, y: 10, width: 0, height: 50 }), parentId: null },
     ]);
-    // 线段上的点：命中（正确）
+    // 线段上的点：命中（0 宽矩形的两条实边就是这根线段）
     expect(hitTestPoint(page, { x: 10, y: 30 })?.id).toBe('line');
-    // 期望（直觉口径）：线段之外不命中；实际：命中了 0.5px 之外的点
-    expect(hitTestPoint(page, { x: 10.5, y: 30 })?.id).toBe('line');
-    // 更极端的证据：整个页面任意坐标都命中该零宽节点
-    expect(hitTestPoint(page, { x: 1e6, y: -1e6 })?.id).toBe('line');
-    // 零高同理
+    // 线段之外不命中（修前：退化边 pointOnSegment(a,a,p) 恒真 → 全平面命中）
+    expect(hitTestPoint(page, { x: 10.5, y: 30 })).toBeNull();
+    expect(hitTestPoint(page, { x: 1e6, y: -1e6 })).toBeNull();
+    // 零高同理：横向线段上的点命中，线段之外不命中
     const { page: page2 } = pageWith([
       { node: createRect({ id: 'flat', x: 0, y: 0, width: 80, height: 0 }), parentId: null },
     ]);
-    expect(hitTestPoint(page2, { x: 40, y: 999 })?.id).toBe('flat');
-    // 同一根因还污染框选：零面积框选矩形与任意矩形相交（退化线段判定缺陷）
+    expect(hitTestPoint(page2, { x: 40, y: 0 })?.id).toBe('flat');
+    expect(hitTestPoint(page2, { x: 40, y: 999 })).toBeNull();
+    // 框选同样不受退化边污染：远处的零面积框不与线段「相交」
     expect(
       nodeQuadInRect(page2, 'flat', { x: 500, y: 500, width: 0, height: 0 }, 'intersect'),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       marqueeSelect(page2, { x: 500, y: 500, width: 0, height: 0 }, { mode: 'intersect' }),
+    ).toEqual([]);
+    // 0 面积节点按「点在内」判定：切到线段或框住线段都命中
+    expect(
+      marqueeSelect(page2, { x: 30, y: 0, width: 0, height: 0 }, { mode: 'intersect' }),
+    ).toEqual(['flat']);
+    expect(
+      marqueeSelect(page2, { x: -5, y: -5, width: 90, height: 10 }, { mode: 'intersect' }),
     ).toEqual(['flat']);
   });
 
-  it('零尺寸矩形（0×0）：任意远点都被判为命中（退化四边形点归属缺陷，已复现）', () => {
+  it('零尺寸矩形（0×0）：不参与点命中（无面积），框选按「点在内」判定', () => {
     const { page } = pageWith([
       { node: createRect({ id: 'dot', x: 10, y: 10, width: 0, height: 0 }), parentId: null },
       { node: createRect({ id: 'big', x: 500, y: 500, width: 100, height: 100 }), parentId: null },
     ]);
-    // 期望（直觉口径）：只有 (10,10) 这一点命中；实际：0×0 节点在任意坐标都命中
-    // 远端探测点 (9999, 9999) 本应无命中，实际返回 dot
-    const far = hitTestPoint(page, { x: 9999, y: 9999 });
-    expect(far?.id).toBe('dot');
-    // 更严重的后果：视觉最上层点击被 0×0 节点吞掉（把 dot 放在大矩形之后）
+    // 远端探测点不命中（修前：0×0 节点在任意坐标都命中）
+    expect(hitTestPoint(page, { x: 9999, y: 9999 })).toBeNull();
+    // 0×0 节点自身位置也不参与点命中（退化四边形没有内部点）
+    expect(hitTestPoint(page, { x: 10, y: 10 })).toBeNull();
+    // 大矩形内部点正常命中 big（不被 0×0 节点吞掉）
     expect(hitTestPoint(page, { x: 550, y: 550 })?.id).toBe('big');
     const { page: page2 } = pageWith([
       { node: createRect({ id: 'big2', x: 0, y: 0, width: 100, height: 100 }), parentId: null },
       { node: createRect({ id: 'dot2', x: 10, y: 10, width: 0, height: 0 }), parentId: null },
     ]);
-    // dot2 在绘制顺序上更靠上 → 点大矩形内部任意位置都被 dot2 抢走
-    expect(hitTestPoint(page2, { x: 80, y: 80 })?.id).toBe('dot2');
+    // dot2 在绘制顺序上更靠上，但 0×0 无面积 → 大矩形内部仍命中 big2
+    expect(hitTestPoint(page2, { x: 80, y: 80 })?.id).toBe('big2');
+    // 框选：包含该点的框选中 0×0 节点；远处的框不选中
+    expect(marqueeSelect(page, { x: 5, y: 5, width: 10, height: 10 })).toEqual(['dot']);
+    expect(marqueeSelect(page, { x: 500, y: 500, width: 1, height: 1 })).toEqual(['big']);
   });
 });
 
