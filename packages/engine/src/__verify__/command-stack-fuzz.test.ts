@@ -404,20 +404,21 @@ describe('[verify] 命令栈 · 写操作唯一入口', () => {
     expect(getPage(stack.document, 'p1').nodes.ext).toBeUndefined();
   });
 
-  it('命令对象在 dispatch 后被调用方改写 → redo 结果漂移（历史别名缺陷，已复现）', () => {
+  it('命令对象在 dispatch 后被调用方改写不污染历史（入栈即深拷），redo 不漂移', () => {
     const stack = new CommandStack(scene());
     const command = { type: 'node.move', pageId: 'p1', nodeIds: ['r1'], dx: 10, dy: 0 } as Command;
     stack.dispatch(command);
     const afterDispatch = getPage(stack.document, 'p1').nodes.r1?.x as number;
     expect(afterDispatch).toBe(20);
     stack.undo();
-    // 调用方在 dispatch 之后改写了它自己持有的命令对象
+    // 调用方在 dispatch 之后改写自己那份命令对象
     (command as { dx: number }).dx = 10000;
+    (command as { nodeIds: string[] }).nodeIds.push('r2');
     stack.redo();
     const afterRedo = getPage(stack.document, 'p1').nodes.r1?.x as number;
-    // 缺陷证据：redo 施加的是被外部改写的 dx（10010 = 10 + 10000），而不是 dispatch 时的 dx
-    expect(afterRedo).toBe(10010);
-    expect(afterRedo).not.toBe(afterDispatch);
+    // 历史持有 dispatch 时刻的载荷快照 → redo 与首次施加逐字段一致（不再 10010 漂移）
+    expect(afterRedo).toBe(afterDispatch);
+    expect(getPage(stack.document, 'p1').nodes.r2?.x).toBe(90);
   });
 
   it('subscribe 仅在经命令栈写入时触发（栈外改写不触发）', () => {
