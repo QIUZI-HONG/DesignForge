@@ -161,9 +161,19 @@ export function DropdownMenu({
     }
   };
 
-  const activate = (index: number): void => {
+  /**
+   * 激活条目（点击/键盘共用）。
+   *
+   * 禁用条目**吞掉默认行为**（复核 J3「假禁用」）：条目用 `aria-disabled` 而不是 `disabled`
+   * 才保得住悬停原因提示，但链接条目（`href`）的原生导航不认 `aria-disabled`——
+   * 不 preventDefault 就是「可见禁用、点了却真的跳走」。点击与空格都经这里，一条口径。
+   */
+  const activate = (index: number, event?: { preventDefault: () => void }): void => {
     const item = flatItems[index];
-    if (item === undefined || item.disabled === true) return;
+    if (item === undefined || item.disabled === true) {
+      event?.preventDefault();
+      return;
+    }
     item.onSelect?.();
     // 链接条目：导航由浏览器完成（页面即将切换），不把焦点抢回触发器
     close(item.href === undefined);
@@ -305,6 +315,7 @@ export function DropdownMenu({
                   </>
                 );
                 // 链接条目（D2）：href 给出时渲染 <a>——原生导航、可新开标签、href 可断言
+                // 禁用态（J3）：onClick 经 activate 吞默认（禁用的 <a> 不得导航）
                 const itemNode =
                   item.href === undefined ? (
                     <button
@@ -314,7 +325,7 @@ export function DropdownMenu({
                       role="menuitem"
                       aria-disabled={item.disabled === true ? true : undefined}
                       className={itemClass}
-                      onClick={() => activate(index)}
+                      onClick={(event) => activate(index, event)}
                     >
                       {body}
                     </button>
@@ -326,7 +337,7 @@ export function DropdownMenu({
                       href={item.href}
                       aria-disabled={item.disabled === true ? true : undefined}
                       className={itemClass}
-                      onClick={() => activate(index)}
+                      onClick={(event) => activate(index, event)}
                     >
                       {body}
                     </a>

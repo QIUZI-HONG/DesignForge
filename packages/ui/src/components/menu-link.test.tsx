@@ -9,7 +9,7 @@
  * 1. 条目给 `href` → 渲染 `<a role="menuitem" href>`；不给 → 仍是 `<button>`（既有行为不变）；
  * 2. 禁用语义与普通条目同口径（`aria-disabled`，仍可悬停看原因——F15 不被破坏）。
  */
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Button } from './Button';
@@ -59,7 +59,8 @@ describe('DropdownMenu · 链接条目（href）', () => {
     expect(link.getAttribute('aria-disabled')).toBeNull();
   });
 
-  it('禁用链接条目仍带 aria-disabled + 原因提示（F15 口径）', async () => {
+  it('禁用链接条目仍是合法形态：aria-disabled + 原因提示（F15），但点击/空格不得导航（复核 J3 假禁用）', async () => {
+    const onSelect = vi.fn();
     renderMenu([
       {
         id: 'help',
@@ -70,11 +71,29 @@ describe('DropdownMenu · 链接条目（href）', () => {
             href: '/settings',
             disabled: true,
             disabledReason: '未接入',
+            onSelect,
           },
         ],
       },
     ]);
     const link = screen.getByRole('menuitem', { name: '设置' });
+    // 合法形态保留：禁用不 disabled（悬停原因提示可用）
     expect(link.getAttribute('aria-disabled')).toBe('true');
+    // 但「禁用」必须是真的：点击吞默认行为（href 不导航），动作回调也不得跑
+    expect(fireEvent.click(link)).toBe(false);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('对照：可用链接条目点击照常（不误伤正常导航）', () => {
+    const onSelect = vi.fn();
+    renderMenu([
+      {
+        id: 'help',
+        items: [{ id: 'settings', label: '设置', href: '/settings', onSelect }],
+      },
+    ]);
+    const link = screen.getByRole('menuitem', { name: '设置' });
+    expect(fireEvent.click(link)).toBe(true);
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 });
