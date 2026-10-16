@@ -180,13 +180,15 @@ export interface ContentSelection {
 }
 
 /**
- * 内容取回选择（预算内）。两级策略（阶段 A 对接面修复口径）：
+ * 内容取回选择（预算内）。两级策略（阶段 A 对接面修复口径 + D2 类别保底）：
  *
- * 1. **完整资产根优先**：把「结构件所在目录 = 资产根」下的**全部文本文件**按根一次性取回
- *    （根按文件数升序排，贪心装填预算）。理由：规格 §1.6 的 `digest` 需要资产根内全部文件的
- *    内容 sha256，缺一即 `digest=null`（MK-02 如实标注）→ 卡片契约（§1.2 digest 必填）无从落成。
- *    含二进制/超大文件的根**直接跳过**（合规禁下载二进制，§8.1），不浪费预算。
- * 2. **仓根 README/CHANGELOG**：全仓共用的兜底文本（`text.readme` 回退源，规格 §4.4）。
+ * 1. **仓根 README/CHANGELOG**：全仓共用的兜底文本（`text.readme` 回退源，规格 §4.4）。
+ * 2. **完整资产根优先**：把「结构件所在目录 = 资产根」下的**全部文本文件**按根一次性取回。
+ *    理由：规格 §1.6 的 `digest` 需要资产根内全部文件的内容 sha256，缺一即 `digest=null`
+ *    （MK-02 如实标注）→ 卡片契约（§1.2 digest 必填）无从落成。含二进制/超大文件的根
+ *    **直接跳过**（合规禁下载二进制，§8.1），不浪费预算。
+ *    装填分三步：**类别保底**（每群一个最小整根）→ **类群份额轮转**（群内升序）→
+ *    剩余根规模升序兜底；全程不得越过总预算。
  * 3. 余量（通常为 0）再按优先级表补单文件（SKILL.md 正文 / 清单 / tokens …）。
  *
  * 未选中的进 `deferred`（识别层据此标 `compliance: 'deferred'`，不假装校验过）。
@@ -273,14 +275,42 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
           : 1,
     );
   }
-  // 装填：各群**均分预算份额**，群内按根规模升序尽量装；装不下的根放弃（升序，后面只会更大）；
-  // 用不完的份额顺延给下一群，最后仍有余量则按全群规模升序兜底——预算不会被空群浪费。
+  /** 本群已装填到的根游标（保底与份额两步共用，保证同一根不被重复整取）。 */
+  const consumed = new Map<string, number>();
+
+  // 2a) **类别保底**（D2 修复）：每群先整根取回它的最小可完整根（预算装得下才取）。
+  //     没有这一步，根规模 > 单群份额上限（budget/2）的类群在有「小根」竞争时会被系统性饿死：
+  //     组内装填一装不下就 break，兜底装填只挑装得下的小根 → 该类 digest 恒 incomplete →
+  //     索引的 digest 硬门槛把整类卡片挡在市场之外（真批次实证：DS 153 条全部被挡、
+  //     `/contents/design-systems/` 请求数 = 0）。
+  //     顺序 = 候选根规模升序（并列按群优先级）：先保便宜的 → 预算内尽可能多保类别；
+  //     装不下的根（如预算 48 遇 42 文件根但只剩 5 格）如实让位，不半取（digest 需整根齐）。
+  const guaranteeCandidates = [...completableByGroup.entries()]
+    .flatMap(([group, list]) => {
+      const head = list[0];
+      return head === undefined ? [] : [{ group, root: head }];
+    })
+    .sort(
+      (a, b) =>
+        a.root.files.length - b.root.files.length ||
+        groupRank(a.group) - groupRank(b.group) ||
+        (a.root.root < b.root.root ? -1 : 1),
+    );
+  for (const candidate of guaranteeCandidates) {
+    const pending = candidate.root.files.filter((path) => !selectedSet.has(path));
+    if (pending.length === 0) continue;
+    if (selected.length + pending.length > budget) continue;
+    for (const path of pending) take(path);
+    consumed.set(candidate.group, (consumed.get(candidate.group) ?? 0) + 1);
+  }
+
+  // 2b) 类群份额轮转：各群**均分预算份额**，群内按根规模升序尽量装；装不下的根放弃
+  //     （升序，后面只会更大）；用不完的份额顺延给下一群，最后仍有余量则按全群规模升序兜底。
   const groupOrder = CONTENT_ROOT_GROUPS.map((g) => g.name);
   const perGroupBase = Math.floor(budget / groupOrder.length);
   /** 单群份额上限 = 预算一半（防「一个超大的根吃掉整仓预算」）。 */
   const perGroupCap = Math.max(1, Math.floor(budget / 2));
   let carry = 0;
-  const consumed = new Map<string, number>();
   /** 本群当前第一个待装根的待取文件数（用于份额下限）。 */
   const headSizeOf = (group: string): number => {
     const list = completableByGroup.get(group);
@@ -292,7 +322,8 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
   const spendInGroup = (group: string, allowance: number): number => {
     const list = completableByGroup.get(group);
     if (list === undefined) return allowance;
-    let left = allowance;
+    // 预算硬顶：份额再大也不得越过总预算（此前份额可按群各吃一份，多群相加会超预算取回）
+    let left = Math.min(allowance, budget - selected.length);
     let cursor = consumed.get(group) ?? 0;
     // 升序列表：一旦装不下即停（后面只会更大），剩下的留给兜底装填
     while (cursor < list.length) {
