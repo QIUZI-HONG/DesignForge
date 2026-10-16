@@ -114,7 +114,9 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
   const store = createStore<WorkspaceDocumentState>(() => ({
     documentId: options.initial.documentId ?? null,
     name: options.initial.name,
-    status: 'saved',
+    // 未落盘的装配文档（`/editor` 直接打开、或刚新建）在磁盘上没有对应内容 → 「未保存」；
+    // 只有确实与 daemon 同步过的文档才是「已保存」（载入/保存成功时各自置位）。
+    status: options.initial.documentId == null ? 'dirty' : 'saved',
     error: null,
     errorKind: null,
   }));

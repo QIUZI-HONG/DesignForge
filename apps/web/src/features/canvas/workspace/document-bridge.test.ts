@@ -227,6 +227,15 @@ describe('载入（?documentId= → daemon 文档）', () => {
 });
 
 describe('保存（⌘S / 顶栏按钮）', () => {
+  it('新装配的未落盘文档：保存态是「未保存」（不谎报已保存）', () => {
+    const daemon = createFakeDaemon();
+    const workspace = makeWorkspace(daemon);
+    expect(workspace.documents.store.getState()).toMatchObject({
+      documentId: null,
+      status: 'dirty',
+    });
+  });
+
   it('未落盘文档：按名幂等落盘（同名复用），页面正文写进 daemon，状态回「已保存」', async () => {
     const daemon = createFakeDaemon();
     const workspace = makeWorkspace(daemon);
