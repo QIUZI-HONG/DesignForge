@@ -111,20 +111,40 @@ export interface PageDeleteResponse {
 /** 文档名长度上限（避免超长目录名与 UI 溢出）。 */
 export const DOCUMENT_NAME_MAX_LENGTH = 64;
 
-/** 校验文档/页面名：非空、含可见字符、不含路径分隔符/控制字符、不以 `.` 开头。 */
-export function isValidDocumentName(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
+/**
+ * 文档名不合规的原因（UX-11 分因文案的唯一真源）。
+ *
+ * 为什么要分因而不是只给布尔：界面要按因由给不同文案（空 / 超长 / 非法字符），
+ * 由消费方各自复刻判定必然漂移——规则只在这里写一份。
+ */
+export type DocumentNameIssue = 'empty' | 'too_long' | 'invalid';
+
+/**
+ * 取文档名的不合规原因；合规返回 `null`。
+ *
+ * 口径与 {@link isValidDocumentName} 同一份规则：先 trim 再判，
+ * 空的（含纯空白）→ `empty`；超长 → `too_long`；其余（`.` 开头、路径分隔符、
+ * Windows 保留字符、控制字符、非字符串）→ `invalid`。
+ */
+export function describeDocumentNameIssue(value: unknown): DocumentNameIssue | null {
+  if (typeof value !== 'string') return 'invalid';
   const name = value.trim();
-  if (name.length === 0 || name.length > DOCUMENT_NAME_MAX_LENGTH) return false;
-  if (name.startsWith('.')) return false;
+  if (name.length === 0) return 'empty';
+  if (name.length > DOCUMENT_NAME_MAX_LENGTH) return 'too_long';
+  if (name.startsWith('.')) return 'invalid';
   // 路径分隔符与 Windows 保留字符一并拒绝（跨平台目录名安全）
-  if (/[\\/:*?"<>|]/.test(name)) return false;
+  if (/[\\/:*?"<>|]/.test(name)) return 'invalid';
   // 控制字符（含 DEL）逐一判码点（用正则会被 lint 判为可疑控制字符）
   for (const char of name) {
     const code = char.codePointAt(0) ?? 0;
-    if (code < 0x20 || code === 0x7f) return false;
+    if (code < 0x20 || code === 0x7f) return 'invalid';
   }
-  return true;
+  return null;
+}
+
+/** 校验文档/页面名：非空、含可见字符、不含路径分隔符/控制字符、不以 `.` 开头。 */
+export function isValidDocumentName(value: unknown): value is string {
+  return typeof value === 'string' && describeDocumentNameIssue(value) === null;
 }
 
 /** 文档名 → 目录 id（去首尾空白、空白压成 `-`；中文保留——本地优先、中文优先）。 */

@@ -57,6 +57,20 @@ export async function run(page, ctx) {
   const nameInput = page.getByRole('textbox', { name: '文件名称' });
   await nameInput.waitFor();
   await nameInput.fill(DOCUMENT_NAME);
+  // 竞态硬化（UX-11）：fill 之后隔一次 CDP 往返再读——默认名若在「打开提交」之后
+  // 才落位，会覆盖/拼接这次输入（实测形态「未命名设计冒烟文档」）。这里断言写入值
+  // 立得住，把这类迟到覆盖固定在门禁上。
+  const filledName = await nameInput.inputValue();
+  steps.push(
+    step(
+      '名称输入立得住（无迟到覆盖）',
+      filledName === DOCUMENT_NAME ? 'pass' : 'fail',
+      `填入=${filledName}`,
+    ),
+  );
+  if (filledName !== DOCUMENT_NAME) {
+    await nameInput.fill(DOCUMENT_NAME);
+  }
   await page.getByRole('button', { name: '创建', exact: true }).click();
   try {
     await page.getByRole('link', { name: `打开「${DOCUMENT_NAME}」` }).waitFor({ timeout: 8000 });
