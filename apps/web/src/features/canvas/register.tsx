@@ -39,11 +39,38 @@ import { connectToolSync, registerWorkspaceToolCommands } from './workspace/tool
 import { useWorkspaceUi } from './workspace/ui-state';
 
 import {
+  type EditorWorkspace,
   ensureWorkspaceBootstrapped,
   getWorkspace,
   readDocumentId,
   setWorkspaceBootstrap,
 } from './workspace/workspace-session';
+
+/**
+ * 一次性入口锁（查询串入口 / 文档载入）——**每个工作区实例一份**（复核 J1 修）。
+ *
+ * 缺陷现场：两个锁曾是模块级布尔且从不清空——`resetWorkspace()` 后不复位，
+ * SPA 导航「首页→文档 A→首页→文档 B」时 B 的 `?documentId=` 不再被读，编辑器停在 A。
+ * 现挂在单体上（WeakMap 随实例）：单体被替换/复位（`setWorkspace` / `resetWorkspace`）即作废。
+ */
+interface EntryLocks {
+  /** 查询串入口是否已应用（同一单体只应用一次）。 */
+  queryEntryPointsApplied: boolean;
+  /** 已请求载入的文档 id（null = 尚未请求；同 id 去重、换 id 重新载入）。 */
+  documentLoadRequested: string | null;
+}
+
+const entryLocks = new WeakMap<EditorWorkspace, EntryLocks>();
+
+/** 取（必要时创建）单体对应的锁。 */
+function locksOf(workspace: EditorWorkspace): EntryLocks {
+  let locks = entryLocks.get(workspace);
+  if (locks === undefined) {
+    locks = { queryEntryPointsApplied: false, documentLoadRequested: null };
+    entryLocks.set(workspace, locks);
+  }
+  return locks;
+}
 
 /** 中枢屏幕尺寸（缩放锚点用画布区中心；取不到时退回视口尺寸）。 */
 function viewportCenter(): { x: number; y: number } {
@@ -188,13 +215,13 @@ export function newFileEntryHref(): string {
  * 查询串驱动的入口（D2/D3）：`?shortcuts=1` 打开快捷键说明、`?ai=1` 打开 AI 抽屉。
  *
  * 用于站内跳转落地即达的场景（首页「键盘快捷键」→ 编辑器快捷键说明；首页「打开 AI 助手」
- * → 编辑器 AI 抽屉）。幂等只应用一次：跳转后的会话内再次调用不重复触发浮层。
+ * → 编辑器 AI 抽屉）。幂等只应用一次（同一工作区实例内）——见下方 `locksOf` 的锁口径。
  */
-let queryEntryPointsApplied = false;
-
 export function connectQueryEntryPoints(): void {
-  if (queryEntryPointsApplied || typeof window === 'undefined') return;
-  queryEntryPointsApplied = true;
+  if (typeof window === 'undefined') return;
+  const locks = locksOf(getWorkspace());
+  if (locks.queryEntryPointsApplied) return;
+  locks.queryEntryPointsApplied = true;
   const params = new URLSearchParams(window.location.search);
   if (params.get('shortcuts') === '1') useEditorUi.getState().setShortcutsOpen(true);
   if (params.get('ai') === '1') useWorkspaceUi.getState().setAiDrawerOpen(true);
@@ -232,17 +259,21 @@ function connectWorkspaceSync(): () => void {
 /**
  * 路由侧文档接线（D-2）：读 `?documentId=` 从 daemon 载入。
  *
- * 只在浏览器侧执行一次（`ensureWorkspaceBootstrapped` 幂等）；文档 id 来自首页卡片契约
- * （`/editor?documentId=…`）。载入失败不静默：文档桥把原因落进保存态，顶栏可见。
+ * 文档 id 来自首页卡片契约（`/editor?documentId=…`）。载入失败不静默：文档桥把原因
+ * 落进保存态，顶栏可见。
+ *
+ * 去重口径（复核 J1 修）：锁**记已请求的文档 id**（不是布尔），且**随工作区实例持有**——
+ * - 同一挂载里重复调用（bootstrap effect 与槽组件触发的引导各一次）不重复载入：同 id 去重；
+ * - **导航到另一文档必须重新载入**（SPA「首页→文档 A→首页→文档 B」时单例与锁都活着，
+ *   旧实现的模块级布尔会把 B 挡在门外——这就是「B 不载入」的现场）；
+ * - `resetWorkspace()` / `setWorkspace(next)` 换掉单体时锁随之作废（WeakMap 随实例）。
  */
-let documentLoadRequested = false;
-
-function connectDocumentBridge(): void {
-  if (documentLoadRequested) return;
-  documentLoadRequested = true;
+export function connectDocumentBridge(): void {
   const workspace = getWorkspace();
+  const locks = locksOf(workspace);
   const documentId = readDocumentId(window.location.search);
-  if (documentId === null) return;
+  if (documentId === null || locks.documentLoadRequested === documentId) return;
+  locks.documentLoadRequested = documentId;
   void workspace.documents.load(documentId);
 }
 

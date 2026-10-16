@@ -13,7 +13,9 @@
  * 2. `file.export` 执行后右栏切到「导出」页签；
  * 3. `file.new` 落点为首页新建入口（`?create=1`），且经单点续写 daemon 端点参数。
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { apiFailure, apiSuccess } from '@dforge/contracts';
+import { createDocument, createPage } from '@dforge/engine';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   executeCommand,
@@ -22,11 +24,24 @@ import {
   useEditorUi,
 } from '@/features/editor-shell';
 
-import { connectQueryEntryPoints, newFileEntryHref, registerWorkspaceCommands } from '../register';
+import { createDocumentsClient, encodePageBody } from '../persistence/documents-client';
+import {
+  connectDocumentBridge,
+  connectQueryEntryPoints,
+  newFileEntryHref,
+  registerWorkspaceCommands,
+} from '../register';
 import { useWorkspaceUi } from './ui-state';
+import {
+  createEditorWorkspace,
+  EMPTY_PRESET,
+  resetWorkspace,
+  setWorkspace,
+} from './workspace-session';
 
 afterEach(() => {
   resetCommandRegistry();
+  resetWorkspace();
   useWorkspaceUi.setState({ rightPanelTab: 'inspect', aiDrawerOpen: false });
   useEditorUi.setState({ commandPaletteOpen: false, shortcutsOpen: false });
   window.history.replaceState(null, '', '/editor');
@@ -81,5 +96,96 @@ describe('查询串入口（D2/D3：站内跳转落地即达）', () => {
     connectQueryEntryPoints();
     expect(useEditorUi.getState().shortcutsOpen).toBe(true);
     expect(useWorkspaceUi.getState().aiDrawerOpen).toBe(true);
+  });
+});
+
+describe('文档载入锁（复核 J1：随工作区生命周期复位，SPA 导航换文档必须重新载入）', () => {
+  /** 极简假 daemon：每个文档一页（`page-1`），文档名 = 文档 id；顺带计数请求。 */
+  function fakeDaemon() {
+    const requests: string[] = [];
+    const fetchImpl = async (input: RequestInfo | URL): Promise<Response> => {
+      const path = new URL(String(input)).pathname;
+      requests.push(path);
+      const respond = (status: number, payload: unknown): Response =>
+        ({
+          ok: status >= 200 && status < 300,
+          status,
+          text: async () => JSON.stringify(payload),
+        }) as unknown as Response;
+      const summary = /^\/documents\/([^/]+)$/.exec(path);
+      if (summary !== null) {
+        const id = decodeURIComponent(summary[1] as string);
+        return respond(200, apiSuccess({ document: { id, name: id, pageCount: 1 } }));
+      }
+      const page = /^\/documents\/([^/]+)\/pages\/([^/]+)$/.exec(path);
+      if (page !== null) {
+        const id = decodeURIComponent(page[1] as string);
+        const pageId = decodeURIComponent(page[2] as string);
+        if (pageId !== 'page-1') return respond(404, apiFailure('not_found', '页面不存在'));
+        const scene = createPage({ id: 'page-1' });
+        const document_ = createDocument({ id, name: id, pages: [scene] });
+        return respond(
+          200,
+          apiSuccess({ page: { id: pageId }, body: encodePageBody(document_, scene) }),
+        );
+      }
+      return respond(404, apiFailure('not_found', `未实现：${path}`));
+    };
+    return {
+      requests,
+      client: createDocumentsClient({ baseUrl: 'http://daemon.test', fetchImpl }),
+    };
+  }
+
+  /** 装一个注入了夹具 daemon 的工作区单体（拿到 custom client）。 */
+  function installWorkspace(client: ReturnType<typeof fakeDaemon>['client']) {
+    const workspace = createEditorWorkspace(EMPTY_PRESET, { client });
+    setWorkspace(workspace);
+    return workspace;
+  }
+
+  const atEditor = (documentId: string): void => {
+    window.history.replaceState(null, '', `/editor?documentId=${encodeURIComponent(documentId)}`);
+  };
+
+  it('SPA 导航「文档 A → 文档 B」：同 id 重复调用不重复载入，换 id 必须重新载入（缺陷现场：B 不载入）', async () => {
+    atEditor('文档 A');
+    const daemon = fakeDaemon();
+    const workspace = installWorkspace(daemon.client);
+
+    connectDocumentBridge();
+    await vi.waitFor(() => {
+      expect(workspace.canvas.document().name).toBe('文档 A');
+    });
+
+    // 同一挂载里重复调用（bootstrap effect + 槽触发的引导）：同 id 去重，不重复拉取
+    const requestsBefore = daemon.requests.length;
+    connectDocumentBridge();
+    await Promise.resolve();
+    expect(daemon.requests.length).toBe(requestsBefore);
+
+    // 首页 → 文档 B（客户端导航：地址变化、工作区单体仍在）
+    atEditor('文档 B');
+    connectDocumentBridge();
+    await vi.waitFor(() => {
+      expect(workspace.canvas.document().name).toBe('文档 B');
+    });
+  });
+
+  it('resetWorkspace() 后：同一文档可再次载入（锁随生命周期复位，不残留）', async () => {
+    atEditor('文档 A');
+    const first = installWorkspace(fakeDaemon().client);
+    connectDocumentBridge();
+    await vi.waitFor(() => {
+      expect(first.canvas.document().name).toBe('文档 A');
+    });
+
+    // 复位（测试与热重载口径）：新单体 = 新锁——同一地址必须能再次载入
+    resetWorkspace();
+    const second = installWorkspace(fakeDaemon().client);
+    connectDocumentBridge();
+    await vi.waitFor(() => {
+      expect(second.canvas.document().name).toBe('文档 A');
+    });
   });
 });
