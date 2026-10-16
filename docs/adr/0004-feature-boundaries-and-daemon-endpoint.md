@@ -107,6 +107,8 @@
     `QUALITY_WEIGHTS` 改由 `MARKET_QUALITY_WEIGHTS` 派生（评分与索引自洽校验共源）；
   - `services/ingest/src/collect/identify.ts`：`KIND_PRIORITY` 改由 `MARKET_ASSET_KINDS` 派生
     （名次表 `Record<MarketAssetKind, number>` 编译期全排校验）；
+  - `services/ingest/src/collect/ods.ts` / `run.ts`：内联 `.includes([…])` 链里的 kind /
+    合规 / 三档字面量数组清偿为守卫（由门禁 R5「内联字面量」规则实捕）；
   - 相邻收敛：`collect/types.ts`、`transform/types.ts`、`score/types.ts` 的
     `AssetKind`/`LicenseGate`/`Compliance`/`LicenseTier` 类型退化为真源别名；
     `score/types.ts` 的 `DIMENSIONS`/`DIM_WEIGHTS` 与 `packages/contracts/src/market/index.ts`
