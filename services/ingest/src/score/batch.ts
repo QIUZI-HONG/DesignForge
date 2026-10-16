@@ -9,6 +9,7 @@
 
 import { scoreAsset } from './aggregate.ts';
 import { buildEcosystemContext } from './dim-ecosystem.ts';
+import { sanitizeDwdAsset } from './dwd.ts';
 import type { DwdAsset, ScoreBatchOptions, ScoreBatchResult } from './types.ts';
 
 /** 批量评分：整批一次构建分位语境，逐资产产出 `asset_quality` 记录。 */
@@ -16,8 +17,11 @@ export function scoreBatch(
   inputs: readonly DwdAsset[],
   options: ScoreBatchOptions,
 ): ScoreBatchResult {
-  const ctx = buildEcosystemContext(inputs, options.asOf);
-  const records = inputs.map((input) => scoreAsset(input, ctx, options));
+  // 入口统一兜底（D4）：直喂的脏数值（NaN/Infinity）在此清洗——分位语境与逐资产评分
+  // 都只吃清洗后的输入，确保信号观测值与扣分理由不含 NaN（详见 dwd.ts#sanitizeDwdAsset）。
+  const cleaned = inputs.map((input) => sanitizeDwdAsset(input));
+  const ctx = buildEcosystemContext(cleaned, options.asOf);
+  const records = cleaned.map((input) => scoreAsset(input, ctx, options));
   return {
     records,
     summary: {

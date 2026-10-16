@@ -28,7 +28,12 @@ export {
 export { ARCHIVED_MAINTENANCE_CAP, scoreMaintenance } from './dim-maintenance.ts';
 export { scoreSecurity } from './dim-security.ts';
 export { scoreSpec } from './dim-spec.ts';
-export { DwdShapeError, normalizeDwdAsset, validateDwdAsset } from './dwd.ts';
+export {
+  DwdShapeError,
+  normalizeDwdAsset,
+  sanitizeDwdAsset,
+  validateDwdAsset,
+} from './dwd.ts';
 export type { AdsQuality } from './dws.ts';
 export {
   adsQualityOf,
