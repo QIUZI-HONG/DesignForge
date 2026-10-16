@@ -11,33 +11,35 @@
  * （可选信号不参与加权，见 `dwd.ts` 头注释）；评分算法不因对接而改。
  */
 
-/** 四类资产（规格 §2）。 */
-export type AssetKind = 'skill' | 'plugin' | 'design-system' | 'template';
+import {
+  type LicenseGate as ContractLicenseGate,
+  MARKET_QUALITY_DIMENSIONS,
+  MARKET_QUALITY_WEIGHTS,
+  type MarketAssetKind,
+  type MarketCompliance,
+} from '@dforge/contracts';
 
-/** license 三档守门（规格 §7.2）。 */
-export type LicenseGate = 'loadable' | 'view-only' | 'blocked';
+/** 四类资产（规格 §2；真源 `MARKET_ASSET_KINDS`，本处为别名）。 */
+export type AssetKind = MarketAssetKind;
+
+/** license 三档守门（规格 §7.2；真源 `MARKET_LICENSE_GATES`，本处为别名）。 */
+export type LicenseGate = ContractLicenseGate;
 
 /**
- * 规范符合度标记（规格 §2.2）。
+ * 规范符合度标记（规格 §2.2；真源 `MARKET_COMPLIANCES`）。
  * `non-compliant`（如 7 个无 frontmatter 的 SKILL.md）→ 入库但 spec 走低、`confidence=low`（§5.4）。
  */
-export type Compliance = 'ok' | 'non-compliant' | 'deferred';
+export type Compliance = MarketCompliance;
 
 /** 置信度（规格 §5.4：合规样本 `confidence=low`；`deferred` 如实降置信）。 */
 export type Confidence = 'high' | 'low';
 
-/** 五维键；数组顺序即雷达轴序（规格 §5.1 表格顺序）。 */
-export const DIMENSIONS = ['spec', 'maintenance', 'docs', 'security', 'ecosystem'] as const;
+/** 五维键；数组顺序即雷达轴序（规格 §5.1 表格顺序；真源 `MARKET_QUALITY_DIMENSIONS`）。 */
+export const DIMENSIONS = MARKET_QUALITY_DIMENSIONS;
 export type DimKey = (typeof DIMENSIONS)[number];
 
-/** 五维权重（规格 §5.1 定稿，合计 1.00）。 */
-export const DIM_WEIGHTS: Readonly<Record<DimKey, number>> = Object.freeze({
-  spec: 0.25,
-  maintenance: 0.2,
-  docs: 0.2,
-  security: 0.2,
-  ecosystem: 0.15,
-});
+/** 五维权重（规格 §5.1 定稿，合计 1.00；真源 `MARKET_QUALITY_WEIGHTS`，评分与索引共源）。 */
+export const DIM_WEIGHTS: Readonly<Record<DimKey, number>> = MARKET_QUALITY_WEIGHTS;
 
 /** 五维中文名（展示用；术语与规格 §5.1 一致）。 */
 export const DIM_LABELS: Readonly<Record<DimKey, string>> = Object.freeze({

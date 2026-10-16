@@ -11,6 +11,15 @@
  * 一律显式补 null，不用 undefined 遛进计算）。
  */
 
+import {
+  isLicenseGate,
+  isMarketAssetKind,
+  isMarketCompliance,
+  MARKET_ASSET_KINDS,
+  MARKET_COMPLIANCES,
+  MARKET_LICENSE_GATES,
+} from '@dforge/contracts';
+
 import type {
   AssetKind,
   Compliance,
@@ -34,10 +43,6 @@ export class DwdShapeError extends Error {
     this.issues = issues;
   }
 }
-
-const KINDS: readonly AssetKind[] = ['skill', 'plugin', 'design-system', 'template'];
-const GATES: readonly LicenseGate[] = ['loadable', 'view-only', 'blocked'];
-const COMPLIANCES: readonly Compliance[] = ['ok', 'non-compliant', 'deferred'];
 
 /** 取对象记录（非对象 → null）。 */
 function record(value: unknown): Record<string, unknown> | null {
@@ -78,10 +83,11 @@ export function validateDwdAsset(raw: unknown): string[] {
   if (asset === null) missing(issues, 'asset', '对象');
   else {
     if (str(asset.id) === null) missing(issues, 'asset.id', '非空字符串（gh:owner/repo#path）');
-    if (!KINDS.includes(asset.kind as AssetKind)) missing(issues, 'asset.kind', KINDS.join('|'));
+    if (!isMarketAssetKind(asset.kind)) missing(issues, 'asset.kind', MARKET_ASSET_KINDS.join('|'));
     if (str(asset.name) === null) missing(issues, 'asset.name', '非空字符串');
-    if (asset.compliance !== undefined && !COMPLIANCES.includes(asset.compliance as Compliance))
-      missing(issues, 'asset.compliance', COMPLIANCES.join('|'));
+    if (asset.compliance !== undefined && !isMarketCompliance(asset.compliance)) {
+      missing(issues, 'asset.compliance', MARKET_COMPLIANCES.join('|'));
+    }
   }
 
   const repo = record(root.repo);
@@ -99,8 +105,8 @@ export function validateDwdAsset(raw: unknown): string[] {
 
   const license = record(root.license);
   if (license === null) missing(issues, 'license', '对象');
-  else if (!GATES.includes(license.gate as LicenseGate))
-    missing(issues, 'license.gate', GATES.join('|'));
+  else if (!isLicenseGate(license.gate))
+    missing(issues, 'license.gate', MARKET_LICENSE_GATES.join('|'));
 
   const files = record(root.files);
   if (files === null) missing(issues, 'files', '对象');
