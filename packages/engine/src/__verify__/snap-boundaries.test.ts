@@ -2,7 +2,8 @@
  * [独立验证 · engine] 吸附阈值边界、参考线/测量语义、网格与节点吸附冲突。
  *
  * 口径钉子（实现文档已声明）：阈值 6 **屏幕**像素、闭区间（≤6 吸附）；
- * 网格吸附在 `applySnapToMove` 中**优先**且命中即 return（节点吸附与参考线不再参与）。
+ * 网格吸附在 `applySnapToMove` 中**逐轴优先**：命中的轴由网格定值，未命中的轴回落节点吸附
+ * （两轴分别求解；B4 修后不再「单轴命中即整体早退」）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -143,18 +144,20 @@ describe('[verify] 吸附 · 网格与节点吸附冲突', () => {
     return { page, pageId, zoom: 1, ...over };
   };
 
-  it('网格命中时网格赢：位移只含网格修正，且不产出节点参考线（早退）', () => {
-    // 网格 40：a 目标位置 x=118（拖 18px）——网格最近线 120（delta +2，≤6）→ 网格命中
+  it('网格命中轴由网格定值，未命中轴照常回落节点吸附（两轴分别求解）', () => {
+    // 网格 40：a 目标位置 x=118（拖 18px）——x 轴网格最近线 120（delta +2，≤6）→ 命中；
+    // y 轴 100 距最近网格线 120 为 20 > 6 → 不命中，回落节点吸附
     const context = baseContext({ grid: { size: 40, snapToGrid: true } });
     const gridOnly = applySnapToMove(context, ['a'], { x: 18, y: 0 });
-    expect(gridOnly.delta).toEqual({ x: 20, y: 0 }); // 118 → 120
-    expect(gridOnly.snap.guides).toEqual([]);
-    expect(gridOnly.snap.measurements).toEqual([]);
-    // 对照：网格命中的瞬间，节点吸附本会给出 b 的对齐（118 距 156 为 38，不命中）；
-    // 用另一组位移证明「网格命中时节点参考线被吃掉」：
-    // 拖动 200px 后 a 右边缘落在 156 附近时网格恰好也命中 → 仍只有网格结果
+    expect(gridOnly.delta).toEqual({ x: 20, y: 0 }); // 118 → 120（x 轴由网格定值）
+    // y 轴与 b 同顶（y=100，delta 0）仍产出参考线：修前此处整体早退、参考线被吃掉
+    expect(gridOnly.snap.guides).toEqual([
+      { axis: 'y', position: 100, from: 120, to: 206, refs: ['b'], kind: 'edge' },
+    ]);
+    expect(gridOnly.snap.measurements).toEqual([]); // 与 b 无间隙，测量为空
+    // 两轴都不命中网格时全部回落节点吸附
     const gridOverNode = applySnapToMove(context, ['a'], { x: 238, y: 0 });
-    // 348 → 网格 360（delta +12 超阈值）；348 与 340 差 8 → 也超；故网格不命中 → 回落节点吸附
+    // 338 → 最近网格线 320（delta -18 超阈值）；y=100 距 120 为 20 → 也超 → 回落节点吸附
     expect(gridOverNode.snap.guides.length).toBeGreaterThan(0);
   });
 
@@ -190,8 +193,9 @@ describe('[verify] 吸附 · 网格与节点吸附冲突', () => {
     expect(result1.snap.guides.length).toBeGreaterThan(0);
   });
 
-  it('[语义] 单轴命中网格即整体早退：另一轴的节点对齐与测量被一并丢弃', () => {
-    // b 的顶边在 y=300：把 a 拖到 (118, 297) —— x 轴命中网格（→120），y 轴本可与 b 顶边对齐（+3）
+  it('[语义] 单轴命中网格不早退：另一轴的节点对齐与参考线照常求解', () => {
+    // b 的顶边在 y=300：把 a 拖到 (118, 297) —— x 轴命中网格（→120），y 轴网格不命中
+    // （297 距最近网格线 280 为 17 > 6）→ y 轴回落节点吸附，拉到 b 顶边 300
     let doc = createDocument({ id: 'd', pages: [createPage({ id: 'p1' })] });
     doc = insertNode(
       doc,
@@ -212,11 +216,15 @@ describe('[verify] 吸附 · 网格与节点吸附冲突', () => {
       ['a'],
       { x: 18, y: 197 },
     );
-    expect(withGrid.delta).toEqual({ x: 20, y: 197 }); // y 未被对齐到 300
-    expect(withGrid.snap.guides).toEqual([]);
-    expect(withGrid.snap.measurements).toEqual([]);
+    // x 轴 118 → 120（网格 +2）；y 轴 297 → 300（节点对齐 +3，修前停在 197）
+    expect(withGrid.delta).toEqual({ x: 20, y: 200 });
+    expect(withGrid.snap.guides).toEqual([
+      { axis: 'y', position: 300, from: 120, to: 206, refs: ['b'], kind: 'edge' },
+    ]);
+    expect(withGrid.snap.guides.every((guide) => guide.axis === 'y')).toBe(true); // x 轴由网格定值
+    expect(withGrid.snap.measurements).toEqual([]); // 与 b 无间隙，测量为空
 
-    // 同一位置、关掉网格：y 轴被节点吸附修正（证明丢的是「另一轴」的吸附而非本来就无吸附）
+    // 同一位置、关掉网格：y 轴同样被对齐到 300（证明丢的是「另一轴」的吸附而非本来就无吸附）
     const withoutGrid = applySnapToMove(
       { page, pageId: 'p1', zoom: 1, grid: { size: 40, snapToGrid: false } },
       ['a'],
@@ -224,6 +232,42 @@ describe('[verify] 吸附 · 网格与节点吸附冲突', () => {
     );
     expect(withoutGrid.delta.y).toBe(200); // 297 → 300（与 b 顶边对齐）
     expect(withoutGrid.snap.guides.some((guide) => guide.axis === 'y')).toBe(true);
+  });
+
+  it('网格命中单轴时另一轴的节点吸附测量不再被吞（B4 回归）', () => {
+    // a 拖到 (118, 297)：x 轴命中网格（→120）、y 轴对齐 b 顶边（→300）；
+    // c 与 a 吸附后同排且相距 130 → 产出 x 轴距离测量（修前整体早退，测量为空）
+    let doc = createDocument({ id: 'd', pages: [createPage({ id: 'p1' })] });
+    doc = insertNode(
+      doc,
+      'p1',
+      createRect({ id: 'a', x: 100, y: 100, width: 50, height: 50 }),
+      null,
+    );
+    doc = insertNode(
+      doc,
+      'p1',
+      createRect({ id: 'b', x: 156, y: 300, width: 50, height: 50 }),
+      null,
+    );
+    doc = insertNode(
+      doc,
+      'p1',
+      createRect({ id: 'c', x: 300, y: 300, width: 50, height: 50 }),
+      null,
+    );
+    const page = getPage(doc, 'p1');
+
+    const result = applySnapToMove(
+      { page, pageId: 'p1', zoom: 1, grid: { size: 40, snapToGrid: true } },
+      ['a'],
+      { x: 18, y: 197 },
+    );
+    expect(result.delta).toEqual({ x: 20, y: 200 }); // x 网格 + y 节点对齐，两轴都生效
+    expect(result.snap.measurements).toEqual([
+      // 吸附后 a 的右边缘 170 到 c 左边缘 300 的水平间隙 130，标注线在 a 垂直中线 325
+      { axis: 'x', from: 170, to: 300, value: 130, at: 325, refs: ['c'], kind: 'distance' },
+    ]);
   });
 });
 
