@@ -41,14 +41,18 @@ export interface CliOutcome {
 
 /** 命令族执行 + 统一收口（打印人类可读摘要 + 末尾一行 JSON 供门禁脚本解析）。 */
 async function dispatchFamily(
-  run: (rest: readonly string[], log: (line: string) => void) => Promise<CliOutcome>,
+  run: (
+    rest: readonly string[],
+    log: (line: string) => void,
+    err: (line: string) => void,
+  ) => Promise<CliOutcome>,
   usage: string,
   rest: readonly string[],
   log: (line: string) => void,
   err: (line: string) => void,
 ): Promise<number> {
   try {
-    const outcome = await run(rest, log);
+    const outcome = await run(rest, log, err);
     if (outcome.blockedReason !== null) err(`阻塞：${outcome.blockedReason}`);
     log(
       JSON.stringify({ command: outcome.command, exitCode: outcome.exitCode, ...outcome.summary }),
@@ -77,7 +81,13 @@ export async function runCli(
     return dispatchFamily((args, out) => runMarketCli(args, out), MARKET_USAGE, rest, log, err);
   }
   if (family === 'config') {
-    return dispatchFamily((args, out) => runConfigCli(args, out), CONFIG_USAGE, rest, log, err);
+    return dispatchFamily(
+      (args, out, errOut) => runConfigCli(args, out, errOut),
+      CONFIG_USAGE,
+      rest,
+      log,
+      err,
+    );
   }
   err(`未知命令：${family}（当前支持 market | config）`);
   err(CLI_USAGE);

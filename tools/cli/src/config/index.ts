@@ -54,12 +54,53 @@ export interface ConfigCliOutcome {
   blockedReason: string | null;
 }
 
-/** 读一点 stdin 直到一行/EOF（本文件唯一的输入通道）。 */
-export async function readKeyFromStdin(stream: Readable): Promise<string> {
-  let raw = '';
+/** stdin 的消费面（TTY 时经 `setRawMode` 关回显；测试可注入假流）。 */
+export interface CliStdin extends Readable {
+  readonly isTTY?: boolean;
+  setRawMode?: (mode: boolean) => void;
+}
+
+/**
+ * 读 stdin 的 key，直到一行/EOF（本命令唯一的输入通道）。
+ *
+ * 两态：
+ * - 管道/重定向（非 TTY，即 `--stdin` 的主用法）：读完即取，天然不回显；
+ * - **TTY（交互直跑）**：关终端回显（raw 模式）逐字符读一行——key 不打屏、不进 shell 历史；
+ *   回车确认、Ctrl+C 取消、退格可改；提示与结束换行走 stderr（stdout 保持机器可读）。
+ */
+async function readKeyFromStdin(stream: CliStdin, err: (line: string) => void): Promise<string> {
+  const interactive = stream.isTTY === true && typeof stream.setRawMode === 'function';
   stream.setEncoding('utf8');
-  for await (const chunk of stream) raw += String(chunk);
-  return raw.trim();
+
+  if (!interactive) {
+    let raw = '';
+    for await (const chunk of stream) raw += String(chunk);
+    return raw.trim();
+  }
+
+  err('请输入 DeepSeek API key（输入不回显；回车确认，Ctrl+C 取消）：');
+  stream.setRawMode?.(true);
+  stream.resume();
+  let raw = '';
+  try {
+    for await (const chunk of stream) {
+      for (const char of String(chunk)) {
+        if (char === '\r' || char === '\n') {
+          err('');
+          return raw;
+        }
+        if (char === '\u0003') throw new CliUsageError('已取消（Ctrl+C）');
+        if (char === '\u007f' || char === '\b') {
+          raw = raw.slice(0, -1);
+          continue;
+        }
+        raw += char;
+      }
+    }
+    return raw;
+  } finally {
+    stream.setRawMode?.(false);
+  }
 }
 
 /** 掩码摘要 → 机器可读输出字段（daemon 摘要即掩码，明文不可能经过这里）。 */
@@ -77,7 +118,8 @@ function summaryFields(summary: CredentialSummary): Record<string, unknown> {
 export async function runConfigCli(
   argv: readonly string[],
   log: (line: string) => void = console.log,
-  stdin: Readable = process.stdin,
+  err: (line: string) => void = console.error,
+  stdin: CliStdin = process.stdin,
 ): Promise<ConfigCliOutcome> {
   const sub = argv[0] ?? 'help';
   const rest = argv.slice(1);
@@ -115,7 +157,7 @@ export async function runConfigCli(
       return {
         command: 'config set-key',
         exitCode: 2,
-        summary: { error: result.failure.message },
+        summary: { daemon: baseUrl, error: result.failure.message },
         blockedReason: result.failure.message,
       };
     }
@@ -123,12 +165,16 @@ export async function runConfigCli(
     return {
       command: 'config set-key',
       exitCode: 0,
-      summary: { cleared: result.value.cleared, ...summaryFields(result.value.summary) },
+      summary: {
+        daemon: baseUrl,
+        cleared: result.value.cleared,
+        ...summaryFields(result.value.summary),
+      },
       blockedReason: null,
     };
   }
 
-  const apiKey = await readKeyFromStdin(stdin);
+  const apiKey = await readKeyFromStdin(stdin, err);
   if (apiKey === '') {
     throw new CliUsageError('标准输入为空：未读到 API key');
   }
@@ -142,7 +188,7 @@ export async function runConfigCli(
     return {
       command: 'config set-key',
       exitCode: 2,
-      summary: { error: result.failure.message },
+      summary: { daemon: baseUrl, error: result.failure.message },
       blockedReason: result.failure.message,
     };
   }
@@ -153,7 +199,7 @@ export async function runConfigCli(
   return {
     command: 'config set-key',
     exitCode: 0,
-    summary: summaryFields(summary),
+    summary: { daemon: baseUrl, ...summaryFields(summary) },
     blockedReason: null,
   };
 }
