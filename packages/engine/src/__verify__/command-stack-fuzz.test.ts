@@ -327,10 +327,9 @@ describe('[verify] 命令栈 · 事务失败回滚', () => {
     expect(JSON.parse(JSON.stringify(stack.document))).toEqual(before);
   });
 
-  it('非法参数（NaN 尺寸）当前不被拒绝 —— 记录实际行为', () => {
+  it('非法参数（NaN 尺寸）被命令层拒绝（invalid-argument），文档与历史不变', () => {
     const stack = new CommandStack(scene());
-    // NaN 会污染节点尺寸并进入历史；这是发现的「校验缺口」，此用例钉住现状供报告引用
-    let threw = false;
+    let code: string | null = null;
     try {
       stack.dispatch({
         type: 'node.update',
@@ -338,16 +337,14 @@ describe('[verify] 命令栈 · 事务失败回滚', () => {
         nodeId: 'r1',
         patch: { width: Number.NaN },
       });
-    } catch {
-      threw = true;
+    } catch (error) {
+      code = error instanceof CommandError ? error.code : null;
     }
-    const width = getPage(stack.document, 'p1').nodes.r1?.width;
-    // 断言「不抛错」= 暴露缺口；若未来修复为拒绝，本用例会红（提醒更新报告）
-    expect(threw).toBe(false);
-    expect(Number.isNaN(width as number)).toBe(true);
-    // 序列化会把 NaN 变成 null，往返后类型漂移（结构上仍是「合法」文档）
-    const roundTripped = parseDocument(serializeDocument(stack.document)).document;
-    expect(getPage(roundTripped, 'p1').nodes.r1?.width).toBe(null);
+    expect(code).toBe('invalid-argument');
+    // NaN 不落文档（修前：透传 NaN 并在序列化时静默变 null）
+    expect(getPage(stack.document, 'p1').nodes.r1?.width).toBe(60);
+    expect(validateDocument(stack.document)).toEqual([]);
+    expect(stack.history().undo).toHaveLength(0);
   });
 });
 

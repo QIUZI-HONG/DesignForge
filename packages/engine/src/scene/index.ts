@@ -73,8 +73,11 @@ export {
 export type { DocumentIssue } from './validate';
 export {
   assertValidDocument,
+  collectNonFiniteNumbers,
+  deepFreeze,
   deepFreezeDocument,
   nodeKeys,
   validateDocument,
+  validateNodeShape,
   validatePage,
 } from './validate';

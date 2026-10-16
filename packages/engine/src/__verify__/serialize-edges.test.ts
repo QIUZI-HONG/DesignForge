@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { CommandStack } from '../commands/index';
+import { CommandStack, isCommandError } from '../commands/index';
 import {
   createDocument,
   createFrame,
@@ -108,29 +108,52 @@ describe('[verify] 序列化 · 往返幂等与稳定键序', () => {
   });
 });
 
-describe('[verify] 序列化 · NaN / Infinity 污染（缺陷，已复现）', () => {
-  it('NaN / Infinity 尺寸可进入文档，序列化后静默变 null（类型漂移）', () => {
+describe('[verify] 序列化 · NaN / Infinity 拒绝（修后口径）', () => {
+  it('NaN / Infinity 尺寸被命令层拒绝（invalid-argument），文档与历史都不被污染', () => {
     const stack = new CommandStack(baseDoc());
-    stack.dispatch({
-      type: 'node.update',
-      pageId: 'p1',
-      nodeId: 'r',
-      patch: { width: Number.NaN, x: Number.POSITIVE_INFINITY },
-    });
-    // 文档内仍是 NaN / Infinity，校验器不报错
+    let code: string | null = null;
+    try {
+      stack.dispatch({
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r',
+        patch: { width: Number.NaN, x: Number.POSITIVE_INFINITY },
+      });
+    } catch (error) {
+      code = isCommandError(error) ? error.code : null;
+    }
+    expect(code).toBe('invalid-argument');
+    // 事务原子：非法数值不落文档、不留历史
+    expect(getPage(stack.document, 'p1').nodes.r?.width).toBe(20);
     expect(validateDocument(stack.document)).toEqual([]);
-    const once = serializeDocument(stack.document);
-    const parsed = parseDocument(once).document;
-    const node = parsed.pages[0]?.nodes.r as unknown as Record<string, unknown>;
-    expect(node.width).toBe(null);
-    expect(node.x).toBe(null);
-    // 字节幂等成立（第二次序列化不再变化），但语义已漂移：宽度/坐标变成 null（类型漂移）
-    expect(serializeDocument(parsed)).toBe(once);
-    expect(typeof node.width).not.toBe('number');
-    // 下游几何运算不再报错，而是把 null 当 0 参与布局（静默错误而非硬失败）
-    const after = parseDocument(once).document;
-    expect(getPage(after, 'p1').nodes.r?.width).toBe(null);
-    expect(validateDocument(after)).toEqual([]); // 校验器对它无感
+    expect(stack.canUndo).toBe(false);
+  });
+
+  it('绕过命令栈构造的 NaN 文档：validateDocument 报错（含路径），序列化前校验拒绝', () => {
+    const page = getPage(baseDoc(), 'p1');
+    const poisonedNode = {
+      ...(page.nodes.r as unknown as Record<string, unknown>),
+      width: Number.NaN,
+      x: Number.POSITIVE_INFINITY,
+    };
+    const poisoned: DesignDocument = {
+      ...baseDoc(),
+      pages: [
+        { ...page, nodes: { ...page.nodes, r: poisonedNode } as unknown as typeof page.nodes },
+      ],
+    };
+    const issues = validateDocument(poisoned);
+    expect(issues.map((issue) => issue.code)).toContain('non-finite-number');
+    const paths = issues.map((issue) => issue.path ?? '');
+    expect(paths).toContain('pages[0].nodes.r.width');
+    expect(paths).toContain('pages[0].nodes.r.x');
+    // 序列化静默变 null（类型漂移）不再发生：序列化前校验直接拒绝
+    expect(() => serializeDocument(poisoned)).toThrowError();
+    expect(() => serializeDocument(poisoned)).toThrowError(/width/);
+    // 已经漂移成 null 的 JSON 在导入侧被拒（类型漂移不能静默通过）
+    const drifted = serializeDocument(baseDoc()).replace('"width": 20', '"width": null');
+    expect(drifted).not.toBe(serializeDocument(baseDoc()));
+    expect(() => parseDocument(drifted)).toThrowError();
   });
 });
 
