@@ -114,7 +114,9 @@ export function panelsSelectionPort(panels: PanelsSession): SelectionPort {
 export function createEditorWorkspace(preset: WorkspacePreset): EditorWorkspace {
   const document = documentForPreset(preset);
   const pageId = document.pages[0]?.id as PageId;
-  const panels = createPanelsSession({ document, pageId });
+  // 生产装配开启**文档深冻结**（写路径唯一性）：装配层把快照交给整棵 UI 树，
+  // 任何组件「顺手赋值」都就地抛错而不是静默绕过命令栈（历史/订阅都不知情）。
+  const panels = createPanelsSession({ document, pageId, freeze: true });
   const selection = selectionForPreset(preset);
   if (selection.ids.length > 0) panels.ui.getState().setSelection(selection);
   const canvas = createCanvasSession({

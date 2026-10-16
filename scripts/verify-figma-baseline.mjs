@@ -24,6 +24,10 @@
  *   1 = **违规**——元数据齐备，但有图哈希不符（冻结后被换）或元数据自身不一致；
  *   2 = **阻塞**——参照集目录/元数据缺失，或元数据字段不全（版本/日期/视口/逐图 sha256）。
  *
+ * 主模块判定用 `realpath` 比较（非 basename 匹配）：经**符号链接**调用时必须与直调同结论，
+ * 否则链接调用会让 `main()` 不执行而以 exit 0 假装通过。
+ * 证据字段按验收标准 §4：`diff{bbox,diffPixels,ratio}` 为 null（本门禁不比图）+ note 说明。
+ *
  * 用法（仓库根执行）：
  *   node scripts/verify-figma-baseline.mjs                # 默认 ~/df-evidence/reference-v1
  *   DF_REF_DIR=/path/to/reference-v1 node scripts/verify-figma-baseline.mjs --verbose
@@ -39,11 +43,13 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const REF_DIR = resolve(process.env.DF_REF_DIR ?? join(homedir(), 'df-evidence', 'reference-v1'));
 const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df-evidence'));
@@ -340,6 +346,13 @@ function writeEvidence(result) {
         startedAt: new Date().toISOString(),
         finishedAt: new Date().toISOString(),
         ...result,
+        // 验收标准 §4 字段族：本门禁只核冻结元数据与哈希，不产截图 → 无像素比对（三项 null + 说明）。
+        diff: {
+          bbox: null,
+          diffPixels: null,
+          ratio: null,
+          note: '参照集冻结元数据门禁：只校验版本/日期/视口与逐图 sha256，不做像素比对（不比图，故无 diff 结论）',
+        },
         artifacts: { ref: null, actual: null, diff: null },
         humanReview: {
           verdict: 'pending',
@@ -412,6 +425,20 @@ function main() {
   return 0;
 }
 
-const isMain =
-  process.argv[1] !== undefined && import.meta.url.endsWith(process.argv[1].split('/').pop());
-if (isMain) process.exit(main());
+/**
+ * 是否作为主模块直跑。
+ *
+ * 为什么用 `realpath` 比较而不是 basename 后缀匹配：basename 匹配在**经符号链接调用**时
+ * 会判 false（`argv[1]` 是链接名，与真实文件名不同）→ `main()` 整个不执行、进程以 exit 0 结束，
+ * 表现为「零校验的假绿」。realpath 把两侧都解析到真实文件再比较，链接调用与直调行为一致。
+ */
+function isMainModule() {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) process.exit(main());

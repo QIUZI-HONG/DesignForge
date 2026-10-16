@@ -23,6 +23,7 @@ import type { SceneFrame } from './frame';
 import type { CanvasPalette } from './palette';
 import type { ParagraphCache } from './paragraph-cache';
 import { gridStepWorld, visibleGridValues } from './scale';
+import { screenToWorldPoint, worldToScreenPoint } from './viewport-map';
 
 /** 绘制上下文（每帧复用同一批 Skia 对象——不在帧内反复 new Paint）。 */
 export interface DrawContext {
@@ -48,27 +49,8 @@ export interface SceneDrawCounters {
   textRuns: number;
 }
 
-/** 屏幕坐标 → 世界坐标（指针与裁剪换算用）。 */
-export function screenToWorldPoint(
-  viewport: SceneFrame['viewport'],
-  point: { x: number; y: number },
-): { x: number; y: number } {
-  return {
-    x: (point.x - viewport.panX) / viewport.zoom,
-    y: (point.y - viewport.panY) / viewport.zoom,
-  };
-}
-
-/** 世界坐标 → 屏幕坐标（覆盖层用）。 */
-export function worldToScreenPoint(
-  viewport: SceneFrame['viewport'],
-  point: { x: number; y: number },
-): { x: number; y: number } {
-  return {
-    x: point.x * viewport.zoom + viewport.panX,
-    y: point.y * viewport.zoom + viewport.panY,
-  };
-}
+/** 屏幕坐标 ⇄ 世界坐标：实现在 `viewport-map`（**渲染层与 DOM 覆盖层共用**）。 */
+export { screenToWorldPoint, worldToScreenPoint };
 
 /** 节点在本帧的有效几何（预览补丁优先）。 */
 export interface NodeGeometry {
