@@ -540,8 +540,12 @@ try {
       await finish(evidence, 2);
     }
 
-    // 构建前置：资产未就位 → 站点起来也是「Skia 初始化失败」的假绿
-    ensureCanvasKitAssets();
+    // 构建前置：资产未就位 → 站点起来也是「Skia 初始化失败」的假绿。
+    // 准备失败即阻塞（exit 2）：叠合 C 线「缺资产不得假绿」的口径，不把失败留到编辑器门禁才发现。
+    if (!ensureCanvasKitAssets()) {
+      console.error('阻塞：CanvasKit 资产准备失败（apps/web/public/canvaskit）。');
+      await finish(evidence, 2);
+    }
 
     const build = track(
       spawn(nextBin, ['build'], { cwd: join(repoRoot, 'apps/web'), stdio: 'inherit' }),
