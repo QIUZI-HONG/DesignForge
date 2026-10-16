@@ -24,6 +24,25 @@
   overflow-y: auto;
 }
 
+/* 页签级提示（如导出前需先保存；D-2/A3） */
+.dfc-ws-right__hint {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* 顶栏保存控件（D-2）：按钮 + 保存态一行 */
+.dfc-ws-save {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfc-ws-save__state {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
 /* 下半区：FE-05 Inspector（C5–C7 对标面） */
 .dfc-ws-right__inspector {
   flex: 1;
