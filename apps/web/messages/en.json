@@ -801,6 +801,8 @@
   "diagnostics.actions.set-base-url": "Check service URL",
   "diagnostics.actions.configure-credentials": "Configure credentials",
   "inspector.a11y.panel": "Inspector",
+  "inspector.number.reverted": "Reverted to the previous value",
+  "inspector.number.clamped": "Clamped to {value}",
   "inspector.align.label": "Align",
   "inspector.align.left": "Align left",
   "inspector.align.hcenter": "Align horizontal centers",

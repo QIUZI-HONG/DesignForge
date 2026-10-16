@@ -801,6 +801,8 @@
   "diagnostics.actions.set-base-url": "检查服务地址",
   "diagnostics.actions.configure-credentials": "配置凭据",
   "inspector.a11y.panel": "属性面板",
+  "inspector.number.reverted": "已恢复原值",
+  "inspector.number.clamped": "已限制为 {value}",
   "inspector.align.label": "对齐",
   "inspector.align.left": "左对齐",
   "inspector.align.hcenter": "水平居中",
