@@ -26,6 +26,8 @@ pnpm test                    # 逐包 vitest
 pnpm verify                  # 逐包 lint+typecheck+test 串跑（CI 同链）；CI 另跑非浏览器门禁（见下）
 ```
 
+凭据注入（DeepSeek API key；**勿把 key 贴进聊天/提交**）：环境变量 `DF_DEEPSEEK_API_KEY`（daemon 启动即读，只读回退源）或 `df config set-key --stdin`（管道注入 → 本地凭据库 0600 加密落库，不回显、不进 shell 历史、输出仅掩码如 `sk-…abcd`；仓库内等价写法 `echo -n 'sk-…' | node tools/cli/bin/df.mjs config set-key --stdin`）。
+
 桌面壳（Electron，桌面端集 `dfHost` 最小桥 + 安全基线；默认装载 web 产物，dev 态可指 dev server）：
 
 ```bash
@@ -53,7 +55,7 @@ packages/ui       设计系统（浅色/深色双基准令牌 × 密度映射；
 packages/contracts 共享类型与契约（Design IR / marketplace.index / 跨进程事件）
 services/ingest   采集与市场数据管线（采集→四层→评分→索引）
 services/comfy    出图适配（本地 ComfyUI 客户端；未启动态是验收对象）
-tools/cli         CLI `df`（首批 df market collect|score|index|search）
+tools/cli         CLI `df`（df market collect|score|index|search；df config set-key --stdin|--clear 凭据注入）
 scripts/          工程脚本与门禁挂点（guard-*.mjs）
 docs/             adr / agents / plan / spec（骨架与布局见 docs/plan/skeleton-and-package-layout-v1.md）
 ```
