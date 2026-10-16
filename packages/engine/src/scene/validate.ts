@@ -4,10 +4,29 @@
  * 用途：`serialize/parse` 的入口校验、导入外部文档时的守门、
  * 以及测试里对「任何一次写操作之后文档仍然自洽」的断言。
  * 返回问题列表（不抛错），调用方决定拒绝还是降级修复。
+ *
+ * 深度守门（修复批次 3 · A1）：校验、序列化前校验与导入解析三条路径共享**显式深度上限**，
+ * 超限一律领域错误 / 问题项（含节点路径），不再让原生递归把栈打爆
+ * （缺陷原貌：`TypeError: undefined is not a function` / `RangeError: Maximum call stack size exceeded`）。
+ *
+ * 两个上限的取值与理由（Node 24 默认栈，本机实测）：
+ * - `MAX_NESTING_DEPTH = 512`：**节点链**深度（页面根沿 `children` 到该节点的节点数，含自身）。
+ *   真实设计文档普遍在 50 层以内；原生递归实测要到 8000–16000 层才溢出，512 留出 16 倍以上余量。
+ * - `MAX_VALUE_DEPTH = 2048`：**值结构**深度（对象/数组层数，覆盖未知字段与未来扩展）。
+ *   Design IR 在 JSON 里是「节点平表 + id 引用」，节点链并不加深结构；该上限专门拦
+ *   「未知字段里的超深对象」这类畸形载荷——实测 `sortKeysDeep` 到 8192 层仍安全（12000 溢出）、
+ *   `JSON.stringify` 对文档形状在 8000 层仍安全，2048 已在阈值四分之一以下。
  */
 
 import type { DesignDocument, NodeId, PageId, SceneNode, ScenePage } from '../model/index';
 import { isContainer } from '../model/index';
+import { domainError } from './errors';
+
+/** 节点链深度上限（页面根沿 children 到该节点的节点数，含自身）。 */
+export const MAX_NESTING_DEPTH = 512;
+
+/** 值结构深度上限（对象/数组层数；节点平表下的 JSON 结构远浅于此）。 */
+export const MAX_VALUE_DEPTH = 2048;
 
 /** 结构问题。 */
 export interface DocumentIssue {
@@ -25,7 +44,9 @@ export interface DocumentIssue {
     /** 节点形状缺字段/类型不对（不受信输入的守门，B5）。 */
     | 'missing-field'
     /** NaN / ±Infinity（序列化会静默折成 null → 类型漂移，B2）。 */
-    | 'non-finite-number';
+    | 'non-finite-number'
+    /** 节点链嵌套超过 `MAX_NESTING_DEPTH`（A1：显式上限，替代原生栈溢出）。 */
+    | 'max-depth-exceeded';
   message: string;
   pageId?: PageId;
   nodeId?: NodeId;
@@ -82,6 +103,26 @@ export function collectNonFiniteNumbers(
 }
 
 /**
+ * 丢弃对象树中的自有 `__proto__` 键（重建拷贝，不改出入参）。
+ *
+ * 为什么丢弃而不转义：Design IR（与命令载荷、剪贴板载荷）没有这个字段的任何合法语义，
+ * 而 `obj[key] = v` 形态的赋值路径会退化成原型改写——载荷里保留它只有风险没有收益。
+ * 与命令栈入栈深拷（`commands/stack.ts` 的 `cloneCommand`）同口径；
+ * 本函数是递归实现，深拷前请先过 `assertValueDepthWithinLimit`。
+ */
+export function dropProtoKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => dropProtoKeys(item)) as unknown as T;
+  if (value === null || typeof value !== 'object') return value;
+  const source = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(source)) {
+    if (key === '__proto__') continue;
+    out[key] = dropProtoKeys(item);
+  }
+  return out as unknown as T;
+}
+
+/**
  * 节点形状校验（结构 + 类型，不判数值有限性——后者由 `collectNonFiniteNumbers` 报出）。
  * 文档校验与剪贴板载荷校验（B5）同口径复用。
  */
@@ -133,11 +174,178 @@ export function validateNodeShape(node: unknown, path: string): DocumentIssue[] 
   return issues;
 }
 
+/** 节点链深度超限（首个越界节点 + 根到它的 id 链）。 */
+export interface NodeDepthOverflow {
+  nodeId: NodeId;
+  /** 根到越界节点的 id 链（含两端）。 */
+  chain: NodeId[];
+}
+
+/**
+ * 节点链深度扫描（**迭代**，无递归）：沿 `rootIds → children` 走，返回首个链长超过
+ * `maxDepth` 的节点；未超限返回 null。
+ *
+ * 为什么迭代：这正是要防的场景——用递归扫描超深输入，扫描器自己先爆栈。
+ * 对畸形输入保持宽容（`nodes` 不是对象 / `rootIds` 或 `children` 不是数组 → 返回 null），
+ * 让结构校验的其它问题去报，深度守门不抢戏。
+ */
+function findNodeDepthOverflow(
+  page: ScenePage,
+  maxDepth = MAX_NESTING_DEPTH,
+): NodeDepthOverflow | null {
+  const nodes: unknown = (page as { nodes?: unknown }).nodes;
+  const rootIds: unknown = (page as { rootIds?: unknown }).rootIds;
+  if (nodes === null || typeof nodes !== 'object' || !Array.isArray(rootIds)) return null;
+  const table = nodes as Record<string, unknown>;
+  const visited = new Set<string>();
+  /** 首次到达时的父节点（越界时回溯根链用；只在访问时写入，链因此稳定）。 */
+  const parents = new Map<string, string | null>();
+  const stack: Array<{ id: string; depth: number; parent: string | null }> = [];
+  for (let index = rootIds.length - 1; index >= 0; index -= 1) {
+    const id = rootIds[index];
+    if (typeof id === 'string') stack.push({ id, depth: 1, parent: null });
+  }
+  while (stack.length > 0) {
+    const entry = stack.pop() as { id: string; depth: number; parent: string | null };
+    if (visited.has(entry.id)) continue;
+    visited.add(entry.id);
+    if (!parents.has(entry.id)) parents.set(entry.id, entry.parent);
+    if (entry.depth > maxDepth) {
+      const chain: string[] = [];
+      let cursor: string | null = entry.id;
+      while (cursor !== null) {
+        chain.unshift(cursor);
+        cursor = parents.get(cursor) ?? null;
+      }
+      return { nodeId: entry.id, chain };
+    }
+    if (!Object.hasOwn(table, entry.id)) continue;
+    const node = table[entry.id];
+    if (!isContainer(node as SceneNode)) continue;
+    const children: unknown = (node as { children?: unknown }).children;
+    if (!Array.isArray(children)) continue;
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const childId = children[index];
+      if (typeof childId === 'string') {
+        stack.push({ id: childId, depth: entry.depth + 1, parent: entry.id });
+      }
+    }
+  }
+  return null;
+}
+
+/** 值结构深度超限（首个越界对象/数组 + 其路径）。 */
+export interface ValueDepthOverflow {
+  path: string;
+  depth: number;
+}
+
+/**
+ * 结构深度扫描（**迭代**）：返回首个对象/数组层数超过 `maxDepth` 的值的路径；未超限返回 null。
+ *
+ * 去重按 DAG 语义（`WeakSet`）：JSON 解析产物没有共享引用，深度即路径深度；程序化构造的
+ * 共享引用/环输入按「首次到达」计深，既终止环也避免共享子图被指数级重扫。
+ */
+function findValueDepthOverflow(
+  value: unknown,
+  maxDepth = MAX_VALUE_DEPTH,
+): ValueDepthOverflow | null {
+  const seen = new WeakSet<object>();
+  const stack: Array<{ value: unknown; path: string; depth: number }> = [
+    { value, path: '', depth: 1 },
+  ];
+  while (stack.length > 0) {
+    const entry = stack.pop() as { value: unknown; path: string; depth: number };
+    const item = entry.value;
+    if (item === null || typeof item !== 'object') continue;
+    if (entry.depth > maxDepth) {
+      return { path: entry.path === '' ? '(根)' : entry.path, depth: entry.depth };
+    }
+    if (seen.has(item)) continue;
+    seen.add(item);
+    if (Array.isArray(item)) {
+      for (let index = item.length - 1; index >= 0; index -= 1) {
+        stack.push({ value: item[index], path: `${entry.path}[${index}]`, depth: entry.depth + 1 });
+      }
+      continue;
+    }
+    for (const [key, child] of Object.entries(item)) {
+      stack.push({
+        value: child,
+        path: entry.path === '' ? key : `${entry.path}.${key}`,
+        depth: entry.depth + 1,
+      });
+    }
+  }
+  return null;
+}
+
+/** 节点链的可读呈现：超长时只留首尾（首 = 根、尾 = 越界点），中段省略。 */
+function formatNodeChain(chain: readonly NodeId[]): string {
+  const head = 8;
+  const tail = 4;
+  if (chain.length <= head + tail + 1) return chain.join(' → ');
+  return `${chain.slice(0, head).join(' → ')} → … → ${chain.slice(-tail).join(' → ')}`;
+}
+
+/** 值路径的可读呈现：超过 8 段只留头 5 段与尾 3 段（别把上千段路径灌进错误载荷）。 */
+function formatValuePath(path: string): string {
+  const parts = path.split('.');
+  if (parts.length <= 8) return path;
+  return `${parts.slice(0, 5).join('.')} … ${parts.slice(-3).join('.')}（共 ${parts.length} 段）`;
+}
+
+/** 深度溢出 → 统一文案（问题项与各入口的领域错误同口径）。 */
+function nodeDepthMessage(overflow: NodeDepthOverflow, label: string): string {
+  return `${label}节点嵌套超过上限 ${MAX_NESTING_DEPTH} 层：${formatNodeChain(overflow.chain)}`;
+}
+
+/**
+ * 页面级节点深度守门：超限抛 `DomainError('invalid-argument')`（含根链路径）。
+ * 序列化入口（`serializeDocument` / `serializePage`）与导入入口共用。
+ */
+export function assertPageNodeDepthWithinLimit(page: unknown, label = '文档'): void {
+  if (page === null || typeof page !== 'object') return;
+  const overflow = findNodeDepthOverflow(page as ScenePage);
+  if (overflow) throw domainError('invalid-argument', nodeDepthMessage(overflow, label));
+}
+
+/** 文档级节点深度守门（逐页；非数组 `pages` 交给结构校验去报）。 */
+export function assertNodeDepthWithinLimit(document: unknown, label = '文档'): void {
+  const pages: unknown = (document as { pages?: unknown } | null | undefined)?.pages;
+  if (!Array.isArray(pages)) return;
+  for (const page of pages) assertPageNodeDepthWithinLimit(page, label);
+}
+
+/** 结构深度守门：超限抛 `DomainError('invalid-argument')`（含路径，超长路径省略中段）。 */
+export function assertValueDepthWithinLimit(value: unknown, label = '文档'): void {
+  const overflow = findValueDepthOverflow(value);
+  if (!overflow) return;
+  throw domainError(
+    'invalid-argument',
+    `${label}结构嵌套超过上限 ${MAX_VALUE_DEPTH} 层：${formatValuePath(overflow.path)}`,
+  );
+}
+
 /** 校验单个页面。 */
 export function validatePage(page: ScenePage, options: { path?: string } = {}): DocumentIssue[] {
   const issues: DocumentIssue[] = [];
   const base = options.path ?? `pages[${page.id}]`;
   const parentCount = new Map<NodeId, number>();
+
+  // 0) 深度守门（迭代扫描，先于一切递归）：超限即早退——越界子树不再参与其余检查，
+  //    既避免递归 visit 触发原生栈溢出，也避免越界子树被误报成「孤立节点」刷屏。
+  const overflow = findNodeDepthOverflow(page);
+  if (overflow) {
+    issues.push({
+      code: 'max-depth-exceeded',
+      message: nodeDepthMessage(overflow, ''),
+      pageId: page.id,
+      nodeId: overflow.nodeId,
+      path: `${base}.nodes.${overflow.nodeId}`,
+    });
+    return issues;
+  }
 
   // 1) 收集父子关系（顶层 + 各容器的子列表），并计数「被引用次数」
   const bump = (id: NodeId): void => {
