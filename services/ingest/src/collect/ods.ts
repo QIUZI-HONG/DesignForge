@@ -13,6 +13,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { isMarketAssetKind, isMarketCompliance } from '@dforge/contracts';
+
 import { sha256Hex } from './http.ts';
 import type { OdsRepoRecord, RawEvent } from './types.ts';
 
@@ -160,13 +162,13 @@ export function validateOdsRepoRecord(value: unknown): OdsValidationIssue[] {
           `资产 id 必须形如 gh:<owner>/<repo>#<path>（实际：${String(a.id)}）`,
         );
       }
-      if (!['skill', 'plugin', 'design-system', 'template'].includes(String(a.kind))) {
+      if (!isMarketAssetKind(a.kind)) {
         push('asset-kind', `资产 kind 非法：${String(a.kind)}`);
       }
       if (typeof a.treeDigest !== 'string' || !SHA256_RE.test(a.treeDigest)) {
         push('asset-tree-digest', 'asset.treeDigest 必须形如 sha256:<64hex>');
       }
-      if (!['ok', 'non-compliant', 'deferred'].includes(String(a.compliance))) {
+      if (!isMarketCompliance(a.compliance)) {
         push('asset-compliance', `资产 compliance 非法：${String(a.compliance)}`);
       }
       if (!Array.isArray(a.checks) || (a.checks as unknown[]).length === 0) {

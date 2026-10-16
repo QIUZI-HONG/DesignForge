@@ -80,3 +80,39 @@
 - 代价：`index.ts` 需人工维护（不引入自动 barrel）；`export *` 仅限「整模块即共享面」的模块
   （如 market 的 `filters` / `load-store` / `styles` / `components`），其余按名导出。
 - 技术债 ③ 在收敛前持续存在（已登记，勿静默遗忘）；④ 待 D 线与用户裁决后回填。
+
+## 补记 · ③ 「ingest 层间重复词表」技术债收敛完成（修复批次 3）
+
+日期：2026-10-16（批次 3 · 工作包 B；上文 ③ 的「本批不修」结论不动，此为后续执行记录）
+
+- **真源位置**：`packages/contracts/src/market/vocab.ts`（本包零运行时依赖纪律保持）——
+  规范词表以 `as const` 数组导出、联合类型由数组派生，并配运行时类型守卫：
+  `MARKET_ASSET_KINDS` / `MARKET_LANES` / `MARKET_LICENSE_GATES` / `MARKET_COMPLIANCES` /
+  `MARKET_SECURITY_LEVELS` / `MARKET_LICENSE_TIERS` / `MARKET_CATEGORIES` / `MARKET_MODES` /
+  `MARKET_QUALITY_DIMENSIONS` / `MARKET_QUALITY_WEIGHTS`（守卫：`isMarketAssetKind` /
+  `isMarketLane` / `isLicenseGate` / `isMarketCompliance` / `isMarketSecurityLevel` /
+  `isMarketLicenseTier`）。值冻结声明见 `vocab.test.ts`（词表变动须走票面）。
+- **门禁名**：`pnpm guard:vocab`（`scripts/guard-vocab.mjs`；已接入 CI ci.yml，照 guard:tokens
+  接线模式）。三态退出码：0 通过 / 1 违规（层内登记词表的字面量声明、派生根不在真源、
+  类型词表字面量联合）/ 2 阻塞（真源缺项、层路径缺失、初始化表达式静态判不出根）。
+  双侧证据夹具回归：`scripts/tests/guard-vocab.test.mjs`（正例 exit 0 + 违规夹具 exit 1 +
+  阻塞 exit 2，`pnpm test:scripts`）。
+- **清偿清单**（ADR ③ 代表位置逐一，另含相邻类型声明与消费点）：
+  - `services/ingest/src/transform/ods/schema.ts`：`ASSET_KINDS`/`LICENSE_GATES`/内联 compliance 字面量删除，改守卫；
+  - `services/ingest/src/transform/dwd/validate.ts`：同三项 +
+    `LICENSE_TIERS` 字面量删除，改守卫（`DIGEST_STATUS`/`CLUSTER_REASONS` 为 DWD 层本地词表，注明不属同源范围）；
+  - `services/ingest/src/score/dwd.ts`：`KINDS`/`GATES`/`COMPLIANCES` 字面量删除，改守卫；
+  - `services/ingest/src/index/dws.ts`：`KINDS`/`LANES` 字面量与内联 gate/security 判定删除，改守卫；
+  - `services/ingest/src/index/schema.ts`：`ASSET_KINDS`/`LANES`/`GATES`/`SECURITY_LEVELS` 删除，
+    `QUALITY_WEIGHTS` 改由 `MARKET_QUALITY_WEIGHTS` 派生（评分与索引自洽校验共源）；
+  - `services/ingest/src/collect/identify.ts`：`KIND_PRIORITY` 改由 `MARKET_ASSET_KINDS` 派生
+    （名次表 `Record<MarketAssetKind, number>` 编译期全排校验）；
+  - `services/ingest/src/collect/ods.ts` / `run.ts`：内联 `.includes([…])` 链里的 kind /
+    合规 / 三档字面量数组清偿为守卫（由门禁 R5「内联字面量」规则实捕）；
+  - 相邻收敛：`collect/types.ts`、`transform/types.ts`、`score/types.ts` 的
+    `AssetKind`/`LicenseGate`/`Compliance`/`LicenseTier` 类型退化为真源别名；
+    `score/types.ts` 的 `DIMENSIONS`/`DIM_WEIGHTS` 与 `packages/contracts/src/market/index.ts`
+    的同族字面量一并清偿（后者改接守卫）。
+- **遗留（未纳入本批扫描登记）**：`apps/daemon/src/routes/market.ts` 与
+  `apps/web/src/features/market/components/FilterBar.tsx` 各有一份 kind/lane 字面量
+  （属各自票目录，未在本批范围内触碰）；接入 `guard:vocab` 登记清单即可收口，留待后续票。

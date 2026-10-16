@@ -2,27 +2,28 @@
  * MK-02 规范化与四层仓落盘的类型与常量（ODS 输入口径 + DWD 输出口径）。
  *
  * 归属：本文件是 MK-01 采集器类型的**结构镜像**（只读消费，不改语义）。MK-01 的类型在
- * `services/ingest/src/collect/types.ts`；收尾合并集成 tip 后以 collect 为单一真源，本处
- * 镜像退化为别名。镜像存在的原因：两票并行落地，MK-02 不得阻塞等待。
+ * `services/ingest/src/collect/types.ts`；**词表类**（kind / license 档位 / 合规结论）已进一步
+ * 收敛为 `@dforge/contracts` 真源的别名（ADR-0004 ③ 收敛 · 修复批次 3），本处不再另立字面量。
  *
  * 规格依据：《技能市场规格 v1》§1.2/§1.6（资产与 digest）/§2（识别）/§4.1（目录布局）/
  * §4.3（幂等与可离线复跑）/§4.4（四层字段）。
  */
 
-/** 四类资产（规格 §2）。 */
-export type AssetKind = 'skill' | 'plugin' | 'design-system' | 'template';
+import type {
+  LicenseGate as ContractLicenseGate,
+  MarketAssetKind,
+  MarketCompliance,
+  MarketLicenseTier,
+} from '@dforge/contracts';
 
-/** license 三档守门（规格 §7.2）。 */
-export type LicenseGate = 'loadable' | 'view-only' | 'blocked';
+/** 四类资产（规格 §2；真源 `MARKET_ASSET_KINDS`，本处为别名）。 */
+export type AssetKind = MarketAssetKind;
 
-/** license 细档（判定依据）。 */
-export type LicenseTier =
-  | 'permissive'
-  | 'noassertion'
-  | 'none'
-  | 'strong-copyleft'
-  | 'weak-copyleft'
-  | 'custom';
+/** license 三档守门（规格 §7.2；真源 `MARKET_LICENSE_GATES`，本处为别名）。 */
+export type LicenseGate = ContractLicenseGate;
+
+/** license 细档（判定依据；真源 `MARKET_LICENSE_TIERS`，本处为别名）。 */
+export type LicenseTier = MarketLicenseTier;
 
 /** 探针命中的结构件类别（规格 §2.1–§2.5）。 */
 export type PieceKind =
@@ -54,7 +55,7 @@ export interface IdentifiedAsset {
   name: string;
   version: string | null;
   declaredLicense: string | null;
-  compliance: 'ok' | 'non-compliant' | 'deferred';
+  compliance: MarketCompliance;
   probe: { piece: PieceKind; path: string }[];
   checks: ContentCheck[];
   /** 资产根文件清单摘要（`路径\0gitSha\0size\n` 字典序 sha256；非 §1.6 digest）。 */

@@ -39,6 +39,7 @@
     "verify:mk-05": "node scripts/verify-mk-05.mjs",
     "guard:deps": "node scripts/guard-deps.mjs",
     "guard:tokens": "node scripts/guard-tokens.mjs",
+    "guard:vocab": "node scripts/guard-vocab.mjs",
     "guard:channel-pairing": "node scripts/guard-channel-pairing.mjs",
     "guard:electron-baseline": "node scripts/guard-electron-baseline.mjs",
     "guard:mcp-contract": "node scripts/guard-mcp-contract.mjs",

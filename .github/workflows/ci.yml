@@ -47,6 +47,9 @@ jobs:
       - name: 令牌守卫（禁裸值；规则 R1/R2/R3）
         run: pnpm guard:tokens
 
+      - name: 词表同源守卫（kind/lane 等规范词表唯一真源在 @dforge/contracts；层内字面量即违规）
+        run: pnpm guard:vocab
+
       - name: 桌面壳安全基线守卫（窗口选项静态断言；对抗夹具回归在 pnpm test:scripts）
         run: pnpm guard:electron-baseline
 

@@ -8,9 +8,19 @@
  *
  * 与 `@dforge/contracts` 的关系：契约管**产物侧**（`df.marketplace.index/v1` 卡片），
  * 本文件管**输入侧**（DWS 行）；产物一律用 contracts 的类型（见 build.ts）。
+ * 词表同源：kind/lane/gate/security 的词表真源在契约包（ADR-0004 ③ 收敛），
+ * 本层读取器只消费 `isMarketAssetKind` / `isMarketLane` / `isLicenseGate` / `isMarketSecurityLevel`。
  */
 
-import type { LicenseGate, MarketAssetKind } from '@dforge/contracts';
+import {
+  isLicenseGate,
+  isMarketAssetKind,
+  isMarketLane,
+  isMarketSecurityLevel,
+  type LicenseGate,
+  type MarketAssetKind,
+  type MarketSecurityLevel,
+} from '@dforge/contracts';
 
 /** 双语文本（同卡片；缺一言回退另一言）。 */
 export interface DwsLocalizedText {
@@ -77,8 +87,8 @@ export interface DwsAssetRecord {
   capabilities?: string[];
   facets: DwsFacets;
   quality: DwsQuality;
-  /** 静态安全审计结论（§1.2 installGate.security 的来源）。 */
-  security: 'pass' | 'warn' | 'fail';
+  /** 静态安全审计结论（§1.2 installGate.security 的来源；词表真源在契约包）。 */
+  security: MarketSecurityLevel;
   /** 门禁原因（license 判定理由 + 安全扣分说明；build 会并入 installGate.reasons）。 */
   reasons: string[];
   digest: string;
@@ -123,19 +133,16 @@ function asLocalized(value: unknown): DwsLocalizedText {
   return text;
 }
 
-const KINDS: readonly string[] = ['skill', 'plugin', 'design-system', 'template'];
-const LANES: readonly string[] = ['create', 'refine', 'deliver'];
-
 function asKind(value: unknown): MarketAssetKind {
-  return typeof value === 'string' && KINDS.includes(value) ? (value as MarketAssetKind) : 'skill';
+  return isMarketAssetKind(value) ? value : 'skill';
 }
 
 function asGate(value: unknown): LicenseGate {
-  return value === 'loadable' || value === 'view-only' || value === 'blocked' ? value : 'view-only';
+  return isLicenseGate(value) ? value : 'view-only';
 }
 
-function asSecurity(value: unknown): 'pass' | 'warn' | 'fail' {
-  return value === 'pass' || value === 'warn' || value === 'fail' ? value : 'pass';
+function asSecurity(value: unknown): MarketSecurityLevel {
+  return isMarketSecurityLevel(value) ? value : 'pass';
 }
 
 /** 读取单条 DWS 行；缺关键结构（id/name/source/facets/quality）→ null（计入 skipped）。 */
@@ -184,7 +191,7 @@ export function readDwsAsset(value: unknown): DwsAssetRecord | null {
     },
     facets: {
       category: asString(facets.category, '其他'),
-      lane: typeof facets.lane === 'string' && LANES.includes(facets.lane) ? facets.lane : 'create',
+      lane: isMarketLane(facets.lane) ? facets.lane : 'create',
       mode: typeof facets.mode === 'string' ? facets.mode : null,
       tags: asStringArray(facets.tags),
       scenes: asStringArray(facets.scenes),
