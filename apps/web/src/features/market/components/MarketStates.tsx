@@ -126,6 +126,7 @@ export function MarketErrorState({
         title={title}
         description={message}
         code={code.toUpperCase()}
+        diagnosticsLabel={t('state.diagnostics')}
         onRetry={onRetry}
         retryLabel={t('market.error.retry')}
       />

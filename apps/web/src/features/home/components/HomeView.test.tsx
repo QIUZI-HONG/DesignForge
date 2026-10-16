@@ -114,7 +114,12 @@ describe('HomeView · 加载与三态', () => {
     renderHome({ gateway: fake });
 
     await screen.findByText('无法连接本地服务');
-    expect(screen.getByText('E_DF_DAEMON_UNREACHABLE')).toBeDefined();
+    // 错误码沉到「诊断信息」折叠（G6/UX-16）：人话在主位，默认收起
+    const code = screen.getByText('E_DF_DAEMON_UNREACHABLE');
+    const diagnostics = code.closest('details');
+    expect(diagnostics).not.toBeNull();
+    expect(diagnostics?.open).toBe(false);
+    expect(screen.getByText('诊断信息')).toBeDefined();
     // 计数不可得时说「—」，不谎报「0 个文档」（UX-19）
     expect(screen.queryByText('0 个文档')).toBeNull();
     expect(screen.getByText('—')).toBeDefined();

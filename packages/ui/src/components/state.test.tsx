@@ -56,6 +56,29 @@ describe('ErrorState（F14 错误态族）', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it('给 diagnosticsLabel 时：人话在主位，错误码沉进「诊断信息」折叠（G6/UX-16）', async () => {
+    const user = userEvent.setup();
+    render(
+      <ErrorState
+        title="无法连接本地服务"
+        description="请确认本地服务已启动，然后重试。"
+        code="E_DF_DAEMON_UNREACHABLE"
+        diagnosticsLabel="诊断信息"
+      />,
+    );
+    // 人话（标题/描述）不被错误码挤位；错误码收进折叠
+    expect(screen.getByText('无法连接本地服务')).toBeTruthy();
+    const toggle = screen.getByText('诊断信息');
+    expect(toggle.closest('summary')).not.toBeNull();
+    const details = toggle.closest('details');
+    expect(details).not.toBeNull();
+    expect(details?.open).toBe(false); // 默认收起：不主动把内部码摆到脸上
+    expect(details?.contains(screen.getByText('E_DF_DAEMON_UNREACHABLE'))).toBe(true);
+
+    await user.click(toggle);
+    expect(details?.open).toBe(true);
+  });
+
   it('重试进行中：按钮进加载态并禁点', () => {
     const onRetry = vi.fn();
     const { rerender } = render(

@@ -27,6 +27,7 @@ export default function MarketErrorBoundary({
         code={
           error.digest === undefined ? 'E_DF_MARKET_RENDER' : `E_DF_MARKET_RENDER/${error.digest}`
         }
+        diagnosticsLabel={t('state.diagnostics')}
         onRetry={reset}
         retryLabel={t('market.error.retry')}
       />

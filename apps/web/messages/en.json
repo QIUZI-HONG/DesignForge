@@ -803,6 +803,7 @@
   "diagnostics.actions.retry-probe": "Probe again",
   "diagnostics.actions.set-base-url": "Check service URL",
   "diagnostics.actions.configure-credentials": "Configure credentials",
+  "state.diagnostics": "Diagnostics",
   "inspector.a11y.panel": "Inspector",
   "inspector.number.reverted": "Reverted to the previous value",
   "inspector.number.clamped": "Clamped to {value}",

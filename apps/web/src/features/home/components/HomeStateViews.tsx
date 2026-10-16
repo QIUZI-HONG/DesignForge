@@ -96,7 +96,7 @@ export interface HomeErrorStateProps {
   onRetry?: () => void;
 }
 
-/** 错误态（重试 + 错误码）。 */
+/** 错误态（重试 + 错误码；错误码收进「诊断信息」折叠 · G6）。 */
 export function HomeErrorState({
   code,
   description,
@@ -109,6 +109,7 @@ export function HomeErrorState({
       title={t('home.error.title')}
       description={description ?? t('home.error.desc')}
       {...(code === undefined ? {} : { code })}
+      diagnosticsLabel={t('state.diagnostics')}
       retryLabel={retryLabel ?? t('home.error.retry')}
       {...(onRetry === undefined ? {} : { onRetry })}
       retrying={retrying}
