@@ -72,8 +72,11 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 
 - `2` **不是通过**：任何脚本把「未实现」当绿报，都是假绿，一律按缺陷处理。
 - 未接入的门禁必须在 CI/文档里显式标注「挂点（随票接入）」，不得静默缺席。
-- **守卫实况（2026-10-16 批次 2 后）**：`scripts/guard-tokens.mjs` 与
-  `scripts/guard-electron-baseline.mjs`（含检出强度回归 `scripts/tests/guard-electron-baseline.test.mjs`）
+- **守卫实况（2026-10-16 批次 3 后）**：`scripts/guard-tokens.mjs`、
+  `scripts/guard-electron-baseline.mjs`（含检出强度回归 `scripts/tests/guard-electron-baseline.test.mjs`）、
+  `scripts/guard-vocab.mjs`（词表同源；回归 `scripts/tests/guard-vocab.test.mjs`；批次 3 · 工作包 B）、
+  `scripts/guard-feature-boundaries.mjs`（跨 feature 深导入归零，`register` 接缝为登记例外——ADR-0004 ② 机检；
+  回归 `scripts/tests/guard-feature-boundaries.test.mjs`；批次 3 · 工作包 E）
   **已实现并接入 CI**；`verify:engine` / `test:scripts` 同批入 CI；`verify:figma-baseline` 以
   「CI 无参照集 → 断言 `exit 2` 且日志点名『阻塞：参照集未冻结』」的**阻塞语义断言**入 CI（不是当绿）。
   仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:mcp-contract` / `guard:channel-pairing`。
