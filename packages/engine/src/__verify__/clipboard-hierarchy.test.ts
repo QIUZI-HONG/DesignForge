@@ -420,4 +420,21 @@ describe('[verify] 剪贴板 · 不受信载荷（系统剪贴板是外部输入
     const round = parseClipboard(serializeClipboard(payload));
     expect(round).toEqual(payload);
   });
+
+  it('出站序列化守门：载荷含非有限数时拒绝（不写进 JSON 静默变 null）', () => {
+    const doc = twoPageDoc();
+    const payload = copyNodes(getPage(doc, 'p1'), 'p1', ['r1']);
+    const first = payload.nodes[0] as SceneNode;
+    const poisoned = { ...payload, nodes: [{ ...first, width: Number.NaN }] };
+    let code: string | null = null;
+    let message = '';
+    try {
+      serializeClipboard(poisoned);
+    } catch (error) {
+      code = isDomainError(error) ? error.code : null;
+      message = error instanceof Error ? error.message : '';
+    }
+    expect(code).toBe('invalid-argument');
+    expect(message).toContain('width'); // 与文档序列化同口径：拒绝并给出字段路径
+  });
 });

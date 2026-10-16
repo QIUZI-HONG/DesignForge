@@ -96,8 +96,22 @@ export function clipboardSize(payload: ClipboardPayload): number {
   return payload.nodes.length;
 }
 
-/** 序列化为 JSON 字符串（落系统剪贴板前的一步）。 */
+/**
+ * 序列化为 JSON 字符串（落系统剪贴板前的一步）。
+ *
+ * 出站守门（与 B2 文档序列化同口径）：非有限数会被 JSON **静默**折成 null（类型漂移），
+ * 落进系统剪贴板后就是畸形载荷（接收端也会拒），故在出站侧直接拒绝并给出路径。
+ */
 export function serializeClipboard(payload: ClipboardPayload): string {
+  const bad = collectNonFiniteNumbers(payload);
+  if (bad.length > 0) {
+    throw domainError(
+      'invalid-argument',
+      `剪贴板载荷含非有限数值（NaN/±Infinity），拒绝序列化：${bad
+        .map((item) => `${item.path}=${String(item.value)}`)
+        .join('、')}`,
+    );
+  }
   return JSON.stringify(payload);
 }
 
