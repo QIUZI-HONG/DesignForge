@@ -120,6 +120,35 @@ describe('HomeTopbar · 全局搜索（B9）', () => {
     expect(screen.getByText('正在搜索…')).toBeDefined();
   });
 
+  it('检索索引降级（E1 补口 · 复核 Spec c）→ 市场分组给「暂按字面匹配」提示，结果照常展示', async () => {
+    renderTopbar({
+      query: '幻灯片',
+      market: {
+        loading: false,
+        available: true,
+        items: [{ id: 's/ppt', name: '幻灯片技能', kind: 'skill' }],
+        degraded: true,
+      },
+    });
+    await userEvent.click(screen.getByRole('searchbox', { name: '搜索文件与技能资产' }));
+    // 复用市场页同一条 i18n 键（E 口径）：提示与结果并存，不互相取代
+    expect(screen.getByText(/当前按字面匹配/)).toBeDefined();
+    expect(screen.getByRole('menuitem', { name: '幻灯片技能' })).toBeDefined();
+  });
+
+  it('未降级（degraded 缺省）→ 不给「按字面匹配」提示（不误报）', async () => {
+    renderTopbar({
+      query: '幻灯片',
+      market: {
+        loading: false,
+        available: true,
+        items: [{ id: 's/ppt', name: '幻灯片技能', kind: 'skill' }],
+      },
+    });
+    await userEvent.click(screen.getByRole('searchbox', { name: '搜索文件与技能资产' }));
+    expect(screen.queryByText(/当前按字面匹配/)).toBeNull();
+  });
+
   it('Esc 关闭下拉（焦点路径，不依赖鼠标移开）', async () => {
     renderTopbar({ query: '海报', documentHits: [DOC] });
     const input = screen.getByRole('searchbox', { name: '搜索文件与技能资产' });

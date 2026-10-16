@@ -89,6 +89,7 @@ describe('searchMarketAssets', () => {
 
     expect(result.available).toBe(true);
     expect(result.items).toEqual([{ id: 'a/b', name: 'Skill A（中文名）', kind: 'skill' }]);
+    expect(result.searchDegraded).toBe(false);
     const url = new URL(calls[0] ?? '');
     expect(url.pathname).toBe(DAEMON_ROUTES.marketQuery.path);
     expect(url.searchParams.get('q')).toBe('设计');
@@ -98,7 +99,7 @@ describe('searchMarketAssets', () => {
   it('索引缺失（state=empty）→ 空结果但 available=true（空态而非错误）', async () => {
     const { fetchImpl } = fakeFetch({ body: okBody([]) });
     const result = await searchMarketAssets({ baseUrl: BASE, query: '任意', fetchImpl });
-    expect(result).toEqual({ available: true, items: [] });
+    expect(result).toEqual({ available: true, items: [], searchDegraded: false });
   });
 
   it('daemon 不可达 → available=false（首页搜索整体不报错）', async () => {
@@ -106,6 +107,7 @@ describe('searchMarketAssets', () => {
     await expect(searchMarketAssets({ baseUrl: BASE, query: '任意', fetchImpl })).resolves.toEqual({
       available: false,
       items: [],
+      searchDegraded: false,
     });
   });
 
@@ -119,7 +121,7 @@ describe('searchMarketAssets', () => {
         setTimeout(() => resolve('pending'), 300);
       }),
     ]);
-    expect(outcome).toEqual({ available: false, items: [] });
+    expect(outcome).toEqual({ available: false, items: [], searchDegraded: false });
   });
 
   it('失败信封 → available=false', async () => {
@@ -130,13 +132,39 @@ describe('searchMarketAssets', () => {
     await expect(searchMarketAssets({ baseUrl: BASE, query: '任意', fetchImpl })).resolves.toEqual({
       available: false,
       items: [],
+      searchDegraded: false,
     });
+  });
+
+  it('检索索引降级（search-index-*）→ searchDegraded=true（首页「暂按字面匹配」提示的依据）', async () => {
+    const { fetchImpl } = fakeFetch({
+      body: {
+        ok: true,
+        result: {
+          schema: MARKETPLACE_INDEX_SCHEMA,
+          state: 'ok',
+          generatedAt: null,
+          total: 1,
+          counts: null,
+          items: [asset('a/b', 'Skill A')],
+          warnings: [
+            { code: 'search-index-missing', message: '未找到 BM25 检索索引：当前按字面匹配' },
+          ],
+        },
+      },
+    });
+    const result = await searchMarketAssets({ baseUrl: BASE, query: '幻灯片', fetchImpl });
+
+    expect(result.available).toBe(true);
+    expect(result.items).toHaveLength(1);
+    expect(result.searchDegraded).toBe(true);
   });
 
   it('空查询直接返回空结果，不发请求', async () => {
     const { fetchImpl, calls } = fakeFetch({ body: okBody([asset('a', 'A')]) });
     const result = await searchMarketAssets({ baseUrl: BASE, query: '   ', fetchImpl });
     expect(result.items).toEqual([]);
+    expect(result.searchDegraded).toBe(false);
     expect(calls).toEqual([]);
   });
 });

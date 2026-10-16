@@ -76,7 +76,10 @@ function renderHome(
     <ToastProvider>
       <HomeView
         documents={fake.gateway}
-        searchMarket={options.searchMarket ?? (async () => ({ available: true, items: [] }))}
+        searchMarket={
+          options.searchMarket ??
+          (async () => ({ available: true, items: [], searchDegraded: false }))
+        }
         now={() => NOW}
         store={store}
         searchDebounceMs={0}
@@ -308,6 +311,7 @@ describe('HomeView · 市场结果线', () => {
     const searchMarket = vi.fn(async () => ({
       available: true,
       items: [{ id: 'skill/a', name: '图标技能', kind: 'skill' as const }],
+      searchDegraded: false,
     }));
     renderHome({ docs: [], searchMarket });
     await screen.findByText('还没有设计文件');

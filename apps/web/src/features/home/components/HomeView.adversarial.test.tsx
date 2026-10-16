@@ -50,7 +50,7 @@ function renderHome(gateway: {
     <ToastProvider>
       <HomeView
         documents={gateway}
-        searchMarket={async () => ({ available: true, items: [] })}
+        searchMarket={async () => ({ available: true, items: [], searchDegraded: false })}
         now={() => NOW}
         store={store}
         searchDebounceMs={0}
@@ -171,7 +171,7 @@ describe('对抗 · 搜索与市场降级', () => {
             create: async (name) => summary(name),
             remove: async (id) => ({ id, deleted: true }),
           }}
-          searchMarket={async () => ({ available: false, items: [] })}
+          searchMarket={async () => ({ available: false, items: [], searchDegraded: false })}
           now={() => NOW}
           store={store}
           searchDebounceMs={0}

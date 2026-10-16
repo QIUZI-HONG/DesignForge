@@ -132,6 +132,7 @@ export function HomeView({
     loading: false,
     available: true,
     items: [],
+    degraded: false,
   });
 
   const gatewayRef = useRef<DocumentsGateway | null>(injectedDocuments ?? null);
@@ -197,7 +198,7 @@ export function HomeView({
   useEffect(() => {
     const query = home.query.trim();
     if (query === '') {
-      setMarket({ loading: false, available: true, items: [] });
+      setMarket({ loading: false, available: true, items: [], degraded: false });
       return undefined;
     }
     let cancelled = false;
@@ -205,7 +206,7 @@ export function HomeView({
     setMarket((current) => ({ ...current, loading: true }));
     const timer = setTimeout(() => {
       deadline = setTimeout(() => {
-        if (!cancelled) setMarket({ loading: false, available: false, items: [] });
+        if (!cancelled) setMarket({ loading: false, available: false, items: [], degraded: false });
       }, marketSearchDeadlineMs);
       // `Promise.resolve().then(…)`：连「同步抛错」的实现也归一到拒绝路径，异常不逃出定时器回调
       void Promise.resolve()
@@ -214,12 +215,17 @@ export function HomeView({
           (result) => {
             if (deadline !== null) clearTimeout(deadline);
             if (cancelled) return;
-            setMarket({ loading: false, available: result.available, items: result.items });
+            setMarket({
+              loading: false,
+              available: result.available,
+              items: result.items,
+              degraded: result.searchDegraded,
+            });
           },
           () => {
             if (deadline !== null) clearTimeout(deadline);
             if (cancelled) return;
-            setMarket({ loading: false, available: false, items: [] });
+            setMarket({ loading: false, available: false, items: [], degraded: false });
           },
         );
     }, searchDebounceMs);

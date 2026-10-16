@@ -37,6 +37,8 @@ export interface MarketPanelState {
   loading: boolean;
   available: boolean;
   items: MarketSearchHit[];
+  /** 检索索引降级（E1 补口 · 复核 Spec c）：结果照常展示 + 「暂按字面匹配」提示。 */
+  degraded?: boolean;
 }
 
 /** 顶栏 props。 */
@@ -151,6 +153,9 @@ export function HomeTopbar({
                 onSelect: () => onOpenMarket(hit.id),
               }))}
               onSelected={() => setSearchCollapsed(true)}
+              // 检索索引降级（E1 补口 · 复核 Spec c）：与市场页同一条提示（复用同一 i18n 键），
+              // 结果照常展示——不误导用户以为「字面命中就是全部」。
+              {...(market.degraded === true ? { note: t('market.warning.searchDegraded') } : {})}
             />
             {nothingFound ? (
               <div className="dfg-home__searchempty">
@@ -236,6 +241,7 @@ function SearchSection({
   empty,
   loading = false,
   onSelected,
+  note,
 }: {
   title: string;
   items: Array<{ id: string; label: string; onSelect: () => void }>;
@@ -243,10 +249,17 @@ function SearchSection({
   loading?: boolean;
   /** 选中后的收尾（父级收面板）。 */
   onSelected?: () => void;
+  /** 组级提示（如检索降级「暂按字面匹配」；给了才渲染）。 */
+  note?: string;
 }) {
   return (
     <div className="dfg-home__searchgroup">
       <div className="dfg-home__searchgroup-title">{title}</div>
+      {note === undefined ? null : (
+        <div className="dfg-home__searchgroup-note" role="status">
+          {note}
+        </div>
+      )}
       {items.length === 0 ? (
         <div className="dfg-home__searchgroup-empty">
           {loading ? t('home.search.loading') : empty}
