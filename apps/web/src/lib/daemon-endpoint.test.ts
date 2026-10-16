@@ -14,6 +14,7 @@ import {
   resetDaemonEndpointCache,
   resolveDaemonEndpoint,
   resolveDaemonEndpointSync,
+  withDaemonEndpoint,
 } from './daemon-endpoint';
 
 // 探测结果进程内缓存是**设计**（同一会话只探一次）——逐用例复位保证独立
@@ -142,5 +143,60 @@ describe('resolveDaemonEndpoint（异步完整路径）', () => {
     await resolveDaemonEndpoint({ search: '', fetchImpl });
     await resolveDaemonEndpoint({ search: '', fetchImpl });
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('withDaemonEndpoint（站内跳转携带当前端点 · D-3/UX-01）', () => {
+  const endpoint = 'http://127.0.0.1:4999';
+  const encoded = encodeURIComponent(endpoint);
+  const onEndpoint = { search: `?daemon=${encoded}` };
+
+  it('当前页带 ?daemon= → 站内地址追加同一参数（编码原样）', () => {
+    expect(withDaemonEndpoint('/editor?documentId=x', onEndpoint)).toBe(
+      `/editor?documentId=x&daemon=${encoded}`,
+    );
+  });
+
+  it('href 无查询串时用 ? 起头（不是 &）', () => {
+    expect(withDaemonEndpoint('/market', onEndpoint)).toBe(`/market?daemon=${encoded}`);
+  });
+
+  it('当前页没有 ?daemon= → 原样返回（canonical/壳形态 URL 保持干净）', () => {
+    expect(withDaemonEndpoint('/editor?documentId=x', { search: '', envUrl: endpoint })).toBe(
+      '/editor?documentId=x',
+    );
+    expect(withDaemonEndpoint('/market', { search: '?other=1' })).toBe('/market');
+  });
+
+  it('非法端点值丢弃（非 http(s)：不往后续页面传播垃圾参数）', () => {
+    expect(withDaemonEndpoint('/market', { search: '?daemon=not-a-url' })).toBe('/market');
+    expect(withDaemonEndpoint('/market', { search: '?daemon=javascript%3Aalert(1)' })).toBe(
+      '/market',
+    );
+  });
+
+  it('幂等：href 已带同一参数时不重复追加（调用两次结果一致）', () => {
+    const once = withDaemonEndpoint('/market?kind=skill', onEndpoint);
+    expect(withDaemonEndpoint(once, onEndpoint)).toBe(once);
+  });
+
+  it('保留 hash（参数插在 # 之前）', () => {
+    expect(withDaemonEndpoint('/editor?documentId=x#top', onEndpoint)).toBe(
+      `/editor?documentId=x&daemon=${encoded}#top`,
+    );
+  });
+
+  it('其余查询串与转义逐字保留（%20 不被规范化成 +）', () => {
+    expect(withDaemonEndpoint('/editor?documentId=%E6%B5%B7%E6%8A%A5%20A', onEndpoint)).toBe(
+      `/editor?documentId=%E6%B5%B7%E6%8A%A5%20A&daemon=${encoded}`,
+    );
+  });
+
+  it('外部/绝对地址原样返回（不向站外泄端点）', () => {
+    expect(withDaemonEndpoint('https://example.com/a?b=1', onEndpoint)).toBe(
+      'https://example.com/a?b=1',
+    );
+    expect(withDaemonEndpoint('//cdn.example.com/x', onEndpoint)).toBe('//cdn.example.com/x');
+    expect(withDaemonEndpoint('#anchor', onEndpoint)).toBe('#anchor');
   });
 });

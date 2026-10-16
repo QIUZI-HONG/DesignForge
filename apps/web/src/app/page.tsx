@@ -10,6 +10,7 @@
 import { useRouter } from 'next/navigation';
 
 import { editorHref, HomeView } from '@/features/home';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 import '@/features/home/home.css';
 
@@ -18,8 +19,12 @@ export default function HomePage() {
   const router = useRouter();
   return (
     <HomeView
-      onOpenDocument={(document) => router.push(editorHref(document.id))}
-      onOpenMarket={(assetId) => router.push(`/market?assetId=${encodeURIComponent(assetId)}`)}
+      // 站内跳转一律经 `withDaemonEndpoint` 续写当前端点参数（D-3/UX-01）：跳转后的页面
+      // 才能解析到同一 daemon；当前页没有 `?daemon=`（壳/部署形态）时原样返回（URL 干净）
+      onOpenDocument={(document) => router.push(withDaemonEndpoint(editorHref(document.id)))}
+      onOpenMarket={(assetId) =>
+        router.push(withDaemonEndpoint(`/market?assetId=${encodeURIComponent(assetId)}`))
+      }
     />
   );
 }

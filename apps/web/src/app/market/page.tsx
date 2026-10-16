@@ -45,6 +45,7 @@ import {
   useMarketQuery,
 } from '@/features/market';
 import { t } from '@/i18n';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 /** 市场首页。 */
 export default function MarketHomePage() {
@@ -81,7 +82,8 @@ export default function MarketHomePage() {
   };
 
   const openDetail = (assetId: string): void => {
-    router.push(`/market/${encodeURIComponent(assetId)}`);
+    // 卡片 → 详情：续写当前端点参数（D-3/UX-01）——详情页的取数才能命中同一 daemon
+    router.push(withDaemonEndpoint(`/market/${encodeURIComponent(assetId)}`));
   };
 
   const uninstall = (assetId: string): void => {

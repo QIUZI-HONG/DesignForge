@@ -27,6 +27,7 @@ import {
   useMarketQuery,
 } from '@/features/market';
 import { t } from '@/i18n';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 /** 面板取数参数：默认综合评分前 8（面板是速览，不做完整检索）。 */
 const PANEL_LIMIT = 8;
@@ -108,7 +109,8 @@ export default function MarketPanelPage() {
             setSelectedId(assetId);
           }}
           onOpenDetail={(assetId) => {
-            router.push(`/market/${encodeURIComponent(assetId)}`);
+            // 面板 → 详情：续写当前端点参数（D-3/UX-01，口径与市场首页卡片一致）
+            router.push(withDaemonEndpoint(`/market/${encodeURIComponent(assetId)}`));
           }}
         />
       ) : null}

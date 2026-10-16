@@ -23,6 +23,7 @@ import {
   useMarketQuery,
 } from '@/features/market';
 import { t } from '@/i18n';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 /** 看板样本上限（索引规模在首批 40 仓量级，200 足够覆盖；截断时看板如实标注）。 */
 const DASHBOARD_LIMIT = 200;
@@ -49,7 +50,8 @@ export default function DashboardPage() {
             variant="secondary"
             size="sm"
             onClick={() => {
-              router.push('/market');
+              // 看板 → 市场：续写当前端点参数（D-3/UX-01），跳转后取数不丢 daemon
+              router.push(withDaemonEndpoint('/market'));
             }}
           >
             {t('dashboard.back')}

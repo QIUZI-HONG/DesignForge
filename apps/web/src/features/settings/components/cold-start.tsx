@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { editorHref } from '@/features/home';
 import { t } from '@/i18n';
+import { useDaemonEndpointHref, withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 import { DaemonClientError } from '../api/daemon-client';
 import { createSettingsApi, type SettingsApi } from '../api/settings-api';
@@ -35,10 +36,10 @@ export interface ColdStartProps {
   onEnterEditor?: (documentId: string) => void;
 }
 
-/** 缺省进入编辑器：整页跳转（地址形状见 FE-02 的 `editorHref`）。 */
+/** 缺省进入编辑器：整页跳转（地址形状见 FE-02 的 `editorHref`），端点参数经单点续写（D-3）。 */
 function defaultEnterEditor(documentId: string): void {
   if (typeof window !== 'undefined') {
-    window.location.assign(editorHref(documentId));
+    window.location.assign(withDaemonEndpoint(editorHref(documentId)));
   }
 }
 
@@ -101,6 +102,8 @@ export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // 「返回首页」链接地址：续写当前端点参数（D-3/UX-01，首帧与 SSR 同口径）
+  const homeHref = useDaemonEndpointHref('/');
 
   const load = useCallback(async (): Promise<void> => {
     setPhase('loading');
@@ -206,7 +209,7 @@ export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
             title={t('coldstart.exists.title', { count: documentCount })}
             description={t('coldstart.exists.desc')}
             action={
-              <a href="/" style={styles.link}>
+              <a href={homeHref} style={styles.link}>
                 {t('coldstart.exists.action')}
               </a>
             }

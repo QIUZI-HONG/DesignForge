@@ -15,6 +15,7 @@ import { DropdownMenu, FrameIcon, IconButton, MoreHorizontalIcon } from '@dforge
 import type { MouseEvent } from 'react';
 
 import { t } from '@/i18n';
+import { useDaemonEndpointHref } from '@/lib/daemon-endpoint';
 
 import { describeRelativeTime } from '../lib/format';
 import { editorHref } from '../lib/routes';
@@ -53,6 +54,9 @@ export function DocumentCard({ document, now, onOpen, onRequestDelete }: Documen
     pages: document.pageCount,
     time: relativeTimeText(document.updatedAt, now()),
   });
+  // 链接地址经单点续写当前 daemon 端点参数（D-3/UX-01）：中键/修饰键新开标签时同样带着端点；
+  // 首帧与 SSR 一致（无参数），挂载后补写；当前页无 `?daemon=` 时保持原样
+  const href = useDaemonEndpointHref(editorHref(document.id));
 
   const handleOpen = (event: MouseEvent<HTMLAnchorElement>): void => {
     // 修饰键/中键：交给浏览器默认行为（新标签打开），不抢
@@ -63,12 +67,7 @@ export function DocumentCard({ document, now, onOpen, onRequestDelete }: Documen
 
   return (
     <li className="dfg-home__card" data-df-home-card={document.id}>
-      <a
-        className="dfg-home__card-link"
-        href={editorHref(document.id)}
-        aria-label={openLabel}
-        onClick={handleOpen}
-      >
+      <a className="dfg-home__card-link" href={href} aria-label={openLabel} onClick={handleOpen}>
         <span className="dfg-home__card-thumb" aria-hidden="true">
           <FrameIcon size={24} />
         </span>
