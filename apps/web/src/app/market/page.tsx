@@ -27,6 +27,7 @@ import {
   headerStyle,
   hintStyle,
   INITIAL_MARKET_FILTERS,
+  isSearchDegraded,
   isUpdateAvailable,
   LoadConfirmDialog,
   MarketEmptyState,
@@ -63,6 +64,7 @@ export default function MarketHomePage() {
     ? { ...filters, loadedOnly: true }
     : filters;
   const outcome = response === null ? null : classifyMarketOutcome(response);
+  const searchDegraded = response !== null && isSearchDegraded(response.warnings);
   const clientFiltered =
     response === null
       ? []
@@ -91,7 +93,9 @@ export default function MarketHomePage() {
       ? t('market.warning.partial', {
           message: response?.warnings.map((warning) => warning.message).join('；') ?? '',
         })
-      : null;
+      : searchDegraded
+        ? t('market.warning.searchDegraded')
+        : null;
 
   /**
    * 结果区（三态补齐：加载 / 错误 / 就绪；**任何输入都有分支可匹配**，不得静默空白）。
@@ -127,7 +131,11 @@ export default function MarketHomePage() {
           }}
         />
       ) : (
-        <MarketEmptyState kind="no-result" onClearFilters={clearFilters} />
+        <MarketEmptyState
+          kind="no-result"
+          {...(searchDegraded ? { note: t('market.empty.noResult.literalNote') } : {})}
+          onClearFilters={clearFilters}
+        />
       );
     }
     return (
