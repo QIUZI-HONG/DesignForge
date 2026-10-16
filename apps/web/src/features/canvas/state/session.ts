@@ -70,6 +70,7 @@ import {
   parseClipboard,
   pasteCommands,
   reorderNodeCommands,
+  resolveNode,
   selectAllText,
   selectionBounds,
   selectionNodes,
@@ -468,6 +469,66 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
   const saneIds = (values: readonly NodeId[]): NodeId[] =>
     values.filter((value) => typeof value === 'string' && value.length > 0);
 
+  /** 记录可观测错误（覆盖层/门禁/调试句柄都读它；**不吞静默**）。 */
+  const reportError = (error: unknown): void => {
+    store.setState({ error: errorText(error) });
+  };
+
+  /**
+   * 按**文档真值**修剪 id 集合：剔除已不存在的节点。
+   *
+   * 为什么需要：撤销/重做、删除、外部 actor（MCP/AI/面板）都会让选择集里的 id 指向
+   * 幽灵节点；引擎的「按 id 移动/变换」命令对不存在的节点是**结构化错误**（CommandError），
+   * 一旦下发就会从 `session.nudge` / 事件处理器里逃逸出去（一因两果）。
+   * 所有会产出文档写入的入口统一先在这里对账：失效 id 不参与运算。
+   */
+  const liveIdsOf = (values: readonly NodeId[]): NodeId[] => {
+    const current = page();
+    return values.filter((id) => resolveNode(current, id) !== undefined);
+  };
+
+  /** 选择集的有效子集（派生视图/命令生成共用；失效 id 自动收敛，不写回 UI 态）。 */
+  const liveSelectionIds = (): NodeId[] => liveIdsOf(store.getState().selection.ids);
+
+  /**
+   * 交互状态 ⇄ 文档真值对账：拖动途中节点可能被撤销/删除（⌘Z、外部 actor）。
+   * 剔除失效节点，节点全没了 → 回到空闲态（松手不再产出指向幽灵节点的命令）。
+   * 预览/提交/吸附随后都只看存活节点，得到「不抛错 + 不留半成品命令」的一致结果。
+   */
+  const reconcileInteraction = (interaction: InteractionState): InteractionState => {
+    switch (interaction.kind) {
+      case 'move':
+      case 'resize':
+      case 'rotate': {
+        const alive = liveIdsOf(interaction.nodeIds);
+        if (alive.length === interaction.nodeIds.length) return interaction;
+        if (alive.length === 0) return IDLE;
+        return { ...interaction, nodeIds: alive };
+      }
+      default:
+        return interaction;
+    }
+  };
+
+  /**
+   * 命令下发**唯一守卫**：异常不得逃逸出会话。
+   *
+   * 引擎的 CommandError 是结构化失败（应当被上层看见），但 UI 层的种子是「事件处理器里
+   * 冒泡出去 = 整棵树崩掉」——所以统一在这里转成会话错误态（可观测）+ 交互回到一致态。
+   * 注意：这是**兜底**，不是主要手段：调用点仍先用 `liveSelectionIds()` 做根因修剪。
+   */
+  const dispatchGuarded = (commands: readonly Command[], label: string): boolean => {
+    if (commands.length === 0) return false;
+    try {
+      stack.dispatch(commands, { label });
+      return true;
+    } catch (error) {
+      reportError(error);
+      store.setState({ interaction: IDLE, snap: null, draft: null, hud: null });
+      return false;
+    }
+  };
+
   const session: CanvasSession = {
     stack,
     store,
@@ -521,7 +582,7 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
               type: 'pointer.down',
               point: input.world,
               screen: input.screen,
-              selection: state.selection.ids,
+              selection: liveSelectionIds(),
               clickTarget: null,
               handle: null,
               tool: 'hand',
@@ -569,7 +630,8 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
             type: 'pointer.down',
             point: input.world,
             screen: input.screen,
-            selection: store.getState().selection.ids,
+            // 只把**文档真值里仍存在**的 id 交给交互机：失效 id 不得进入移动/缩放/旋转集合
+            selection: liveSelectionIds(),
             clickTarget: target,
             handle,
             tool: 'select',
@@ -597,13 +659,20 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
         return;
       }
 
+      // 拖动途中节点被撤销/删除 → 交互集合按文档真值收敛（不再计算/提交幽灵节点）
+      const interaction = reconcileInteraction(state.interaction);
+      if (interaction !== state.interaction) {
+        store.setState({ interaction, snap: null, hud: null });
+        if (interaction.kind === 'idle') return;
+      }
+
       // 画布平移（白名单第 6 类）：拖动中**实时**移动视口
-      if (state.interaction.kind === 'pan') {
-        const delta = panDelta({ ...state.interaction, currentScreen: input.screen });
+      if (interaction.kind === 'pan') {
+        const delta = panDelta({ ...interaction, currentScreen: input.screen });
         store.setState({
           viewport: panBy(state.viewport, delta.x, delta.y),
           interaction: {
-            ...state.interaction,
+            ...interaction,
             startScreen: input.screen,
             currentScreen: input.screen,
           },
@@ -612,7 +681,7 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
         return;
       }
 
-      if (state.interaction.kind === 'idle') {
+      if (interaction.kind === 'idle') {
         const { handle, target } = hitContext(input.world, false);
         const hoverId = handle === null ? target : null;
         const hoverCursor =
@@ -630,7 +699,7 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       }
 
       const next = updateInteraction(
-        state.interaction,
+        interaction,
         {
           type: 'pointer.move',
           point: input.world,
@@ -651,10 +720,16 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
         store.setState({ draft: null, tool: 'select', hud: null });
         return;
       }
-      if (state.interaction.kind === 'idle') return;
+
+      // 松手前同样对账：节点可能在拖动途中消失（⌘Z / 外部删除）
+      const interaction = reconcileInteraction(state.interaction);
+      if (interaction !== state.interaction) {
+        store.setState({ interaction, snap: null, hud: null });
+      }
+      if (interaction.kind === 'idle') return;
 
       const settled = updateInteraction(
-        state.interaction,
+        interaction,
         {
           type: 'pointer.up',
           point: input.world,
@@ -673,7 +748,7 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       }
 
       const { commands } = commitInteraction(settled, context());
-      if (commands.length > 0) stack.dispatch(commands, { label: labelOfInteraction(settled) });
+      dispatchGuarded(commands, labelOfInteraction(settled));
       store.setState({ interaction: IDLE, snap: null, hud: null });
     },
 
@@ -732,9 +807,9 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
 
     copy() {
       const current = page();
-      const selection = store.getState().selection;
-      if (selection.ids.length === 0) return;
-      clipboardPayload = copyNodes(current, current.id, selection.ids);
+      const ids = liveSelectionIds();
+      if (ids.length === 0) return;
+      clipboardPayload = copyNodes(current, current.id, ids);
       if (clipboardPort !== undefined) {
         void clipboardPort.write(serializeClipboard(clipboardPayload)).catch(() => undefined);
       }
@@ -753,7 +828,7 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       if (payload === null) return;
       const commands = pasteCommands(payload, { pageId: store.getState().pageId, ids });
       if (commands.length === 0) return;
-      stack.dispatch(commands, { label: '粘贴' });
+      if (!dispatchGuarded(commands, '粘贴')) return;
       const inserted: NodeId[] = [];
       for (const command of commands) {
         if (command.type === 'node.insert') inserted.push(command.node.id);
@@ -763,33 +838,34 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
 
     duplicate() {
       const current = page();
-      const selection = store.getState().selection;
-      if (selection.ids.length === 0) return;
-      const commands = duplicateCommands(current, current.id, selection.ids, { ids });
+      const live = liveSelectionIds();
+      if (live.length === 0) return;
+      const commands = duplicateCommands(current, current.id, live, { ids });
       if (commands.length === 0) return;
-      stack.dispatch(commands, { label: '副本' });
+      dispatchGuarded(commands, '副本');
     },
 
     reorder(op) {
       const state = store.getState();
       const current = page();
       const commands: Command[] = [];
-      for (const id of state.selection.ids) {
+      for (const id of liveSelectionIds()) {
         if (current.nodes[id] === undefined) continue;
         commands.push(...reorderNodeCommands(state.pageId, id, op));
       }
       if (commands.length === 0) return;
-      stack.dispatch(commands, { label: '层级调整' });
+      dispatchGuarded(commands, '层级调整');
     },
 
     group() {
       const state = store.getState();
       const current = page();
-      if (state.selection.ids.length < 2) return;
+      const live = liveSelectionIds();
+      if (live.length < 2) return;
       try {
-        const commands = groupNodesCommands(current, state.pageId, state.selection.ids, { ids });
+        const commands = groupNodesCommands(current, state.pageId, live, { ids });
         if (commands.length === 0) return;
-        stack.dispatch(commands, { label: '编组' });
+        if (!dispatchGuarded(commands, '编组')) return;
         const inserted = commands.find(
           (command): command is InsertNodeCommand => command.type === 'node.insert',
         );
@@ -804,14 +880,14 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       const current = page();
       const commands: Command[] = [];
       const released: NodeId[] = [];
-      for (const id of state.selection.ids) {
+      for (const id of liveSelectionIds()) {
         const node = current.nodes[id];
         if (node === undefined || node.type !== 'group') continue;
         commands.push(...dissolveGroupCommands(current, state.pageId, id));
         released.push(...node.children);
       }
       if (commands.length === 0) return;
-      stack.dispatch(commands, { label: '解组' });
+      if (!dispatchGuarded(commands, '解组')) return;
       if (released.length > 0) applySelection(createSelection(released));
     },
 
@@ -824,23 +900,25 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
 
     deleteSelection() {
       const state = store.getState();
-      if (state.selection.ids.length === 0) return;
-      const commands = deleteNodesCommands(page(), state.pageId, state.selection.ids);
+      const live = liveSelectionIds();
+      if (live.length === 0) return;
+      const commands = deleteNodesCommands(page(), state.pageId, live);
       if (commands.length === 0) return;
-      stack.dispatch(commands, { label: '删除' });
+      dispatchGuarded(commands, '删除');
       applySelection(createSelection([]));
     },
 
     align(op, relativeTo = 'selection') {
       const state = store.getState();
-      if (state.selection.ids.length === 0) return;
-      if (relativeTo === 'selection' && state.selection.ids.length < 2) return;
+      const live = liveSelectionIds();
+      if (live.length === 0) return;
+      if (relativeTo === 'selection' && live.length < 2) return;
       try {
-        const commands = alignCommands(page(), state.pageId, state.selection.ids, op, {
+        const commands = alignCommands(page(), state.pageId, live, op, {
           relativeTo,
         });
         if (commands.length === 0) return;
-        stack.dispatch(commands, { label: '对齐' });
+        dispatchGuarded(commands, '对齐');
       } catch (error) {
         session.setError(errorText(error));
       }
@@ -848,21 +926,24 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
 
     distribute(op) {
       const state = store.getState();
-      if (state.selection.ids.length < 3) return;
-      const commands = distributeCommands(page(), state.pageId, state.selection.ids, op);
+      const live = liveSelectionIds();
+      if (live.length < 3) return;
+      const commands = distributeCommands(page(), state.pageId, live, op);
       if (commands.length === 0) return;
-      stack.dispatch(commands, { label: '分布' });
+      dispatchGuarded(commands, '分布');
     },
 
     nudge(dx, dy) {
       const state = store.getState();
-      if (state.selection.ids.length === 0 || (dx === 0 && dy === 0)) return;
-      const commands = moveNodesByWorldCommands(page(), state.pageId, state.selection.ids, {
+      // 失效选择（撤销后的幽灵 id）不参与微移：按文档真值修剪，剩余为空即空操作
+      const live = liveSelectionIds();
+      if (live.length === 0 || (dx === 0 && dy === 0)) return;
+      const commands = moveNodesByWorldCommands(page(), state.pageId, live, {
         x: dx,
         y: dy,
       });
       if (commands.length === 0) return;
-      stack.dispatch(commands, { label: '微移' });
+      dispatchGuarded(commands, '微移');
     },
 
     zoomIn(screenCenter) {
@@ -937,8 +1018,13 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
     commitText() {
       const editing = store.getState().editing;
       if (editing === null) return;
+      // 编辑中的文本节点可能已被撤销/删除：节点不在了就直接收摊（不进历史、不抛错）
+      if (resolveNode(page(), editing.nodeId) === undefined) {
+        store.setState({ editing: null });
+        return;
+      }
       const commands = commitTextEdit(editing);
-      if (commands.length > 0) stack.dispatch(commands, { label: '文本' });
+      if (commands.length > 0) dispatchGuarded(commands, '文本');
       store.setState({ editing: null });
     },
     cancelText() {
@@ -1005,7 +1091,8 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       return {
         page: page(),
         viewport: state.viewport,
-        selection: state.selection.ids,
+        // 渲染消费**有效选择集**：撤销/删除留下的幽灵 id 不画高亮框（选择集自动收敛）
+        selection: liveSelectionIds(),
         hoverId: state.hoverId,
         interaction: state.interaction,
         preview: previewPatchesOf(state.interaction, context()),

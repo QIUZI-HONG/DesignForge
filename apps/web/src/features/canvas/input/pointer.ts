@@ -72,6 +72,23 @@ export function buttonOf(event: { button: number }): PointerButton {
   return 'left';
 }
 
+/**
+ * 会话调用兜底（事件处理器里异常**不得逃逸**）。
+ *
+ * 为什么必须有：pointer 事件处理器是「种子事件」——异常从这里冒泡出去会变成
+ * 未捕获异常（真实用户看到的是整块画布失效）。会话内部已按文档真值修剪失效集合
+ * （见 `state/session.ts` 的 `liveSelectionIds`），这里只兜底**未知**异常：
+ * 记进会话错误态（可观测）并把交互拉回一致态，然后继续响应后续事件。
+ */
+function guard(session: CanvasSession, action: () => void): void {
+  try {
+    action();
+  } catch (error) {
+    session.setError(error instanceof Error ? error.message : String(error));
+    session.cancelActiveInteraction();
+  }
+}
+
 /** 绑定指针/滚轮事件到容器。 */
 export function attachPointerAdapter(options: PointerAdapterOptions): PointerAdapter {
   const { element, session } = options;
@@ -85,13 +102,15 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
     if (event.button === 2) return;
     element.focus?.();
     const local = localPoint(element, event);
-    session.pointerDown({
-      screen: local,
-      world: toWorld(session, local),
-      button: buttonOf(event),
-      modifiers: modifiersOf(event),
-      deep: event.metaKey || event.ctrlKey,
-    });
+    guard(session, () =>
+      session.pointerDown({
+        screen: local,
+        world: toWorld(session, local),
+        button: buttonOf(event),
+        modifiers: modifiersOf(event),
+        deep: event.metaKey || event.ctrlKey,
+      }),
+    );
     requestRender();
   };
 
@@ -105,11 +124,13 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
       return;
     }
     const local = localPoint(element, event);
-    session.pointerMove({
-      screen: local,
-      world: toWorld(session, local),
-      modifiers: modifiersOf(event),
-    });
+    guard(session, () =>
+      session.pointerMove({
+        screen: local,
+        world: toWorld(session, local),
+        modifiers: modifiersOf(event),
+      }),
+    );
     const cursor = session.store.getState().hoverCursor;
     if (element.style.cursor !== cursor) element.style.cursor = cursor;
     requestRender();
@@ -119,11 +140,13 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
     if (event.button === 2) return;
     if (!isCanvasSurface(event.target)) return;
     const local = localPoint(element, event);
-    session.pointerUp({
-      screen: local,
-      world: toWorld(session, local),
-      modifiers: modifiersOf(event),
-    });
+    guard(session, () =>
+      session.pointerUp({
+        screen: local,
+        world: toWorld(session, local),
+        modifiers: modifiersOf(event),
+      }),
+    );
     requestRender();
   };
 
@@ -139,12 +162,14 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
     // 画布消费滚轮：不再滚动页面；⌘/Ctrl + 滚轮 = 缩放（Figma 口径）
     event.preventDefault();
     const local = localPoint(element, event);
-    session.wheel({
-      deltaX: event.deltaX,
-      deltaY: event.deltaY,
-      zoom: event.metaKey || event.ctrlKey,
-      screen: local,
-    });
+    guard(session, () =>
+      session.wheel({
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        zoom: event.metaKey || event.ctrlKey,
+        screen: local,
+      }),
+    );
     requestRender();
   };
 
@@ -156,12 +181,14 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
   const onDoubleClick = (event: MouseEvent): void => {
     if (!isCanvasSurface(event.target)) return;
     const local = localPoint(element, event);
-    session.doubleClick({
-      screen: local,
-      world: toWorld(session, local),
-      button: buttonOf(event),
-      modifiers: modifiersOf(event),
-    });
+    guard(session, () =>
+      session.doubleClick({
+        screen: local,
+        world: toWorld(session, local),
+        button: buttonOf(event),
+        modifiers: modifiersOf(event),
+      }),
+    );
     requestRender();
   };
 
