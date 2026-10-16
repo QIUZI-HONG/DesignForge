@@ -256,10 +256,22 @@ export async function run(page, ctx) {
   await page.goto(ctx.homeUrl, { waitUntil: 'networkidle' });
   const cardAgain = page.getByRole('link', { name: `打开「${DOCUMENT_NAME}」` });
   await cardAgain.waitFor({ timeout: 10_000 });
-  const cardMeta = (await cardAgain.locator('.dfg-home__card-meta').textContent()) ?? '';
-  ctx.assert(cardMeta.includes('个页面'), '首页卡片仍列出该文档（元信息可见）', cardMeta);
 
+  // daemon 侧独立证据（卡片的「更新于」与「N 个页面」都要对着它判）
   const summaryAfterSave = await daemonSummary();
+  const cardMeta = (await cardAgain.locator('.dfg-home__card-meta').textContent()) ?? '';
+  // 真实断言（复核 Spec c · e2e 断言加强）：卡片页面数取「N 个页面 · …」里的 N，
+  // 必须与 daemon 实测 pageCount 逐数一致——旧断言只看「含『个页面』」，写死成
+  // 「999 个页面」也会绿。
+  const metaPageCount = /(\d+)\s*个页面/.exec(cardMeta)?.[1] ?? null;
+  ctx.assert(
+    metaPageCount !== null &&
+      summaryAfterSave !== null &&
+      metaPageCount === String(summaryAfterSave.pageCount),
+    '首页卡片「N 个页面」与 daemon 实际页数一致',
+    { cardMeta, pageCount: summaryAfterSave?.pageCount ?? null },
+  );
+
   ctx.assert(
     summaryAfterSave !== null &&
       summaryAtCreate !== null &&
