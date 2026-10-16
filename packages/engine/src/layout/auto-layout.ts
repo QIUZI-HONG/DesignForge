@@ -3,6 +3,14 @@
  *
  * 两遍求解（架构 v1.1 §4.1「测量 → 排布」）：先量出内容尺寸，再决定容器包裹尺寸与排布起点。
  * `autoLayoutCommands` 把结果翻译成命令（只产出**变化**的属性，避免无意义的历史条目）。
+ *
+ * 负尺寸钳制（修复批次 3 · A3）：交叉轴 `stretch` 的内容长度可能为负——容器比 padding 之和
+ * 还小时（`frame.height - padding.top - padding.bottom < 0`），子项会被"拉伸"到负高度。
+ * 负宽高不是合法几何（经 `autoLayoutCommands` 写进文档后会污染命中、包围盒与选择框），
+ * 故一律**钳制到 ≥ 0**。为什么选择钳制而不是报错：padding（以及容器尺寸）是 Inspector 上
+ * 连续调节的量，中间态报错会打断拖拽式交互；钳制结果确定且幂等（把 0 当输入再求解仍是 0），
+ * 与「主轴对齐余量取 max(0)」是同一口径。注意：容器 `hug` 主尺寸在负 padding 下仍可能为负
+ * （另一处已记录行为，不在本次钳制范围）。
  */
 
 import type { Command } from '../commands/types';
@@ -129,9 +137,11 @@ export function solveAutoLayout(
       : { x: crossOffset, y: cursor };
 
     if (config.counterAxisAlign === 'stretch' && childCross !== counterContent) {
+      // 交叉轴内容为负（容器小于 padding）→ 钳制到 0（见模块头：负尺寸不是合法几何）
+      const stretched = Math.max(0, counterContent);
       sizes[child.id] = horizontal
-        ? { width: child.width, height: counterContent }
-        : { width: counterContent, height: child.height };
+        ? { width: child.width, height: stretched }
+        : { width: stretched, height: child.height };
     }
     cursor += childMain + config.spacing;
   }

@@ -1,7 +1,7 @@
 /**
  * [独立验证 · engine] 自动布局边界：极端 gap/padding、嵌套 auto-layout、空容器。
  *
- * 重点观察：极值下求解结果是否产出**非法几何**（负宽高）、命令是否只写变化、
+ * 重点观察：极值下求解结果是否产出**非法几何**（负宽高已钳制为契约）、命令是否只写变化、
  * 空容器与全隐藏子节点下的包裹尺寸。
  */
 
@@ -334,7 +334,7 @@ function page2doc(page: ScenePage) {
 }
 
 describe('[verify] 自动布局 · 交叉轴 stretch 与极端尺寸', () => {
-  it('stretch 把子项拉到交叉轴内容尺寸；容器比内容小时产出负高度（缺陷，已复现）', () => {
+  it('stretch 把子项拉到交叉轴内容尺寸；容器小于 padding 时钳制到 0（契约：不产出负尺寸）', () => {
     const normal = solveAutoLayout(
       config({ counterAxisAlign: 'stretch', heightSizing: 'fixed' }),
       { width: 200, height: 100 },
@@ -343,15 +343,40 @@ describe('[verify] 自动布局 · 交叉轴 stretch 与极端尺寸', () => {
     // 交叉轴（高度）：内容 = 100 - 16 = 84 → 子项拉到 84
     expect(normal.sizes.a).toEqual({ width: 20, height: 84 });
 
-    // 容器高度小于 padding 总和：交叉内容为负 → 子项高度被写成负数
+    // 容器高度小于 padding 总和：交叉内容 10 - 8 - 8 = -6 → 钳制到 0（负尺寸不是合法几何）
     const degenerate = solveAutoLayout(
       config({ counterAxisAlign: 'stretch' }),
       { width: 200, height: 10 },
       [{ id: 'a', width: 20, height: 20 }],
     );
-    expect(degenerate.sizes.a?.height).toBe(-6); // 10 - 8 - 8 = -6
-    // 且位置仍是 padding 起点（子项从 y=8 向上交叉轴溢出为负高）
+    expect(degenerate.sizes.a).toEqual({ width: 20, height: 0 });
+    // 位置仍是 padding 起点（钳制不迁移布局起点）
     expect(degenerate.positions.a).toEqual({ x: 8, y: 8 });
+    // 幂等：把钳制结果当输入再求解，结果不漂移
+    const again = solveAutoLayout(
+      config({ counterAxisAlign: 'stretch' }),
+      { width: 200, height: 10 },
+      [{ id: 'a', width: 20, height: degenerate.sizes.a?.height ?? -1 }],
+    );
+    expect(again.sizes.a).toEqual({ width: 20, height: 0 });
+
+    // 命令层：不把负尺寸写进文档（patch 里没有负数）
+    const { page } = framePage(
+      { width: 200, height: 10, autoLayout: config({ counterAxisAlign: 'stretch' }) },
+      [{ width: 20, height: 20 }],
+    );
+    const commands = autoLayoutCommands(page, 'p1', 'f');
+    const childCommand = commands.find(
+      (command) => command.type === 'node.update' && command.nodeId === 'k0',
+    );
+    expect(childCommand).toMatchObject({ patch: { height: 0 } });
+    for (const command of commands) {
+      if (command.type !== 'node.update') continue;
+      for (const [key, value] of Object.entries(command.patch)) {
+        if (typeof value === 'number')
+          expect(value, `${command.nodeId}.${key}`).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 
   it('align center/end 只在有余量时偏移，余量为负时不产生负偏移', () => {
