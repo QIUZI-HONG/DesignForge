@@ -30,12 +30,11 @@
  * 用法：node scripts/guard-vocab.mjs [--json] [--source=<vocab.ts>] [--layers=<目录或文件>]
  * 退出码（门禁三态，禁止假绿）：0 通过 / 1 违规（层间与真源不一致）/ 2 阻塞（前置不成立）。
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, resolve } from 'node:path';
 import ts from 'typescript';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+import { collectFiles, displayPath, REPO_ROOT, readArg, readText } from './lib/guard-io.mjs';
+
 const DEFAULT_SOURCE = join(REPO_ROOT, 'packages', 'contracts', 'src', 'market', 'vocab.ts');
 const DEFAULT_LAYER_ROOTS = [
   join(REPO_ROOT, 'services', 'ingest', 'src'),
@@ -130,32 +129,11 @@ const VOCAB_REGISTRY = [
   },
 ];
 
-/** 从 argv 取 `--name=value`。 */
-function readArg(name) {
-  const prefix = `--${name}=`;
-  const hit = process.argv.find((arg) => arg.startsWith(prefix));
-  return hit?.slice(prefix.length);
-}
-
+/** 从 argv 取 `--name=value`（词表守卫只需 source/layers 两个参数面）。 */
 const jsonMode = process.argv.includes('--json');
 const sourcePath = readArg('source') ? resolve(readArg('source')) : DEFAULT_SOURCE;
 const layersArg = readArg('layers');
 const layerRoots = layersArg ? [resolve(layersArg)] : DEFAULT_LAYER_ROOTS;
-
-/** 相对仓库根的展示路径（夹具体系外的路径原样展示）。 */
-function displayPath(path) {
-  const rel = relative(REPO_ROOT, path);
-  return rel.startsWith('..') || rel === '' ? path : rel.split(sep).join('/');
-}
-
-/** 读取文本；失败返回 `{ error }`。 */
-function readText(path) {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (error) {
-    return { error: `读取不到 ${displayPath(path)}：${String(error)}` };
-  }
-}
 
 /** 解析 TS（纯语法，不做类型检查）。 */
 function parse(path, text) {
@@ -599,27 +577,12 @@ function analyzeLayerFile(path, text, sourceValues, scanInline) {
   return { violations, undetermined };
 }
 
-/** 递归收集待扫层文件（排除测试/夹具/快照）。 */
+/** 递归收集待扫层文件（排除测试/夹具/快照；遍历序确定，见 `lib/guard-io`）。 */
 function collectLayerFiles(root) {
-  if (!existsSync(root)) return null;
-  if (statSync(root).isFile()) return [root];
-  const files = [];
-  const walk = (dir) => {
-    for (const item of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-    )) {
-      const full = join(dir, item.name);
-      if (item.isDirectory()) {
-        if (item.name === '__fixtures__' || item.name === '__snapshots__') continue;
-        walk(full);
-        continue;
-      }
-      if (!item.name.endsWith('.ts') || item.name.endsWith('.test.ts')) continue;
-      files.push(full);
-    }
-  };
-  walk(root);
-  return files;
+  return collectFiles(root, {
+    isTarget: (name) => name.endsWith('.ts') && !name.endsWith('.test.ts'),
+    excludeDirs: ['__fixtures__', '__snapshots__'],
+  });
 }
 
 /** 主流程。 */

@@ -43,12 +43,12 @@
  * 用法：node scripts/guard-feature-boundaries.mjs [--json] [--root=<web-src 根>]
  * 退出码（门禁三态，禁止假绿）：0 通过 / 1 违规（跨 feature 深导入）/ 2 阻塞（前置不成立 / 判不出）。
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+import { collectFiles, displayPath, REPO_ROOT, readArg, readText } from './lib/guard-io.mjs';
+
 const DEFAULT_ROOT = join(REPO_ROOT, 'apps', 'web', 'src');
 /** 公开面别名前缀（tsconfig paths：`@/*` → `./src/*`）。 */
 const ALIAS_PREFIX = '@/features/';
@@ -81,28 +81,6 @@ const REGISTERED_EXCEPTIONS = [
   },
 ];
 
-/** 从 argv 取 `--name=value`。 */
-function readArg(name) {
-  const prefix = `--${name}=`;
-  const hit = process.argv.find((arg) => arg.startsWith(prefix));
-  return hit?.slice(prefix.length);
-}
-
-/** 相对仓库根的展示路径（仓储外路径原样展示）。 */
-function displayPath(path) {
-  const rel = relative(REPO_ROOT, path);
-  return rel.startsWith('..') || rel === '' ? path : rel.split(sep).join('/');
-}
-
-/** 读取文本；失败返回 `{ error }`。 */
-function readText(path) {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (error) {
-    return { error: `读取不到 ${displayPath(path)}：${String(error)}` };
-  }
-}
-
 /** 按后缀取 TS 解析 kind（.tsx/.jsx/.js 走 TSX，允许 JSX）。 */
 function scriptKindOf(path) {
   if (path.endsWith('.tsx') || path.endsWith('.jsx') || path.endsWith('.js')) {
@@ -113,23 +91,9 @@ function scriptKindOf(path) {
 
 /** 递归收集源码文件（按名排序，输出确定）。 */
 function collectSourceFiles(root) {
-  if (!existsSync(root)) return null;
-  if (statSync(root).isFile()) return [root];
-  const files = [];
-  const walk = (dir) => {
-    for (const item of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-    )) {
-      const full = join(dir, item.name);
-      if (item.isDirectory()) {
-        walk(full);
-        continue;
-      }
-      if (SOURCE_EXTENSIONS.some((ext) => item.name.endsWith(ext))) files.push(full);
-    }
-  };
-  walk(root);
-  return files;
+  return collectFiles(root, {
+    isTarget: (name) => SOURCE_EXTENSIONS.some((ext) => name.endsWith(ext)),
+  });
 }
 
 /**

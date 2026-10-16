@@ -21,14 +21,16 @@
  * 用法：node scripts/guard-electron-baseline.mjs [--json] [--source=<窗口选项文件>] [--probe|--no-probe]
  * 退出码：**0 = 通过 / 1 = 违规 / 2 = 阻塞（无法判定或前置条件不成立）**。
  * 说明：给了 `--source`（fixture 反例测试）时**自动禁用**运行时探针——fixture 不是可运行的壳。
+ * 读取原语（`readArg` / `readText` / 仓储相对路径展示）与另两守卫共用 `scripts/lib/guard-io.mjs`；
+ * 缺源文案的路径展示随之统一为「仓库内相对、仓库外原样」（原为绝对路径直出，同义归一）。
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import ts from 'typescript';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+import { REPO_ROOT, readArg, readText } from './lib/guard-io.mjs';
+
 const DEFAULT_SOURCE = join(REPO_ROOT, 'apps', 'desktop', 'src', 'main', 'window-options.ts');
 const MAIN_SOURCE = join(REPO_ROOT, 'apps', 'desktop', 'src', 'main', 'main.ts');
 const ELECTRON_APP_DIR = join(REPO_ROOT, 'apps', 'desktop');
@@ -45,28 +47,13 @@ const EXPECTED_BASELINE = {
 const BASELINE_CONST = 'SECURITY_BASELINE';
 const PROBE_PREFIX = 'DFORGE_BASELINE_PROBE:';
 
-/** 从 argv 取 `--name=value`。 */
-function readArg(name) {
-  const prefix = `--${name}=`;
-  const hit = process.argv.find((arg) => arg.startsWith(prefix));
-  return hit?.slice(prefix.length);
-}
-
+/** 从 argv 取 `--name=value`（共用 `lib/guard-io` 的解析原语）。 */
 const sourceArg = readArg('source');
 const sourcePath = sourceArg ? resolve(sourceArg) : DEFAULT_SOURCE;
 const isFixtureRun = sourcePath !== DEFAULT_SOURCE;
 const jsonMode = process.argv.includes('--json');
 const probeFlag = process.argv.includes('--probe');
 const probeDisabled = process.argv.includes('--no-probe') || isFixtureRun;
-
-/** 读取源码文本；失败返回 `{ error }`。 */
-function readSource(path) {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (error) {
-    return { error: `读取不到 ${path}：${String(error)}` };
-  }
-}
 
 /** 解析出 AST（纯语法 + 字面量求值，不做类型检查）。 */
 function parse(path, text) {
@@ -401,7 +388,7 @@ function checkPreferencesLiteral(objectLiteral, label, context) {
 function checkMainProcess() {
   const violations = [];
   const undetermined = [];
-  const text = readSource(MAIN_SOURCE);
+  const text = readText(MAIN_SOURCE);
   if (typeof text === 'object') {
     undetermined.push(text.error);
     return { violations, undetermined };
@@ -451,7 +438,7 @@ function runRuntimeProbe() {
 
 /** 主流程。 */
 function main() {
-  const text = readSource(sourcePath);
+  const text = readText(sourcePath);
   const report = {
     source: sourcePath,
     expected: EXPECTED_BASELINE,
