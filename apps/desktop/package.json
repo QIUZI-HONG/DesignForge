@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "description": "设界桌面最小壳（Electron；FE-12 落地）",
+  "main": "dist/main/main.js",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "pnpm run build && electron .",
+    "fetch-electron": "node tools/fetch-electron.cjs",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

@@ -5,7 +5,10 @@
   "type": "module",
   "description": "设界设计系统（双基准令牌 + 组件；禁裸值）",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css",
+    "./components.css": "./src/components.css",
+    "./styles.css": "./src/styles.css"
   },
   "scripts": {
     "lint": "biome check .",
@@ -15,8 +18,19 @@
   "dependencies": {
     "@dforge/contracts": "workspace:*"
   },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
   "devDependencies": {
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
     "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "jsdom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

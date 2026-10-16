@@ -1,7 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    // 采集线各层 CLI 走 Node 原生 TS 类型擦除直跑（node src/<层>/cli.ts），相对导入需显式带 .ts 后缀。
+    "allowImportingTsExtensions": true
   },
   "include": ["src"]
 }

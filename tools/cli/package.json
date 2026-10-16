@@ -10,7 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dforge/contracts": "workspace:*"
+    "@dforge/contracts": "workspace:*",
+    "@dforge/ingest": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",

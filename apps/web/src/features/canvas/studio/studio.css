@@ -1,0 +1,62 @@
+/**
+ * 画布宿主样式（门禁取样页/开发调试壳）。
+ * 口径：颜色/间距/圆角/字号一律 `var(--dfg-*)` 令牌。
+ */
+
+/* 宿主页（/_canvas）：铺满视口（零值无需单位，不属裸值） */
+.dfc-canvas-page {
+  position: fixed;
+  inset: 0;
+}
+
+.dfc-studio {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background-color: var(--dfg-color-canvas);
+}
+
+.dfc-studio__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-3);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  background-color: var(--dfg-color-surface);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfc-studio__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+}
+
+.dfc-studio__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfc-studio__notice {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  max-width: var(--dfg-size-tooltip-max-width);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dfc-studio__hint {
+  padding: var(--dfg-space-1) var(--dfg-space-3);
+  background-color: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* 画布区占满剩余空间（舞台按父容器尺寸自适应，DPR 感知在舞台内处理） */
+.dfc-studio > .dfc-canvas-shell {
+  flex: 1;
+  min-height: 0;
+}

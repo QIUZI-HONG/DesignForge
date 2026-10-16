@@ -1,0 +1,215 @@
+/*
+ * 组件面板样式（C17）——令牌变量引用，禁裸值（guard-tokens 守卫）。
+ *
+ * 颜色语义：`--dfg-color-component`（Figma 组件紫）只用于「组件/实例/变体」——
+ * 与画布上的紫色组件标记同源，界面不另造第二套紫。
+ * 尺寸走间距/圆角/字号令牌；控件高由 `--dfg-control-height-*` 决定（深色族紧凑档 28）。
+ */
+
+.dfc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-3);
+  padding: var(--dfg-space-3);
+  background: var(--dfg-color-surface);
+  border-left: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  box-sizing: border-box;
+}
+
+.dfc-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+  min-height: var(--dfg-control-height-md);
+}
+
+.dfc-panel__title {
+  margin: 0;
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfc-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+}
+
+.dfc-panel__name {
+  margin: 0;
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfc-panel__meta {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfc-panel__meta--warn {
+  color: var(--dfg-color-warning);
+}
+
+.dfc-panel__action {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfc-panel__shortcut {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfc-panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding-top: var(--dfg-space-2);
+  border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfc-panel__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+}
+
+.dfc-panel__section-title {
+  margin: 0;
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* 紫徽标：主组件 / 组件集 / 实例 / 缺失主组件（缺失走危险色，避免误读为健康实例） */
+.dfc-badge {
+  display: inline-flex;
+  align-items: center;
+  height: var(--dfg-control-height-sm);
+  padding: 0 var(--dfg-space-2);
+  border-radius: var(--dfg-radius-sm);
+  background: color-mix(in srgb, var(--dfg-color-component) 18%, transparent);
+  color: var(--dfg-color-component);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  white-space: nowrap;
+}
+
+.dfc-badge[data-df-kind="missing"] {
+  background: var(--dfg-color-danger-subtle);
+  color: var(--dfg-color-danger);
+}
+
+/* 变体下拉 */
+.dfc-variants {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+}
+
+.dfc-variants__field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+  min-height: var(--dfg-control-height-md);
+}
+
+.dfc-variants__label {
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfc-variants__control {
+  height: var(--dfg-control-height-md);
+  min-width: var(--dfg-space-16);
+  padding: 0 var(--dfg-space-1);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  background: var(--dfg-color-surface-raised);
+  color: var(--dfg-color-text-primary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfc-variants__control:hover {
+  background: var(--dfg-color-hover);
+}
+
+.dfc-variants__control:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+  outline-offset: var(--dfg-border-width-hairline);
+}
+
+/* 覆盖清单 */
+.dfc-overrides {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfc-overrides__row {
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+  border-radius: var(--dfg-radius-sm);
+  background: var(--dfg-color-surface-subtle);
+}
+
+.dfc-overrides__row:hover {
+  background: var(--dfg-color-hover);
+}
+
+.dfc-overrides__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+}
+
+.dfc-overrides__label {
+  color: var(--dfg-color-component);
+}
+
+.dfc-overrides__props {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  margin: var(--dfg-space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfc-overrides__prop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--dfg-space-1);
+}
+
+.dfc-overrides__prop-name {
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfc-overrides__prop-value {
+  color: var(--dfg-color-text-primary);
+}
+
+.dfc-overrides__prop-main {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfc-overrides__empty {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+}
