@@ -33,11 +33,15 @@
     <!-- data-dforge-shell-fallback 是壳自检读取的标记（markers 常量同名，勿改） -->
     <main data-dforge-shell-fallback="web-artifact-missing">
       <h1>未装载到 web 产物</h1>
+      <p><strong>本页是桌面壳（Electron）的内置诊断页，供开发与排障使用——不是产品界面。</strong></p>
       <p>壳已按预期启动，但没有找到可装载的 <code>apps/web</code> 产物。三条出路任选其一：</p>
       <ol>
         <li>开发态：起 web dev server 后带 <code>DFORGE_SHELL_URL=http://localhost:3000</code> 启动壳；</li>
         <li>构建态：<code>pnpm --filter @dforge/web build</code> 产出静态导出后重启壳（或指定 <code>DFORGE_SHELL_STATIC</code>）；</li>
-        <li>只想验证壳本身：跑 <code>pnpm exec node scripts/verify-shell-parity.mjs --stage=smoke</code>。</li>
+        <li>
+          只想验证壳本身：跑
+          <code>pnpm exec node scripts/verify-shell-parity.mjs</code>（默认含冒烟段与交互存活段）。
+        </li>
       </ol>
       <p>此页只用于诊断，不参与产品验收对照。</p>
     </main>
