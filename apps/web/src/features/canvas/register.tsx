@@ -6,10 +6,12 @@
  * 由 `app/editor/page.tsx` 顶部 `import '@/features/canvas/register';` 引入（FE-03 约定：
  * 各票在自己目录里注册，不改壳层代码）。本模块负责三件事：
  *
- * 1. **插槽挂载**：`canvas` / `left-panel` / `right-panel` / `overlays`
- *    （FE-06 画布 · FE-04 面板 · FE-05 Inspector · FE-08 检查导出 · FE-10 AI/MCP）；
- * 2. **命令注册**：接管 FE-03 预留的 `view.zoomFit` / `edit.undo` / `edit.redo`，
- *    并覆盖 `view.zoomIn|zoomOut|zoom100`（让 ⌘±/⌘0 直接驱动**引擎视口**，外壳缩放菜单跟随）；
+ * 1. **插槽挂载**：`canvas` / `left-panel` / `right-panel` / `toolbar`（AI 入口）/
+ *    `overlays`（FE-06 画布 · FE-04 面板 · FE-05 Inspector · FE-08 检查导出 · FE-10 AI/MCP）；
+ * 2. **命令注册**：接管 FE-03 预留的 `view.zoomFit` / `edit.undo` / `edit.redo` /
+ *    `file.new` / `file.export`（修复批次 4 · D-7：死入口注册实现），注册 `view.ai`
+ *    （D-6：AI 抽屉唯一入口命令），并覆盖 `view.zoomIn|zoomOut|zoom100`（让 ⌘±/⌘0
+ *    直接驱动**引擎视口**，外壳缩放菜单跟随）；
  * 3. **门禁挂点**：FE-05 的 `window.__dfInspectorProbe`（历史 + 节点属性读点）。
  */
 
@@ -18,13 +20,23 @@ import {
   RESERVED_COMMAND_IDS,
   registerCommand,
   registerEditorSlotItem,
+  useEditorUi,
   useEditorView,
 } from '@/features/editor-shell';
 import { t } from '@/i18n';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
+
 import { SAVE_DOCUMENT_COMMAND_ID } from './workspace/document-bridge';
 import { DocumentSaveControl } from './workspace/save-control';
-import { CanvasSlot, LeftPanelSlot, OverlaysSlot, RightPanelSlot } from './workspace/slots';
+import {
+  AiEntryButton,
+  CanvasSlot,
+  LeftPanelSlot,
+  OverlaysSlot,
+  RightPanelSlot,
+} from './workspace/slots';
 import { connectToolSync, registerWorkspaceToolCommands } from './workspace/tool-bridge';
+import { useWorkspaceUi } from './workspace/ui-state';
 
 import {
   ensureWorkspaceBootstrapped,
@@ -122,6 +134,70 @@ export function registerWorkspaceCommands(): void {
       void workspace.documents.save();
     },
   });
+
+  // AI 抽屉入口（D-6 / UX-10）：命令面板（视图组）与工具栏入口按钮共用这一条命令；
+  // 开合状态写 `useWorkspaceUi`（命令的 run 是非 React 闭包，见 `workspace/ui-state.ts`）。
+  // `pressed` + `subscribe` 让入口渲染 aria-pressed 并在状态变化时重取快照。
+  registerCommand({
+    id: AI_DRAWER_COMMAND_ID,
+    title: t('ai.title'),
+    group: t('editor.group.view'),
+    pressed: () => useWorkspaceUi.getState().aiDrawerOpen,
+    subscribe: (notify) => useWorkspaceUi.subscribe(() => notify()),
+    run: () => {
+      const ui = useWorkspaceUi.getState();
+      ui.setAiDrawerOpen(!ui.aiDrawerOpen);
+    },
+  });
+
+  // 导出…（D-7 死入口修复）：切到右栏「导出」页签（导出格式与落盘检查在页签内，
+  // 未落盘时页签明确提示「先保存」，不给会失败的按钮）。
+  registerCommand({
+    id: RESERVED_COMMAND_IDS.exportFile,
+    title: t('editor.menu.export'),
+    group: t('editor.group.file'),
+    run: () => {
+      useWorkspaceUi.getState().setRightPanelTab('export');
+    },
+  });
+
+  // 新建设计文件（D-7 死入口修复）：回到首页的新建入口（`?create=1` 自动打开新建对话框，
+  // 创建流程与错误分因文案都在首页）；经 `withDaemonEndpoint` 续写当前端点参数（B 口径）。
+  registerCommand({
+    id: RESERVED_COMMAND_IDS.newFile,
+    title: t('editor.menu.newFile'),
+    group: t('editor.group.file'),
+    run: () => {
+      window.location.assign(newFileEntryHref());
+    },
+  });
+}
+
+/** AI 抽屉命令 id（命令面板 / 入口按钮 / 门禁共用一处定义）。 */
+export const AI_DRAWER_COMMAND_ID = 'view.ai';
+
+/**
+ * `file.new` 的落点：首页新建入口（`/?create=1`，首页挂载后自动打开新建对话框）。
+ * 经单点续写当前 daemon 端点参数（`@/lib/daemon-endpoint`，D-3/UX-01 口径）。
+ */
+export function newFileEntryHref(): string {
+  return withDaemonEndpoint('/?create=1');
+}
+
+/**
+ * 查询串驱动的入口（D2/D3）：`?shortcuts=1` 打开快捷键说明、`?ai=1` 打开 AI 抽屉。
+ *
+ * 用于站内跳转落地即达的场景（首页「键盘快捷键」→ 编辑器快捷键说明；首页「打开 AI 助手」
+ * → 编辑器 AI 抽屉）。幂等只应用一次：跳转后的会话内再次调用不重复触发浮层。
+ */
+let queryEntryPointsApplied = false;
+
+export function connectQueryEntryPoints(): void {
+  if (queryEntryPointsApplied || typeof window === 'undefined') return;
+  queryEntryPointsApplied = true;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('shortcuts') === '1') useEditorUi.getState().setShortcutsOpen(true);
+  if (params.get('ai') === '1') useWorkspaceUi.getState().setAiDrawerOpen(true);
 }
 
 /**
@@ -221,6 +297,12 @@ export function registerWorkspaceSlots(): void {
     order: 0,
     render: () => <RightPanelSlot />,
   });
+  // AI 抽屉入口（D1）：工具栏按钮（命令面板走 `view.ai`，两处同一命令）
+  registerEditorSlotItem('toolbar', {
+    id: 'fe-10-ai-entry',
+    order: 0,
+    render: () => <AiEntryButton />,
+  });
   registerEditorSlotItem('overlays', {
     id: 'fe-10-overlays',
     order: 10,
@@ -245,6 +327,7 @@ export function WorkspaceBootstrap(): null {
     installWorkspaceProbe();
     ensureWorkspaceBootstrapped();
     connectDocumentBridge();
+    connectQueryEntryPoints();
   }, []);
   return null;
 }
@@ -257,6 +340,7 @@ setWorkspaceBootstrap(() => {
   installInspectorProbe();
   installWorkspaceProbe();
   connectDocumentBridge();
+  connectQueryEntryPoints();
 });
 
 /** 缩放百分比（供状态栏/调试）。 */

@@ -64,7 +64,13 @@ describe('DropdownMenu · 链接条目（href）', () => {
       {
         id: 'help',
         items: [
-          { id: 'settings', label: '设置', href: '/settings', disabled: true, disabledReason: '未接入' },
+          {
+            id: 'settings',
+            label: '设置',
+            href: '/settings',
+            disabled: true,
+            disabledReason: '未接入',
+          },
         ],
       },
     ]);

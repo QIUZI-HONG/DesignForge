@@ -9,18 +9,21 @@
  * 槽位归属（本票接线）：
  * - `canvas`     → 画布本体（FE-06）+ HUD 走壳层 `useCanvasHud()`；
  * - `left-panel` → FE-04 `EditorPanels`（图层/资产双页签，选择集与画布同源）；
- * - `right-panel`→ 右栏页签：检查（FE-08 C15）/ 代码（F6）/ 导出（FE-08）+ 属性（FE-05）；
+ * - `right-panel`→ 右栏页签：检查（FE-08 C15）/ 代码（F6）/ 导出（FE-08）/ 出图（D1 挂载点）
+ *                  + 属性（FE-05）；
+ * - `toolbar`    → AI 抽屉入口按钮（D1 挂载点，与 `view.ai` 命令同一条路径）；
  * - `overlays`   → FE-10 `AiDrawer`（AI 助手）+ MCP 确认条容器（常驻，不随面板开合）。
  */
 
 import type { DesignDocument } from '@dforge/engine';
-import { SegmentedControl } from '@dforge/ui';
+import { SegmentedControl, Tooltip } from '@dforge/ui';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 
 import { AiDrawer, createAiPort } from '@/features/ai';
 import { EditorPanels, PanelsProvider } from '@/features/editor-panels';
-import { useCanvasHud } from '@/features/editor-shell';
+import { executeCommand, useCanvasHud } from '@/features/editor-shell';
+import { ImagePanel } from '@/features/image';
 import { CodeExportPanel, ExportPanel, InspectPanel } from '@/features/inspect-export';
 import { InspectorPanel } from '@/features/inspector';
 import { t } from '@/i18n';
@@ -29,7 +32,9 @@ import { installCanvasDebugHandle, sessionDebugHandle } from '../debug/canvas-de
 import { daemonPageId } from '../persistence/documents-client';
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
+import { AiEntryIcon } from './icons';
 import { McpConfirmHost } from './mcp-host';
+import { RIGHT_PANEL_TABS, type RightPanelTab, useWorkspaceUi } from './ui-state';
 import { ensureWorkspaceBootstrapped, getWorkspace } from './workspace-session';
 
 import './workspace.css';
@@ -117,18 +122,21 @@ export function LeftPanelSlot() {
   );
 }
 
-/** 右栏页签（检查 / 代码 / 导出）。 */
-const RIGHT_TABS = ['inspect', 'code', 'export'] as const;
-type RightTab = (typeof RIGHT_TABS)[number];
+/** 右栏页签（检查 / 代码 / 导出 / 出图）。 */
+const RIGHT_TABS = RIGHT_PANEL_TABS;
 
 /**
- * 右栏槽：上半区 FE-08 三页签（C15 检查态 / F6 代码 / 导出），下半区 FE-05 Inspector（C5–C7）。
- * 分区而非互斥：检查态与属性面板都是「选中即看」，同屏对照更接近 Figma 的右栏心智。
+ * 右栏槽：上半区 FE-08 三页签（C15 检查态 / F6 代码 / 导出）+ 出图（D1 挂载点），
+ * 下半区 FE-05 Inspector（C5–C7）。分区而非互斥：检查态与属性面板都是「选中即看」，
+ * 同屏对照更接近 Figma 的右栏心智。
+ *
+ * 页签态在 `useWorkspaceUi`（而非组件 state）：`file.export` 命令要能切到「导出」页签
+ * （D-7 死入口修复），命令的 `run` 是**非 React 闭包**——只能写 store（见 `ui-state.ts`）。
  */
 export function RightPanelSlot() {
   const mounted = useMounted();
   const workspace = getWorkspace();
-  const [tab, setTab] = useState<RightTab>('inspect');
+  const tab = useWorkspaceUi((state) => state.rightPanelTab);
   const selection = useStore(workspace.canvas.store, (state) => state.selection);
   const daemonDocumentId = useStore(workspace.documents.store, (state) => state.documentId);
   const document = useSyncExternalStore(
@@ -155,7 +163,7 @@ export function RightPanelSlot() {
             label: t(`canvas.ws.tab.${value}`),
           }))}
           onChange={(value) => {
-            setTab(value as RightTab);
+            useWorkspaceUi.getState().setRightPanelTab(value as RightPanelTab);
           }}
         />
       </div>
@@ -174,6 +182,7 @@ export function RightPanelSlot() {
           <CodeExportPanel page={page} nodeId={activeNodeId} tokens={document.tokens} />
         ) : null}
         {tab === 'export' ? <ExportTab document={document} /> : null}
+        {tab === 'image' ? <ImageTab /> : null}
       </div>
       <div className="dfc-ws-right__inspector" data-df-workspace="inspector">
         <InspectorPanel
@@ -183,6 +192,22 @@ export function RightPanelSlot() {
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * 出图页签（D1 挂载点）：`ImagePanel` 自带的抽屉在页签选中时打开（受控）。
+ * 抽屉关闭（Esc / 遮罩 / 关闭按钮）→ 页签回到「检查」——「出图」是抽屉的开关语义，
+ * 不存在「页签选中但什么都没有」的空态。
+ */
+function ImageTab() {
+  return (
+    <ImagePanel
+      open
+      onOpenChange={(next) => {
+        if (!next) useWorkspaceUi.getState().setRightPanelTab('inspect');
+      }}
+    />
   );
 }
 
@@ -210,19 +235,47 @@ function ExportTab({ document }: { document: DesignDocument }) {
 }
 
 /**
- * AI 抽屉宿主：受控开合（命令面板「AI 助手」与工具栏按钮都能开它）。
+ * AI 抽屉宿主：开合状态在 `useWorkspaceUi`（`view.ai` 命令与工具栏入口按钮都能写它，
+ * 见 `ui-state.ts`），抽屉开合由入口同一条命令路径驱动（D-6：修复前无任何触发点）。
  * 抽屉开着时不渲染画布 HUD（避免叠层互相压字）。
  */
 export function AiDrawerSlot() {
   const mounted = useMounted();
-  const [open, setOpen] = useState(false);
+  const open = useWorkspaceUi((state) => state.aiDrawerOpen);
   // 基址解析已全站收敛（`@/lib/daemon-endpoint`，ADR-0004 裁决 ①）：端口自取同一份口径
   const port = useMemo(() => createAiPort(), []);
   const onOpenChange = useCallback((next: boolean) => {
-    setOpen(next);
+    useWorkspaceUi.getState().setAiDrawerOpen(next);
   }, []);
   if (!mounted) return null;
   return <AiDrawer open={open} onOpenChange={onOpenChange} port={port} />;
+}
+
+/**
+ * AI 抽屉入口按钮（D1：工具栏落点）。
+ *
+ * 按钮只执行 `view.ai` 命令（与命令面板、快捷键同一路径），`aria-pressed` 跟随开合态；
+ * 「无 key 降级态」由抽屉自身渲染（既有实现），入口不做任何降级分支。
+ */
+export function AiEntryButton() {
+  const open = useWorkspaceUi((state) => state.aiDrawerOpen);
+  const label = t('ai.title');
+  return (
+    <Tooltip content={label} placement="bottom">
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={open}
+        data-df-ai-entry=""
+        className={open ? 'dfg-editor-tool dfg-editor-tool--active' : 'dfg-editor-tool'}
+        onClick={() => {
+          void executeCommand('view.ai');
+        }}
+      >
+        <AiEntryIcon />
+      </button>
+    </Tooltip>
+  );
 }
 
 /** 浮层槽：AI 抽屉 + MCP 确认条容器（全局确认，常驻）。 */
