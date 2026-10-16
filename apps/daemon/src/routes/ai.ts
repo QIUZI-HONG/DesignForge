@@ -18,6 +18,12 @@ function sseFrame(event: AiStreamEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
+/** 客户端是否要求 SSE 通道（只看原始请求体的 stream 字段——参数非法也要走 error 帧）。 */
+function wantsStream(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return false;
+  return (body as Record<string, unknown>).stream === true;
+}
+
 async function writeStream(
   reply: FastifyReply,
   context: DaemonContext,
@@ -29,17 +35,32 @@ async function writeStream(
     'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive',
   });
-  const parsed = parseAiChatRequest(body);
-  if (!parsed.ok) {
-    // 流式通道已建立：参数错误以 error 帧表达（单事件通道内不换形状）
-    raw.write(sseFrame({ type: 'error', error: makeError('ai_invalid_request', parsed.message) }));
+  // 客户端断开（关闭连接/AbortController）→ 立即中止上游推流（不做无谓的上游占用）
+  const abort = new AbortController();
+  const onClientClose = (): void => {
+    abort.abort();
+  };
+  raw.on('close', onClientClose);
+  try {
+    const parsed = parseAiChatRequest(body);
+    if (!parsed.ok) {
+      // 流式通道已建立：参数错误以 error 帧表达（单事件通道内不换形状）
+      if (!abort.signal.aborted) {
+        raw.write(
+          sseFrame({ type: 'error', error: makeError('ai_invalid_request', parsed.message) }),
+        );
+      }
+      return;
+    }
+    for await (const event of context.ai.streamChat(parsed.value, { signal: abort.signal })) {
+      if (abort.signal.aborted) break;
+      raw.write(sseFrame(event));
+    }
+  } finally {
+    raw.off('close', onClientClose);
+    abort.abort();
     raw.end();
-    return;
   }
-  for await (const event of context.ai.streamChat(parsed.value)) {
-    raw.write(sseFrame(event));
-  }
-  raw.end();
 }
 
 /** 注册 AI 路由。 */
@@ -62,13 +83,14 @@ export function registerAiRoutes(app: FastifyInstance, context: DaemonContext): 
   });
 
   app.post(DAEMON_ROUTES.aiChat.path, async (request, reply) => {
+    // 客户端声明 stream:true 即先建 SSE 通道——参数非法也以契约 error 帧返回（不换形状）
+    if (wantsStream(request.body)) {
+      await writeStream(reply, context, request.body);
+      return reply;
+    }
     const parsed = parseAiChatRequest(request.body);
     if (!parsed.ok) {
       return sendFail(reply, 'ai_invalid_request', parsed.message);
-    }
-    if (parsed.value.stream === true) {
-      await writeStream(reply, context, request.body);
-      return reply;
     }
     const response = await context.ai.chat(parsed.value);
     context.telemetry
