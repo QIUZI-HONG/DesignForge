@@ -44,6 +44,8 @@ export {
   Modal,
   type ModalProps,
   type ModalSize,
+  Overlay,
+  type OverlayProps,
   Progress,
   type ProgressProps,
   type ProgressTone,

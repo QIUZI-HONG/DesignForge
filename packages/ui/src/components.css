@@ -592,6 +592,15 @@
   border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
 }
 
+/* ---------- Overlay（整屏视图层：接入同一浮层栈的第三种形态） ---------- */
+
+.dfg-overlay {
+  position: fixed;
+  inset: 0;
+  /* z-index 由组件按浮层栈序内联注入（后开必在上）；此处只兜底层归属 */
+  isolation: isolate;
+}
+
 /* ---------- Toast（F11：底部居中胶囊 + 内嵌撤销） ---------- */
 
 .dfg-toast-region {
