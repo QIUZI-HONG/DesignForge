@@ -10,17 +10,22 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { classifyMarketOutcome } from '@/features/market/api';
-import { MarketEmptyState, MarketErrorState } from '@/features/market/components/MarketStates';
 import {
   bumpFeedback,
+  classifyMarketOutcome,
+  darkPageStyle,
   FEEDBACK_KEY,
   type FeedbackEntry,
+  hintStyle,
+  MarketEmptyState,
+  MarketErrorState,
+  MarketPanel,
   readFeedback,
-} from '@/features/market/feedback';
-import { MarketPanel } from '@/features/market/panel/MarketPanel';
-import { darkPageStyle, hintStyle, titleStyle, toolbarStyle } from '@/features/market/styles';
-import { useLoadRecords, useMarketQuery } from '@/features/market/use-market';
+  titleStyle,
+  toolbarStyle,
+  useLoadRecords,
+  useMarketQuery,
+} from '@/features/market';
 import { t } from '@/i18n';
 
 /** 面板取数参数：默认综合评分前 8（面板是速览，不做完整检索）。 */

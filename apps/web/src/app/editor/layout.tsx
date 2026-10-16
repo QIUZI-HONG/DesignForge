@@ -10,8 +10,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
-import { CanvasHudProvider } from '@/features/editor-shell/hud/context';
-import { EditorThemeScope } from '@/features/editor-shell/ui/theme-scope';
+import { CanvasHudProvider, EditorThemeScope } from '@/features/editor-shell';
 import { t } from '@/i18n';
 
 import '@/features/editor-shell/editor-shell.css';

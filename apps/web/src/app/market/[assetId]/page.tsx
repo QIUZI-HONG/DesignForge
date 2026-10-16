@@ -13,18 +13,20 @@
 import { Button, EmptyState, ErrorState } from '@dforge/ui';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { AssetDetailView } from '@/features/market/components/AssetDetailView';
-import { LoadConfirmDialog } from '@/features/market/components/LoadConfirmDialog';
-import { MarketErrorState } from '@/features/market/components/MarketStates';
-import { isUpdateAvailable } from '@/features/market/load-store';
 import {
+  AssetDetailView,
   badgeRowStyle,
   headerStyle,
   hintStyle,
+  isUpdateAvailable,
+  LoadConfirmDialog,
+  MarketErrorState,
   subtitleStyle,
   titleStyle,
-} from '@/features/market/styles';
-import { useLoadPlan, useLoadRecords, useMarketAsset } from '@/features/market/use-market';
+  useLoadPlan,
+  useLoadRecords,
+  useMarketAsset,
+} from '@/features/market';
 import { t } from '@/i18n';
 
 /** 解码路由参数（防御式：已解码的字符串不含 `%` 时原样返回）。 */

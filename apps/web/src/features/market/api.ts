@@ -19,11 +19,13 @@ import type {
 } from '@dforge/contracts';
 import { DAEMON_ROUTES, isApiSuccess } from '@dforge/contracts';
 
+import { DAEMON_ENDPOINT_DEFAULT, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+
 /**
- * daemon 缺省地址：`DAEMON_PORT_BASE`（4318）起探测，占用则 +1（契约 `routes.ts`）。
- * 端口是探测起点而非固定值——这里取起点，可用 `NEXT_PUBLIC_DF_DAEMON_URL` 覆盖。
+ * daemon 缺省地址（端口窗起点）。解析顺序**全站收敛**在 `@/lib/daemon-endpoint`
+ * （ADR-0004 裁决 ①）——本模块不另立口径，env 读取也只在收敛模块内发生。
  */
-export const DEFAULT_DAEMON_URL = 'http://127.0.0.1:4318';
+export const DEFAULT_DAEMON_URL = DAEMON_ENDPOINT_DEFAULT;
 
 /** 失败信封的归一形状（daemon 错误码表 + 可读消息）。 */
 export interface MarketFailure {
@@ -43,19 +45,11 @@ export interface MarketClientOptions {
 }
 
 /**
- * 从环境取 daemon 基址（`NEXT_PUBLIC_DF_DAEMON_URL` 缺省走协议起点）。
- *
- * 为什么显式写 `process.env.NEXT_PUBLIC_DF_DAEMON_URL` 这个**静态成员表达式**：
- * Next 只在构建期内联「字面量形式的 NEXT_PUBLIC_* 访问」，把整个 `process.env` 对象传进来
- * 在浏览器里取不到值（会静默回落缺省端口）。测试要注入时用 `env` 参数。
+ * 取 daemon 基址——纯委托 `@/lib/daemon-endpoint`（解析顺序与环境变量读取都在那里，
+ * 本模块不再暴露 env 注入口；测试要注入环境请用收敛模块的 `envUrl` 选项或其单测）。
  */
-export function daemonBaseUrl(env?: Record<string, string | undefined>): string {
-  const configured =
-    env === undefined ? process.env.NEXT_PUBLIC_DF_DAEMON_URL : env.NEXT_PUBLIC_DF_DAEMON_URL;
-  if (typeof configured === 'string' && configured.length > 0) {
-    return configured.replace(/\/+$/, '');
-  }
-  return DEFAULT_DAEMON_URL;
+export function daemonBaseUrl(): string {
+  return resolveDaemonEndpointSync();
 }
 
 /** 规范化未知的 JSON 为信封（缺 result 视为失败——形状不符绝不当成功）。 */

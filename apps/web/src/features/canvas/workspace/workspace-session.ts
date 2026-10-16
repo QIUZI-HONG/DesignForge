@@ -22,13 +22,13 @@ import {
   type ComponentPreviewState,
   createComponentsPreviewDocument,
   previewSelection as previewComponentsSelection,
-} from '@/features/editor-components/preview';
+} from '@/features/editor-components';
 import { createPanelsSession, type PanelsSession } from '@/features/editor-panels';
 import {
   createInspectPreviewDocument,
   type InspectPreviewState,
   previewSelection as previewInspectSelection,
-} from '@/features/inspect-export/preview';
+} from '@/features/inspect-export';
 import type { InspectorPreviewState } from '@/features/inspector';
 import { createPreviewDocument, previewSelection } from '@/features/inspector';
 
@@ -127,22 +127,10 @@ export function createEditorWorkspace(preset: WorkspacePreset): EditorWorkspace 
 }
 
 /**
- * 工作区 daemon 基址（适配层，不重构其它票）：
- * `?daemon=` 查询参数（本仓门禁/调试的通用约定） → `NEXT_PUBLIC_DF_DAEMON_URL` → 缺省
- * `http://127.0.0.1:4318`（与 FE-10 的 `resolveDaemonBaseUrl` 缺省一致）。
- *
- * 现状与建议：FE-02（首页）用端口漂移探测、FE-10 用 env→4318、本票用查询参数——
- * 三处尚未收敛；收敛（例如统一到「daemon 自报端口 + 单点 resolve」）归后续集成票，
- * 本票只保证**编辑器内**的画布/面板/AI/MCP 用同一个基址。
+ * 注：daemon 基址**不再在本模块解析**——全站单点收敛到 `@/lib/daemon-endpoint`
+ * （ADR-0004 裁决 ①）。收敛前这里有一套「查询参数 → env → 4318」口径，
+ * 与 FE-02、FE-10 两套并存；画布侧消费方现在经各自端口工厂取同一份结果。
  */
-export function resolveWorkspaceDaemonUrl(): string | undefined {
-  if (typeof window !== 'undefined') {
-    const fromQuery = new URLSearchParams(window.location.search).get('daemon');
-    if (fromQuery !== null && fromQuery.length > 0) return fromQuery;
-  }
-  const fromEnv = process.env.NEXT_PUBLIC_DF_DAEMON_URL;
-  return typeof fromEnv === 'string' && fromEnv.length > 0 ? fromEnv : undefined;
-}
 
 /** 模块级单例（插槽宿主不在同一棵 Provider 树里）。 */
 let singleton: EditorWorkspace | null = null;

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-import { ColdStart } from '@/features/settings/components/cold-start';
+import { ColdStart } from '@/features/settings';
 import { t } from '@/i18n';
 
 /**

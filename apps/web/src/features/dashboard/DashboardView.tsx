@@ -11,13 +11,6 @@
 import type { MarketAssetKind, MarketQueryResponse } from '@dforge/contracts';
 import type { ReactNode } from 'react';
 import {
-  computeCompleteness,
-  computeConsistency,
-  computeFreshness,
-  readCollectionProgress,
-  readLayerStatuses,
-} from '@/features/dashboard/metrics';
-import {
   badgeRowStyle,
   badgeStyle,
   hintStyle,
@@ -32,8 +25,15 @@ import {
   tableStyle,
   tdStyle,
   thStyle,
-} from '@/features/market/styles';
+} from '@/features/market';
 import { t } from '@/i18n';
+import {
+  computeCompleteness,
+  computeConsistency,
+  computeFreshness,
+  readCollectionProgress,
+  readLayerStatuses,
+} from './metrics';
 
 /** 四类资产的 i18n 键（看板的分部计数用）。 */
 const KIND_LABEL_KEYS: Record<MarketAssetKind, string> = {

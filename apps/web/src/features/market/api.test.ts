@@ -69,16 +69,13 @@ describe('api · URL 构造', () => {
 });
 
 describe('api · 基址解析', () => {
-  it('环境变量覆盖（去尾斜杠）；缺省走协议起点', () => {
-    expect(daemonBaseUrl({ NEXT_PUBLIC_DF_DAEMON_URL: 'http://127.0.0.1:5000/' })).toBe(
-      'http://127.0.0.1:5000',
-    );
-    expect(daemonBaseUrl({})).toBe(DEFAULT_DAEMON_URL);
+  it('纯委托单点模块：不传环境变量时 = 收敛模块的端口窗起点', () => {
+    expect(daemonBaseUrl()).toBe(DEFAULT_DAEMON_URL);
   });
 
-  it('不传参数时读静态 process.env.NEXT_PUBLIC_DF_DAEMON_URL（Next 构建期内联口径）', () => {
+  it('构建期 env 覆盖仍生效（读取口径归单点模块，本模块只委托）', () => {
     const original = process.env.NEXT_PUBLIC_DF_DAEMON_URL;
-    process.env.NEXT_PUBLIC_DF_DAEMON_URL = 'http://127.0.0.1:4321';
+    process.env.NEXT_PUBLIC_DF_DAEMON_URL = 'http://127.0.0.1:4321/';
     try {
       expect(daemonBaseUrl()).toBe('http://127.0.0.1:4321');
     } finally {

@@ -15,35 +15,34 @@ import type { MarketAsset } from '@dforge/contracts';
 import { Button } from '@dforge/ui';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { classifyMarketOutcome } from '@/features/market/api';
-import { CardGrid, MarketSkeletonGrid } from '@/features/market/components/CardGrid';
-import { FilterBar } from '@/features/market/components/FilterBar';
-import { LoadConfirmDialog } from '@/features/market/components/LoadConfirmDialog';
-import {
-  MarketEmptyState,
-  MarketErrorState,
-  MarketWarningBanner,
-} from '@/features/market/components/MarketStates';
 import {
   activeFilterCount,
   applyClientFilters,
+  badgeRowStyle,
+  CardGrid,
+  classifyMarketOutcome,
   clientFilterOf,
   collectScenes,
-  INITIAL_MARKET_FILTERS,
-  type MarketFilters,
-  selectFeatured,
-  toQueryParams,
-} from '@/features/market/filters';
-import { isUpdateAvailable } from '@/features/market/load-store';
-import {
-  badgeRowStyle,
+  FilterBar,
   headerStyle,
   hintStyle,
+  INITIAL_MARKET_FILTERS,
+  isUpdateAvailable,
+  LoadConfirmDialog,
+  MarketEmptyState,
+  MarketErrorState,
+  type MarketFilters,
+  MarketSkeletonGrid,
+  MarketWarningBanner,
+  selectFeatured,
   subtitleStyle,
   titleStyle,
   toolbarStyle,
-} from '@/features/market/styles';
-import { useLoadPlan, useLoadRecords, useMarketQuery } from '@/features/market/use-market';
+  toQueryParams,
+  useLoadPlan,
+  useLoadRecords,
+  useMarketQuery,
+} from '@/features/market';
 import { t } from '@/i18n';
 
 /** 市场首页。 */

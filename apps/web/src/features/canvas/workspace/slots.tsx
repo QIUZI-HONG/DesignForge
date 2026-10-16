@@ -20,9 +20,7 @@ import { useStore } from 'zustand';
 import { AiDrawer, createAiPort } from '@/features/ai';
 import { EditorPanels, PanelsProvider } from '@/features/editor-panels';
 import { useCanvasHud } from '@/features/editor-shell';
-import { CodeExportPanel } from '@/features/inspect-export/components/CodeExportPanel';
-import { ExportPanel } from '@/features/inspect-export/components/ExportPanel';
-import { InspectPanel } from '@/features/inspect-export/components/InspectPanel';
+import { CodeExportPanel, ExportPanel, InspectPanel } from '@/features/inspect-export';
 import { InspectorPanel } from '@/features/inspector';
 import { t } from '@/i18n';
 
@@ -30,11 +28,7 @@ import { installCanvasDebugHandle, sessionDebugHandle } from '../debug/canvas-de
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
 import { McpConfirmHost } from './mcp-host';
-import {
-  ensureWorkspaceBootstrapped,
-  getWorkspace,
-  resolveWorkspaceDaemonUrl,
-} from './workspace-session';
+import { ensureWorkspaceBootstrapped, getWorkspace } from './workspace-session';
 
 import './workspace.css';
 
@@ -191,11 +185,8 @@ export function RightPanelSlot() {
 export function AiDrawerSlot() {
   const mounted = useMounted();
   const [open, setOpen] = useState(false);
-  // 基址适配（不重构 FE-10）：URL `?daemon=` → NEXT_PUBLIC_DF_DAEMON_URL → 其缺省（4318）
-  const port = useMemo(() => {
-    const baseUrl = resolveWorkspaceDaemonUrl();
-    return createAiPort(baseUrl === undefined ? {} : { baseUrl });
-  }, []);
+  // 基址解析已全站收敛（`@/lib/daemon-endpoint`，ADR-0004 裁决 ①）：端口自取同一份口径
+  const port = useMemo(() => createAiPort(), []);
   const onOpenChange = useCallback((next: boolean) => {
     setOpen(next);
   }, []);

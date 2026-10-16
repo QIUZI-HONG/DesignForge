@@ -10,17 +10,18 @@
 import { Button, EmptyState } from '@dforge/ui';
 import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
-import { DashboardView } from '@/features/dashboard/DashboardView';
-import { classifyMarketOutcome } from '@/features/market/api';
-import { MarketErrorState, MarketWarningBanner } from '@/features/market/components/MarketStates';
+import { DashboardView } from '@/features/dashboard';
 import {
   badgeRowStyle,
+  classifyMarketOutcome,
   headerStyle,
   hintStyle,
+  MarketErrorState,
+  MarketWarningBanner,
   subtitleStyle,
   titleStyle,
-} from '@/features/market/styles';
-import { useMarketQuery } from '@/features/market/use-market';
+  useMarketQuery,
+} from '@/features/market';
 import { t } from '@/i18n';
 
 /** 看板样本上限（索引规模在首批 40 仓量级，200 足够覆盖；截断时看板如实标注）。 */

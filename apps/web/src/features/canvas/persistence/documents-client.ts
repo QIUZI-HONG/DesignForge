@@ -26,7 +26,7 @@ export const CANVAS_PAGE_VERSION = 1;
 
 /** 客户端选项。 */
 export interface DocumentsClientOptions {
-  /** daemon 基址（如 http://127.0.0.1:4318）。 */
+  /** daemon 基址（由宿主经 `@/lib/daemon-endpoint` 单点解析后传入；ADR-0004 裁决 ①）。 */
   baseUrl: string;
   /** fetch 实现（测试注入）。 */
   fetchImpl?: typeof fetch;
