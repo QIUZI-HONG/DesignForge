@@ -152,14 +152,21 @@ export function quadContainsPoint(quad: readonly Point[], point: Point): boolean
   return false;
 }
 
-/** 点是否在线段上（含端点，容差 1e-9 相对量）。 */
+/**
+ * 点是否在线段上（含端点，容差 1e-9 相对量）。
+ *
+ * 退化线段（端点重合，如 0 宽/0 高矩形的一条边）**不参与判定**：
+ * 此时 cross/dot 恒为 0，任何点都会被判为「在线段上」，进而让退化四边形
+ * 命中整个平面（B1：零尺寸节点吞掉全画布点击）。无面积的形状没有「内部点」。
+ */
 export function pointOnSegment(a: Point, b: Point, p: Point, epsilon = 1e-9): boolean {
+  const lenSq = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+  if (lenSq <= epsilon * epsilon) return false;
   const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
   if (Math.abs(cross) > epsilon * Math.max(1, Math.abs(b.x - a.x) + Math.abs(b.y - a.y))) {
     return false;
   }
   const dot = (p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y);
-  const lenSq = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
   return dot >= -epsilon && dot <= lenSq + epsilon;
 }
 

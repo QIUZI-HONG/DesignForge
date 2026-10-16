@@ -10,7 +10,7 @@
 
 import type { DesignDocument } from '../model/index';
 import { domainError } from '../scene/errors';
-import { assertValidDocument, validateDocument } from '../scene/validate';
+import { assertValidDocument, collectNonFiniteNumbers, validateDocument } from '../scene/validate';
 
 /** 格式标识。 */
 export const DESIGN_IR_FORMAT = 'dforge.designir' as const;
@@ -51,8 +51,24 @@ export function documentEnvelope(doc: DesignDocument): DesignIrEnvelope {
   return { $format: DESIGN_IR_FORMAT, $version: DESIGN_IR_VERSION, document: doc };
 }
 
+/**
+ * 序列化前守门：非有限数（NaN/±Infinity）会被 JSON **静默**折成 null，
+ * 文档从此类型漂移、校验无感、下游把 null 当 0 参与布局（B2）。一律拒绝并给出路径。
+ */
+export function assertSerializableNumbers(value: unknown, label: string): void {
+  const bad = collectNonFiniteNumbers(value);
+  if (bad.length === 0) return;
+  throw domainError(
+    'invalid-argument',
+    `${label}含非有限数值（NaN/±Infinity），拒绝序列化：${bad
+      .map((item) => `${item.path}=${String(item.value)}`)
+      .join('、')}`,
+  );
+}
+
 /** 序列化文档（稳定键序 + 信封）。 */
 export function serializeDocument(doc: DesignDocument): string {
+  assertSerializableNumbers(doc, '文档');
   return stableStringify(documentEnvelope(doc));
 }
 
@@ -60,6 +76,7 @@ export function serializeDocument(doc: DesignDocument): string {
 export function serializePage(doc: DesignDocument, pageId: string): string {
   const page = doc.pages.find((candidate) => candidate.id === pageId);
   if (!page) throw domainError('page-not-found', `页面不存在：${pageId}`);
+  assertSerializableNumbers(page, '页面');
   return stableStringify({ $format: DESIGN_IR_FORMAT, $version: DESIGN_IR_VERSION, page });
 }
 

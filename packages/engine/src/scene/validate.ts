@@ -21,15 +21,122 @@ export interface DocumentIssue {
     | 'missing-component'
     | 'missing-component-set'
     | 'duplicate-page'
-    | 'missing-page';
+    | 'missing-page'
+    /** 节点形状缺字段/类型不对（不受信输入的守门，B5）。 */
+    | 'missing-field'
+    /** NaN / ±Infinity（序列化会静默折成 null → 类型漂移，B2）。 */
+    | 'non-finite-number';
   message: string;
   pageId?: PageId;
   nodeId?: NodeId;
+  /** 定位到具体字段的路径（如 `pages[0].nodes.r.width`）。 */
+  path?: string;
+}
+
+/** 已知节点类型（不受信输入的守门用）。 */
+const KNOWN_NODE_TYPES: ReadonlySet<string> = new Set([
+  'rect',
+  'ellipse',
+  'text',
+  'frame',
+  'group',
+  'component',
+  'component_set',
+  'instance',
+]);
+
+/** 节点必须携带的数值字段（几何与外观标量）。 */
+const REQUIRED_NODE_NUMBERS = ['x', 'y', 'width', 'height', 'rotation', 'opacity'] as const;
+
+/** 节点必须携带的布尔字段。 */
+const REQUIRED_NODE_BOOLEANS = ['visible', 'locked'] as const;
+
+/**
+ * 递归收集非有限数值（NaN/±Infinity）及其路径。
+ *
+ * 为什么单独抽出来：Design IR 的数值一旦非有限，稳定序列化会**静默**折成 null
+ * （JSON 语义），文档从此类型漂移且校验无感（B2）。命令载荷、文档、剪贴板载荷
+ * 三条入口共用这一把尺子。`depth` 上限防止不受信输入用超深嵌套打爆递归栈。
+ */
+export function collectNonFiniteNumbers(
+  value: unknown,
+  path = '',
+  out: Array<{ path: string; value: number }> = [],
+  depth = 0,
+): Array<{ path: string; value: number }> {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) out.push({ path: path === '' ? '(根)' : path, value });
+    return out;
+  }
+  if (value === null || typeof value !== 'object' || depth >= 64) return out;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      collectNonFiniteNumbers(item, `${path}[${index}]`, out, depth + 1);
+    });
+    return out;
+  }
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    collectNonFiniteNumbers(item, path === '' ? key : `${path}.${key}`, out, depth + 1);
+  }
+  return out;
+}
+
+/**
+ * 节点形状校验（结构 + 类型，不判数值有限性——后者由 `collectNonFiniteNumbers` 报出）。
+ * 文档校验与剪贴板载荷校验（B5）同口径复用。
+ */
+export function validateNodeShape(node: unknown, path: string): DocumentIssue[] {
+  const issues: DocumentIssue[] = [];
+  if (node === null || typeof node !== 'object') {
+    return [{ code: 'missing-field', message: `${path} 不是节点对象`, path }];
+  }
+  const record = node as Record<string, unknown>;
+  if (typeof record.id !== 'string' || record.id.length === 0) {
+    issues.push({
+      code: 'missing-field',
+      message: `${path}.id 缺失或不是字符串`,
+      path: `${path}.id`,
+    });
+  }
+  if (typeof record.type !== 'string' || !KNOWN_NODE_TYPES.has(record.type)) {
+    issues.push({
+      code: 'missing-field',
+      message: `${path}.type 不是已知节点类型：${String(record.type)}`,
+      path: `${path}.type`,
+    });
+  }
+  if (typeof record.name !== 'string') {
+    issues.push({
+      code: 'missing-field',
+      message: `${path}.name 缺失或不是字符串`,
+      path: `${path}.name`,
+    });
+  }
+  for (const field of REQUIRED_NODE_NUMBERS) {
+    if (typeof record[field] !== 'number') {
+      issues.push({
+        code: 'missing-field',
+        message: `${path}.${field} 缺失或不是数值：${String(record[field])}`,
+        path: `${path}.${field}`,
+      });
+    }
+  }
+  for (const field of REQUIRED_NODE_BOOLEANS) {
+    if (typeof record[field] !== 'boolean') {
+      issues.push({
+        code: 'missing-field',
+        message: `${path}.${field} 缺失或不是布尔值：${String(record[field])}`,
+        path: `${path}.${field}`,
+      });
+    }
+  }
+  return issues;
 }
 
 /** 校验单个页面。 */
-export function validatePage(page: ScenePage): DocumentIssue[] {
+export function validatePage(page: ScenePage, options: { path?: string } = {}): DocumentIssue[] {
   const issues: DocumentIssue[] = [];
+  const base = options.path ?? `pages[${page.id}]`;
   const parentCount = new Map<NodeId, number>();
 
   // 1) 收集父子关系（顶层 + 各容器的子列表），并计数「被引用次数」
@@ -158,6 +265,31 @@ export function validatePage(page: ScenePage): DocumentIssue[] {
     }
   }
 
+  // 6) 节点形状与非有限数（不受信输入/外部构造的文档在这里被打回，B2/B5）
+  for (const [nodeId, node] of Object.entries(page.nodes)) {
+    const nodePath = `${base}.nodes.${nodeId}`;
+    for (const issue of validateNodeShape(node, nodePath)) {
+      issues.push({ ...issue, pageId: page.id, nodeId });
+    }
+    for (const bad of collectNonFiniteNumbers(node, nodePath)) {
+      issues.push({
+        code: 'non-finite-number',
+        message: `${bad.path} 不是有限数：${String(bad.value)}`,
+        pageId: page.id,
+        nodeId,
+        path: bad.path,
+      });
+    }
+  }
+  for (const bad of collectNonFiniteNumbers(page.grid, `${base}.grid`)) {
+    issues.push({
+      code: 'non-finite-number',
+      message: `${bad.path} 不是有限数：${String(bad.value)}`,
+      pageId: page.id,
+      path: bad.path,
+    });
+  }
+
   return issues;
 }
 
@@ -165,15 +297,22 @@ export function validatePage(page: ScenePage): DocumentIssue[] {
 export function validateDocument(doc: DesignDocument): DocumentIssue[] {
   const issues: DocumentIssue[] = [];
   const seen = new Set<PageId>();
-  for (const page of doc.pages) {
+  for (const [index, page] of doc.pages.entries()) {
     if (seen.has(page.id)) {
       issues.push({ code: 'duplicate-page', message: `页面 id 重复：${page.id}`, pageId: page.id });
     }
     seen.add(page.id);
-    issues.push(...validatePage(page));
+    issues.push(...validatePage(page, { path: `pages[${index}]` }));
   }
   if (doc.pages.length === 0) {
     issues.push({ code: 'missing-page', message: '文档没有任何页面' });
+  }
+  for (const bad of collectNonFiniteNumbers(doc.tokens, 'tokens')) {
+    issues.push({
+      code: 'non-finite-number',
+      message: `${bad.path} 不是有限数：${String(bad.value)}`,
+      path: bad.path,
+    });
   }
   return issues;
 }
@@ -187,17 +326,22 @@ export function assertValidDocument(doc: DesignDocument): void {
   }
 }
 
-/** 深冻结文档（测试用：任何绕过命令栈的直接写入都会立刻暴露）。 */
-export function deepFreezeDocument(doc: DesignDocument): DesignDocument {
-  const freeze = (value: unknown): void => {
-    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
-    Object.freeze(value);
-    for (const key of Object.keys(value as object)) {
-      freeze((value as Record<string, unknown>)[key]);
+/** 深冻结任意值（文档/命令载荷的快照语义；任何就地写入立刻暴露）。 */
+export function deepFreeze<T>(value: T): T {
+  const freeze = (target: unknown): void => {
+    if (target === null || typeof target !== 'object' || Object.isFrozen(target)) return;
+    Object.freeze(target);
+    for (const key of Object.keys(target as object)) {
+      freeze((target as Record<string, unknown>)[key]);
     }
   };
-  freeze(doc);
-  return doc;
+  freeze(value);
+  return value;
+}
+
+/** 深冻结文档（测试用：任何绕过命令栈的直接写入都会立刻暴露）。 */
+export function deepFreezeDocument(doc: DesignDocument): DesignDocument {
+  return deepFreeze(doc);
 }
 
 /** 节点的可枚举属性键（序列化/差异比较用）。 */

@@ -20,6 +20,7 @@ import { childrenOf, isContainer, pickPatch } from '../model/index';
 import { domainError } from '../scene/errors';
 import {
   addPage,
+  collectNonFiniteNumbers,
   getChildrenIds,
   getPage,
   getParentId,
@@ -64,8 +65,25 @@ function pickKeys(source: object, keys: readonly string[]): Record<string, unkno
   return out;
 }
 
+/**
+ * 命令载荷守门：载荷里的非有限数（NaN/±Infinity）一律在**施加前**拒绝。
+ * 理由：这类值进文档后序列化会静默变 null（类型漂移），且会污染命中/布局等几何运算（B2）。
+ */
+function assertFiniteCommandPayload(command: Command): void {
+  const bad = collectNonFiniteNumbers(command);
+  if (bad.length === 0) return;
+  throw domainError(
+    'invalid-argument',
+    `命令 ${command.type} 的载荷含非有限数值（NaN/±Infinity）：${bad
+      .map((item) => `${item.path}=${String(item.value)}`)
+      .join('、')}`,
+  );
+}
+
 /** 施加单条命令。命令非法时抛领域错误（调用方保证事务原子性）。 */
 export function applyCommand(doc: DesignDocument, command: Command): ApplyResult {
+  // 载荷守门：NaN/±Infinity 一旦落进文档，序列化会静默折成 null（类型漂移）并污染几何运算（B2）。
+  assertFiniteCommandPayload(command);
   switch (command.type) {
     case 'node.insert': {
       const next = insertNode(doc, command.pageId, command.node, command.parentId, command.index);

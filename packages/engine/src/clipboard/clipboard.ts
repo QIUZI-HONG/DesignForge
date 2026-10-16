@@ -15,6 +15,7 @@ import type { ComponentId, NodeId, PageId, SceneNode, ScenePage } from '../model
 import { childrenOf, isContainer } from '../model/index';
 import { domainError } from '../scene/errors';
 import { getDescendantIds } from '../scene/query';
+import { collectNonFiniteNumbers, type DocumentIssue, validateNodeShape } from '../scene/validate';
 
 /** 载荷格式标识（版本化，便于后续演进）。 */
 export const CLIPBOARD_FORMAT = 'dforge.clipboard' as const;
@@ -95,12 +96,213 @@ export function clipboardSize(payload: ClipboardPayload): number {
   return payload.nodes.length;
 }
 
-/** 序列化为 JSON 字符串（落系统剪贴板前的一步）。 */
+/**
+ * 序列化为 JSON 字符串（落系统剪贴板前的一步）。
+ *
+ * 出站守门（与 B2 文档序列化同口径）：非有限数会被 JSON **静默**折成 null（类型漂移），
+ * 落进系统剪贴板后就是畸形载荷（接收端也会拒），故在出站侧直接拒绝并给出路径。
+ */
 export function serializeClipboard(payload: ClipboardPayload): string {
+  const bad = collectNonFiniteNumbers(payload);
+  if (bad.length > 0) {
+    throw domainError(
+      'invalid-argument',
+      `剪贴板载荷含非有限数值（NaN/±Infinity），拒绝序列化：${bad
+        .map((item) => `${item.path}=${String(item.value)}`)
+        .join('、')}`,
+    );
+  }
   return JSON.stringify(payload);
 }
 
-/** 解析剪贴板字符串（校验格式标识与版本）。 */
+/**
+ * 载荷自检：**与文档校验同口径**（`scene/validate` 复用）——节点形状（必填字段与类型）、
+ * 非有限数、顶层/子级引用悬空、重复 id/重复引用、多父、环、不可达节点（会被静默插成顶层 → 走私）。
+ * 系统剪贴板是不受信输入，任何一处不合法都整包拒绝，而不是把畸形节点写进文档（B5）。
+ *
+ * 注：实例的**外部**主组件引用是合法载荷的一部分（跨页粘贴靠 `componentRemap` 接手），
+ * 故不套用文档校验的 missing-component/missing-component-set。
+ */
+function validateClipboardPayload(payload: ClipboardPayload): DocumentIssue[] {
+  const issues: DocumentIssue[] = [];
+  const ids = new Set<NodeId>();
+  const childrenById = new Map<NodeId, NodeId[]>();
+
+  payload.nodes.forEach((node, index) => {
+    const nodePath = `nodes[${index}]`;
+    for (const issue of validateNodeShape(node, nodePath)) {
+      issues.push(issue);
+    }
+    for (const bad of collectNonFiniteNumbers(node, nodePath)) {
+      issues.push({
+        code: 'non-finite-number',
+        message: `${bad.path} 不是有限数：${String(bad.value)}`,
+        path: bad.path,
+      });
+    }
+    const raw = node as unknown as Record<string, unknown>;
+    const id = typeof raw.id === 'string' ? raw.id : null;
+    if (id === null) return; // 缺 id 已由形状校验报出
+    if (ids.has(id)) {
+      issues.push({
+        code: 'duplicate-child',
+        message: `载荷内节点 id 重复：${id}`,
+        nodeId: id,
+        path: nodePath,
+      });
+    }
+    ids.add(id);
+    childrenById.set(id, childrenOf(node));
+  });
+
+  // 顶层引用必须落在载荷内
+  payload.rootIds.forEach((rootId, index) => {
+    if (typeof rootId !== 'string') {
+      issues.push({
+        code: 'missing-field',
+        message: `rootIds[${index}] 不是字符串：${String(rootId)}`,
+        path: `rootIds[${index}]`,
+      });
+      return;
+    }
+    if (!ids.has(rootId)) {
+      issues.push({
+        code: 'missing-root',
+        message: `载荷顶层节点不在节点表内：${rootId}`,
+        nodeId: rootId,
+        path: `rootIds[${index}]`,
+      });
+    }
+  });
+
+  // 子级引用必须落在载荷内（否则粘贴时静默丢子树）；同一父级下重复引用与多父一并拒收：
+  // 重复引用会被静默折叠成一次，多父会让粘贴只挂到最后一个父级、另一份子树无声丢失
+  const parentIdsByChild = new Map<NodeId, Set<NodeId>>();
+  for (const [parentId, childIds] of childrenById) {
+    const localSeen = new Set<NodeId>();
+    childIds.forEach((childId, index) => {
+      if (!ids.has(childId)) {
+        issues.push({
+          code: 'missing-child',
+          message: `载荷内子节点缺失：${childId}（父 ${parentId}）`,
+          nodeId: childId,
+          path: `nodes.${parentId}.children[${index}]`,
+        });
+        return;
+      }
+      if (localSeen.has(childId)) {
+        issues.push({
+          code: 'duplicate-child',
+          message: `同一父级下重复子引用：${childId}（父 ${parentId}）`,
+          nodeId: childId,
+          path: `nodes.${parentId}.children[${index}]`,
+        });
+        return;
+      }
+      localSeen.add(childId);
+      const parents = parentIdsByChild.get(childId) ?? new Set<NodeId>();
+      parents.add(parentId);
+      parentIdsByChild.set(childId, parents);
+    });
+  }
+  for (const [childId, parents] of parentIdsByChild) {
+    if (parents.size > 1) {
+      issues.push({
+        code: 'multiple-parents',
+        message: `载荷内节点被多个父级引用：${childId}（${[...parents].join('、')}）`,
+        nodeId: childId,
+        path: `nodes.${childId}`,
+      });
+    }
+  }
+
+  // 顶层重复引用：同一 id 会被插入两遍（撞 duplicate-id）
+  const rootSeen = new Set<NodeId>();
+  payload.rootIds.forEach((rootId, index) => {
+    if (typeof rootId !== 'string') return; // 非字符串已由上面的必填校验报出
+    if (rootSeen.has(rootId)) {
+      issues.push({
+        code: 'duplicate-child',
+        message: `载荷顶层重复引用：${rootId}`,
+        nodeId: rootId,
+        path: `rootIds[${index}]`,
+      });
+      return;
+    }
+    rootSeen.add(rootId);
+  });
+
+  // 环：粘贴会产出「节点以自身为父」的命令 → 与文档校验同口径拒收
+  const cyclicId = findPayloadCycle(childrenById, ids);
+  if (cyclicId !== null) {
+    issues.push({
+      code: 'cycle',
+      message: `载荷内节点树存在环：${cyclicId}`,
+      nodeId: cyclicId,
+      path: `nodes.${cyclicId}`,
+    });
+  }
+
+  // 从 rootIds 出发计算可达集：不可达节点会在粘贴时被静默插成顶层 → 拒收
+  const reachable = new Set<NodeId>();
+  const stack: NodeId[] = [...payload.rootIds];
+  while (stack.length > 0) {
+    const current = stack.pop() as NodeId;
+    if (reachable.has(current) || !childrenById.has(current)) continue;
+    reachable.add(current);
+    stack.push(...(childrenById.get(current) ?? []));
+  }
+  for (const id of ids) {
+    if (!reachable.has(id)) {
+      issues.push({
+        code: 'orphan-node',
+        message: `载荷内节点不可达（不在 rootIds 之下）：${id}`,
+        nodeId: id,
+        path: `nodes.${id}`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * 载荷环检测（迭代 DFS，返回构成回边的节点 id；无环为 null）。
+ *
+ * 显式栈而非递归：不受信载荷可能有极深嵌套，递归会在解析/悬挂阶段爆栈
+ * （对照 serialize-edges 记录的深嵌套证据）。父 id 会被跳过——环靠「回边」判定。
+ */
+function findPayloadCycle(
+  childrenById: ReadonlyMap<NodeId, NodeId[]>,
+  ids: ReadonlySet<NodeId>,
+): NodeId | null {
+  /** 0/缺省 = 未访问；1 = 在当前 DFS 路径上；2 = 已完成。 */
+  const state = new Map<NodeId, 1 | 2>();
+  for (const startId of ids) {
+    if (state.has(startId)) continue;
+    const stack: Array<{ id: NodeId; next: number }> = [{ id: startId, next: 0 }];
+    state.set(startId, 1);
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1] as { id: NodeId; next: number };
+      const children = (childrenById.get(frame.id) ?? []).filter((childId) => ids.has(childId));
+      if (frame.next >= children.length) {
+        state.set(frame.id, 2);
+        stack.pop();
+        continue;
+      }
+      const childId = children[frame.next] as NodeId;
+      frame.next += 1;
+      const childState = state.get(childId);
+      if (childState === 1) return childId; // 回边 → 环
+      if (childState === 2) continue; // 多父 DAG：已完成的子树无需重走
+      state.set(childId, 1);
+      stack.push({ id: childId, next: 0 });
+    }
+  }
+  return null;
+}
+
+/** 解析剪贴板字符串（校验信封 + 载荷自检；不合法的载荷整包拒绝）。 */
 export function parseClipboard(input: string | unknown): ClipboardPayload {
   let raw: unknown = input;
   if (typeof input === 'string') {
@@ -115,12 +317,20 @@ export function parseClipboard(input: string | unknown): ClipboardPayload {
     !payload ||
     payload.$format !== CLIPBOARD_FORMAT ||
     typeof payload.$version !== 'number' ||
+    typeof payload.sourcePageId !== 'string' ||
     !Array.isArray(payload.rootIds) ||
     !Array.isArray(payload.nodes)
   ) {
     throw domainError(
       'invalid-argument',
       '剪贴板内容格式不合法（缺少 dforge.clipboard 标识或字段缺失）',
+    );
+  }
+  const issues = validateClipboardPayload(payload as ClipboardPayload);
+  if (issues.length > 0) {
+    throw domainError(
+      'invalid-argument',
+      `剪贴板载荷非法：${issues.map((issue) => `${issue.code}:${issue.message}`).join('；')}`,
     );
   }
   return payload as ClipboardPayload;
