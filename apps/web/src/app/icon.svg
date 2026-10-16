@@ -1,9 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="设界">
-  <!-- 设界 favicon（G5 / UX-21）：品牌主色 --dfg-color-primary #0d99ff + 白色字形块。
-       为什么是 SVG：Next App Router 的 app/icon.svg 会被自动注入 <link rel="icon">，
-       浏览器不再请求缺省的 /favicon.ico（此前 404）。 -->
-  <rect width="32" height="32" rx="7" fill="#0d99ff" />
-  <rect x="8" y="8" width="7" height="16" rx="2" fill="#ffffff" />
-  <rect x="18" y="8" width="6" height="6" rx="2" fill="#ffffff" />
-  <rect x="18" y="18" width="6" height="6" rx="3" fill="#ffffff" />
+  <!-- 设界 favicon（G5 / UX-21）：Next App Router 的 app/icon.svg 会被自动注入 <link rel="icon">，
+       浏览器不再请求缺省的 /favicon.ico（此前 404）。
+       静态 favicon 没有 CSS 运行时，令牌（--dfg-color-primary 等）在 SVG 里不可达，
+       故色值取品牌基准的落盘值，并按行登记例外：每行行尾带 guard-tokens:allow（复核 J7，
+       扫描扩展名已纳入 .svg——改色必须同步令牌基准值，改完仍要逐行登记理由）。 -->
+  <rect width="32" height="32" rx="7" fill="#0d99ff" /> <!-- guard-tokens:allow 品牌主色基准（--dfg-color-primary 的落盘值），静态图标无令牌运行时 -->
+  <!-- 白色字形块：不进令牌体系（基准底衬，非语义色） -->
+  <rect x="8" y="8" width="7" height="16" rx="2" fill="#ffffff" /> <!-- guard-tokens:allow 基准白（字形/底衬），同静态图标口径 -->
+  <rect x="18" y="8" width="6" height="6" rx="2" fill="#ffffff" /> <!-- guard-tokens:allow 基准白（字形/底衬），同上 -->
+  <rect x="18" y="18" width="6" height="6" rx="3" fill="#ffffff" /> <!-- guard-tokens:allow 基准白（字形/底衬），同上 -->
 </svg>

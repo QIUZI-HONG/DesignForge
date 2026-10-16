@@ -14,6 +14,7 @@ import {
   allowlistFor,
   collectSourceFiles,
   RULES,
+  SCAN_EXTENSIONS,
   scanRoots,
   scanText,
 } from './guard-tokens-core.mjs';
@@ -186,5 +187,23 @@ describe('guard-tokens · 目录扫描', () => {
     const files = collectSourceFiles(join(process.cwd(), 'src', 'utils'));
     expect(files.length).toBeGreaterThan(0);
     expect(files.every((file) => /\.(ts|mjs)$/.test(file))).toBe(true);
+  });
+
+  it('扫描扩展名含 .svg（复核 J7：静态 SVG 的裸色值不得从扫描面漏走）', () => {
+    expect(SCAN_EXTENSIONS).toContain('.svg');
+  });
+
+  it('SVG 里的裸色值被抓；行内登记例外（同行 guard-tokens:allow）则放行', () => {
+    const bare = scanText(
+      'apps/web/src/app/icon.svg',
+      '<rect width="32" height="32" fill="#0d99ff" />\n',
+    );
+    expect(bare.map((item) => `${item.rule}:${item.text}`)).toEqual(['R1:#0d99ff']);
+
+    const registered = scanText(
+      'apps/web/src/app/icon.svg',
+      '<rect width="32" height="32" fill="#0d99ff" /> <!-- guard-tokens:allow 静态 favicon 无令牌运行时 -->\n',
+    );
+    expect(registered).toEqual([]);
   });
 });
