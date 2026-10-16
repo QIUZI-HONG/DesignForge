@@ -70,12 +70,17 @@ export {
   viewNodeOf,
   walkSubtree,
 } from './query';
-export type { DocumentIssue } from './validate';
+export type { DocumentIssue, NodeDepthOverflow, ValueDepthOverflow } from './validate';
 export {
+  assertNodeDepthWithinLimit,
+  assertPageNodeDepthWithinLimit,
   assertValidDocument,
+  assertValueDepthWithinLimit,
   collectNonFiniteNumbers,
   deepFreeze,
   deepFreezeDocument,
+  MAX_NESTING_DEPTH,
+  MAX_VALUE_DEPTH,
   nodeKeys,
   validateDocument,
   validateNodeShape,

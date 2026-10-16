@@ -6,11 +6,23 @@
  *
  * 信封（envelope）：`{ $format, $version, document }`——版本号让导入端能识别旧文件并迁移；
  * `parseDocument` 同时接受带信封与裸文档两种输入（夹具书写更省事）。
+ *
+ * 入口守门（修复批次 3 · A1）：序列化与导入都在**递归之前**跑同一组显式上限检查
+ * （节点链深度 → 结构深度 → 非有限数），超限抛 `DomainError('invalid-argument')` 并带路径。
+ * 为什么序列化也要守：`sortKeysDeep` 是递归实现，超深载荷同样会以原生栈溢出击穿调用方；
+ * 且导出与导入必须同口径——否则引擎自己导出的文档会导不回来。
  */
 
 import type { DesignDocument } from '../model/index';
 import { domainError } from '../scene/errors';
-import { assertValidDocument, collectNonFiniteNumbers, validateDocument } from '../scene/validate';
+import {
+  assertNodeDepthWithinLimit,
+  assertPageNodeDepthWithinLimit,
+  assertValidDocument,
+  assertValueDepthWithinLimit,
+  collectNonFiniteNumbers,
+  validateDocument,
+} from '../scene/validate';
 
 /** 格式标识。 */
 export const DESIGN_IR_FORMAT = 'dforge.designir' as const;
@@ -65,9 +77,10 @@ export function assertSerializableNumbers(value: unknown, label: string): void {
       .join('、')}`,
   );
 }
-
 /** 序列化文档（稳定键序 + 信封）。 */
 export function serializeDocument(doc: DesignDocument): string {
+  assertNodeDepthWithinLimit(doc, '文档');
+  assertValueDepthWithinLimit(doc, '文档');
   assertSerializableNumbers(doc, '文档');
   return stableStringify(documentEnvelope(doc));
 }
@@ -76,6 +89,8 @@ export function serializeDocument(doc: DesignDocument): string {
 export function serializePage(doc: DesignDocument, pageId: string): string {
   const page = doc.pages.find((candidate) => candidate.id === pageId);
   if (!page) throw domainError('page-not-found', `页面不存在：${pageId}`);
+  assertPageNodeDepthWithinLimit(page, '页面');
+  assertValueDepthWithinLimit(page, '页面');
   assertSerializableNumbers(page, '页面');
   return stableStringify({ $format: DESIGN_IR_FORMAT, $version: DESIGN_IR_VERSION, page });
 }
@@ -117,6 +132,10 @@ export function parseDocument(input: string | unknown): ParsedDocument {
   if (!Array.isArray(document.pages) || document.pages.length === 0) {
     throw domainError('invalid-argument', '文档缺少页面');
   }
+  // 深度守门：与序列化同一组上限（见模块头）——超限在这里就拒绝，绝不落到 validateDocument
+  // 的递归结构检查或后续 sortKeysDeep 上（旧缺陷：导入超深文档抛原生 TypeError/RangeError）。
+  assertNodeDepthWithinLimit(document, '文档');
+  assertValueDepthWithinLimit(document, '文档');
   const issues = validateDocument(document);
   if (issues.length > 0) {
     throw domainError(

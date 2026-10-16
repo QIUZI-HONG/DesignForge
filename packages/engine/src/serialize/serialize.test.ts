@@ -10,7 +10,14 @@ import {
   type DesignDocument,
   solidPaint,
 } from '../model/index';
-import { getPage, insertNode, insertNodes } from '../scene/index';
+import {
+  getPage,
+  insertNode,
+  insertNodes,
+  MAX_NESTING_DEPTH,
+  MAX_VALUE_DEPTH,
+  validateDocument,
+} from '../scene/index';
 import {
   cloneDocument,
   DESIGN_IR_FORMAT,
@@ -147,6 +154,56 @@ describe('serialize · 往返', () => {
     expect(() => serializePage(fixture(), 'missing')).toThrow('页面不存在');
   });
 });
+
+describe('serialize · 深度上限（A1：显式上限 + 领域错误）', () => {
+  it('上限取值是契约：节点链 512 层、结构 2048 层', () => {
+    expect(MAX_NESTING_DEPTH).toBe(512);
+    expect(MAX_VALUE_DEPTH).toBe(2048);
+  });
+
+  it('边界：512 层可往返；513 层在校验/序列化/导入三处一致被拒（含节点路径）', () => {
+    const atLimit = deepChain(MAX_NESTING_DEPTH);
+    expect(validateDocument(atLimit)).toEqual([]);
+    const json = serializeDocument(atLimit);
+    expect(parseDocument(json).document.pages.length).toBe(1);
+
+    const over = deepChain(MAX_NESTING_DEPTH + 1);
+    const issues = validateDocument(over);
+    expect(issues.map((issue) => issue.code)).toContain('max-depth-exceeded');
+    // 三处入口同口径：都是领域错误、都带越界节点路径
+    expect(() => serializeDocument(over)).toThrowError(/超过上限 512/);
+    expect(() => serializeDocument(over)).toThrowError(/f512/);
+    expect(() => parseDocument(over)).toThrowError(/超过上限 512/);
+    expect(() => parseDocument(JSON.stringify(over))).toThrowError(/f512/);
+    expect(() => roundTripDocument(over)).toThrowError(/超过上限 512/);
+  });
+
+  it('上限以内深链的稳定序列化结果可导入（导出与导入同口径）', () => {
+    const json = serializeDocument(deepChain(400));
+    expect(() => parseDocument(json)).not.toThrowError();
+  });
+});
+
+/** 直接装配 depth 层节点链（O(n)，避免 insertNode 的 O(n²) 拷贝）。 */
+function deepChain(depth: number): DesignDocument {
+  const nodes: Record<string, unknown> = {};
+  for (let index = 0; index < depth; index += 1) {
+    nodes[`f${index}`] = createFrame({
+      id: `f${index}`,
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      children: index + 1 < depth ? [`f${index + 1}`] : [],
+    });
+  }
+  return {
+    id: 'deep',
+    name: '深链',
+    tokens: createDocument({ id: 'tokens' }).tokens,
+    pages: [{ ...createPage({ id: 'p1' }), nodes: nodes as never, rootIds: ['f0'] }],
+  };
+}
 
 describe('serialize · 辅助', () => {
   it('cloneDocument 深拷贝（改副本不影响原文档）', () => {

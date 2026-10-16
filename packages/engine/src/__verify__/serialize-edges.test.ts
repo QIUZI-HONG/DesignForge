@@ -2,7 +2,8 @@
  * [独立验证 · engine] 序列化往返与畸形输入。
  *
  * 覆盖：往返幂等（含未知字段 / NaN / 超长字符串 / Unicode 代理对）、稳定键序、
- * 版本字段缺失与未来版本、深嵌套。
+ * 版本字段缺失与未来版本、深嵌套（显式深度上限 512：超限抛领域错误含节点路径）、
+ * 原型污染（自有 `__proto__` 键同口径丢弃）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -15,7 +16,7 @@ import {
   createRect,
   type DesignDocument,
 } from '../model/index';
-import { isDomainError } from '../scene/errors';
+import { type DomainError, isDomainError } from '../scene/errors';
 import { getPage, insertNode, validateDocument } from '../scene/index';
 import {
   DESIGN_IR_FORMAT,
@@ -227,7 +228,7 @@ describe('[verify] 序列化 · 版本字段', () => {
   });
 });
 
-describe('[verify] 序列化 · 深嵌套（导入守门崩溃）', () => {
+describe('[verify] 序列化 · 深嵌套（导入守门：显式深度上限 512）', () => {
   /** O(n) 直接装配深链（避免 insertNode 的 O(n²) 拷贝）。 */
   function deepDoc(depth: number): DesignDocument {
     const nodes: Record<string, unknown> = {};
@@ -249,70 +250,101 @@ describe('[verify] 序列化 · 深嵌套（导入守门崩溃）', () => {
     };
   }
 
-  it('2000 层嵌套：校验与序列化正常', () => {
-    const doc = deepDoc(2000);
+  it('上限（512 层）以内：校验无 issue，序列化与导入往返正常', () => {
+    const doc = deepDoc(512);
     expect(validateDocument(doc)).toEqual([]);
     const json = serializeDocument(doc);
     expect(parseDocument(json).document.pages.length).toBe(1);
   });
 
-  it('递归校验存在深度上限：总有一档深度会原生报错（而非返回 issues 列表）', {
-    timeout: 60000,
-  }, () => {
-    let thrownAt: number | null = null;
-    let error: unknown = null;
-    for (const depth of [2000, 4000, 8000, 16000, 24000]) {
-      const doc = deepDoc(depth);
-      try {
-        validateDocument(doc);
-      } catch (caught) {
-        thrownAt = depth;
-        error = caught;
-        break;
-      }
-    }
-    expect(thrownAt).not.toBeNull();
-    // 证据：栈溢出在 V8 中可能以 RangeError 或 TypeError 形式出现
-    expect(['RangeError', 'TypeError']).toContain((error as Error).name);
-    // eslint-disable-next-line no-console
-    console.log(
-      `[证据] validateDocument 首次原生报错深度=${String(thrownAt)} 错误=${(error as Error).name}: ${(error as Error).message}`,
-    );
+  it('超过上限（513 层）：validateDocument 报 max-depth-exceeded（含节点路径），不再递归到底', () => {
+    const issues = validateDocument(deepDoc(513));
+    // 只报深度这一条：越界后的子树不再参与其余检查（否则会刷出上千条「孤立节点」噪声）
+    expect(issues.map((issue) => issue.code)).toEqual(['max-depth-exceeded']);
+    const issue = issues[0];
+    expect(issue?.nodeId).toBe('f512');
+    expect(issue?.path).toBe('pages[0].nodes.f512');
+    expect(issue?.message).toContain('超过上限 512');
+    expect(issue?.message).toContain('f0'); // 链首：根节点，便于定位越界分支
   });
 
-  it('[证据] 深嵌套导入：parseDocument 抛出的错误不是契约内的 DomainError', {
+  it('序列化前校验：超深文档抛 DomainError（含节点路径），不再原生 TypeError/RangeError', () => {
+    for (const depth of [513, 2000, 24000]) {
+      let error: unknown = null;
+      try {
+        serializeDocument(deepDoc(depth));
+      } catch (caught) {
+        error = caught;
+      }
+      expect(isDomainError(error)).toBe(true);
+      expect((error as DomainError).code).toBe('invalid-argument');
+      expect((error as Error).message).toContain('超过上限 512');
+      expect((error as Error).message).toContain('f512'); // 越界节点出现在路径里
+      expect((error as Error).message).not.toContain('Maximum call stack');
+    }
+  });
+
+  it('导入守门：超深 JSON 字符串与已解析对象两条输入都抛领域错误（含节点路径）', () => {
+    // 旧缺陷原貌：parseDocument 抛原生错误（TypeError: undefined is not a function / RangeError）
+    const json = JSON.stringify(deepDoc(2000));
+    let fromString: unknown = null;
+    try {
+      parseDocument(json);
+    } catch (caught) {
+      fromString = caught;
+    }
+    expect(isDomainError(fromString)).toBe(true);
+    expect((fromString as DomainError).code).toBe('invalid-argument');
+    expect((fromString as Error).message).toContain('超过上限 512');
+    expect((fromString as Error).message).toContain('f512');
+
+    let fromObject: unknown = null;
+    try {
+      parseDocument(deepDoc(2000));
+    } catch (caught) {
+      fromObject = caught;
+    }
+    expect(isDomainError(fromObject)).toBe(true);
+    expect((fromObject as Error).message).toContain('f512');
+  });
+
+  it('任意深度都不再出现原生错误（扫描 2000–24000：校验只报 issue、序列化只抛领域错误）', {
     timeout: 60000,
   }, () => {
-    let error: unknown = null;
-    let depth = 2000;
-    for (const candidate of [2000, 4000, 8000, 16000, 24000]) {
-      const doc = deepDoc(candidate);
+    for (const depth of [2000, 4000, 8000, 16000, 24000]) {
+      const doc = deepDoc(depth);
+      const issues = validateDocument(doc); // 不抛原生错误
+      expect(issues.some((issue) => issue.code === 'max-depth-exceeded')).toBe(true);
+      let error: unknown = null;
       try {
         serializeDocument(doc);
       } catch (caught) {
         error = caught;
-        depth = candidate;
-        break;
       }
+      expect(isDomainError(error)).toBe(true); // 契约：领域错误
     }
-    // 若序列化本身在更浅的深度就溢出，则直接以该错误为准
-    if (error === null) {
-      for (const candidate of [2000, 4000, 8000, 16000, 24000]) {
-        const doc = deepDoc(candidate);
-        try {
-          parseDocument(serializeDocument(doc));
-        } catch (caught) {
-          error = caught;
-          depth = candidate;
-          break;
-        }
-      }
+  });
+
+  it('未知字段的对象嵌套超过结构深度上限同样被拒（含路径）', () => {
+    const doc = baseDoc();
+    const node = getPage(doc, 'p1').nodes.r as unknown as Record<string, unknown>;
+    let nested: unknown = 1;
+    for (let index = 0; index < 2100; index += 1) nested = { nested };
+    node.futureDeep = nested;
+    // 节点链深度合法（对象嵌套不属于节点链语义）→ 校验问题列表里没有深度问题
+    expect(validateDocument(doc).map((issue) => issue.code)).not.toContain('max-depth-exceeded');
+    let error: unknown = null;
+    try {
+      serializeDocument(doc);
+    } catch (caught) {
+      error = caught;
     }
-    expect(error).not.toBeNull();
-    // 契约：非法输入 → DomainError('invalid-argument')；实际：栈溢出（RangeError）或其它原生错误
-    expect(isDomainError(error)).toBe(false);
-    expect(['RangeError', 'TypeError', 'Error']).toContain((error as Error).name);
-    expect(depth).toBeGreaterThan(0);
+    expect(isDomainError(error)).toBe(true);
+    expect((error as Error).message).toContain('超过上限 2048');
+    expect((error as Error).message).toContain('pages[0].nodes.r.futureDeep');
+    // 导入侧同样拒绝（字符串与对象两条入口）
+    expect(() => parseDocument(JSON.stringify(doc))).toThrowError();
+    expect(() => parseDocument(doc)).toThrowError();
   });
 });
 
