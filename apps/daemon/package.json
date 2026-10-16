@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@dforge/contracts": "workspace:*",
+    "@dforge/ingest": "workspace:*",
     "fastify": "catalog:"
   },
   "devDependencies": {

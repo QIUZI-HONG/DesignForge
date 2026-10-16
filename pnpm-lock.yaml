@@ -95,6 +95,9 @@ importers:
       '@dforge/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@dforge/ingest':
+        specifier: workspace:*
+        version: link:../../services/ingest
       fastify:
         specifier: 'catalog:'
         version: 5.12.7
