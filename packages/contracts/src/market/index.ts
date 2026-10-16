@@ -446,7 +446,12 @@ export interface MarketQueryParams {
  * 查询仍可按字面匹配返回，但中文词项（如「幻灯片」）会漏命中；与 `index-*`（市场索引本身
  * 缺失，无卡片可展示）是两种不同的空态口径，前端据此分别提示，不得合并。 */
 export interface MarketQueryWarning {
-  code: 'index-missing' | 'index-invalid' | 'search-index-missing' | 'search-index-invalid' | 'partial-failure';
+  code:
+    | 'index-missing'
+    | 'index-invalid'
+    | 'search-index-missing'
+    | 'search-index-invalid'
+    | 'partial-failure';
   message: string;
 }
 
