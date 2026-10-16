@@ -189,16 +189,21 @@ function collectVariableInitializers(sourceFile) {
   return { initializers, ambiguous };
 }
 
+/** 剥掉 `as const` / `satisfies X` 裹壳（静态取值只看里层表达式；同 findExportedObjectLiteral 口径）。 */
+function unwrapWrappers(expression) {
+  let target = expression;
+  while (ts.isAsExpression(target) || ts.isSatisfiesExpression(target)) {
+    target = target.expression;
+  }
+  return target;
+}
+
 /**
  * 解析「展开表达式」可能引入的键集合（递归跟进同文件常量与多跳展开链）。
  * 返回 `{ ok: true, keys, unresolved }` 或 `{ ok: false, reason }`；不可判定一律交给调用方记阻塞。
  */
 function resolveSpreadKeys(expression, context, visited = new Set()) {
-  // `as const` / `satisfies X` 裹壳先剥掉（同 findExportedObjectLiteral 的口径）。
-  let target = expression;
-  while (ts.isAsExpression(target) || ts.isSatisfiesExpression(target)) {
-    target = target.expression;
-  }
+  const target = unwrapWrappers(expression);
   if (ts.isObjectLiteralExpression(target)) {
     return collectObjectKeys(target, context, visited);
   }
@@ -294,14 +299,10 @@ function checkWebPreferencesObject(declaration, context) {
   const line =
     declaration.getSourceFile().getLineAndCharacterOfPosition(declaration.getStart()).line + 1;
   const label = `webPreferences（行 ${String(line)}）`;
+  const initializer = unwrapWrappers(declaration.initializer);
 
-  // 声明点取值允许「标识符 ← 本地对象字面量」间接一层；其余形态判不出即阻塞（禁当通过）。
-  let initializer = declaration.initializer;
-  while (ts.isAsExpression(initializer) || ts.isSatisfiesExpression(initializer)) {
-    initializer = initializer.expression;
-  }
-  // 声明点取值经「标识符 ← 本地对象字面量」间接化：**违规**（基线必须就地直接展开），
-  // 但要把「间接但确实展开了」与「压根没展开」分开说——前者更隐蔽（间接化即绕过口子）。
+  // 声明点取值经「标识符」间接化：**违规**（基线必须就地直接展开），且要把「间接但确实
+  // 展开了」与「压根没展开」分开说；间接目标仍按同一套展开/覆盖规则复核，避免漏报。
   if (ts.isIdentifier(initializer)) {
     const name = initializer.text;
     const resolved = resolveSpreadKeys(initializer, context);
@@ -310,15 +311,21 @@ function checkWebPreferencesObject(declaration, context) {
       return { violations, undetermined };
     }
     const target = context.initializers.get(name);
-    const indirectlySecured =
-      target !== undefined &&
-      ts.isObjectLiteralExpression(target) &&
-      hasDirectBaselineSpread(target);
+    const targetLiteral = target === undefined ? undefined : unwrapWrappers(target);
+    const directlySpread =
+      targetLiteral !== undefined &&
+      ts.isObjectLiteralExpression(targetLiteral) &&
+      hasDirectBaselineSpread(targetLiteral);
     violations.push(
-      indirectlySecured
+      directlySpread
         ? `${label}：取值经变量 ${name} 间接展开 ${BASELINE_CONST}——安全基线必须就地直接展开，禁止间接化`
         : `${label}：经变量 ${name} 指向的对象没有展开 ${BASELINE_CONST}`,
     );
+    if (targetLiteral !== undefined && ts.isObjectLiteralExpression(targetLiteral)) {
+      const inner = checkPreferencesLiteral(targetLiteral, `${label} · 经变量 ${name}`, context);
+      violations.push(...inner.violations);
+      undetermined.push(...inner.undetermined);
+    }
     return { violations, undetermined };
   }
   if (!ts.isObjectLiteralExpression(initializer)) {
@@ -326,8 +333,16 @@ function checkWebPreferencesObject(declaration, context) {
     return { violations, undetermined };
   }
 
+  const literal = checkPreferencesLiteral(initializer, label, context);
+  return { violations: literal.violations, undetermined: literal.undetermined };
+}
+
+/** 对象字面量级检查：直接展开基线 + 展开后不得再引入基线键（任意键语法/任意展开源）。 */
+function checkPreferencesLiteral(objectLiteral, label, context) {
+  const violations = [];
+  const undetermined = [];
   let baselineSpreadIndex = -1;
-  initializer.properties.forEach((property, index) => {
+  objectLiteral.properties.forEach((property, index) => {
     if (
       ts.isSpreadAssignment(property) &&
       ts.isIdentifier(property.expression) &&
@@ -342,39 +357,39 @@ function checkWebPreferencesObject(declaration, context) {
     return { violations, undetermined };
   }
 
-  initializer.properties.forEach((property, index) => {
+  objectLiteral.properties.forEach((property, index) => {
     if (index <= baselineSpreadIndex) return;
     if (ts.isSpreadAssignment(property)) {
       const resolved = resolveSpreadKeys(property.expression, context);
       if (!resolved.ok) {
         undetermined.push(
-          `webPreferences 在展开 ${BASELINE_CONST} 之后又展开：${resolved.reason}——无法确认是否覆盖基线键`,
+          `${label} 在展开 ${BASELINE_CONST} 之后又展开：${resolved.reason}——无法确认是否覆盖基线键`,
         );
         return;
       }
       for (const key of resolved.keys) {
         if (key in EXPECTED_BASELINE) {
           violations.push(
-            `webPreferences 在展开 ${BASELINE_CONST} **之后**经展开又覆盖了 ${key}（后置放宽不被允许）`,
+            `${label} 在展开 ${BASELINE_CONST} **之后**经展开又覆盖了 ${key}（后置放宽不被允许）`,
           );
         }
       }
       for (const item of resolved.unresolved) {
-        undetermined.push(`webPreferences 内的展开存在无法判定的键：${item}`);
+        undetermined.push(`${label} 内的展开存在无法判定的键：${item}`);
       }
       return;
     }
     const key = propertyKeyName(property);
     if (key === undefined) {
       undetermined.push(
-        `webPreferences 在展开 ${BASELINE_CONST} 之后出现动态计算属性名——静态判不出，禁止当作合规`,
+        `${label} 在展开 ${BASELINE_CONST} 之后出现动态计算属性名——静态判不出，禁止当作合规`,
       );
       return;
     }
     if (key === null) return; // 方法/存取器：不对基线五项构成数据覆盖
     if (key in EXPECTED_BASELINE) {
       violations.push(
-        `webPreferences 在展开 ${BASELINE_CONST} **之后**又覆盖了 ${key}（后置放宽不被允许）`,
+        `${label} 在展开 ${BASELINE_CONST} **之后**又覆盖了 ${key}（后置放宽不被允许）`,
       );
     }
   });
@@ -382,7 +397,7 @@ function checkWebPreferencesObject(declaration, context) {
   return { violations, undetermined };
 }
 
-/** 静态检查三：`main.ts` 的窗口打开策略。 */
+/** 静态检查四：`main.ts` 的窗口打开策略。 */
 function checkMainProcess() {
   const violations = [];
   const undetermined = [];
