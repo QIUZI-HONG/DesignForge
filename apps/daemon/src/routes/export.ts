@@ -6,7 +6,6 @@
  */
 
 import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { ExportArtifact, ExportFormat } from '@dforge/contracts';
 import { DAEMON_ROUTES, isExportFormat, isNonEmptyString } from '@dforge/contracts';
 import type { FastifyInstance } from 'fastify';
@@ -15,6 +14,7 @@ import type { DaemonContext } from '../app.ts';
 import { EXPORT_MAX_SCALE, renderExport } from '../export/index.ts';
 import { ensureDir, sha256Hex } from '../fs-atomic.ts';
 import { sendFail, sendOk } from '../http.ts';
+import { resolveWithin } from '../path-safety.ts';
 
 /** 注册导出路由。 */
 export function registerExportRoutes(app: FastifyInstance, context: DaemonContext): void {
@@ -65,7 +65,11 @@ export function registerExportRoutes(app: FastifyInstance, context: DaemonContex
 
     const sha256 = await sha256Hex(rendered.bytes);
     await ensureDir(context.paths.exportsDir);
-    const filePath = join(context.paths.exportsDir, rendered.fileName);
+    // 产物文件名派生自 documentId/pageId：一律经唯一安全解析器落盘（不自行 join）
+    const filePath = await resolveWithin(context.paths.exportsDir, rendered.fileName);
+    if (filePath === null) {
+      return sendFail(reply, 'export_render_failed', '产物文件名越界（已拒绝写入）');
+    }
     await writeFile(filePath, rendered.bytes);
 
     const artifact: ExportArtifact = {
