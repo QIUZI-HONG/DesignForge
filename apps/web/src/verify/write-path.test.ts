@@ -83,6 +83,28 @@ describe('写路径唯一性', () => {
     expect(threw, '/editor 装配未冻结文档：任何持有快照的组件都能就地改写').toBe(true);
   });
 
+  it('[补充] /editor 装配：旁路写入失败且不进历史；正式写路径（命令栈）不受影响', () => {
+    const workspace = createEditorWorkspace(EMPTY_PRESET);
+    const stack = workspace.canvas.stack;
+    const before = serializeDocument(stack.getSnapshot());
+
+    // 旁路手法（对象赋值 + 数组就地追加）都必须失败，且文档逐字段不变、撤销栈为空中
+    expect(() => {
+      (stack.getSnapshot().pages[0] as { name: string }).name = '被就地改名';
+    }).toThrow();
+    expect(() => {
+      (stack.getSnapshot().pages as unknown[]).push({ id: 'page_幽灵' });
+    }).toThrow();
+    expect(serializeDocument(stack.getSnapshot())).toBe(before);
+    expect(stack.canUndo).toBe(false);
+    expect(stack.history().undo).toHaveLength(0);
+
+    // 冻结不等于「不能改」：经命令栈的写路径照常生效并进历史
+    workspace.canvas.createRect({ x: 0, y: 0, width: 10, height: 10 });
+    expect(Object.keys(workspace.canvas.page().nodes)).toHaveLength(1);
+    expect(stack.history().undo).toHaveLength(1);
+  });
+
   it('画布/面板拿到的是同一份文档（不存在第二份真值）', () => {
     const document = makeDocument();
     const panels = createPanelsSession({ document, pageId: 'page_1' });
