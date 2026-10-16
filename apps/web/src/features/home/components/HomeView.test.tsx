@@ -66,6 +66,8 @@ function renderHome(
     searchMarket?: Parameters<typeof HomeView>[0]['searchMarket'];
     onOpenDocument?: Parameters<typeof HomeView>[0]['onOpenDocument'];
     onOpenMarket?: Parameters<typeof HomeView>[0]['onOpenMarket'];
+    onOpenAi?: Parameters<typeof HomeView>[0]['onOpenAi'];
+    autoOpenCreate?: boolean;
   } = {},
 ) {
   const fake = options.gateway ?? fakeGateway(options.docs ?? []);
@@ -80,6 +82,8 @@ function renderHome(
         searchDebounceMs={0}
         onOpenDocument={options.onOpenDocument ?? (() => {})}
         onOpenMarket={options.onOpenMarket ?? (() => {})}
+        onOpenAi={options.onOpenAi ?? (() => {})}
+        autoOpenCreate={options.autoOpenCreate ?? false}
       />
     </ToastProvider>,
   );
@@ -274,12 +278,19 @@ describe('HomeView · 侧栏与回收站空态', () => {
   });
 });
 
-describe('HomeView · AI 提示区（桩）', () => {
-  it('点「打开 AI 助手」→ Toast 说明当前版本未接入（不假装可用）', async () => {
-    renderHome({ docs: [] });
+describe('HomeView · AI 提示区（D3：与编辑器实态同步）', () => {
+  it('点「打开 AI 助手」→ 交回 onOpenAi 导航回调（不再给「暂未接入」Toast）', async () => {
+    const onOpenAi = vi.fn();
+    renderHome({ docs: [], onOpenAi });
     await screen.findByText('还没有设计文件');
     await userEvent.click(screen.getByRole('button', { name: '打开 AI 助手' }));
-    expect(await screen.findByText(/AI 助手随编辑器一起提供/)).toBeDefined();
+    expect(onOpenAi).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/暂未接入/)).toBeNull();
+  });
+
+  it('autoOpenCreate（/?create=1 落点）→ 挂载即打开新建对话框', async () => {
+    renderHome({ docs: [], autoOpenCreate: true });
+    expect(await screen.findByRole('dialog', { name: '新建设计文件' })).toBeDefined();
   });
 });
 

@@ -15,14 +15,20 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { executeCommand, getCommand, resetCommandRegistry } from '@/features/editor-shell';
+import {
+  executeCommand,
+  getCommand,
+  resetCommandRegistry,
+  useEditorUi,
+} from '@/features/editor-shell';
 
-import { newFileEntryHref, registerWorkspaceCommands } from '../register';
+import { connectQueryEntryPoints, newFileEntryHref, registerWorkspaceCommands } from '../register';
 import { useWorkspaceUi } from './ui-state';
 
 afterEach(() => {
   resetCommandRegistry();
   useWorkspaceUi.setState({ rightPanelTab: 'inspect', aiDrawerOpen: false });
+  useEditorUi.setState({ commandPaletteOpen: false, shortcutsOpen: false });
   window.history.replaceState(null, '', '/editor');
 });
 
@@ -66,5 +72,14 @@ describe('file.new · 新建入口（D-7）', () => {
     const endpoint = 'http://127.0.0.1:4999';
     window.history.replaceState(null, '', `/editor?daemon=${encodeURIComponent(endpoint)}`);
     expect(newFileEntryHref()).toBe(`/?create=1&daemon=${encodeURIComponent(endpoint)}`);
+  });
+});
+
+describe('查询串入口（D2/D3：站内跳转落地即达）', () => {
+  it('?shortcuts=1 打开快捷键说明、?ai=1 打开 AI 抽屉', () => {
+    window.history.replaceState(null, '', '/editor?shortcuts=1&ai=1');
+    connectQueryEntryPoints();
+    expect(useEditorUi.getState().shortcutsOpen).toBe(true);
+    expect(useWorkspaceUi.getState().aiDrawerOpen).toBe(true);
   });
 });

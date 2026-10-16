@@ -3,8 +3,10 @@
 /**
  * 设置页（FE-09 · 清单 E3，对标页·结构：左分区导航 + 右表单，浅色首页族）。
  *
- * 结构：左导航列出四个分区（注册表 `SETTINGS_SECTIONS` 定序），右侧渲染当前分区
- * 表单 + 保存脚（保存中 → 已保存 → 失败重试）。数据流全部走 `useSettingsSession`。
+ * 结构：左导航列出表单分区（注册表 `SETTINGS_SECTIONS` 定序）+ **诊断**（D1 · FE-06
+ * 既有声明落点：诊断面板归设置页），右侧渲染当前分区表单 + 保存脚
+ * （保存中 → 已保存 → 失败重试）或诊断分区（只读观察面，无保存脚）。数据流全部走
+ * `useSettingsSession`。
  *
  * 六态挂点（验收标准 §6）：
  * - 本组件：`loading`（读取配置中）/ `error`（读配置失败，可重新加载）/ `hover`（左导航项）；
@@ -13,14 +15,20 @@
  * 为什么导航项 hover 用 React 态而不是 CSS 伪类：内联令牌样式里没有伪类通道，
  * 本票不新增样式文件（避免与 FE-01/FE-11 的样式面重叠），故用 enter/leave 显式驱动。
  */
-import { ErrorState, ICONS, Spinner } from '@dforge/ui';
+import { Button, ErrorState, ICONS, Spinner } from '@dforge/ui';
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 
+import { DiagnosticsPanel } from '@/features/diagnostics';
 import { t } from '@/i18n';
 
 import type { SettingsApi } from '../api/settings-api';
-import { SETTINGS_SECTIONS, type SettingsSectionId, settingsSection } from '../model/sections';
+import {
+  SETTINGS_DIAGNOSTICS_NAV,
+  SETTINGS_SECTIONS,
+  type SettingsNavId,
+  settingsSection,
+} from '../model/sections';
 import { useSettingsSession } from '../model/use-settings-session';
 
 import { SaveFooter } from './save-footer';
@@ -161,10 +169,16 @@ export interface SettingsPageProps {
 /** 设置页。 */
 export function SettingsPage({ api }: SettingsPageProps) {
   const session = useSettingsSession(api);
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>('workspace');
+  const [activeSection, setActiveSection] = useState<SettingsNavId>('workspace');
+  // 诊断抽屉开合：选导航项即打开；关闭（Esc/遮罩/关闭按钮）后停在分区（再入口可重开）
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
-  const section = settingsSection(activeSection);
-  const sectionTitle = t(section.titleKey);
+  const isDiagnostics = activeSection === SETTINGS_DIAGNOSTICS_NAV.id;
+  const section = isDiagnostics ? null : settingsSection(activeSection);
+  const sectionTitle =
+    section === null ? t(SETTINGS_DIAGNOSTICS_NAV.titleKey) : t(section.titleKey);
+  const sectionDescription =
+    section === null ? t(SETTINGS_DIAGNOSTICS_NAV.descriptionKey) : t(section.descriptionKey);
 
   return (
     <div style={styles.page}>
@@ -206,24 +220,52 @@ export function SettingsPage({ api }: SettingsPageProps) {
                 }}
               />
             ))}
-          </nav>
-
-          <section style={styles.panel}>
-            <h2 style={styles.panelTitle}>{sectionTitle}</h2>
-            <p style={styles.panelDesc}>{t(section.descriptionKey)}</p>
-
-            <SettingsSectionForm id={activeSection} session={session} />
-
-            <SaveFooter
-              saveLabel={
-                activeSection === 'ai' ? t('settings.action.saveKey') : t('settings.action.save')
-              }
-              saveState={session.saveState}
-              disabled={!session.isDirty(activeSection)}
-              onSave={() => {
-                void session.saveSection(activeSection);
+            {/* 诊断分区（D1）：表单分区之外的第 5 项——点击即打开诊断抽屉（FE-06 声明落点） */}
+            <NavItem
+              key={SETTINGS_DIAGNOSTICS_NAV.id}
+              active={isDiagnostics}
+              icon={SETTINGS_DIAGNOSTICS_NAV.icon}
+              label={t(SETTINGS_DIAGNOSTICS_NAV.titleKey)}
+              onClick={() => {
+                setActiveSection(SETTINGS_DIAGNOSTICS_NAV.id);
+                setDiagnosticsOpen(true);
               }}
             />
+          </nav>
+
+          <section style={styles.panel} data-df-settings-section={activeSection}>
+            <h2 style={styles.panelTitle}>{sectionTitle}</h2>
+            <p style={styles.panelDesc}>{sectionDescription}</p>
+
+            {isDiagnostics ? (
+              <>
+                <Button
+                  onClick={() => {
+                    setDiagnosticsOpen(true);
+                  }}
+                >
+                  {t('settings.action.openDiagnostics')}
+                </Button>
+                <DiagnosticsPanel open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen} />
+              </>
+            ) : (
+              <>
+                <SettingsSectionForm id={activeSection} session={session} />
+
+                <SaveFooter
+                  saveLabel={
+                    activeSection === 'ai'
+                      ? t('settings.action.saveKey')
+                      : t('settings.action.save')
+                  }
+                  saveState={session.saveState}
+                  disabled={!session.isDirty(activeSection)}
+                  onSave={() => {
+                    void session.saveSection(activeSection);
+                  }}
+                />
+              </>
+            )}
           </section>
         </div>
       ) : null}

@@ -274,3 +274,28 @@ describe('设置页 · 六态证据挂点', () => {
     expect(container.querySelector('[data-df-state="active"]')).not.toBeNull();
   });
 });
+
+describe('设置页 · 诊断分区（D1 · FE-06 声明落点）', () => {
+  it('左导航含「诊断」项；点开后诊断面板可见（data-df-panel=diagnostics）', async () => {
+    const user = userEvent.setup();
+    renderPage(makeApi());
+    const nav = await screen.findByRole('button', { name: '诊断' });
+    expect(nav.getAttribute('aria-current')).toBeNull();
+    expect(document.querySelector('[data-df-panel="diagnostics"]')).toBeNull();
+
+    await user.click(nav);
+    expect(nav.getAttribute('aria-current')).toBe('true');
+    expect(document.querySelector('[data-df-panel="diagnostics"]')).not.toBeNull();
+  });
+
+  it('关闭诊断抽屉后，分区内保留「打开诊断面板」再入口', async () => {
+    const user = userEvent.setup();
+    renderPage(makeApi());
+    await user.click(await screen.findByRole('button', { name: '诊断' }));
+    await user.keyboard('{Escape}');
+    expect(document.querySelector('[data-df-panel="diagnostics"]')).toBeNull();
+    const reopen = screen.getByRole('button', { name: '打开诊断面板' });
+    await user.click(reopen);
+    expect(document.querySelector('[data-df-panel="diagnostics"]')).not.toBeNull();
+  });
+});
