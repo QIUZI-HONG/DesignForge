@@ -89,6 +89,7 @@
   "home.delete.failed": "删除失败：{message}",
   "home.new.success": "已新建「{name}」",
   "home.new.failed": "新建失败：{message}",
+  "home.new.failedExists": "新建失败：已存在同名设计文件「{name}」，请换一个名称。",
   "home.new.promptTitle": "新建设计文件",
   "home.new.promptName": "文件名称",
   "home.new.promptPlaceholder": "未命名设计",

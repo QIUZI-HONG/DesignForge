@@ -297,8 +297,16 @@ export function HomeView({
         toast.show({ message: t('home.new.success', { name }), tone: 'success' });
         await load('refresh');
       } catch (cause) {
+        // 重名分因（G2/UX-11 · 复核 Spec a3）：`doc_exists` 走专用 i18n 键并点名冲突文件名，
+        // 不再把 daemon 的原文（「同名文档已存在」）透出给用户；其余失败保留原因透出（可诊断）。
+        const duplicate = cause instanceof DocumentApiError && cause.code === 'doc_exists';
         const message = cause instanceof DocumentApiError ? cause.message : String(cause);
-        toast.show({ message: t('home.new.failed', { message }), tone: 'error' });
+        toast.show({
+          message: duplicate
+            ? t('home.new.failedExists', { name })
+            : t('home.new.failed', { message }),
+          tone: 'error',
+        });
       } finally {
         creatingRef.current = false;
         setCreating(false);

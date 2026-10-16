@@ -89,6 +89,7 @@
   "home.delete.failed": "Delete failed: {message}",
   "home.new.success": "Created \"{name}\"",
   "home.new.failed": "Create failed: {message}",
+  "home.new.failedExists": "Create failed: a design file named \"{name}\" already exists. Choose another name.",
   "home.new.promptTitle": "Create design file",
   "home.new.promptName": "File name",
   "home.new.promptPlaceholder": "Untitled design",
