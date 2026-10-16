@@ -15,6 +15,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { isLicenseGate } from '@dforge/contracts';
 import { type Candidate, type CandidateSource, discoverCandidates } from './candidates.ts';
 import type { FileCacheStore, GitHubClient } from './client.ts';
 import {
@@ -38,6 +39,7 @@ import {
   findLicensePath,
   identifyAssets,
 } from './identify.ts';
+
 import { assessLicense } from './license.ts';
 import type { OdsArtifact } from './ods.ts';
 import { validateOdsRepoRecord, validateRawEvent, writeOds } from './ods.ts';
@@ -1153,9 +1155,7 @@ function buildLicenseGateStep(input: {
   counts: CollectResult['counts'];
 }): EvidenceStep {
   const { records, counts } = input;
-  const badGate = records.filter(
-    (r) => !['loadable', 'view-only', 'blocked'].includes(r.license.gate),
-  ).length;
+  const badGate = records.filter((r) => !isLicenseGate(r.license.gate)).length;
   const noassertionViolations = records.filter(
     (r) => r.license.spdx === 'NOASSERTION' && r.license.gate === 'loadable',
   ).length;
