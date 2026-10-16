@@ -176,11 +176,7 @@ export async function run(page, ctx) {
     15_000,
   );
   const editorUrl = page.url();
-  ctx.assert(
-    enteredEditor,
-    '进入编辑器后 URL 保留端点参数（不丢 ?daemon=）',
-    `url=${editorUrl}`,
-  );
+  ctx.assert(enteredEditor, '进入编辑器后 URL 保留端点参数（不丢 ?daemon=）', `url=${editorUrl}`);
   ctx.assert(
     new URL(editorUrl).searchParams.get('daemon') === daemonParam,
     '编辑器 URL 的端点指向同源网关（值未被改写）',
@@ -214,8 +210,7 @@ export async function run(page, ctx) {
   // 列表取数走网关 `/df`（请求级携带端点；4318 面由第 5 段统一判）
   const marketListRequests = requests.filter((url) => url.includes('/df/market/query'));
   ctx.assert(
-    marketListRequests.length > 0 &&
-      marketListRequests.every((url) => httpOrigin(url) === gateway),
+    marketListRequests.length > 0 && marketListRequests.every((url) => httpOrigin(url) === gateway),
     '市场列表取数经同源网关（请求级携带端点）',
     `${String(marketListRequests.length)} 次：${marketListRequests[0] ?? '无'}`,
   );
@@ -280,9 +275,9 @@ export async function run(page, ctx) {
   ctx.assert(backToList, '「返回市场」回跳保留端点参数', `url=${page.url()}`);
 
   // --- 5) ③ 越权面：无 4318 / 非网关 origin 请求；无 CORS 类错误 ---
-  const httpRequests = requests.map((url) => ({ url, origin: httpOrigin(url) })).filter(
-    (entry) => entry.origin !== null,
-  );
+  const httpRequests = requests
+    .map((url) => ({ url, origin: httpOrigin(url) }))
+    .filter((entry) => entry.origin !== null);
   const foreign = httpRequests.filter((entry) => entry.origin !== gateway);
   ctx.assert(
     foreign.length === 0,
