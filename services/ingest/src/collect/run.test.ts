@@ -418,6 +418,21 @@ describe('内容取回策略（对接面修复：完整资产根优先 + 兜底�
     expect(selection.selected).toContain('skills/pdf/SKILL.md');
     expect(selection.selected).toContain('skills/pdf/notes.md');
   });
+
+  it('D2 类别保底优先「认定资产根」：同类群的小壳根（非资产结构件目录）不抢走真资产的名额', () => {
+    // design-system 群 = 结构件目录的启发式归属：`data/plugin-previews/manifest.json`（1 文件壳）
+    // 与真资产根 `design-systems/real`（DESIGN.md + tokens.css，识别层可认定）同群。
+    // 保底/份额须先认资产根，否则预算被壳根吃光、真资产 digest 恒 incomplete（真批次实证）。
+    const shellAndAsset = [
+      { path: 'data/plugin-previews/manifest.json', type: 'blob' as const, sha: 'd1', size: 10 },
+      { path: 'design-systems/real/DESIGN.md', type: 'blob' as const, sha: 'd2', size: 10 },
+      { path: 'design-systems/real/tokens.css', type: 'blob' as const, sha: 'd3', size: 10 },
+      { path: 'skills/a/SKILL.md', type: 'blob' as const, sha: 'd4', size: 10 },
+    ];
+    const selection = selectContentPaths(shellAndAsset, 3);
+    expect(selection.selected).toContain('design-systems/real/DESIGN.md');
+    expect(selection.selected).toContain('design-systems/real/tokens.css');
+  });
 });
 
 describe('selectionsFromRecorded（重放的内容名单以样本为准，与算法版本解耦）', () => {
