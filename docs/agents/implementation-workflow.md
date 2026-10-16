@@ -119,6 +119,12 @@ CI runner（GitHub Actions `ubuntu-latest`，node 22）与开发机（node 24，
   `rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })`（批次 2 实例：
   `apps/daemon/src/testing/harness.ts` 的 `cleanup()`——`export.test.ts` 的 PDF 用例红于
   `ENOTEMPTY: rmdir '.../data/telemetry'`，本机从不复现，CI 才现形）。
+- **不得触碰开发机在跑的 daemon 与真实数据根**：集成用例一律**自起临时实例**（临时数据根 +
+  空闲端口，先例：`scripts/lib/gates.mjs` 的 `startFixtureDaemon` / `freePort`），
+  **不得**连开发机在跑的 daemon（缺省端口窗起点 4318）或读写真实数据根 `~/.dforge`——
+  开发机上 daemon 常常正在运行，用例「顺手」连上去就会污染真实文档与凭据。**本批曾发生
+  误写真实凭据的事故**：哨兵 key 打到真实 daemon，覆盖了真 key（演练后必须轮换）。
+  判据：用例里的基址/数据根一律显式给临时值，禁止「缺省即连本机」。
 
 ## 代码规范
 

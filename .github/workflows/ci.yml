@@ -56,7 +56,7 @@ jobs:
       - name: 桌面壳安全基线守卫（窗口选项静态断言；对抗夹具回归在 pnpm test:scripts）
         run: pnpm guard:electron-baseline
 
-      - name: 引擎门禁（208 例对抗用例 + 快照哈希回归）
+      - name: 引擎门禁（对抗用例 + 快照哈希回归）
         run: pnpm verify:engine
 
       # 参照集门禁在 CI 无参照集，**必须** exit 2（阻塞）并点名「参照集未冻结」：
