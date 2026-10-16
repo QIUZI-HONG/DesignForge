@@ -47,6 +47,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { resolveChromeExecutable } from './lib/browser-toolchain.mjs';
 import { freePort, startFixtureDaemon, startSameOriginGateway } from './lib/gates.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
