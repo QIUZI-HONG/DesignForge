@@ -10,21 +10,23 @@
  * 为什么分两类：设置页对「daemon 没起来」与「配置被 daemon 拒绝」的恢复路径不同——
  * 前者引导启动服务，后者把 daemon 的 message 原样展示给用户。
  *
- * baseUrl 优先取 `NEXT_PUBLIC_DF_DAEMON_URL`（端到端与门禁指向实例），缺省走本地回环
- * 端口起点 `DAEMON_PORT_BASE`（daemon 铁律从该端口起探测，避免随机端口）。
+ * baseUrl 解析已**全站收敛**到 `@/lib/daemon-endpoint`（ADR-0004 裁决 ①）：
+ * `?daemon=` 查询参数 → `NEXT_PUBLIC_DF_DAEMON_URL`（端到端与门禁指向实例）→ 端口窗起点
+ * `DAEMON_PORT_BASE`（daemon 铁律从该端口起探测，避免随机端口）。本模块不另立口径。
  *
  * 密钥纪律：写入 key 的请求体只存在于调用栈内，模块**不记录**任何请求体；
  * 返回结构一律沿用契约的掩码摘要（`CredentialSummary`，永不携带明文）。
  */
 import {
   type ApiFailure,
-  DAEMON_PORT_BASE,
   type DaemonError,
   type DaemonRouteSpec,
   type DfErrorCode,
   isApiFailure,
   isApiSuccess,
 } from '@dforge/contracts';
+
+import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 /** 失败类别（见模块头注释）。 */
 export type DaemonClientErrorKind = 'api' | 'network';
@@ -76,11 +78,9 @@ export interface DaemonClientOptions {
   fetchImpl?: typeof fetch;
 }
 
-/** 解析 daemon baseUrl（环境变量优先；尾部斜杠容忍）。 */
+/** 解析 daemon baseUrl（顺序与常量见 `@/lib/daemon-endpoint`；尾部斜杠容忍）。 */
 export function resolveDaemonBaseUrl(): string {
-  const fromEnv = (process.env.NEXT_PUBLIC_DF_DAEMON_URL ?? '').trim();
-  const base = fromEnv.length > 0 ? fromEnv : `http://127.0.0.1:${String(DAEMON_PORT_BASE)}`;
-  return base.replace(/\/+$/, '');
+  return resolveDaemonEndpointSync();
 }
 
 /** 创建 daemon 客户端（默认走全局 fetch）。 */

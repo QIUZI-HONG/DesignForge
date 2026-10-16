@@ -38,6 +38,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 
 import { t } from '@/i18n';
+import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 import { type CanvasDebugHandle, installCanvasDebugHandle } from '../debug/canvas-debug';
 import {
@@ -52,8 +53,11 @@ import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
 
 import './studio.css';
 
-/** 默认 daemon 基址（可由 NEXT_PUBLIC_DF_DAEMON_URL 覆盖；门禁用固定端口启动 daemon）。 */
-export const DEFAULT_DAEMON_URL = process.env.NEXT_PUBLIC_DF_DAEMON_URL ?? 'http://127.0.0.1:4318';
+/**
+ * 默认 daemon 基址：由 `@/lib/daemon-endpoint` 全站单点解析
+ * （`?daemon=` → `NEXT_PUBLIC_DF_DAEMON_URL` → 缺省端口窗起点；ADR-0004 裁决 ①）。
+ */
+export const DEFAULT_DAEMON_URL = resolveDaemonEndpointSync();
 
 /** 宿主 props。 */
 export interface CanvasStudioProps {
