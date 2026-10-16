@@ -31,6 +31,7 @@ import {
   useMarketAsset,
 } from '@/features/market';
 import { t } from '@/i18n';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 /** 解码路由参数（防御式：已解码的字符串不含 `%` 时原样返回）。 */
 export function decodeAssetId(raw: string): string {
@@ -73,7 +74,8 @@ export default function MarketAssetPage() {
   const loadPlan = useLoadPlan(asset === null ? null : asset.id);
 
   const back = (): void => {
-    router.push('/market');
+    // 回跳市场列表：续写当前端点参数（D-3/UX-01）——回跳后列表取数仍命中同一 daemon
+    router.push(withDaemonEndpoint('/market'));
   };
 
   const record = records.find((item) => item.assetId === assetId) ?? null;
