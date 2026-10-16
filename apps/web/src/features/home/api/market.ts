@@ -5,6 +5,10 @@
  * 同样降级为 `available:false`——首页搜索框不能因为市场侧不可用而整体报错
  * （市场索引由采集线产出，未跑采集时本就该是空的）。
  *
+ * 超时口径（修复批次 3 · 工作包 C）：与文档网关共用同一超时归一（`gateway-timeout`）
+ * ——daemon 不响应时**到上限**降级为 `available:false`，市场分组不会永久停在
+ * 「正在搜索…」（首页侧另有一层兜底，两者是同一上限，见 `components/HomeView`）。
+ *
  * 详情/装载不在本票（归 FE-10/FE-11）：结果线只做「跳市场」的入口。
  */
 import {
@@ -15,6 +19,8 @@ import {
   type MarketAssetKind,
   type MarketQueryResponse,
 } from '@dforge/contracts';
+
+import { fetchWithinTimeout, GATEWAY_TIMEOUT_MS } from './gateway-timeout';
 
 /** 结果线条数上限（下拉里的一行分组，给多了喧宾夺主）。 */
 export const MARKET_RESULT_LIMIT = 5;
@@ -38,6 +44,8 @@ export interface MarketSearchOptions {
   query: string;
   fetchImpl?: typeof fetch;
   limit?: number;
+  /** 统一超时上限（毫秒；测试注入小值，缺省 {@link GATEWAY_TIMEOUT_MS}）。 */
+  timeoutMs?: number;
 }
 
 /** 检索技能市场资产（任何失败都降级为可用性标记，不抛错）。 */
@@ -55,9 +63,15 @@ export async function searchMarketAssets(
 
   let payload: unknown;
   try {
-    const response = await fetchImpl(url);
+    const response = await fetchWithinTimeout(
+      fetchImpl,
+      url.toString(),
+      {},
+      options.timeoutMs ?? GATEWAY_TIMEOUT_MS,
+    );
     payload = await response.json();
   } catch {
+    // 含超时（GatewayTimeoutError）：市场侧一律降级，不抛给页面
     return { available: false, items: [] };
   }
   if (isApiFailure(payload) || !isApiSuccess<MarketQueryResponse>(payload)) {

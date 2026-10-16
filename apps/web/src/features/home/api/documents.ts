@@ -4,10 +4,11 @@
  * 路径与方法**取自契约路由表**（`DAEMON_ROUTES`），不手写字符串——避免前端与 daemon 漂移。
  * 响应统一走信封：`{ ok:true, result }` / `{ ok:false, error }`（`@dforge/contracts` 的
  * `isApiSuccess` / `isApiFailure` 判别）；任何网络/解析异常归一为 `daemon_unreachable`，
- * 调用方只需处理一种错误类型（`DocumentApiError`）。
+ * **请求悬挂归一为 `daemon_timeout`**（统一超时上限见 `gateway-timeout`，页面对「连不上」
+ * 与「不回话」给不同引导），调用方只需处理一种错误类型（`DocumentApiError`）。
  *
  * 消费方：首页（FE-02）的列表/新建/删除；FE-03/06 的文档读写可复用同一形状（本模块
- * 只覆盖首页需要的三个动作，扩展时按同一错误归一纪律追加）。
+ * 只覆盖首页需要的三个动作，扩展时按同一错误归一纪律追加，**读端点不另写一套请求实现**）。
  */
 import {
   DAEMON_ROUTES,
@@ -19,8 +20,11 @@ import {
   isApiSuccess,
 } from '@dforge/contracts';
 
-/** 前端侧错误码：daemon 错误码 ∪ 传输层归一码。 */
-export type HomeApiErrorCode = 'daemon_unreachable' | DfErrorCode;
+import { fetchWithinTimeout, GATEWAY_TIMEOUT_MS, GatewayTimeoutError } from './gateway-timeout';
+
+/** 前端侧错误码：daemon 错误码 ∪ 传输层归一码（超时/不可达是本机数据面的传输层事实，
+ *  daemon 自身不产出，故只在 web 侧声明，不进 `@dforge/contracts` 的线上错误码表）。 */
+export type HomeApiErrorCode = 'daemon_unreachable' | 'daemon_timeout' | DfErrorCode;
 
 /** 首页数据面统一错误（携带码，供错误态展示与重试分支）。 */
 export class DocumentApiError extends Error {
@@ -54,6 +58,8 @@ export interface DocumentsGatewayOptions {
   baseUrl: string;
   /** 注入的 fetch（测试用；缺省全局 fetch）。 */
   fetchImpl?: typeof fetch;
+  /** 统一超时上限（毫秒；测试注入小值，缺省 {@link GATEWAY_TIMEOUT_MS}）。 */
+  timeoutMs?: number;
 }
 
 /** 拼 URL：基址 + 路由模板（`:` 段替换为编码后的路径参数）。 */
@@ -82,12 +88,20 @@ async function readEnvelope<T>(response: Response): Promise<T> {
   return payload.result;
 }
 
-/** 发请求并解包；网络异常统一归一。 */
-async function request<T>(fetchImpl: typeof fetch, url: string, init?: RequestInit): Promise<T> {
+/** 发请求并解包；网络异常与超时统一归一（所有端点共用本实现，不各自另写）。 */
+async function request<T>(
+  fetchImpl: typeof fetch,
+  url: string,
+  timeoutMs: number,
+  init?: RequestInit,
+): Promise<T> {
   let response: Response;
   try {
-    response = await fetchImpl(url, init);
-  } catch {
+    response = await fetchWithinTimeout(fetchImpl, url, init ?? {}, timeoutMs);
+  } catch (cause) {
+    if (cause instanceof GatewayTimeoutError) {
+      throw new DocumentApiError('daemon_timeout', cause.message);
+    }
     throw new DocumentApiError('daemon_unreachable', '无法连接本地服务（daemon 未启动？）。');
   }
   return readEnvelope<T>(response);
@@ -97,12 +111,14 @@ async function request<T>(fetchImpl: typeof fetch, url: string, init?: RequestIn
 export function createDocumentsGateway(options: DocumentsGatewayOptions): DocumentsGateway {
   const { baseUrl } = options;
   const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? GATEWAY_TIMEOUT_MS;
 
   return {
     async list(): Promise<DocumentListResponse> {
       const result = await request<DocumentListResponse>(
         fetchImpl,
         buildUrl(baseUrl, DAEMON_ROUTES.documents.path),
+        timeoutMs,
         { method: DAEMON_ROUTES.documents.method },
       );
       // 契约外的脏响应（缺 warnings）不该让 UI 崩：按空告警处理
@@ -116,6 +132,7 @@ export function createDocumentsGateway(options: DocumentsGatewayOptions): Docume
       const result = await request<{ document: DocumentSummary }>(
         fetchImpl,
         buildUrl(baseUrl, DAEMON_ROUTES.documentCreate.path),
+        timeoutMs,
         {
           method: DAEMON_ROUTES.documentCreate.method,
           headers: { 'content-type': 'application/json' },
@@ -129,6 +146,7 @@ export function createDocumentsGateway(options: DocumentsGatewayOptions): Docume
       return request<DocumentDeleteResponse>(
         fetchImpl,
         buildUrl(baseUrl, DAEMON_ROUTES.documentDelete.path, { documentId }),
+        timeoutMs,
         { method: DAEMON_ROUTES.documentDelete.method },
       );
     },
