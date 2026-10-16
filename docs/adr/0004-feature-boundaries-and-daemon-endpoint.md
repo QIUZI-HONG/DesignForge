@@ -237,3 +237,24 @@
   feature→feature 深导入或 `services/**` 深导入的新增（daemon→`./ads` 见上一条补记）。
   若后续出现，仍按 ② 的纪律先在 `scripts/guard-feature-boundaries.mjs` 的
   `REGISTERED_EXCEPTIONS` 登记并在此补行，未登记形态不得静默放行。
+
+## 补记 · 批次 4 复核遗留债登记（daemon 页面 id 约定与默认页名 / 浏览器工具链副本）
+
+日期：2026-10-16（code-review 整改收口；**已就地收敛的部分不在本清单**——
+「不可用占位符 `'—'`」已抽 `apps/web/src/lib/unavailable.ts` 单点，
+canvas 装配层与 `/_canvas` 夹具的默认页名已改走引擎缺省 `createPage`。本清单只留
+「就地收敛超出本批预算」的两项，**登记为债、不静默**。）
+
+- **债一：daemon 页面 id 约定（`page-{N}`）与默认页名（`'页面 1'`）跨包重复表达。**
+  事实位置：daemon 侧 `apps/daemon/src/documents/store.ts`（`page-${counter}` 分配与
+  `'page-1'` / `'页面 1'` 初值）、web 侧 `apps/web/src/features/canvas/persistence/documents-client.ts`
+  的 `daemonPageId()`（同规则的第二份表达）、引擎缺省 `packages/engine/src/model/document.ts`
+  的 `name: init.name ?? '页面 1'`。收敛方案（建议）：把「页面 id 约定 + 默认页名」提升为
+  `@dforge/contracts` 的具名常量与函数（daemon 分配器与 web 客户端共用），并在
+  `guard:vocab` 家族加一条「同源」判据。**为什么本批不做**：daemon 落盘格式与既有 `.dfg`
+  数据的兼容面在此约定上（分配器改了要跑 daemon 全量测试与迁移判据），超出 P2 卫生预算。
+- **债二：Chromium 解析副本仍在 figma 系列门禁。** 本轮已把 `lib/browser-toolchain.mjs`
+  作为单点，并收口 `lib/ui-mount` / `verify-canvas` / `e2e-smoke` 三处消费；
+  `verify-figma-*.mjs`（component/editor/panels/inspect/home）与 `verify-shell-parity.mjs`
+  仍各存一份 `resolveChrome`。收敛方案：随下一次「façade 清理」小票逐文件替换为
+  `resolveChromeExecutable()`（替换是机械的，但每个文件都要重跑其门禁，不宜与本次整改混跑）。

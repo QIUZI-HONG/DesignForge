@@ -22,6 +22,7 @@ import {
 import type { ReactNode } from 'react';
 
 import { t } from '@/i18n';
+import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 
 import {
   activeFilterCount,
@@ -75,7 +76,8 @@ export interface FilterBarProps {
 }
 
 /** 计数不可得的占位（UX-19；符号量，不入 i18n 目录）。 */
-export const MARKET_COUNT_UNAVAILABLE = '—';
+/** 计数不可用占位（值来自单点 `@/lib/unavailable`，复核 J5）。 */
+export const MARKET_COUNT_UNAVAILABLE = UNAVAILABLE_PLACEHOLDER;
 
 /** 筛选栏。 */
 export function FilterBar({

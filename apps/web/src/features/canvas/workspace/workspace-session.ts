@@ -87,10 +87,11 @@ export function documentForPreset(preset: WorkspacePreset): DesignDocument {
   if (preset.inspector !== null) return createPreviewDocument();
   if (preset.inspect !== null) return createInspectPreviewDocument();
   if (preset.components !== null) return createComponentsPreviewDocument(preset.components);
+  // 页面名走引擎缺省（`createPage` 的 `'页面 1'`）：默认名单一真源，装配层不另抄一份（复核 J5）
   return createDocument({
     id: 'doc-editor',
     name: '未命名文件',
-    pages: [createPage({ id: 'page-editor', name: '页面 1' })],
+    pages: [createPage({ id: 'page-editor' })],
   });
 }
 

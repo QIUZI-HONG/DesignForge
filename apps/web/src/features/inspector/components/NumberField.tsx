@@ -15,11 +15,13 @@
 import { type ChangeEvent, type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
+import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 
 import { useDraftCommit } from '../model/draft';
 
 /** 混选占位（C6：混合值显示「—」）。 */
-export const MIXED_PLACEHOLDER = '—';
+/** 混合值占位（值来自单点 `@/lib/unavailable`，复核 J5）。 */
+export const MIXED_PLACEHOLDER = UNAVAILABLE_PLACEHOLDER;
 
 /** 数值格式化：按精度四舍五入并去掉尾随零（10 → "10"，1.50 → "1.5"）。 */
 export function formatFieldNumber(value: number, precision = 2): string {

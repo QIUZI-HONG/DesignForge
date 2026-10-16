@@ -24,7 +24,7 @@ import type { ReactNode } from 'react';
 import { useStore } from 'zustand';
 
 import { t } from '@/i18n';
-
+import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 import type { CanvasSession } from '../state/session';
 import { canvasActions, selectionInsight, TOOLBAR_ACTION_IDS } from './action-items';
 
@@ -114,7 +114,7 @@ export function FloatingToolbar({ session }: FloatingToolbarProps) {
                 data-df-canvas-action={action.id}
                 onClick={action.run}
               >
-                {TEXT_SHORT[action.id] ?? '—'}
+                {TEXT_SHORT[action.id] ?? UNAVAILABLE_PLACEHOLDER}
               </button>
             </Tooltip>
           );

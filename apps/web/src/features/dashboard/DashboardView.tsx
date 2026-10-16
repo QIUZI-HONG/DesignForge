@@ -27,6 +27,7 @@ import {
   thStyle,
 } from '@/features/market';
 import { t } from '@/i18n';
+import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 import {
   computeCompleteness,
   computeConsistency,
@@ -162,7 +163,9 @@ export function DashboardView({ response, nowIso }: DashboardViewProps) {
                 <td style={tdStyle}>{field.field}</td>
                 <td style={tdStyle}>{field.missing}</td>
                 <td style={tdStyle}>
-                  {completeness.total === 0 ? '—' : (field.missing / completeness.total).toFixed(2)}
+                  {completeness.total === 0
+                    ? UNAVAILABLE_PLACEHOLDER
+                    : (field.missing / completeness.total).toFixed(2)}
                 </td>
               </tr>
             ))}

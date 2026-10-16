@@ -15,7 +15,7 @@ import {
   type ScenePage,
   virtualNodeId,
 } from '@dforge/engine';
-
+import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 import { displayNameOf } from './reads';
 
 /** 单条覆盖属性的展示读取。 */
@@ -90,7 +90,7 @@ export function overridePatchAt(
  * 填充/描边走色值，文本走字符内容，布尔走中文，其余走紧凑字面。
  */
 export function summarizePatchValue(value: unknown): string {
-  if (value === undefined) return '—';
+  if (value === undefined) return UNAVAILABLE_PLACEHOLDER;
   if (value === null) return '无';
   if (typeof value === 'boolean') return value ? '是' : '否';
   if (typeof value === 'number') return formatNumber(value);
@@ -106,7 +106,7 @@ export function summarizePatchValue(value: unknown): string {
   if (text !== null) return text;
   const autoLayout = autoLayoutSummary(value);
   if (autoLayout !== null) return autoLayout;
-  return JSON.stringify(value) ?? '—';
+  return JSON.stringify(value) ?? UNAVAILABLE_PLACEHOLDER;
 }
 
 /** 取画刷的颜色（纯色/渐变首停靠点）；非画刷返回 null。 */

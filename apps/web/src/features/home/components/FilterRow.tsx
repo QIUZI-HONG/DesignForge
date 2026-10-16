@@ -18,6 +18,7 @@ import {
 } from '@dforge/ui';
 
 import { t } from '@/i18n';
+import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 
 import { GridViewIcon, ListViewIcon } from '../icons';
 import type { DocumentRange, DocumentSort } from '../lib/filter';
@@ -36,7 +37,8 @@ export interface FilterRowProps {
 }
 
 /** 计数不可得的占位（UX-19：不可达时不得谎报「0 个文档」；符号量，不入 i18n 目录）。 */
-export const COUNT_UNAVAILABLE = '—';
+/** 计数不可用占位（值来自单点 `@/lib/unavailable`，复核 J5）。 */
+export const COUNT_UNAVAILABLE = UNAVAILABLE_PLACEHOLDER;
 
 /** 时间范围选项（顺序即菜单顺序）。 */
 const RANGE_OPTIONS: Array<{ value: DocumentRange; label: () => string }> = [
