@@ -160,7 +160,8 @@ describe('对抗 · 传输层异常归一', () => {
     await expect(client.remove('海报 A')).rejects.toMatchObject({ code: 'daemon_timeout' });
   });
 
-  it('统一上限是模块常量（3s，与首页既有 3s 兜底同源）且可注入覆盖', () => {
+  it('统一上限是模块常量 3s（与首页既有 3s 兜底同一数字）', () => {
+    // 其余用例经 `timeoutMs` 注入短上限验证同一条逻辑路径（可注入覆盖）。
     expect(GATEWAY_TIMEOUT_MS).toBe(3000);
   });
 
