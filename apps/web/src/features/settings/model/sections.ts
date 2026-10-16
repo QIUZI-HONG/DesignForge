@@ -60,3 +60,21 @@ export function settingsSection(id: SettingsSectionId): SettingsSectionSpec {
   if (found === undefined) throw new Error(`未登记的分区 id：${id}`);
   return found;
 }
+
+/**
+ * 诊断分区的导航元数据（修复批次 4 · 工作包 D1）。
+ *
+ * 为什么**不进** `SETTINGS_SECTIONS`：那张表是「设置页左导航」与「四步引导步骤」的共用真源
+ * （四步 = 工作目录 → AI → 出图 → 埋点），把诊断塞进去会让引导变成五步（E4 清单外）。
+ * 诊断是设置页上的**只读观察面**（无草稿、无保存脚），与表单分区本就是两类东西；
+ * 但导航的排版/图标/文案键仍与分区同表定义，避免两处各自硬编码。
+ */
+export const SETTINGS_DIAGNOSTICS_NAV = {
+  id: 'diagnostics',
+  titleKey: 'settings.section.diagnostics',
+  descriptionKey: 'settings.section.diagnostics.desc',
+  icon: 'AlertCircleIcon',
+} as const satisfies { id: string; titleKey: string; descriptionKey: string; icon: IconName };
+
+/** 设置页左导航的全部 id（四表单分区 + 诊断）。 */
+export type SettingsNavId = SettingsSectionId | typeof SETTINGS_DIAGNOSTICS_NAV.id;

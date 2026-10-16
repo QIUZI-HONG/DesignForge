@@ -56,6 +56,7 @@ function renderHome(gateway: {
         searchDebounceMs={0}
         onOpenDocument={() => undefined}
         onOpenMarket={() => undefined}
+        onOpenAi={() => undefined}
       />
     </ToastProvider>,
   );
@@ -174,6 +175,7 @@ describe('对抗 · 搜索与市场降级', () => {
           searchDebounceMs={0}
           onOpenDocument={() => undefined}
           onOpenMarket={() => undefined}
+          onOpenAi={() => undefined}
         />
       </ToastProvider>,
     );
@@ -206,6 +208,7 @@ describe('对抗 · 搜索与市场降级', () => {
           marketSearchDeadlineMs={5}
           onOpenDocument={() => undefined}
           onOpenMarket={() => undefined}
+          onOpenAi={() => undefined}
         />
       </ToastProvider>,
     );
@@ -235,6 +238,7 @@ describe('对抗 · 搜索与市场降级', () => {
           searchDebounceMs={0}
           onOpenDocument={() => undefined}
           onOpenMarket={() => undefined}
+          onOpenAi={() => undefined}
         />
       </ToastProvider>,
     );

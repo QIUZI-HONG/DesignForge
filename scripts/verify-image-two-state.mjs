@@ -13,10 +13,13 @@
  * （与面板是同一份代码）——轮询序列、失败映射、OOM 降档都跑它们。
  *
  * 退出码（《前端验收标准 v1》§4，禁止假绿）：
- *   0 = 两态取证通过；1 = 断言失败；2 = **阻塞**（daemon 或 mock ComfyUI 未能启动）。
+ *   0 = 两态取证 + UI 挂载断言全过；1 = 断言失败；2 = **阻塞**（daemon / mock ComfyUI 未能
+ *   启动，或 UI 段前置不成立——未找到 Chromium、站点起不来、编辑器路由不可达）。
  *
  * 用法（仓库根执行）：node scripts/verify-image-two-state.mjs [--verbose]
- * 环境变量：DF_EVIDENCE_DIR（证据根，默认 ~/df-evidence）。
+ * 环境变量：DF_EVIDENCE_DIR（证据根，默认 ~/df-evidence）、
+ *   DF_WEB_URL（站点；未设置则自起 next dev，4420+ 端口）、
+ *   BENCH_CHROME_EXECUTABLE（Chromium 路径；缺省读 ~/.cache/ms-playwright）。
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -32,6 +35,7 @@ import {
   failureOf,
 } from '../apps/web/src/features/image/failure.ts';
 import { trackImageRun } from '../apps/web/src/features/image/run.ts';
+import { runUiMountCheck } from './lib/ui-mount.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df-evidence'));
@@ -256,25 +260,62 @@ function trackViaFrontend(baseUrl, runId, options = {}) {
   return { tracker, updates, done };
 }
 
-/** 可选 UI 挂载探测（宿主页未挂载即如实记 pending，不影响本门禁的功能判定）。 */
-async function probeUiEvidence() {
-  const webUrl = process.env.DF_WEB_URL;
-  if (webUrl === undefined || webUrl.length === 0) {
-    return { status: 'not-configured', reason: '未设置 DF_WEB_URL（UI 截图门禁归参照集票）' };
-  }
-  try {
-    const response = await fetch(webUrl, { redirect: 'manual' });
-    const html = await response.text();
-    const mounted = html.includes('data-df-panel="image"');
-    return mounted
-      ? { status: 'captured-marker', reason: '宿主页 HTML 含 data-df-panel="image" 挂点' }
-      : {
-          status: 'pending',
-          reason: '宿主页未挂载出图面板（FE-03 编辑器壳未接入口）；功能两态已完成取证',
-        };
-  } catch (error) {
-    return { status: 'pending', reason: `宿主页不可达：${String(error)}` };
-  }
+/**
+ * UI 挂载断言（D1 · D-6/UX-10 的回归）——**真浏览器**（playwright-core）。
+ *
+ * 断言（全部走用户路径）：
+ * 1. 右栏出现「出图」页签（`canvas.ws.tab.image` 的挂载落点）；
+ * 2. 点它 → 出图面板抽屉打开（`[data-df-panel="image"]` 可见）；
+ * 3. ComfyUI 未启动（真跑死端口）→ 面板给出可达状态与恢复动作
+ *    （`[data-df-image-probe="unreachable"]` + 「重新探测」按钮）；
+ * 4. Esc → 抽屉关闭（面板卸载）。
+ *
+ * 为什么必须真浏览器：客户端挂载组件不出现在 SSR HTML——原「fetch HTML 找挂点」的探测
+ * 恒为 pending（等于没测）。站点优先复用 `DF_WEB_URL`，否则自起 next dev（见 lib/ui-mount）。
+ */
+async function probeUiMount({ daemonUrl }) {
+  return runUiMountCheck({
+    daemonUrl,
+    evidenceDir: join(EVIDENCE_ROOT, TICKET),
+    screenshotName: 'ui-image-panel.png',
+    log: (message) => {
+      console.log(`[verify-image-two-state] ${message}`);
+    },
+    check: async ({ page, record, screenshot }) => {
+      // ① 「出图」页签挂载（右栏分段控件；value=image 的原生单选）
+      const tab = page.locator('label:has(> input[value="image"])');
+      await tab.waitFor({ state: 'visible', timeout: 120_000 });
+      record('ui.tab.visible', true, '右栏出现「出图」页签（label:has(input[value=image])）');
+
+      // ② 点页签 → 出图面板抽屉打开
+      await tab.click();
+      await page.waitForSelector('[data-df-panel="image"]', { state: 'visible', timeout: 60_000 });
+      record('ui.panel.opens', true, '点「出图」→ 面板抽屉打开（data-df-panel=image 可见）');
+
+      // ③ ComfyUI 未启动态：可达状态 + 恢复动作（「重新探测」按钮）
+      await page.waitForSelector('[data-df-image-probe="unreachable"]', {
+        state: 'visible',
+        timeout: 60_000,
+      });
+      const retry = page.locator('[data-df-panel="image"] button', { hasText: '重新探测' });
+      const retryVisible = (await retry.count()) > 0;
+      record(
+        'ui.unreachable-actions',
+        retryVisible,
+        '面板给出「未检测到本地 ComfyUI 服务」+ 恢复动作（重新探测按钮）',
+      );
+      await screenshot('ui-image-panel.png');
+
+      // ④ Esc → 关闭（面板卸载；页签回到「检查」）
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-df-panel="image"]', { state: 'detached', timeout: 30_000 });
+      const backToInspect = await page
+        .locator('input[value="inspect"]')
+        .isChecked()
+        .catch(() => false);
+      record('ui.panel.closes', backToInspect, 'Esc → 抽屉关闭且页签回到「检查」');
+    },
+  });
 }
 
 async function main() {
@@ -288,14 +329,15 @@ async function main() {
   const evidence = {
     ticket: 'FE-10',
     gate: 'verify-image-two-state',
-    page: 'image-panel（F5）· 数据面两态',
-    level: 'A（结构化失败态 + 轮询序列 + 产出哈希复算）',
+    page: 'image-panel（F5）· 数据面两态 + UI 挂载断言（真浏览器）',
+    level: 'A（结构化失败态 + 轮询序列 + 产出哈希复算 + 用户路径挂载）',
     states: {},
     exitCode: 2,
     humanReview: {
       verdict: 'pending',
       reviewer: null,
-      reason: '自动判定覆盖数据面两态；界面像素对照归 verify-figma-*（参照集未冻结 → exit 2）。',
+      reason:
+        '自动判定覆盖数据面两态 + 用户路径挂载（真点击）；界面像素对照归 verify-figma-*（参照集未冻结 → exit 2）。',
     },
   };
 
@@ -359,6 +401,18 @@ async function main() {
       submitError: submitA.json?.error ?? null,
       uiFailureView: viewA,
     };
+
+    // —— UI 段（D1 挂载断言，真浏览器）：趁 comfy 仍指向死端口，断言面板的未启动恢复动作 ——
+    evidence.uiEvidence = await probeUiMount({ daemonUrl: baseUrl });
+    if (evidence.uiEvidence.status === 'blocked') {
+      console.log(`  [阻塞] UI 挂载断言未执行：${evidence.uiEvidence.reason}`);
+      blockedReason = `UI 段阻塞：${evidence.uiEvidence.reason}`;
+    } else {
+      for (const step of evidence.uiEvidence.steps) record(step.id, step.ok, step.detail);
+      console.log(
+        `  UI 段（真浏览器）：${evidence.uiEvidence.status}（截图：${evidence.uiEvidence.screenshot ?? '无'}）`,
+      );
+    }
 
     // —— 态 B：正常态（mock ComfyUI；成功 / 取消 / OOM 三分支）——
     await call(baseUrl, 'PUT', '/config', { comfy: { baseUrl: mock.baseUrl } });
@@ -468,10 +522,6 @@ async function main() {
     if (verbose) {
       console.log(`  轮询序列：${tracked.updates.map((update) => update.state).join(' > ')}`);
     }
-    evidence.uiEvidence = await probeUiEvidence();
-    if (evidence.uiEvidence.status === 'pending') {
-      console.log(`  [待办] UI 挂点：${evidence.uiEvidence.reason}`);
-    }
   } catch (error) {
     exitCode = 2;
     blockedReason = String(error);
@@ -490,6 +540,9 @@ async function main() {
     const failed = steps.filter((step) => !step.ok);
     if (failed.length > 0) exitCode = 1;
   }
+  // UI 段阻塞 → exit 2（三态语义；违规（1）优先于阻塞（2），见 implementation-workflow）
+  if (exitCode === 0 && evidence.uiEvidence?.status === 'blocked') exitCode = 2;
+  if (exitCode === 0 && evidence.uiEvidence?.status === 'failed') exitCode = 1;
 
   evidence.exitCode = exitCode;
   evidence.blockedReason = blockedReason;

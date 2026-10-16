@@ -13,13 +13,16 @@
  * queued → llm → validate → compile 与降级标记，即用户看到的时序。
  *
  * 退出码（《前端验收标准 v1》§4，禁止假绿）：
- *   0 = 两态取证通过；
+ *   0 = 两态取证 + UI 挂载断言全过；
  *   1 = 有断言失败（真失败）；
- *   2 = **阻塞**：daemon 未能启动 / 本机 mock 上游未能启动。
+ *   2 = **阻塞**：daemon 未能启动 / 本机 mock 上游未能启动 / UI 段前置不成立
+ *       （未找到 Chromium、站点起不来、编辑器路由不可达）——阻塞不是通过。
  *
  * 用法（仓库根执行）：
  *   node scripts/verify-ai-two-state.mjs [--verbose]
- * 环境变量：DF_EVIDENCE_DIR（证据根，默认 ~/df-evidence）、DF_WEB_URL（可选：UI 挂载探测）。
+ * 环境变量：DF_EVIDENCE_DIR（证据根，默认 ~/df-evidence）、
+ *   DF_WEB_URL（站点；未设置则自起 next dev，4420+ 端口）、
+ *   BENCH_CHROME_EXECUTABLE（Chromium 路径；缺省读 ~/.cache/ms-playwright）。
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -30,6 +33,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createAiRunReader } from '../apps/web/src/features/ai/stream.ts';
+import { runUiMountCheck } from './lib/ui-mount.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df-evidence'));
@@ -177,25 +181,66 @@ function driveReader(sseText) {
   return { snapshot: reader.snapshot(), timeline: reader.timeline(), begin: begun };
 }
 
-/** 可选 UI 挂载探测（宿主页未挂载即如实记 pending，不影响本门禁的功能判定）。 */
-async function probeUiEvidence() {
-  const webUrl = process.env.DF_WEB_URL;
-  if (webUrl === undefined || webUrl.length === 0) {
-    return { status: 'not-configured', reason: '未设置 DF_WEB_URL（UI 截图门禁归参照集票）' };
-  }
-  try {
-    const response = await fetch(webUrl, { redirect: 'manual' });
-    const html = await response.text();
-    const mounted = html.includes('data-df-panel="ai"');
-    return mounted
-      ? { status: 'captured-marker', reason: '宿主页 HTML 含 data-df-panel="ai" 挂点' }
-      : {
-          status: 'pending',
-          reason: '宿主页未挂载 AI 抽屉（FE-03 编辑器壳未接入口）；功能两态已完成取证',
-        };
-  } catch (error) {
-    return { status: 'pending', reason: `宿主页不可达：${String(error)}` };
-  }
+/**
+ * UI 挂载断言（D1 · D-6/UX-10 的回归）——**真浏览器**（playwright-core）。
+ *
+ * 断言（全部走用户路径）：
+ * 1. 编辑器工具栏出现 AI 入口按钮（`[data-df-ai-entry]`）；
+ * 2. 点它 → AI 抽屉打开（`[data-df-panel="ai"]` 可见）；
+ * 3. 无 key 时抽屉渲染 daemon 给的降级提示（`/ai/status.degradedHint` 同一文本）；
+ * 4. Esc → 抽屉关闭（面板卸载）。
+ *
+ * 为什么必须真浏览器：客户端挂载组件不出现在 SSR HTML——原「fetch HTML 找挂点」的探测
+ * 恒为 pending（等于没测）。站点优先复用 `DF_WEB_URL`，否则自起 next dev（见 lib/ui-mount）。
+ *
+ * @param {{ daemonUrl: string, degradedHint: string }} options
+ * @returns {Promise<Awaited<ReturnType<import('./lib/ui-mount.mjs').runUiMountCheck>>>}
+ */
+async function probeUiMount({ daemonUrl, degradedHint }) {
+  return runUiMountCheck({
+    daemonUrl,
+    evidenceDir: join(EVIDENCE_ROOT, TICKET),
+    screenshotName: 'ui-ai-drawer.png',
+    log: (message) => {
+      console.log(`[verify-ai-two-state] ${message}`);
+    },
+    check: async ({ page, record, screenshot }) => {
+      // ① 入口可见（工具栏按钮由 canvas 工作区的 toolbar 插槽挂载）
+      await page.waitForSelector('[data-df-ai-entry]', { timeout: 120_000 });
+      record('ui.entry.visible', true, '工具栏 AI 入口按钮挂载（[data-df-ai-entry]）');
+
+      // ② 点入口 → 抽屉打开
+      await page.click('[data-df-ai-entry]');
+      await page.waitForSelector('[data-df-panel="ai"]', { state: 'visible', timeout: 60_000 });
+      const pressed = await page
+        .locator('[data-df-ai-entry]')
+        .getAttribute('aria-pressed')
+        .catch(() => null);
+      record(
+        'ui.drawer.opens',
+        pressed === 'true',
+        `点入口 → AI 抽屉打开（data-df-panel=ai 可见；入口 aria-pressed=${String(pressed)}）`,
+      );
+
+      // ③ 无 key 降级态可见：抽屉里的提示文本 = daemon `/ai/status` 的 degradedHint
+      const hint = await page
+        .locator('[data-df-panel="ai"] [role="status"]')
+        .first()
+        .innerText()
+        .catch(() => '');
+      record(
+        'ui.degraded-hint',
+        degradedHint.length > 0 && hint.includes(degradedHint),
+        `抽屉可见降级提示「${hint.slice(0, 40)}」= /ai/status.degradedHint`,
+      );
+      await screenshot('ui-ai-drawer.png');
+
+      // ④ Esc → 关闭（面板卸载）
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-df-panel="ai"]', { state: 'detached', timeout: 30_000 });
+      record('ui.drawer.closes', true, 'Esc → 抽屉关闭（面板卸载）');
+    },
+  });
 }
 
 async function main() {
@@ -208,15 +253,15 @@ async function main() {
   const evidence = {
     ticket: 'FE-10',
     gate: 'verify-ai-two-state',
-    page: 'ai-drawer（F4）· 数据面两态',
-    level: 'A（契约形状 + 步骤时序断言）',
+    page: 'ai-drawer（F4）· 数据面两态 + UI 挂载断言（真浏览器）',
+    level: 'A（契约形状 + 步骤时序断言 + 用户路径挂载）',
     states: {},
     exitCode: 2,
     humanReview: {
       verdict: 'pending',
       reviewer: null,
       reason:
-        '自动判定覆盖两态形状与时序；界面像素对照归 verify-figma-*（参照集未冻结 → exit 2）。',
+        '自动判定覆盖两态形状与时序 + 用户路径挂载（真点击）；界面像素对照归 verify-figma-*（参照集未冻结 → exit 2）。',
     },
   };
 
@@ -304,6 +349,21 @@ async function main() {
       onceResponse: onceA.json?.result ?? null,
       cloudCalls: 0,
     };
+
+    // —— UI 段（D1 挂载断言，真浏览器）：趁 daemon 仍无凭据，断言抽屉可见「本地模板」降级态 ——
+    evidence.uiEvidence = await probeUiMount({
+      daemonUrl: baseUrl,
+      degradedHint: statusA.json?.result?.degradedHint ?? '',
+    });
+    if (evidence.uiEvidence.status === 'blocked') {
+      console.log(`  [阻塞] UI 挂载断言未执行：${evidence.uiEvidence.reason}`);
+      blockedReason = `UI 段阻塞：${evidence.uiEvidence.reason}`;
+    } else {
+      for (const step of evidence.uiEvidence.steps) record(step.id, step.ok, step.detail);
+      console.log(
+        `  UI 段（真浏览器）：${evidence.uiEvidence.status}（截图：${evidence.uiEvidence.screenshot ?? '无'}）`,
+      );
+    }
 
     // —— 态 B：有 key + mock 上游（真跑流式，不真调云端）——
     const setKey = await call(baseUrl, 'PUT', '/config/credentials', { apiKey: SENTINEL_KEY });
@@ -396,11 +456,6 @@ async function main() {
       })),
       cloudCalls: 0,
     };
-
-    evidence.uiEvidence = await probeUiEvidence();
-    if (evidence.uiEvidence.status === 'pending') {
-      console.log(`  [待办] UI 挂点：${evidence.uiEvidence.reason}`);
-    }
   } catch (error) {
     exitCode = 2;
     blockedReason = String(error);
@@ -419,6 +474,9 @@ async function main() {
     const failed = steps.filter((step) => !step.ok);
     if (failed.length > 0) exitCode = 1;
   }
+  // UI 段阻塞 → exit 2（三态语义；违规（1）优先于阻塞（2），见 implementation-workflow）
+  if (exitCode === 0 && evidence.uiEvidence?.status === 'blocked') exitCode = 2;
+  if (exitCode === 0 && evidence.uiEvidence?.status === 'failed') exitCode = 1;
 
   evidence.exitCode = exitCode;
   evidence.blockedReason = blockedReason;
