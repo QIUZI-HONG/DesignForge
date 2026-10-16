@@ -10,7 +10,14 @@ import {
   type DesignDocument,
   solidPaint,
 } from '../model/index';
-import { getPage, insertNode, insertNodes } from '../scene/index';
+import {
+  getPage,
+  insertNode,
+  insertNodes,
+  MAX_NESTING_DEPTH,
+  MAX_VALUE_DEPTH,
+  validateDocument,
+} from '../scene/index';
 import {
   cloneDocument,
   DESIGN_IR_FORMAT,
@@ -20,6 +27,7 @@ import {
   roundTripDocument,
   serializeDocument,
   serializePage,
+  sortKeysDeep,
   stableStringify,
 } from './index';
 
@@ -145,6 +153,95 @@ describe('serialize · 往返', () => {
     const json = serializePage(fixture(), 'p1');
     expect(json).toContain('"page"');
     expect(() => serializePage(fixture(), 'missing')).toThrow('页面不存在');
+  });
+});
+
+describe('serialize · 深度上限（A1：显式上限 + 领域错误）', () => {
+  it('上限取值是契约：节点链 512 层、结构 2048 层', () => {
+    expect(MAX_NESTING_DEPTH).toBe(512);
+    expect(MAX_VALUE_DEPTH).toBe(2048);
+  });
+
+  it('边界：512 层可往返；513 层在校验/序列化/导入三处一致被拒（含节点路径）', () => {
+    const atLimit = deepChain(MAX_NESTING_DEPTH);
+    expect(validateDocument(atLimit)).toEqual([]);
+    const json = serializeDocument(atLimit);
+    expect(parseDocument(json).document.pages.length).toBe(1);
+
+    const over = deepChain(MAX_NESTING_DEPTH + 1);
+    const issues = validateDocument(over);
+    expect(issues.map((issue) => issue.code)).toContain('max-depth-exceeded');
+    // 三处入口同口径：都是领域错误、都带越界节点路径
+    expect(() => serializeDocument(over)).toThrowError(/超过上限 512/);
+    expect(() => serializeDocument(over)).toThrowError(/f512/);
+    expect(() => parseDocument(over)).toThrowError(/超过上限 512/);
+    expect(() => parseDocument(JSON.stringify(over))).toThrowError(/f512/);
+    expect(() => roundTripDocument(over)).toThrowError(/超过上限 512/);
+  });
+
+  it('上限以内深链的稳定序列化结果可导入（导出与导入同口径）', () => {
+    const json = serializeDocument(deepChain(400));
+    expect(() => parseDocument(json)).not.toThrowError();
+  });
+});
+
+/** 直接装配 depth 层节点链（O(n)，避免 insertNode 的 O(n²) 拷贝）。 */
+function deepChain(depth: number): DesignDocument {
+  const nodes: Record<string, unknown> = {};
+  for (let index = 0; index < depth; index += 1) {
+    nodes[`f${index}`] = createFrame({
+      id: `f${index}`,
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      children: index + 1 < depth ? [`f${index + 1}`] : [],
+    });
+  }
+  return {
+    id: 'deep',
+    name: '深链',
+    tokens: createDocument({ id: 'tokens' }).tokens,
+    pages: [{ ...createPage({ id: 'p1' }), nodes: nodes as never, rootIds: ['f0'] }],
+  };
+}
+
+describe('serialize · 原型污染同口径（A2：三处入口一律丢弃）', () => {
+  it('sortKeysDeep / cloneDocument / parseDocument 丢弃自有 __proto__ 键，且不改写原型', () => {
+    // 键排序入口：不是「赋值后再丢字段」，而是根本不进入出参对象（原型不被改写）
+    const polluted = JSON.parse('{"__proto__": {"marker": 1}, "ok": 2}') as Record<string, unknown>;
+    const sorted = sortKeysDeep(polluted) as Record<string, unknown>;
+    expect(Object.hasOwn(sorted, '__proto__')).toBe(false);
+    expect(Object.getPrototypeOf(sorted)).toBe(Object.prototype);
+    expect(sorted.ok).toBe(2);
+    expect(({} as Record<string, unknown>).marker).toBeUndefined();
+    expect(stableStringify(polluted)).not.toContain('__proto__');
+
+    // 克隆入口：JSON 往返会把自有键带回来，cloneDocument 负责丢
+    const doc = fixture();
+    const node = getPage(doc, 'p1').nodes.r1 as unknown as Record<string, unknown>;
+    Object.defineProperty(node, '__proto__', {
+      value: { marker: 1 },
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    const copy = cloneDocument(doc);
+    const copied = getPage(copy, 'p1').nodes.r1 as unknown as Record<string, unknown>;
+    expect(Object.hasOwn(copied, '__proto__')).toBe(false);
+    expect(Object.getPrototypeOf(copied)).toBe(Object.prototype);
+    expect(serializeDocument(doc)).not.toContain('__proto__');
+
+    // 解析入口：字符串与已解析对象两条输入都丢弃
+    const json = serializeDocument(fixture()).replace(
+      '"id": "r1"',
+      '"id": "r1", "__proto__": { "marker": 1 }',
+    );
+    const parsed = parseDocument(json).document;
+    const parsedNode = getPage(parsed, 'p1').nodes.r1 as unknown as Record<string, unknown>;
+    expect(Object.hasOwn(parsedNode, '__proto__')).toBe(false);
+    expect(Object.getPrototypeOf(parsedNode)).toBe(Object.prototype);
+    expect(serializeDocument(parsed)).toBe(serializeDocument(fixture()));
   });
 });
 
