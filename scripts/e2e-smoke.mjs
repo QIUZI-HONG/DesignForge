@@ -105,12 +105,13 @@ function resolveChrome() {
 /** 已登记的子进程（daemon / 站点）；`process.on('exit')` 兜底同步杀。 */
 const children = new Set();
 let webServer = null;
+/** 当前场景的同源网关（逐场景起停；任何退出路径都由 shutdown() 兜底关掉）。 */
 let gateway = null;
 let browser = null;
+/** 当前场景的夹具 daemon（逐场景起停；同上）。 */
 let fixtureDaemon;
-/** 站点 / daemon 地址（场景执行函数与主流程共用；无守卫时保持 null）。 */
+/** 站点地址（构建/复用后固定；场景执行函数经 ctx 读取）。 */
 let webUrl = null;
-let daemonUrl = null;
 
 /** 登记子进程（退出时兜底清理；不在退出回调里 await，只能同步 kill）。 */
 function track(child) {
@@ -234,8 +235,13 @@ function assertStepsProduced(scenarioId, steps) {
   ];
 }
 
-/** 执行单个场景，返回它贡献的步骤（异常/导入失败都记 fail 步骤，不中断其余场景）。 */
-async function runScenario(file) {
+/**
+ * 执行单个场景，返回它贡献的步骤（异常/导入失败都记 fail 步骤，不中断其余场景）。
+ *
+ * `scenarioContext` 是**本场景专属**的 daemon / 同源网关 / 数据根（见主流程「场景隔离」）：
+ * 场景会写持久化状态（新建文档），共用一个数据根会让「空态」这类断言被前一个场景污染。
+ */
+async function runScenario(file, scenarioContext) {
   let module;
   try {
     module = await import(join(scenariosDir, file));
@@ -268,18 +274,19 @@ async function runScenario(file) {
 
   /** 场景用 `ctx.assert` 记录的步骤（与场景自报的 steps 合并）。 */
   const assertedSteps = [];
+  const gatewayUrl = scenarioContext.gatewayUrl;
   log(`场景开始：${scenarioTitle}（${scenarioId}）`);
   let steps = [];
   try {
     const result = await module.run(page, {
       // 页面走同源网关；`?daemon=` 指向网关下的 `/df`（同源，与生产形态一致）
-      homeUrl: `${gateway.url}/?daemon=${encodeURIComponent(`${gateway.url}/df`)}`,
-      canvasUrl: `${gateway.url}/_canvas?daemon=${encodeURIComponent(`${gateway.url}/df`)}`,
-      pageUrl: gateway.url,
+      homeUrl: `${gatewayUrl}/?daemon=${encodeURIComponent(`${gatewayUrl}/df`)}`,
+      canvasUrl: `${gatewayUrl}/_canvas?daemon=${encodeURIComponent(`${gatewayUrl}/df`)}`,
+      pageUrl: gatewayUrl,
       webUrl,
-      daemonUrl,
-      dataRoot,
-      workspaceDir,
+      daemonUrl: scenarioContext.daemonUrl,
+      dataRoot: scenarioContext.dataRoot,
+      workspaceDir: scenarioContext.workspaceDir,
       log: (message) => log(`  ${scenarioId} · ${message}`),
       verbose,
       assert: (condition, name, detail) => {
@@ -307,20 +314,6 @@ async function runScenario(file) {
 }
 
 try {
-  mkdirSync(workspaceDir, { recursive: true });
-  try {
-    fixtureDaemon = await startFixtureDaemon({ dataRoot, workspaceDir });
-  } catch (error) {
-    evidence.daemon = { url: null, dataRoot, workspaceDir };
-    console.error(
-      ['阻塞：daemon 起不来（本 runner 需要真 daemon 才能跑主路径）。', String(error)].join('\n'),
-    );
-    await finish(evidence, 2);
-  }
-  daemonUrl = fixtureDaemon.url;
-  log(`daemon 就绪：${daemonUrl}（数据根 ${dataRoot}）`);
-  evidence.daemon = { url: daemonUrl, dataRoot, workspaceDir };
-
   // --- 站点（复用 DF_WEB_URL，或生产构建 + 起服务） ---
   webUrl = process.env.DF_WEB_URL ?? null;
 
@@ -330,6 +323,22 @@ try {
     const nextBin = join(repoRoot, 'apps/web/node_modules/.bin/next');
     if (!existsSync(nextBin)) {
       console.error('阻塞：未找到 next 可执行文件（先 pnpm install）。');
+      await finish(evidence, 2);
+    }
+
+    // CanvasKit 运行时资产（wasm 7.3MB + Noto 字体）是第三方二进制、不入库（.gitignore），
+    // 由 copy 脚本从 node_modules 幂等落盘到 apps/web/public/canvaskit——画布场景的 Skia
+    // 初始化依赖它（`/canvaskit/canvaskit.js`）。漏这步会让 canvas 场景恒定超时（假红）。
+    const assets = track(
+      spawn(
+        process.execPath,
+        [join(repoRoot, 'apps/web/src/features/canvas/tools/copy-canvaskit-assets.mjs')],
+        { cwd: repoRoot, stdio: 'inherit' },
+      ),
+    );
+    const assetsCode = await new Promise((resolveAssets) => assets.on('exit', resolveAssets));
+    if (assetsCode !== 0) {
+      console.error('阻塞：CanvasKit 资产准备失败（apps/web/public/canvaskit）。');
       await finish(evidence, 2);
     }
 
@@ -363,13 +372,7 @@ try {
   }
   log(`站点就绪：${webUrl}`);
 
-  // --- 同源网关（还原架构 §3.1 的「Web 应用 ↑↓ 同源 HTTP」形态） ---
-  gateway = await startSameOriginGateway({ webUrl, daemonUrl });
-  const gatewayUrl = gateway.url;
-  evidence.gatewayUrl = gatewayUrl;
-  log(`同源网关就绪：${gatewayUrl}（/df/* → daemon，其余 → 站点）`);
-
-  // --- 浏览器 + 场景执行 ---
+  // --- 浏览器（全场景共用一个实例；每个场景各自开 context） ---
   const chrome = resolveChrome();
   if (chrome === undefined) {
     console.error('阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）。');
@@ -384,11 +387,81 @@ try {
     await finish(evidence, 2);
   }
 
+  // --- 场景隔离：每个场景一套「夹具 daemon + 数据根 + 同源网关」 ---
+  // 为什么不能共用一套：场景会写持久化状态（新建文档、拖画保存），共用数据根时后跑的场景
+  // 会读到前一个场景的产物——实测 canvas 先跑会让 home 的「空态」断言假红（顺序耦合）。
+  // 逐场景起停的代价只有 daemon 冷启（~1s），换来场景与文件顺序无关。
+  evidence.daemon = {
+    url: null,
+    dataRoot,
+    workspaceDir,
+    note: '每个场景独立 daemon + 独立数据根 + 独立同源网关（场景之间不串持久化状态）',
+  };
+
   const allSteps = [];
-  for (const file of selected) {
-    const scenario = await runScenario(file);
-    evidence.scenarios.push(scenario);
-    allSteps.push(...scenario.steps);
+  for (const [index, file] of selected.entries()) {
+    const scenarioName = file.replace(/\.mjs$/, '');
+    const scenarioDataRoot = join(dataRoot, `scenario-${String(index + 1)}-${scenarioName}`);
+    const scenarioWorkspace = join(scenarioDataRoot, 'workspace');
+    mkdirSync(scenarioWorkspace, { recursive: true });
+
+    let scenarioDaemon = null;
+    let scenarioGateway = null;
+    try {
+      try {
+        scenarioDaemon = await startFixtureDaemon({
+          dataRoot: scenarioDataRoot,
+          workspaceDir: scenarioWorkspace,
+        });
+      } catch (error) {
+        // 第一个场景就起不来 = 真 daemon 不可用（前置不成立）→ 整体阻塞；
+        // 后续场景失败则如实记 blocked 步骤，不吞掉其余场景。
+        if (index === 0) {
+          console.error(
+            ['阻塞：daemon 起不来（本 runner 需要真 daemon 才能跑主路径）。', String(error)].join(
+              '\n',
+            ),
+          );
+          await finish(evidence, 2);
+        }
+        const blockedStep = {
+          name: '夹具 daemon',
+          status: 'blocked',
+          detail: `daemon 起不来：${String(error)}`,
+        };
+        evidence.scenarios.push({
+          id: scenarioName,
+          title: file,
+          steps: [blockedStep],
+          pageErrors: [],
+          dataRoot: scenarioDataRoot,
+        });
+        allSteps.push(blockedStep);
+        continue;
+      }
+
+      fixtureDaemon = scenarioDaemon;
+      gateway = await startSameOriginGateway({ webUrl, daemonUrl: scenarioDaemon.url });
+      scenarioGateway = gateway;
+      log(`daemon 就绪：${scenarioDaemon.url}（数据根 ${scenarioDataRoot}）· 网关 ${gateway.url}`);
+
+      const scenario = await runScenario(file, {
+        gatewayUrl: gateway.url,
+        daemonUrl: scenarioDaemon.url,
+        dataRoot: scenarioDataRoot,
+        workspaceDir: scenarioWorkspace,
+      });
+      scenario.daemonUrl = scenarioDaemon.url;
+      scenario.dataRoot = scenarioDataRoot;
+      evidence.scenarios.push(scenario);
+      allSteps.push(...scenario.steps);
+    } finally {
+      // 场景专属子进程随场景结束即清（不留在机器上等到整轮结束）。
+      await scenarioGateway?.close().catch(() => undefined);
+      gateway = null;
+      await scenarioDaemon?.close().catch(() => undefined);
+      fixtureDaemon = undefined;
+    }
   }
 
   // --- 汇总与退出码 ---
