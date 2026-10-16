@@ -144,9 +144,17 @@ export function ExportPanel({ documentId, pageId, client }: ExportPanelProps) {
                     <p className="dfx-export__error-hint" data-df-inspect={`export-${format}-hint`}>
                       {failureHint(state.code ?? 'unknown')}
                     </p>
-                    <p className="dfx-export__error-code">
-                      {t('editor.export.state.errorCode', { code: state.code ?? 'unknown' })}
-                    </p>
+                    {/* 诊断信息折叠（G6 · 复核 Spec a4）：错误码与其余四处（首页/市场/详情/404）
+                        同口径——「诊断信息」summary 默认收起、展开才见内部错误码；
+                        替换此前的原因行内直出（`dfx-export__error-code` 类复用为折叠内容样式）。 */}
+                    <details className="dfg-state__diagnostics dfx-export__diagnostics">
+                      <summary className="dfg-state__diagnostics-toggle">
+                        {t('state.diagnostics')}
+                      </summary>
+                      <span className="dfx-export__error-code">
+                        {t('editor.export.state.errorCode', { code: state.code ?? 'unknown' })}
+                      </span>
+                    </details>
                   </div>
                   <Button size="sm" variant="ghost" onClick={() => void run(format, activeClient)}>
                     {t('editor.export.action.retry')}

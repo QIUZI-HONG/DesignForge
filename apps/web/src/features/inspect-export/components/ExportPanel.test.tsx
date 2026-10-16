@@ -126,7 +126,7 @@ describe('ExportPanel · 三档导出', () => {
 });
 
 describe('ExportPanel · 失败态与重试', () => {
-  it('daemon 500：显示错误码与文案，并提供重试', async () => {
+  it('daemon 500：显示文案与重试，错误码沉进「诊断信息」折叠（G6 复核 a4）', async () => {
     const { client, calls } = immediateClient([
       { ok: false, code: 'export_render_failed', message: '渲染失败：坏数据' },
     ]);
@@ -135,7 +135,12 @@ describe('ExportPanel · 失败态与重试', () => {
 
     const error = await screen.findByRole('alert');
     expect(error.textContent).toContain('导出失败：渲染失败：坏数据');
-    expect(error.textContent).toContain('错误码：export_render_failed');
+    // 错误码不在主位：默认收起的 <details> 里，展开才见（与其余四处同口径）
+    const diagnostics = error.querySelector('details');
+    expect(diagnostics).not.toBeNull();
+    expect(diagnostics?.open).toBe(false);
+    expect(diagnostics?.querySelector('summary')?.textContent).toBe('诊断信息');
+    expect(diagnostics?.textContent).toContain('错误码：export_render_failed');
     expect(screen.getByRole('button', { name: '重试' })).toBeDefined();
     expect(calls).toHaveLength(1);
   });
@@ -163,7 +168,8 @@ describe('ExportPanel · 失败态与重试', () => {
     fireEvent.click(screen.getByRole('button', { name: '导出 PNG' }));
     const error = await screen.findByRole('alert');
     expect(error.textContent).toContain('本地服务未启动');
-    expect(error.textContent).toContain('错误码：daemon_offline');
+    // 错误码同口径沉进折叠（G6 复核 a4）
+    expect(error.querySelector('details')?.textContent).toContain('错误码：daemon_offline');
   });
 
   it('失败文案带行动建议（UX-17）：未保存文档 → 先保存 / 从已保存文档导出', async () => {
