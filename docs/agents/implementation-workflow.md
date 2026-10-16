@@ -80,6 +80,11 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   **已实现并接入 CI**；`verify:engine` / `test:scripts` 同批入 CI；`verify:figma-baseline` 以
   「CI 无参照集 → 断言 `exit 2` 且日志点名『阻塞：参照集未冻结』」的**阻塞语义断言**入 CI（不是当绿）。
   仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:mcp-contract` / `guard:channel-pairing`。
+- **守卫输出口径（批次 3 收口 · code-review）**：`guard-vocab` 与 `guard-feature-boundaries` 的
+  退出码优先级为「**违规 exit 1 优先于未判定 exit 2**」，但两类问题必须**同屏列出**
+  （`✗` 违规明细 + `?` 未判定明细，结论行点名未判定计数）——阻塞信息不得被违规结论吞掉；
+  规则同时写在两守卫模块头。`guard-vocab` 报告**始终**带 `registry`（登记词表 + 放行别名）与
+  `limits`（静态判据外形态），`--registry` 可人类可读打印（登记面评审可见，不得静默）。
 
 ## 门禁清单（本段）
 
