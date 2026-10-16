@@ -140,6 +140,63 @@ test('阻塞③：层根目录不存在 → exit 2', () => {
   assert.match(undeterminedOf(report), /层|不存在/);
 });
 
+// --- 登记面补漏（code-review：B 半做）与同包相对导入判读 ---
+
+test('违规⑦：InstallGateMode 写死字面量联合（登记面补漏）→ exit 1 且点名', () => {
+  const { status, report } = runGuard({ layers: fixture('install-gate-mode') });
+
+  assert.equal(
+    status,
+    1,
+    `未抓到 InstallGateMode 字面量：${violationsOf(report) || undeterminedOf(report)}`,
+  );
+  assert.match(violationsOf(report), /InstallGateMode/);
+});
+
+test('正例：真源在同包内（层文件用相对路径 `./vocab.ts` 引）→ exit 0', () => {
+  const dir = fixture('relative-source');
+  const { status, report } = runGuard({ source: join(dir, 'vocab.ts'), layers: dir });
+
+  assert.equal(violationsOf(report), '');
+  assert.equal(undeterminedOf(report), '');
+  assert.equal(status, 0);
+  assert.match((report.checked ?? []).join('\n'), /relative-source\/layer\.ts/);
+});
+
+test('负例：类型根来自同包的**非真源**文件（`./other.ts`）→ exit 1（相对路径不一律放行）', () => {
+  const { status, report } = runGuard({ layers: fixture('relative-foreign') });
+
+  assert.equal(status, 1, `误放行同包非真源：${violationsOf(report) || undeterminedOf(report)}`);
+  assert.match(violationsOf(report), /AssetKind/);
+  assert.match(violationsOf(report), /真源|foreign|other\.ts/);
+});
+
+test('登记面可见：报告带 registry（登记词表与放行别名）与 limits（静态判据外形态）', () => {
+  const { report } = runGuard();
+
+  const registry = JSON.stringify(report.registry ?? null);
+  assert.match(registry, /MARKET_LICENSE_GATES/);
+  assert.match(registry, /InstallGateMode/);
+  assert.match(registry, /MARKET_QUALITY_WEIGHTS/);
+  assert.ok(
+    Array.isArray(report.limits) && report.limits.length > 0,
+    '报告缺 limits（判据外形态）',
+  );
+});
+
+test('登记面人类可读：--registry 打印登记词表与判据外形态（评审可见）', () => {
+  const result = spawnSync(process.execPath, [guard, '--registry'], {
+    encoding: 'utf8',
+    cwd: repoRoot,
+  });
+
+  assert.equal(result.status, 0);
+  const out = `${result.stdout}${result.stderr}`;
+  assert.match(out, /登记词表/);
+  assert.match(out, /InstallGateMode/);
+  assert.match(out, /判据外/);
+});
+
 // --- 日志口径：1 优先于 2，但两类问题必须同时列出（阻塞信息不得被吞）---
 
 test('混合夹具（违规 + 未判定并存）→ exit 1（违规优先），两类清单都非空', () => {

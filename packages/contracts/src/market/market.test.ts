@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { displayText, MARKETPLACE_INDEX_SCHEMA, parseMarketplaceIndex } from './index.ts';
+import {
+  displayText,
+  type InstallGateMode,
+  MARKETPLACE_INDEX_SCHEMA,
+  type MarketSecurityLevel,
+  parseMarketplaceIndex,
+} from './index.ts';
+import { MARKET_LICENSE_GATES, MARKET_SECURITY_LEVELS } from './vocab.ts';
 
 function makeAsset(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -130,5 +137,27 @@ describe('market · df.marketplace.index/v1 解析', () => {
     expect(displayText({ 'zh-CN': '中文', en: 'English' }, 'fallback')).toBe('中文');
     expect(displayText({ en: 'English' }, 'fallback')).toBe('English');
     expect(displayText({}, 'fallback')).toBe('fallback');
+  });
+});
+
+describe('market · 词表派生（登记面补漏：层内不得再写字面量）', () => {
+  it('InstallGateMode 与 license 三档真源贴合（Record 键集 = 别名取值集，编译期对账）', () => {
+    // Record<别名, true> 的键集必须与别名取值集**完全相等**：多一个成员（别名漂移）
+    // 或真源增删成员（此处缺键）都会编译失败——词表变动必须走票面。
+    const gateCoverage: Record<InstallGateMode, true> = {
+      loadable: true,
+      'view-only': true,
+      blocked: true,
+    };
+    expect(Object.keys(gateCoverage).sort()).toEqual([...MARKET_LICENSE_GATES].sort());
+  });
+
+  it('installGate.security 指向安全审计真源（不再自写 pass/warn/fail 联合）', () => {
+    const securityCoverage: Record<MarketSecurityLevel, true> = {
+      pass: true,
+      warn: true,
+      fail: true,
+    };
+    expect(Object.keys(securityCoverage).sort()).toEqual([...MARKET_SECURITY_LEVELS].sort());
   });
 });

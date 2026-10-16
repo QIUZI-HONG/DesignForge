@@ -15,6 +15,7 @@ import type {
   MarketCategory,
   MarketLane,
   MarketMode,
+  MarketSecurityLevel,
 } from './vocab.ts';
 import {
   isLicenseGate,
@@ -59,8 +60,13 @@ export {
 /** 市场索引契约标识。 */
 export const MARKETPLACE_INDEX_SCHEMA = 'df.marketplace.index/v1' as const;
 
-/** 装载门模式（blocked 者不进 assets 列表——见 §1.1）。 */
-export type InstallGateMode = 'loadable' | 'view-only' | 'blocked';
+/** 装载门模式（blocked 者不进 assets 列表——见 §1.1）。
+ *
+ * 与 license 三档（`MARKET_LICENSE_GATES`）同词表：由真源**派生别名**，不另立字面量
+ * （code-review：B 半做——此处此前是第二份 `'loadable' | 'view-only' | 'blocked'`，
+ * 已由 `guard:vocab` 登记名 InstallGateMode 覆盖）。
+ */
+export type InstallGateMode = LicenseGate;
 
 /** 双语字段（缺一言回退另一言，皆缺回退 name）。 */
 export interface MarketLocalizedText {
@@ -115,7 +121,8 @@ export interface MarketQuality {
 export interface MarketInstallGate {
   mode: InstallGateMode;
   licenseGate: LicenseGate;
-  security: 'pass' | 'warn' | 'fail';
+  /** 静态安全审计结论：真源 `MARKET_SECURITY_LEVELS` 的派生类型（勿另立字面量联合）。 */
+  security: MarketSecurityLevel;
   reasons: string[];
   /** 需显式授权的能力（D4 确认门禁输入）。 */
   ackRequired: string[];
@@ -308,7 +315,7 @@ function parseAsset(value: unknown): MarketAsset | null {
     },
     quality,
     installGate: {
-      mode: normalizeGate(gateRecord.mode) as InstallGateMode,
+      mode: normalizeGate(gateRecord.mode),
       licenseGate: normalizeGate(gateRecord.licenseGate),
       security: isMarketSecurityLevel(gateRecord.security) ? gateRecord.security : 'pass',
       reasons: asStringArray(gateRecord.reasons),

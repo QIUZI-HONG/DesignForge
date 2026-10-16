@@ -12,10 +12,11 @@
  *      `['skill', …]`、对象形态的写死权重表，一律算漂移源，哪怕碰巧与真源一致也拦
  *      （「不得再写字面量」；报错会注明该字面量与真源一致/不一致，便于定位）。
  *   R3 派生根不在真源（违规）：初始化表达式的标识符根（含同文件 const 链）必须落到
- *      从 `@dforge/contracts` import 的、且**就是该词表导出名**的绑定上；
+ *      真源绑定上——`@dforge/contracts` 的导入，或**同包内相对指向真源文件本身**的导入
+ *      （契约包内的市场模块只能相对引 `./vocab.ts`，自引包名会成环）；且**就是该词表导出名**。
  *      根指向别处的模块 → exit 1；静态完全判不出根 → exit 2（阻塞）。
  *   R4 类型词表（违规）：登记类型的别名写死字面量联合（`type AssetKind = 'skill' | …`）
- *      即 exit 1；类型别名指向契约真源类型（含 import 改名）放行。
+ *      即 exit 1；类型别名指向真源类型（含 import 改名 / 同包相对导入）放行。
  *   R5 内联字面量（违规）：非声明处的数组字面量（如 `.includes(['skill', …])` 链），
  *      元素（≥2 个）全部落在同一登记词表即 exit 1（真源文件自身豁免——它就是字面量的家）。
  *
@@ -24,16 +25,18 @@
  *   - 层根：`services/ingest/src` 全树 + `packages/contracts/src/market` 全树
  *     （`--layers=` 可覆盖）；排除 `*.test.*`、`__fixtures__/`、`__snapshots__/`。
  *
- * 局限（诚实声明）：只覆盖 **登记名**——新增词表声明/别名必须在 VOCAB_REGISTRY 登记
- * （改动走评审）；内联联合类型（接口属性上的 `'a' | 'b'`）与跨文件类型链不在静态判据内。
+ * 登记面（评审可见，不得静默）：报告**始终**带 `registry`（登记词表：真源导出名 + 放行别名）
+ * 与 `limits`（静态判据覆盖不到的形态，诚实声明）；`--registry` 在人类可读日志里附带打印两者。
+ * 新增词表声明/别名必须在 VOCAB_REGISTRY 登记（改动走评审）。
  *
  * 用法：node scripts/guard-vocab.mjs [--json] [--source=<vocab.ts>] [--layers=<目录或文件>]
+ *       [--registry]（附带打印登记面与判据外形态）
  * 退出码（门禁三态，禁止假绿）：0 通过 / 1 违规（层间与真源不一致）/ 2 阻塞（前置不成立）。
  * 退出码优先级（一句话规则）：**违规（1）优先于未判定（2）**——真违规存在即失败；但两类问题
  * 在日志里**必须同时列出**（`✗` 违规明细 + `?` 未判定明细，结论行点名未判定计数），
  * 阻塞信息不得被违规结论吞掉。
  */
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import ts from 'typescript';
 
 import { collectFiles, displayPath, REPO_ROOT, readArg, readText } from './lib/guard-io.mjs';
@@ -44,6 +47,21 @@ const DEFAULT_LAYER_ROOTS = [
   join(REPO_ROOT, 'packages', 'contracts', 'src', 'market'),
 ];
 const CONTRACTS_MODULE = '@dforge/contracts';
+
+/**
+ * 静态判据覆盖不到的形态（诚实声明——随报告输出、`--registry` 可见，评审对照用）。
+ *
+ * 为什么单列：code-review 发现「各层词表缺口」有一半是**形态**问题（字面量写在类型位置
+ * 而不是登记名声明处），静态正则式判据天然逮不到；把缺口写进输出（而不是只写在注释里）
+ * 才能保证「收敛完成但判据缺席」不被静默。
+ */
+const CRITERIA_LIMITS = [
+  "内联联合类型（接口属性上的 `security: 'pass' | 'warn' | …` 一类）不在 R4 判据内；" +
+    '收敛位置见 ADR-0004 ③ 补记（登记面补漏），如成为绕过面按同族规则并入。',
+  "类型实参位置的 `Record<'a' | 'b' | …, T>` 字面量联合不在判据内；" +
+    '同上一并登记（收敛后由 tsc 兜底：字面量集合一旦偏离类型别名即编译失败）。',
+  '跨文件类型链（A 别名 → B 别名 → 字面量）只跟进同文件别名与 import 绑定，不做全链路解析。',
+];
 
 /**
  * 登记词表：id 仅用于报错；source/sourceType 是真源导出名（层派生必须根在这里）；
@@ -72,7 +90,9 @@ const VOCAB_REGISTRY = [
     sourceType: 'LicenseGate',
     form: 'array',
     values: ['GATES', 'LICENSE_GATES'],
-    types: ['LicenseGate'],
+    // InstallGateMode（contracts market/index.ts 的装载门别名）是本词表的层内别名，
+    // 此前未登记（code-review：B 半做）；登记后层内再写字面量联合会被 R4 直接点名。
+    types: ['LicenseGate', 'InstallGateMode'],
   },
   {
     id: '合规结论',
@@ -137,6 +157,24 @@ const jsonMode = process.argv.includes('--json');
 const sourcePath = readArg('source') ? resolve(readArg('source')) : DEFAULT_SOURCE;
 const layersArg = readArg('layers');
 const layerRoots = layersArg ? [resolve(layersArg)] : DEFAULT_LAYER_ROOTS;
+
+/**
+ * 判定一个 import 模块符是否指向真源：`@dforge/contracts`，或**同包内相对指向真源文件本身**。
+ *
+ * 为什么相对路径也算：契约包内的市场模块（`packages/contracts/src/market/index.ts`）引真源
+ * 只能写 `./vocab.ts`（自引包名成环），它就是真源；层树外的相对路径永远解析不到真源文件
+ * （如 `services/ingest/**` 里的 `./vocab.ts` 解析结果是别的文件），仍按 foreign 判违规。
+ */
+function isTrueSourceModule(moduleName, file) {
+  if (moduleName === CONTRACTS_MODULE) return true;
+  if (!moduleName.startsWith('.')) return false;
+  return stripExtension(resolve(dirname(file), moduleName)) === stripExtension(sourcePath);
+}
+
+/** 去源码后缀（`./vocab` 与 `./vocab.ts` 视作同一文件）。 */
+function stripExtension(path) {
+  return path.replace(/\.(ts|tsx|mts|cts|js|mjs|cjs)$/, '');
+}
 
 /** 解析 TS（纯语法，不做类型检查）。 */
 function parse(path, text) {
@@ -309,7 +347,9 @@ function resolveRoots(expression, context, visited = new Set()) {
     if (bound.has(name)) return;
     const binding = context.imports.get(name);
     if (binding !== undefined) {
-      if (binding.module === CONTRACTS_MODULE) contractsRoots.add(binding.importedName);
+      // contractsRoots 语义 = 「根落在真源」：契约包导入，或同包内相对指向真源文件本身
+      if (isTrueSourceModule(binding.module, context.file))
+        contractsRoots.add(binding.importedName);
       else foreignRoots.push(`${name}（import 自 '${binding.module}'）`);
       return;
     }
@@ -383,7 +423,7 @@ function analyzeLayerFile(path, text, sourceValues, scanInline) {
   const sourceFile = parse(path, text);
   const imports = collectImports(sourceFile);
   const { initializers, ambiguous } = collectConstInitializers(sourceFile);
-  const context = { imports, initializers, ambiguous };
+  const context = { imports, initializers, ambiguous, file: path };
 
   const lineOf = (node) =>
     node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1;
@@ -493,7 +533,7 @@ function analyzeLayerFile(path, text, sourceValues, scanInline) {
       if (seen.has(name)) return { kind: 'unresolved', detail: `${name} 类型链成环` };
       const binding = imports.get(name);
       if (binding !== undefined) {
-        return binding.module === CONTRACTS_MODULE
+        return isTrueSourceModule(binding.module, path)
           ? { kind: 'contracts', importedName: binding.importedName }
           : { kind: 'foreign', detail: `${name} import 自 '${binding.module}'` };
       }
@@ -588,11 +628,26 @@ function collectLayerFiles(root) {
   });
 }
 
+/** 登记面快照（报告字段：登记词表 + 放行别名；评审对照 ADR-0004 ③ 用）。 */
+function registrySnapshot() {
+  return VOCAB_REGISTRY.map((entry) => ({
+    id: entry.id,
+    source: entry.source,
+    sourceType: entry.sourceType,
+    form: entry.form,
+    values: [...entry.values],
+    types: [...entry.types],
+  }));
+}
+
 /** 主流程。 */
 function main() {
+  const wantRegistry = process.argv.includes('--registry');
   const report = {
     source: displayPath(sourcePath),
     layers: layerRoots.map(displayPath),
+    registry: registrySnapshot(),
+    limits: [...CRITERIA_LIMITS],
     checked: [],
     violations: [],
     undetermined: [],
@@ -632,6 +687,19 @@ function main() {
       `guard-vocab：真源 ${report.source}`,
       `  扫描层根：${report.layers.join('、')}（${report.checked.length} 个文件）`,
     ];
+    if (wantRegistry) {
+      lines.push(`  · 登记词表 ${String(report.registry.length)} 项：`);
+      for (const entry of report.registry) {
+        lines.push(
+          `      - ${entry.id} ← ${entry.source}` +
+            `${entry.sourceType === null ? '' : `（类型 ${entry.sourceType}）`}` +
+            `${entry.values.length === 0 ? '' : `；值别名 ${entry.values.join('/')}`}` +
+            `${entry.types.length === 0 ? '' : `；类型别名 ${entry.types.join('/')}`}`,
+        );
+      }
+      lines.push('  · 判据外（静态读覆盖不到的形态）：');
+      for (const item of report.limits) lines.push(`      - ${item}`);
+    }
     for (const violation of report.violations) lines.push(`  ✗ ${violation}`);
     for (const item of report.undetermined) lines.push(`  ? ${item}`);
     lines.push(

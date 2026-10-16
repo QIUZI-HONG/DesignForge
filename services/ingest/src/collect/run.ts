@@ -58,6 +58,7 @@ import type {
   EvidenceAssertion,
   EvidenceStep,
   ExitCode,
+  LicenseGate,
   OdsRepoRecord,
   RawEvent,
   RepoMeta,
@@ -453,7 +454,7 @@ export interface CollectResult {
   counts: {
     repos: number;
     byKind: Record<AssetKind, number>;
-    byGate: Record<'loadable' | 'view-only' | 'blocked', number>;
+    byGate: Record<LicenseGate, number>;
     deferredAssets: number;
     brandDerivedAssets: number;
     skippedRepos: { repo: string; reason: string }[];
@@ -1013,7 +1014,7 @@ function countAssets(
     'design-system': 0,
     template: 0,
   };
-  const byGate: Record<'loadable' | 'view-only' | 'blocked', number> = {
+  const byGate: Record<LicenseGate, number> = {
     loadable: 0,
     'view-only': 0,
     blocked: 0,
