@@ -32,7 +32,7 @@ import {
 import { buildEvidence } from './evidence.ts';
 import type { FetchLike } from './http.ts';
 import { sha256Hex } from './http.ts';
-import { digestForRoot, findLicensePath, identifyAssets } from './identify.ts';
+import { digestForRoot, defaultViewOnlyLicense, findLicensePath, identifyAssets } from './identify.ts';
 import { assessLicense } from './license.ts';
 import type { OdsArtifact } from './ods.ts';
 import { validateOdsRepoRecord, validateRawEvent, writeOds } from './ods.ts';
@@ -275,20 +275,50 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
           : 1,
     );
   }
-  /** 本群已装填到的根游标（保底与份额两步共用，保证同一根不被重复整取）。 */
-  const consumed = new Map<string, number>();
+  /** 认定资产的根 → 类别（识别层口径，与 `identifyAssets` 同源：plugin > design-system > template > skill）。 */
+  const assetKindOfRoot = new Map<string, string>();
+  for (const asset of identifyAssets({
+    repoFullName: '',
+    tree,
+    contents: new Map(),
+    deferredPaths: new Set(),
+    license: defaultViewOnlyLicense(),
+  }).assets) {
+    assetKindOfRoot.set(asset.root, asset.kind);
+  }
+  /**
+   * 本群当前待装根（尚未整根取回的）：**先认定资产根**（该类别的卡片前提），再其余结构件根，
+   * 各自保持规模升序。为什么分两层：结构件目录的类群归属是启发式——真批次里
+   * `plugins/_official/design-systems/<名>`（2 文件的元数据壳）与 `data/plugin-previews`（1 文件）
+   * 都落进 design-system 群，若份额只按规模升序吃根，名额会被这些小壳吃光，真正的
+   * `design-systems/<名>`（24–41 文件）一个文件都拿不到（整类卡片依旧 0 张）。
+   */
+  const pendingRootsOf = (group: string): { root: string; files: string[] }[] => {
+    const list = completableByGroup.get(group);
+    if (list === undefined) return [];
+    const pending = list.filter((entry) => entry.files.some((path) => !selectedSet.has(path)));
+    return [
+      ...pending.filter((entry) => assetKindOfRoot.get(entry.root) === group),
+      ...pending.filter((entry) => assetKindOfRoot.get(entry.root) !== group),
+    ];
+  };
 
   // 2a) **类别保底**（D2 修复）：每群先整根取回它的最小可完整根（预算装得下才取）。
   //     没有这一步，根规模 > 单群份额上限（budget/2）的类群在有「小根」竞争时会被系统性饿死：
   //     组内装填一装不下就 break，兜底装填只挑装得下的小根 → 该类 digest 恒 incomplete →
   //     索引的 digest 硬门槛把整类卡片挡在市场之外（真批次实证：DS 153 条全部被挡、
   //     `/contents/design-systems/` 请求数 = 0）。
+  //     根的选择 = **该类别认定资产根中最小的完整根**（识别层的资产粒度才是卡片的前提）：
+  //     类群只是结构件目录的启发式归属——仓根的 `manifest.json` 也会落进 design-system 群，
+  //     若只取「类群最小根」，保底可能保在一个 1 文件的非资产目录上（真批次实证：命中了
+  //     `data/plugin-previews`），整类卡片依旧 0 张。无可认定资产时退回类群最小根。
   //     顺序 = 候选根规模升序（并列按群优先级）：先保便宜的 → 预算内尽可能多保类别；
   //     装不下的根（如预算 48 遇 42 文件根但只剩 5 格）如实让位，不半取（digest 需整根齐）。
-  const guaranteeCandidates = [...completableByGroup.entries()]
-    .flatMap(([group, list]) => {
-      const head = list[0];
-      return head === undefined ? [] : [{ group, root: head }];
+  const guaranteeCandidates = [...completableByGroup.keys()]
+    .flatMap((group) => {
+      const list = completableByGroup.get(group) ?? [];
+      const candidate = list.find((entry) => assetKindOfRoot.get(entry.root) === group) ?? list[0];
+      return candidate === undefined ? [] : [{ group, root: candidate }];
     })
     .sort(
       (a, b) =>
@@ -301,7 +331,6 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
     if (pending.length === 0) continue;
     if (selected.length + pending.length > budget) continue;
     for (const path of pending) take(path);
-    consumed.set(candidate.group, (consumed.get(candidate.group) ?? 0) + 1);
   }
 
   // 2b) 类群份额轮转：各群**均分预算份额**，群内按根规模升序尽量装；装不下的根放弃
@@ -313,29 +342,21 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
   let carry = 0;
   /** 本群当前第一个待装根的待取文件数（用于份额下限）。 */
   const headSizeOf = (group: string): number => {
-    const list = completableByGroup.get(group);
-    if (list === undefined) return 0;
-    const head = list[consumed.get(group) ?? 0];
-    if (head === undefined) return 0;
-    return head.files.filter((path) => !selectedSet.has(path)).length;
+    const head = pendingRootsOf(group)[0];
+    return head === undefined ? 0 : head.files.filter((path) => !selectedSet.has(path)).length;
   };
   const spendInGroup = (group: string, allowance: number): number => {
-    const list = completableByGroup.get(group);
-    if (list === undefined) return allowance;
+    if (!completableByGroup.has(group)) return allowance;
     // 预算硬顶：份额再大也不得越过总预算（此前份额可按群各吃一份，多群相加会超预算取回）
     let left = Math.min(allowance, budget - selected.length);
-    let cursor = consumed.get(group) ?? 0;
-    // 升序列表：一旦装不下即停（后面只会更大），剩下的留给兜底装填
-    while (cursor < list.length) {
-      const candidate = list[cursor];
-      if (candidate === undefined) break;
+    // 认定资产根优先（见 pendingRootsOf 注释）；层内升序：一旦装不下即停（后面只会更大），
+    // 剩下的留给兜底装填。已整取（保底/前序份额）的根自动略过。
+    for (const candidate of pendingRootsOf(group)) {
       const pending = candidate.files.filter((path) => !selectedSet.has(path));
       if (pending.length > left) break;
-      cursor += 1;
       for (const path of pending) take(path);
       left -= pending.length;
     }
-    consumed.set(group, cursor);
     return left;
   };
   for (const group of groupOrder) {
