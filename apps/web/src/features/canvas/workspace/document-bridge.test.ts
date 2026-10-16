@@ -13,10 +13,17 @@
  * 4. 保存态迁移：编辑 → 未保存；保存中 → 保存中…；成功 → 已保存；失败 → 失败可重试。
  */
 import { apiFailure, apiSuccess, type DfErrorCode } from '@dforge/contracts';
-import { createDocument, createPage, createRect, type ScenePage } from '@dforge/engine';
+import {
+  createDocument,
+  createPage,
+  createRect,
+  type DesignDocument,
+  type ScenePage,
+} from '@dforge/engine';
 import { describe, expect, it } from 'vitest';
 
 import { createDocumentsClient, encodePageBody } from '../persistence/documents-client';
+import { createDocumentBridge } from './document-bridge';
 import { createEditorWorkspace, EMPTY_PRESET } from './workspace-session';
 
 /** 内存假 daemon（只实现 documents-client 消费的路由；id = 文档名，与真 daemon 同规则）。 */
@@ -295,5 +302,109 @@ describe('保存（⌘S / 顶栏按钮）', () => {
     expect(saved.documentId).toBe('验收演示稿');
     expect(daemon.documents.size).toBe(1);
     expect(workspace.documents.store.getState().status).toBe('saved');
+  });
+});
+
+describe('地址栏同步的参数名（宿主契约：编辑器 `?documentId=` / `_canvas` `?doc=`）', () => {
+  /** 造一个最小宿主（文档真值 + 变更广播），直接驱动桥。 */
+  function makeBridge(client: ReturnType<typeof createDocumentsClient>, param?: string) {
+    let current = createDocument({
+      id: 'doc_local',
+      name: '本地稿',
+      pages: [createPage({ id: 'page_local' })],
+    });
+    const listeners = new Set<() => void>();
+    const bridge = createDocumentBridge({
+      host: {
+        document: () => current,
+        adopt: (next) => {
+          if (next.pages.length === 0) return false;
+          current = next;
+          for (const listener of [...listeners]) listener();
+          return true;
+        },
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+      },
+      client,
+      initial: { documentId: null, name: current.name },
+      ...(param === undefined ? {} : { syncUrlParam: param }),
+    });
+    return bridge;
+  }
+
+  it('缺省写 `?documentId=`（编辑器契约）且保留其余参数；`syncUrlParam` 可改参数名（`_canvas` 的 `?doc=`）', async () => {
+    const daemon = createFakeDaemon();
+    const client = createDocumentsClient({
+      baseUrl: 'http://daemon.test',
+      fetchImpl: daemon.fetchImpl,
+    });
+
+    window.history.replaceState(null, '', '/editor?daemon=http%3A%2F%2Flocalhost%3A4318');
+    const bridge = makeBridge(client);
+    expect((await bridge.save()).ok).toBe(true);
+    const url = new URL(window.location.href);
+    expect(url.searchParams.get('documentId')).toBe('本地稿');
+    // 其余查询参数（端点续写）不被地址栏同步冲掉
+    expect(url.searchParams.get('daemon')).toBe('http://localhost:4318');
+    bridge.dispose();
+
+    window.history.replaceState(null, '', '/_canvas');
+    const studioBridge = makeBridge(client, 'doc');
+    expect((await studioBridge.save()).ok).toBe(true);
+    const studioUrl = new URL(window.location.href);
+    expect(studioUrl.searchParams.get('doc')).toBe('本地稿');
+    expect(studioUrl.searchParams.has('documentId')).toBe(false);
+    studioBridge.dispose();
+  });
+});
+
+describe('本地替换（导入 IR：清落盘身份，不写回上一份文档）', () => {
+  it('adoptLocal 后：documentId 归 null、回「未保存」；再保存按名新建而不是覆盖上一份', async () => {
+    const daemon = createFakeDaemon();
+    daemon.seed('原文档', [pageWithRect('page-original', 'n_original')]);
+    const workspace = makeWorkspace(daemon);
+    expect((await workspace.documents.load('原文档')).ok).toBe(true);
+    expect(workspace.documents.store.getState().documentId).toBe('原文档');
+
+    // 导入另一份内容（本地替换：与载入的语义区别——不继承上一份的落盘身份）
+    const imported = createDocument({
+      id: 'doc_imported',
+      name: '导入稿',
+      pages: [pageWithRect('page-imported', 'n_imported')],
+    });
+    expect(workspace.documents.adoptLocal(imported)).toBe(true);
+    expect(workspace.documents.store.getState()).toMatchObject({
+      documentId: null,
+      name: '导入稿',
+      status: 'dirty',
+    });
+
+    // 再保存：按名落成**新**文档，原文档的正文不被改动
+    const saved = await workspace.documents.save();
+    expect(saved.ok).toBe(true);
+    expect(saved.documentId).toBe('导入稿');
+    expect(daemon.documents.size).toBe(2);
+    const originalBody = [...(daemon.documents.get('原文档')?.pages.values() ?? [])][0] as {
+      page: { nodes: Record<string, unknown> };
+    };
+    expect(originalBody.page.nodes.n_original).toBeDefined();
+    expect(originalBody.page.nodes.n_imported).toBeUndefined();
+  });
+
+  it('adoptLocal：无可用页面（0 页）→ 不采纳，会话与文档态保持原样', async () => {
+    const daemon = createFakeDaemon();
+    const workspace = makeWorkspace(daemon);
+    const before = workspace.canvas.document();
+
+    // 引擎造不出 0 页文档（`createDocument` 有硬校验），这里用宽容形状直接构造防御路径
+    const empty = { id: 'doc_empty', name: '空稿', pages: [] } as unknown as DesignDocument;
+    expect(workspace.documents.adoptLocal(empty)).toBe(false);
+    expect(workspace.canvas.document()).toBe(before);
+    expect(workspace.documents.store.getState().name).toBe('未命名文件');
   });
 });
