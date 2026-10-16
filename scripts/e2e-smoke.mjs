@@ -32,11 +32,16 @@
  * 环境变量：DF_WEB_URL、DF_E2E_KEEP=1（保留临时数据目录）、BENCH_CHROME_EXECUTABLE、
  *           DF_EVIDENCE_DIR（证据根，缺省 ~/df-evidence）。
  *
+ * **编辑器真实门禁（D4）**：场景之外 runner 还跑「四之二」段——构建前先就位 CanvasKit
+ * 资产（`public/canvaskit/` 是生成物、不入库），随后对 `/editor` 断言资产可达（200）+
+ * 画布元素挂载 + Skia 就绪 + 首帧出帧 + 无未捕获异常。渲染坏了就是非零退出，
+ * 不再有「body 非空」的假绿（`/editor` 路由缺失 → blocked，不是通过）。
+ *
  * 退出码（三态，禁止假绿）：0 = 全部步骤通过；1 = 有步骤失败 / 场景空跑（契约违约）；
  * 2 = **阻塞**（daemon 起不来 / 站点起不来 / Chromium 缺失 / 场景标记 blocked）。
  * 任何退出路径都：先落证据 → 再清子进程（daemon / 站点 / 网关 / 浏览器）。
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -66,6 +71,29 @@ const workspaceDir = join(dataRoot, 'workspace');
 /** 向 stdout 打一行（带前缀，便于从日志里区分子进程输出）。 */
 function log(message) {
   console.log(`[e2e] ${message}`);
+}
+
+/**
+ * 构建前置：CanvasKit 运行时资产（wasm + 字体）就位。
+ *
+ * 为什么 runner 自己也要做一遍：`public/canvaskit/` 是**生成物且不入库**（.gitignore），
+ * fresh worktree 里不存在；而本 runner 直接拉起 `next build` / `next start`，
+ * 绕过 npm 的 `prebuild` / `prestart` 钩子。资产缺失时 `/canvaskit/canvaskit.js` 会 404，
+ * 编辑器停在「Skia 初始化失败」——下面的编辑器真实门禁因此必须判红（不得假绿）。
+ */
+function ensureCanvasKitAssets() {
+  const script = join(repoRoot, 'apps/web/src/features/canvas/tools/copy-canvaskit-assets.mjs');
+  if (!existsSync(script)) {
+    log('CanvasKit 资产脚本不存在（跳过准备；编辑器门禁会因此失败）');
+    return false;
+  }
+  const result = spawnSync(process.execPath, [script], { cwd: repoRoot, encoding: 'utf8' });
+  if (result.status === 0) {
+    log(result.stdout.trim());
+    return true;
+  }
+  console.error(`CanvasKit 资产准备失败：${result.stderr ?? String(result.error)}`);
+  return false;
 }
 
 /** 轮询 HTTP 直到 200（或超时）。 */
@@ -198,6 +226,8 @@ const evidence = {
   scenarioFiles: selected,
   daemon: null,
   scenarios: [],
+  // 编辑器真实门禁（见「四之二」）：/editor 的资产 / Skia / 首帧 / 无异常硬断言
+  editorGate: null,
   // 验收标准 §4 字段族：冒烟是步骤级断言，不逐像素对照 → 无像素比对（三项 null + 说明）。
   diff: {
     bbox: null,
@@ -261,6 +291,40 @@ async function runScenario(file) {
     };
   }
 
+  // 场景隔离夹具：每个场景一套**独立数据根 + 独立 daemon + 独立网关**。
+  // 为什么必须隔离：各场景对工作区状态的假设互斥（首页场景断言「空数据根」的空态，
+  // 画布场景要自己造文档）；共用一个工作区时，前一个场景落下的文档会把后一个场景判红
+  // ——那是夹具串味，不是产品缺陷（判红的说明必须指向真缺陷，否则门禁自己就不可信）。
+  const scenarioDataRoot = join(runDir, 'scenarios', scenarioId, 'data');
+  const scenarioWorkspace = join(scenarioDataRoot, 'workspace');
+  mkdirSync(scenarioWorkspace, { recursive: true });
+  let scenarioDaemon;
+  let scenarioGateway;
+  try {
+    scenarioDaemon = await startFixtureDaemon({
+      dataRoot: scenarioDataRoot,
+      workspaceDir: scenarioWorkspace,
+    });
+    scenarioGateway = await startSameOriginGateway({ webUrl, daemonUrl: scenarioDaemon.url });
+  } catch (error) {
+    log(`场景夹具起不来：${scenarioId} —— ${String(error)}`);
+    return {
+      id: scenarioId,
+      title: scenarioTitle,
+      dataRoot: scenarioDataRoot,
+      steps: [
+        {
+          name: '场景夹具（独立 daemon + 同源网关）',
+          status: 'blocked',
+          detail: `夹具起不来：${String(error)}`,
+        },
+      ],
+      pageErrors: [],
+    };
+  }
+  const scenarioGatewayUrl = scenarioGateway.url;
+  const scenarioDaemonUrl = scenarioDaemon.url;
+
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   const pageErrors = [];
@@ -268,18 +332,18 @@ async function runScenario(file) {
 
   /** 场景用 `ctx.assert` 记录的步骤（与场景自报的 steps 合并）。 */
   const assertedSteps = [];
-  log(`场景开始：${scenarioTitle}（${scenarioId}）`);
+  log(`场景开始：${scenarioTitle}（${scenarioId}）数据根 ${scenarioDataRoot}`);
   let steps = [];
   try {
     const result = await module.run(page, {
       // 页面走同源网关；`?daemon=` 指向网关下的 `/df`（同源，与生产形态一致）
-      homeUrl: `${gateway.url}/?daemon=${encodeURIComponent(`${gateway.url}/df`)}`,
-      canvasUrl: `${gateway.url}/_canvas?daemon=${encodeURIComponent(`${gateway.url}/df`)}`,
-      pageUrl: gateway.url,
+      homeUrl: `${scenarioGatewayUrl}/?daemon=${encodeURIComponent(`${scenarioGatewayUrl}/df`)}`,
+      canvasUrl: `${scenarioGatewayUrl}/_canvas?daemon=${encodeURIComponent(`${scenarioGatewayUrl}/df`)}`,
+      pageUrl: scenarioGatewayUrl,
       webUrl,
-      daemonUrl,
-      dataRoot,
-      workspaceDir,
+      daemonUrl: scenarioDaemonUrl,
+      dataRoot: scenarioDataRoot,
+      workspaceDir: scenarioWorkspace,
       log: (message) => log(`  ${scenarioId} · ${message}`),
       verbose,
       assert: (condition, name, detail) => {
@@ -295,6 +359,10 @@ async function runScenario(file) {
     steps = Array.isArray(result?.steps) ? result.steps : [];
   } catch (error) {
     steps = [{ name: '场景执行', status: 'fail', detail: String(error) }];
+  } finally {
+    await context.close();
+    await scenarioGateway.close().catch(() => undefined);
+    await scenarioDaemon.close().catch(() => undefined);
   }
   steps = assertStepsProduced(scenarioId, [...steps, ...assertedSteps]);
 
@@ -302,8 +370,147 @@ async function runScenario(file) {
     const mark = step.status === 'pass' ? '✓' : step.status === 'blocked' ? '⏸' : '✗';
     log(`  ${mark} ${step.name}${step.detail === undefined ? '' : ` —— ${step.detail}`}`);
   }
+  return { id: scenarioId, title: scenarioTitle, dataRoot: scenarioDataRoot, steps, pageErrors };
+}
+
+// ---------------------------------------------------------------------------
+// 编辑器真实门禁（D4）·定义段；主流程在「四之二」处调用
+// ---------------------------------------------------------------------------
+
+/**
+ * 编辑器真实门禁（不再是「body 非空」）。
+ *
+ * 判定口径（任一不满足 → 该步骤 fail，退出码非零，绝不假绿）：
+ * 1. `/canvaskit/canvaskit.js` 必须由站点真实提供（200）——构建前置失效时这里先红；
+ * 2. `/editor` 必须挂上画布元素，并给出 **Skia 就绪信号**（`__dforgeCanvas.runtime().canvasKit === 'ready'`）；
+ * 3. 必须**真的出帧**（`runtime().frameCount >= 1`，且最近一帧的渲染统计可读）；
+ * 4. 编辑器页面不得有未捕获异常（pageerror）。
+ *
+ * 三态：`/editor` 路由缺失（404）→ blocked（前置未落地，退出码 2，与既有语义一致）；
+ * 站点在、渲染坏 → fail（退出码 1）。
+ */
+async function runEditorGate(browser, urls) {
+  const steps = [];
+  const pageErrors = [];
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+
+  // ① 资产可达（构建前置是否真的生效）
+  let assetStatus = 0;
+  try {
+    assetStatus = (await page.request.get(`${urls.webUrl}/canvaskit/canvaskit.js`)).status();
+  } catch (error) {
+    pageErrors.push(`资产探测失败：${String(error)}`);
+  }
+  steps.push({
+    name: '编辑器 · CanvasKit 资产可访问（/canvaskit/canvaskit.js）',
+    status: assetStatus === 200 ? 'pass' : 'fail',
+    detail: `HTTP ${String(assetStatus)}`,
+  });
+
+  // ② 路由可达（缺失 = blocked，不是「通过」）
+  const editorUrl = `${urls.gatewayUrl}/editor?daemon=${encodeURIComponent(`${urls.gatewayUrl}/df`)}`;
+  let routeStatus = 0;
+  try {
+    const response = await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    routeStatus = response === null ? 0 : response.status();
+  } catch (error) {
+    pageErrors.push(`/editor 打开失败：${String(error)}`);
+  }
+  if (routeStatus === 404) {
+    steps.push({
+      name: '编辑器 · /editor 路由可达',
+      status: 'blocked',
+      detail: '路由未落地（HTTP 404）',
+    });
+    await context.close();
+    return { steps, pageErrors };
+  }
+  steps.push({
+    name: '编辑器 · /editor 路由可达',
+    status: routeStatus >= 200 && routeStatus < 400 ? 'pass' : 'fail',
+    detail: `HTTP ${String(routeStatus)}`,
+  });
+
+  // ③ 画布元素挂载
+  try {
+    await page.waitForSelector('canvas[data-df-canvas]', { timeout: 30_000 });
+    steps.push({ name: '编辑器 · 画布元素挂载', status: 'pass' });
+  } catch (error) {
+    steps.push({
+      name: '编辑器 · 画布元素挂载',
+      status: 'fail',
+      detail: String(error).slice(0, 200),
+    });
+  }
+
+  // ④ Skia 就绪信号（失败时带上调试句柄与页面上的失败提示，便于定位）
+  try {
+    await page.waitForFunction(
+      () => globalThis.__dforgeCanvas?.runtime().canvasKit === 'ready',
+      null,
+      { timeout: 60_000 },
+    );
+    steps.push({ name: '编辑器 · Skia 就绪信号（canvasKit=ready）', status: 'pass' });
+  } catch {
+    const diagnostic = await page
+      .evaluate(() => {
+        const handle = globalThis.__dforgeCanvas;
+        return handle === undefined
+          ? { handle: null }
+          : { handle: true, runtime: handle.runtime(), error: handle.error() };
+      })
+      .catch(() => null);
+    const banner = await page
+      .locator('[data-df-canvas-status="error"]')
+      .innerText()
+      .catch(() => null);
+    steps.push({
+      name: '编辑器 · Skia 就绪信号（canvasKit=ready）',
+      status: 'fail',
+      detail: `${JSON.stringify(diagnostic)} ${banner ?? ''}`.slice(0, 300),
+    });
+  }
+
+  // ⑤ 首帧 + 渲染统计（断言「画了什么」而不是「页面有字」）
+  try {
+    await page.waitForFunction(
+      () => (globalThis.__dforgeCanvas?.runtime().frameCount ?? 0) >= 1,
+      null,
+      { timeout: 60_000 },
+    );
+    steps.push({ name: '编辑器 · 首帧渲染完成（frameCount ≥ 1）', status: 'pass' });
+  } catch (error) {
+    steps.push({
+      name: '编辑器 · 首帧渲染完成（frameCount ≥ 1）',
+      status: 'fail',
+      detail: String(error).slice(0, 200),
+    });
+  }
+  const frame = await page
+    .evaluate(() => {
+      const handle = globalThis.__dforgeCanvas;
+      return handle === undefined
+        ? null
+        : { runtime: handle.runtime(), stats: handle.stats(), nodeCount: handle.nodeCount() };
+    })
+    .catch(() => null);
+  steps.push({
+    name: '编辑器 · 渲染统计可读（帧内容被真实绘制）',
+    status: frame === null || frame.stats === null || frame.stats === undefined ? 'fail' : 'pass',
+    detail: JSON.stringify(frame).slice(0, 300),
+  });
+
+  // ⑥ 未捕获异常（编辑器整族不得在种子里抛错）
+  steps.push({
+    name: '编辑器 · 无未捕获异常（pageerror）',
+    status: pageErrors.length === 0 ? 'pass' : 'fail',
+    detail: pageErrors.join(' | ').slice(0, 300),
+  });
+
   await context.close();
-  return { id: scenarioId, title: scenarioTitle, steps, pageErrors };
+  return { steps, pageErrors };
 }
 
 try {
@@ -332,6 +539,9 @@ try {
       console.error('阻塞：未找到 next 可执行文件（先 pnpm install）。');
       await finish(evidence, 2);
     }
+
+    // 构建前置：资产未就位 → 站点起来也是「Skia 初始化失败」的假绿
+    ensureCanvasKitAssets();
 
     const build = track(
       spawn(nextBin, ['build'], { cwd: join(repoRoot, 'apps/web'), stdio: 'inherit' }),
@@ -390,6 +600,18 @@ try {
     evidence.scenarios.push(scenario);
     allSteps.push(...scenario.steps);
   }
+
+  // --- 四之二、编辑器真实门禁（D4：/editor 不再只看「body 非空」） ---
+  log('编辑器门禁开始：/editor 真实渲染断言（资产 / Skia / 首帧 / 无异常）');
+  const editorGate = await runEditorGate(browser, { webUrl, gatewayUrl });
+  for (const gateStep of editorGate.steps) {
+    const mark = gateStep.status === 'pass' ? '✓' : gateStep.status === 'blocked' ? '⏸' : '✗';
+    log(
+      `  ${mark} ${gateStep.name}${gateStep.detail === undefined ? '' : ` —— ${gateStep.detail}`}`,
+    );
+  }
+  evidence.editorGate = { steps: editorGate.steps, pageErrors: editorGate.pageErrors };
+  allSteps.push(...editorGate.steps);
 
   // --- 汇总与退出码 ---
   const failures = allSteps.filter((step) => step.status === 'fail');
