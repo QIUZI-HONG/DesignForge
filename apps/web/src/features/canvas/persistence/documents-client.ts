@@ -64,14 +64,28 @@ export function routeUrl(
 
 /**
  * daemon 响应信封（`apps/daemon/src/http.ts` 的 `sendOk/sendFail` 形状）。
- * 注意载荷字段名是 **result**（不是 data）——写错会静默拿到整个信封，随后在 `.id` 上炸。
+ * 注意两点：
+ * - 成功载荷字段名是 **result**（不是 data）——写错会静默拿到整个信封，随后在 `.id` 上炸；
+ * - 失败是**嵌套**的 `error: { code, message, details }`（契约 `apiFailure`）——
+ *   只看顶层 `code/message` 会把原因丢成「HTTP 404：请求失败」，用户看不到「文档不存在」这类真因。
  */
 interface DaemonEnvelope {
   ok?: boolean;
   result?: unknown;
   data?: unknown;
+  error?: { code?: string; message?: string };
   code?: string;
   message?: string;
+}
+
+/** 失败信封 → 「码：人话」文本（取不到码时退回 HTTP 状态，绝不硬编「请求失败」冒充原因）。 */
+function failureText(envelope: DaemonEnvelope, status: number): string {
+  const code = envelope.error?.code ?? envelope.code;
+  const message = envelope.error?.message ?? envelope.message;
+  if (code !== undefined && message !== undefined) return `${code}：${message}`;
+  if (code !== undefined) return `${code}：请求失败`;
+  if (message !== undefined) return `HTTP ${status}：${message}`;
+  return `HTTP ${status}：请求失败`;
 }
 
 /** 创建客户端。 */
@@ -100,10 +114,7 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
       }
       const envelope = (parsed ?? {}) as DaemonEnvelope;
       if (!response.ok || envelope.ok === false) {
-        return {
-          ok: false,
-          error: `${envelope.code ?? `HTTP ${response.status}`}：${envelope.message ?? '请求失败'}`,
-        };
+        return { ok: false, error: failureText(envelope, response.status) };
       }
       return { ok: true, value: envelope.result ?? envelope.data ?? parsed };
     } catch (error) {

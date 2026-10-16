@@ -47,22 +47,31 @@ export interface EditorViewState {
   zoom: number;
   /** 当前工具（工具条 active 高亮的真源；画布按它切交互模式）。 */
   activeTool: EditorTool;
+  /**
+   * 当前文档名（顶栏文件名真源）。
+   * `null` = 尚未落盘/未载入真实文档 → 顶栏显示「未命名设计文件」占位文案；
+   * 非 null 时显示真实文档名（由画布工作区在载入/落盘后写回，D-2/UX-03）。
+   */
+  documentName: string | null;
   setZoom(zoom: number): void;
   zoomIn(): void;
   zoomOut(): void;
   resetZoom(): void;
   setActiveTool(tool: EditorTool): void;
+  setDocumentName(name: string | null): void;
 }
 
 /** 缩放/工具 store。 */
 export const useEditorView = create<EditorViewState>((set, get) => ({
   zoom: 1,
   activeTool: 'move',
+  documentName: null,
   setZoom: (zoom) => set({ zoom: clampZoom(zoom) }),
   zoomIn: () => set({ zoom: stepZoom(get().zoom, 1) }),
   zoomOut: () => set({ zoom: stepZoom(get().zoom, -1) }),
   resetZoom: () => set({ zoom: 1 }),
   setActiveTool: (tool) => set({ activeTool: tool }),
+  setDocumentName: (name) => set({ documentName: name }),
 }));
 
 /** 当前缩放百分比（命令与 HUD 用；命令式可达）。 */

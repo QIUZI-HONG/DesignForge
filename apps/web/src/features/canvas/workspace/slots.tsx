@@ -13,6 +13,7 @@
  * - `overlays`   → FE-10 `AiDrawer`（AI 助手）+ MCP 确认条容器（常驻，不随面板开合）。
  */
 
+import type { DesignDocument } from '@dforge/engine';
 import { SegmentedControl } from '@dforge/ui';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
@@ -25,6 +26,7 @@ import { InspectorPanel } from '@/features/inspector';
 import { t } from '@/i18n';
 
 import { installCanvasDebugHandle, sessionDebugHandle } from '../debug/canvas-debug';
+import { daemonPageId } from '../persistence/documents-client';
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
 import { McpConfirmHost } from './mcp-host';
@@ -126,6 +128,7 @@ export function RightPanelSlot() {
   const workspace = getWorkspace();
   const [tab, setTab] = useState<RightTab>('inspect');
   const selection = useStore(workspace.canvas.store, (state) => state.selection);
+  const daemonDocumentId = useStore(workspace.documents.store, (state) => state.documentId);
   const document = useSyncExternalStore(
     (listener) => workspace.canvas.stack.subscribe(() => listener()),
     () => workspace.canvas.stack.getSnapshot(),
@@ -133,6 +136,9 @@ export function RightPanelSlot() {
   );
   const page = document.pages.find((candidate) => candidate.id === workspace.pageId);
   const activeNodeId = selection.activeId ?? selection.ids[0] ?? null;
+  // daemon 侧页面 id：按 daemon 的分配规则（页面序号 → page-{N}）派生
+  const index = document.pages.findIndex((candidate) => candidate.id === workspace.pageId);
+  const daemonPage = daemonPageId(index < 0 ? 0 : index);
   if (!mounted) return null;
 
   return (
@@ -157,15 +163,15 @@ export function RightPanelSlot() {
             stack={workspace.canvas.stack}
             pageId={workspace.pageId}
             selection={selection}
-            documentId={document.id}
+            // 导出寻址走 daemon 坐标系（未落盘时退回引擎文档 id：导出会明确报错，不是静默失败）
+            documentId={daemonDocumentId ?? document.id}
+            exportPageId={daemonPage}
           />
         ) : null}
         {tab === 'code' && page !== undefined && activeNodeId !== null ? (
           <CodeExportPanel page={page} nodeId={activeNodeId} tokens={document.tokens} />
         ) : null}
-        {tab === 'export' ? (
-          <ExportPanel documentId={document.id} pageId={workspace.pageId} />
-        ) : null}
+        {tab === 'export' ? <ExportTab document={document} /> : null}
       </div>
       <div className="dfc-ws-right__inspector" data-df-workspace="inspector">
         <InspectorPanel
@@ -176,6 +182,29 @@ export function RightPanelSlot() {
       </div>
     </div>
   );
+}
+
+/**
+ * 导出页签（A3）：daemon 导出面按「daemon 文档 id + daemon 页面 id」寻址
+ * （`POST /export` → `readPage(documentId, pageId)`，见 daemon 导出路由）。
+ *
+ * 编辑器侧的文档 id 是引擎文档 id（内存文档为 `doc-editor`），**不能**直接当 daemon id 用
+ * ——缺陷现场「导出报 doc_not_found」正是这个错位：未落盘的文档在 daemon 里根本不存在。
+ * 因此这里取文档桥的 `documentId`（落盘后 = daemon 侧真 id），页面 id 按 daemon 的
+ * `page-{N}` 分配规则由页面序号派生；未落盘时明确提示「先保存」，不给会失败的按钮。
+ */
+function ExportTab({ document }: { document: DesignDocument }) {
+  const workspace = getWorkspace();
+  const documentId = useStore(workspace.documents.store, (state) => state.documentId);
+  if (documentId === null) {
+    return (
+      <p className="dfc-ws-right__hint" data-df-export-hint="need-save">
+        {t('editor.export.needSave')}
+      </p>
+    );
+  }
+  const index = document.pages.findIndex((candidate) => candidate.id === workspace.pageId);
+  return <ExportPanel documentId={documentId} pageId={daemonPageId(index < 0 ? 0 : index)} />;
 }
 
 /**

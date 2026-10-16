@@ -21,12 +21,15 @@ import {
   useEditorView,
 } from '@/features/editor-shell';
 import { t } from '@/i18n';
+import { SAVE_DOCUMENT_COMMAND_ID } from './workspace/document-bridge';
+import { DocumentSaveControl } from './workspace/save-control';
 import { CanvasSlot, LeftPanelSlot, OverlaysSlot, RightPanelSlot } from './workspace/slots';
 import { connectToolSync, registerWorkspaceToolCommands } from './workspace/tool-bridge';
 
 import {
   ensureWorkspaceBootstrapped,
   getWorkspace,
+  readDocumentId,
   setWorkspaceBootstrap,
 } from './workspace/workspace-session';
 
@@ -107,27 +110,64 @@ export function registerWorkspaceCommands(): void {
   // 覆盖后：工具栏/快捷键/命令面板三处入口同一条命令 → 会话切工具 → 外壳高亮经
   // `connectWorkspaceSync` 单向跟随（见 `workspace/tool-bridge.ts` 头注释）。
   registerWorkspaceToolCommands(workspace);
+
+  // 保存命令（D-2）：顶栏按钮 / ⌘S / 命令面板三处同一命令；保存中置灰防重复提交。
+  registerCommand({
+    id: SAVE_DOCUMENT_COMMAND_ID,
+    title: t('editor.action.save'),
+    group: t('editor.group.file'),
+    shortcut: '⌘S',
+    enabled: () => workspace.documents.store.getState().status !== 'saving',
+    run: () => {
+      void workspace.documents.save();
+    },
+  });
 }
 
 /**
  * 会话 → 外壳的显示态同步（画布是引擎真值的唯一持有者，外壳只做投影）：
  * - 视口缩放 → 缩放菜单/状态栏的百分比；
- * - 当前工具 → 工具条 active 高亮（拖画落节点后会话回选择工具，高亮必须跟着回）。
+ * - 当前工具 → 工具条 active 高亮（拖画落节点后会话回选择工具，高亮必须跟着回）；
+ * - 文档名 → 顶栏 `h1`（未落盘为 null → 占位「未命名设计文件」）。
  */
 function connectWorkspaceSync(): () => void {
   const workspace = getWorkspace();
-  const sync = (): void => {
+  const syncZoom = (): void => {
     useEditorView.getState().setZoom(workspace.canvas.viewport().zoom);
   };
-  sync();
+  const syncDocumentName = (): void => {
+    const state = workspace.documents.store.getState();
+    useEditorView.getState().setDocumentName(state.documentId === null ? null : state.name);
+  };
+  syncZoom();
+  syncDocumentName();
   const unsubscribeZoom = workspace.canvas.store.subscribe((state, previous) => {
-    if (state.viewport.zoom !== (previous as typeof state).viewport.zoom) sync();
+    if (state.viewport.zoom !== (previous as typeof state).viewport.zoom) syncZoom();
   });
   const unsubscribeTool = connectToolSync(workspace);
+  const unsubscribeDocument = workspace.documents.store.subscribe(syncDocumentName);
   return () => {
     unsubscribeZoom();
     unsubscribeTool();
+    unsubscribeDocument();
   };
+}
+
+/**
+ * 路由侧文档接线（D-2）：读 `?documentId=` 从 daemon 载入。
+ *
+ * 只在浏览器侧执行一次（`ensureWorkspaceBootstrapped` 幂等）；文档 id 来自首页卡片契约
+ * （`/editor?documentId=…`）。载入失败不静默：文档桥把原因落进保存态，顶栏可见。
+ */
+let documentLoadRequested = false;
+
+function connectDocumentBridge(): void {
+  if (documentLoadRequested) return;
+  documentLoadRequested = true;
+  const workspace = getWorkspace();
+  const documentId = readDocumentId(window.location.search);
+  if (documentId === null) return;
+  void workspace.documents.load(documentId);
 }
 
 /**
@@ -165,6 +205,11 @@ function installInspectorProbe(): () => void {
 
 /** 注册插槽（幂等：同槽同 id 覆盖）。 */
 export function registerWorkspaceSlots(): void {
+  registerEditorSlotItem('topbar-center', {
+    id: 'fe-06-document-save',
+    order: 0,
+    render: () => <DocumentSaveControl />,
+  });
   registerEditorSlotItem('canvas', { id: 'fe-06-canvas', order: 0, render: () => <CanvasSlot /> });
   registerEditorSlotItem('left-panel', {
     id: 'fe-04-panels',
@@ -199,6 +244,7 @@ export function WorkspaceBootstrap(): null {
     installInspectorProbe();
     installWorkspaceProbe();
     ensureWorkspaceBootstrapped();
+    connectDocumentBridge();
   }, []);
   return null;
 }
@@ -210,6 +256,7 @@ setWorkspaceBootstrap(() => {
   connectWorkspaceSync();
   installInspectorProbe();
   installWorkspaceProbe();
+  connectDocumentBridge();
 });
 
 /** 缩放百分比（供状态栏/调试）。 */
