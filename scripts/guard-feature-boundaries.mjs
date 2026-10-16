@@ -42,6 +42,9 @@
  *
  * 用法：node scripts/guard-feature-boundaries.mjs [--json] [--root=<web-src 根>]
  * 退出码（门禁三态，禁止假绿）：0 通过 / 1 违规（跨 feature 深导入）/ 2 阻塞（前置不成立 / 判不出）。
+ * 退出码优先级（一句话规则）：**违规（1）优先于未判定（2）**——真违规存在即失败；但两类问题
+ * 在日志里**必须同时列出**（`✗` 违规明细 + `?` 未判定明细，结论行点名未判定计数），
+ * 阻塞信息不得被违规结论吞掉。
  */
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -326,7 +329,10 @@ function main() {
       report.exitCode === 0
         ? '  ✓ feature 边界：跨 feature 引用全部落在公开面（或登记例外）上'
         : report.exitCode === 1
-          ? '  结论：违规（exit 1）——跨 feature 深导入，修法：改 import 公开面 @/features/<name>'
+          ? '  结论：违规（exit 1）——跨 feature 深导入，修法：改 import 公开面 @/features/<name>' +
+            (report.undetermined.length > 0
+              ? `；另有 ${String(report.undetermined.length)} 项未判定（见上方 ? 行，两类问题一并处置）`
+              : '')
           : '  结论：阻塞（exit 2，禁止当作通过）',
     );
     process.stderr.write(`${lines.join('\n')}\n`);

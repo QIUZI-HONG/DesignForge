@@ -29,6 +29,9 @@
  *
  * 用法：node scripts/guard-vocab.mjs [--json] [--source=<vocab.ts>] [--layers=<目录或文件>]
  * 退出码（门禁三态，禁止假绿）：0 通过 / 1 违规（层间与真源不一致）/ 2 阻塞（前置不成立）。
+ * 退出码优先级（一句话规则）：**违规（1）优先于未判定（2）**——真违规存在即失败；但两类问题
+ * 在日志里**必须同时列出**（`✗` 违规明细 + `?` 未判定明细，结论行点名未判定计数），
+ * 阻塞信息不得被违规结论吞掉。
  */
 import { join, resolve } from 'node:path';
 import ts from 'typescript';
@@ -635,7 +638,10 @@ function main() {
       report.exitCode === 0
         ? '  ✓ 词表同源：各层无字面量声明，派生根均落在契约真源'
         : report.exitCode === 1
-          ? '  结论：违规（exit 1）——层内词表与真源不一致，修法：import 真源后 filter/sort 派生'
+          ? '  结论：违规（exit 1）——层内词表与真源不一致，修法：import 真源后 filter/sort 派生' +
+            (report.undetermined.length > 0
+              ? `；另有 ${String(report.undetermined.length)} 项未判定（见上方 ? 行，两类问题一并处置）`
+              : '')
           : '  结论：阻塞（exit 2，禁止当作通过）',
     );
     process.stderr.write(`${lines.join('\n')}\n`);

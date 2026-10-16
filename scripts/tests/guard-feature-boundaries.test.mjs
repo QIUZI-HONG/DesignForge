@@ -35,6 +35,14 @@ function runGuard(options = {}) {
   return { status: result.status, report: JSON.parse(stdout) };
 }
 
+/** 跑守卫的人类可读日志面（不加 --json；日志走 stderr）。 */
+function runGuardLog(options = {}) {
+  const args = [guard];
+  if (options.root) args.push(`--root=${options.root}`);
+  const result = spawnSync(process.execPath, args, { encoding: 'utf8', cwd: repoRoot });
+  return { status: result.status, log: result.stderr ?? '' };
+}
+
 const violationsOf = (report) => (report.violations ?? []).map(String).join('\n');
 const undeterminedOf = (report) => (report.undetermined ?? []).map(String).join('\n');
 const exceptionsOf = (report) => (report.exceptions ?? []).map(String).join('\n');
@@ -160,4 +168,24 @@ test('阻塞③：动态导入目标静态判不出（模板含插值）→ exit
 
   assert.equal(status, 2, `应记无法判定：违规=${violationsOf(report)}`);
   assert.match(undeterminedOf(report), /动态导入|判不出/);
+});
+
+// --- 日志口径：1 优先于 2，但两类问题必须同时列出（阻塞信息不得被吞）---
+
+test('混合夹具（深导入违规 + 动态导入未判定并存）→ exit 1（违规优先），两类清单都非空', () => {
+  const { status, report } = runGuard({ root: fixture('mixed') });
+
+  assert.equal(status, 1, `违规优先语义：${violationsOf(report)} / ${undeterminedOf(report)}`);
+  assert.match(violationsOf(report), /beta\/view\.ts/);
+  assert.match(undeterminedOf(report), /app\/dyn\.ts/);
+});
+
+test('混合夹具的人类可读日志：✗ 违规明细与 ? 未判定明细同屏，结论行点名未判定计数', () => {
+  const { status, log } = runGuardLog({ root: fixture('mixed') });
+
+  assert.equal(status, 1);
+  assert.match(log, /✗ .*beta\/view\.ts/);
+  assert.match(log, /\? .*app\/dyn\.ts/);
+  assert.match(log, /结论：违规（exit 1）/);
+  assert.match(log, /另有 1 项未判定/);
 });
