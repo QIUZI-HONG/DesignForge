@@ -359,6 +359,51 @@ describe('[verify] 剪贴板 · 不受信载荷（系统剪贴板是外部输入
     ).toThrowError(/ghost/);
   });
 
+  it('载荷含环 / 多父 / 重复引用时同样整包拒绝（与文档校验同口径）', () => {
+    const envelope = {
+      $format: CLIPBOARD_FORMAT,
+      $version: CLIPBOARD_VERSION,
+      sourcePageId: 'evil',
+    };
+    // 自引用环：容器把自己的 id 列进 children → 粘贴会产出「节点以自身为父」的命令
+    const selfCycle = createFrame({
+      id: 'f',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      children: ['f'],
+    });
+    expect(() => parseClipboard({ ...envelope, rootIds: ['f'], nodes: [selfCycle] })).toThrowError(
+      /cycle/,
+    );
+    // 多父：r 同时被 f1、f2 引用 → 粘贴只会挂到最后一个父级，另一份子树静默丢失
+    const f1 = createFrame({ id: 'f1', x: 0, y: 0, width: 10, height: 10, children: ['r'] });
+    const f2 = createFrame({ id: 'f2', x: 50, y: 0, width: 10, height: 10, children: ['r'] });
+    const r = createRect({ id: 'r', x: 0, y: 0, width: 5, height: 5 });
+    expect(() =>
+      parseClipboard({ ...envelope, rootIds: ['f1', 'f2'], nodes: [f1, f2, r] }),
+    ).toThrowError(/multiple-parents/);
+    // 同父重复子引用：粘贴时下标后写者胜、引用被静默折叠成一次
+    const dupChild = createFrame({
+      id: 'f3',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      children: ['r2', 'r2'],
+    });
+    const r2 = createRect({ id: 'r2', x: 0, y: 0, width: 5, height: 5 });
+    expect(() =>
+      parseClipboard({ ...envelope, rootIds: ['f3'], nodes: [dupChild, r2] }),
+    ).toThrowError(/duplicate-child/);
+    // 顶层重复引用：同一 id 会被插入两遍（撞 duplicate-id）
+    const f4 = createFrame({ id: 'f4', x: 0, y: 0, width: 10, height: 10 });
+    expect(() => parseClipboard({ ...envelope, rootIds: ['f4', 'f4'], nodes: [f4] })).toThrowError(
+      /duplicate-child/,
+    );
+  });
+
   it('信封不合法（缺 format / 非法 JSON）被 DomainError 拒绝', () => {
     expect(() => parseClipboard('not json')).toThrowError(/JSON/);
     expect(() =>

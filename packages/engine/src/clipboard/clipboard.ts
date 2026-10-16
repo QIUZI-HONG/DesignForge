@@ -103,8 +103,11 @@ export function serializeClipboard(payload: ClipboardPayload): string {
 
 /**
  * 载荷自检：**与文档校验同口径**（`scene/validate` 复用）——节点形状（必填字段与类型）、
- * 非有限数、顶层/子级引用悬空、不可达节点（会被静默插成顶层 → 走私）。
+ * 非有限数、顶层/子级引用悬空、重复 id/重复引用、多父、环、不可达节点（会被静默插成顶层 → 走私）。
  * 系统剪贴板是不受信输入，任何一处不合法都整包拒绝，而不是把畸形节点写进文档（B5）。
+ *
+ * 注：实例的**外部**主组件引用是合法载荷的一部分（跨页粘贴靠 `componentRemap` 接手），
+ * 故不套用文档校验的 missing-component/missing-component-set。
  */
 function validateClipboardPayload(payload: ClipboardPayload): DocumentIssue[] {
   const issues: DocumentIssue[] = [];
@@ -158,8 +161,11 @@ function validateClipboardPayload(payload: ClipboardPayload): DocumentIssue[] {
     }
   });
 
-  // 子级引用必须落在载荷内（否则粘贴时静默丢子树）
+  // 子级引用必须落在载荷内（否则粘贴时静默丢子树）；同一父级下重复引用与多父一并拒收：
+  // 重复引用会被静默折叠成一次，多父会让粘贴只挂到最后一个父级、另一份子树无声丢失
+  const parentIdsByChild = new Map<NodeId, Set<NodeId>>();
   for (const [parentId, childIds] of childrenById) {
+    const localSeen = new Set<NodeId>();
     childIds.forEach((childId, index) => {
       if (!ids.has(childId)) {
         issues.push({
@@ -168,7 +174,58 @@ function validateClipboardPayload(payload: ClipboardPayload): DocumentIssue[] {
           nodeId: childId,
           path: `nodes.${parentId}.children[${index}]`,
         });
+        return;
       }
+      if (localSeen.has(childId)) {
+        issues.push({
+          code: 'duplicate-child',
+          message: `同一父级下重复子引用：${childId}（父 ${parentId}）`,
+          nodeId: childId,
+          path: `nodes.${parentId}.children[${index}]`,
+        });
+        return;
+      }
+      localSeen.add(childId);
+      const parents = parentIdsByChild.get(childId) ?? new Set<NodeId>();
+      parents.add(parentId);
+      parentIdsByChild.set(childId, parents);
+    });
+  }
+  for (const [childId, parents] of parentIdsByChild) {
+    if (parents.size > 1) {
+      issues.push({
+        code: 'multiple-parents',
+        message: `载荷内节点被多个父级引用：${childId}（${[...parents].join('、')}）`,
+        nodeId: childId,
+        path: `nodes.${childId}`,
+      });
+    }
+  }
+
+  // 顶层重复引用：同一 id 会被插入两遍（撞 duplicate-id）
+  const rootSeen = new Set<NodeId>();
+  payload.rootIds.forEach((rootId, index) => {
+    if (typeof rootId !== 'string') return; // 非字符串已由上面的必填校验报出
+    if (rootSeen.has(rootId)) {
+      issues.push({
+        code: 'duplicate-child',
+        message: `载荷顶层重复引用：${rootId}`,
+        nodeId: rootId,
+        path: `rootIds[${index}]`,
+      });
+      return;
+    }
+    rootSeen.add(rootId);
+  });
+
+  // 环：粘贴会产出「节点以自身为父」的命令 → 与文档校验同口径拒收
+  const cyclicId = findPayloadCycle(childrenById, ids);
+  if (cyclicId !== null) {
+    issues.push({
+      code: 'cycle',
+      message: `载荷内节点树存在环：${cyclicId}`,
+      nodeId: cyclicId,
+      path: `nodes.${cyclicId}`,
     });
   }
 
@@ -193,6 +250,42 @@ function validateClipboardPayload(payload: ClipboardPayload): DocumentIssue[] {
   }
 
   return issues;
+}
+
+/**
+ * 载荷环检测（迭代 DFS，返回构成回边的节点 id；无环为 null）。
+ *
+ * 显式栈而非递归：不受信载荷可能有极深嵌套，递归会在解析/悬挂阶段爆栈
+ * （对照 serialize-edges 记录的深嵌套证据）。父 id 会被跳过——环靠「回边」判定。
+ */
+function findPayloadCycle(
+  childrenById: ReadonlyMap<NodeId, NodeId[]>,
+  ids: ReadonlySet<NodeId>,
+): NodeId | null {
+  /** 0/缺省 = 未访问；1 = 在当前 DFS 路径上；2 = 已完成。 */
+  const state = new Map<NodeId, 1 | 2>();
+  for (const startId of ids) {
+    if (state.has(startId)) continue;
+    const stack: Array<{ id: NodeId; next: number }> = [{ id: startId, next: 0 }];
+    state.set(startId, 1);
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1] as { id: NodeId; next: number };
+      const children = (childrenById.get(frame.id) ?? []).filter((childId) => ids.has(childId));
+      if (frame.next >= children.length) {
+        state.set(frame.id, 2);
+        stack.pop();
+        continue;
+      }
+      const childId = children[frame.next] as NodeId;
+      frame.next += 1;
+      const childState = state.get(childId);
+      if (childState === 1) return childId; // 回边 → 环
+      if (childState === 2) continue; // 多父 DAG：已完成的子树无需重走
+      state.set(childId, 1);
+      stack.push({ id: childId, next: 0 });
+    }
+  }
+  return null;
 }
 
 /** 解析剪贴板字符串（校验信封 + 载荷自检；不合法的载荷整包拒绝）。 */
