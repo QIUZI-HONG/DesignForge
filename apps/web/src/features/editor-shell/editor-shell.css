@@ -54,6 +54,17 @@
   background-color: var(--dfg-color-canvas);
 }
 
+/*
+ * 评论模式：整个画布区切十字光标（UX-12「模式状态可见」的画布侧一半）。
+ * 光标是继承属性，画布（.dfc-canvas-shell / canvas / 文本覆盖层）与评论落点层一起跟随；
+ * 退出评论模式（图层卸载或 data-df-state 变 idle）即恢复默认。
+ * 用 :has 声明而不是在画布组件里塞「评论模式」分支：评论层是 FE-07 的插槽件，
+ * 画布（FE-06）不感知评论模式，光标策略归壳层（画布列的主人）。
+ */
+.dfg-editor__canvas:has([data-df-comment-layer][data-df-state="active"]) {
+  cursor: crosshair;
+}
+
 /* 画布槽空态（FE-06 挂载后自动替换） */
 .dfg-editor-slot-fallback {
   display: flex;

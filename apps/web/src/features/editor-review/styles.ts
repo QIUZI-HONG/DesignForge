@@ -181,6 +181,12 @@ export const commentStyles = {
     cursor: 'default',
   } as CSSProperties,
   threadActive: { background: cssVar('color.hover') } as CSSProperties,
+  /** 条目行内动作区（已解决条目的显式「重新打开」入口；行内右对齐、始终可见）。 */
+  rowActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    padding: `0 ${cssVar('space-3')} ${cssVar('space-2')}`,
+  } as CSSProperties,
   threadHead: {
     display: 'flex',
     alignItems: 'baseline',
@@ -279,11 +285,14 @@ export const versionStyles = {
     alignItems: 'center',
     gap: cssVar('space-2'),
   } as CSSProperties,
-  /** 并排对比浮层：铺满视口（两栏才是真的「并排」）。 */
+  /**
+   * 并排对比浮层的内容容器（铺满视口；两栏才是真的「并排」）。
+   *
+   * 定位与 z 序**归 `@dforge/ui` 的 `Overlay`**（浮层栈内同源推导，见 C1/D-4 修复）：
+   * 这里只说「内容如何排布」，不再自持 `position: fixed` / `z-index` 令牌——
+   * 自持会与栈序脱钩（本模块的历史缺陷正是二者同值、层序却被 portal 的挂载先后决定）。
+   */
   overlay: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: cssVar('z-modal'),
     display: 'flex',
     flexDirection: 'column',
     gap: cssVar('space-3'),

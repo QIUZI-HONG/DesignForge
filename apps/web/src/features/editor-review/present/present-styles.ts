@@ -14,15 +14,19 @@ const PANEL_RADIUS = cssVar('radius-pill');
 
 /** Present 浮层样式。 */
 export const presentStyles = {
-  /** 舞台：全视口固定覆盖（不受编辑器布局影响）。 */
+  /**
+   * 舞台：由 `@dforge/ui` 的 `Overlay` 提供全视口覆盖与 z 序（浮层栈内同源推导），
+   * 本样式只负责「铺满 + 居中 + 深色底」——不再自持 `position: fixed` / z 令牌，
+   * 否则会与栈序脱钩（同 D-4 一类缺陷）。
+   */
   stage: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: cssVar('z-modal'),
+    position: 'relative',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
+    width: '100%',
+    height: '100%',
     background: cssVar('color.canvas'),
     color: cssVar('color.text.primary'),
     fontFamily: cssVar('font.sans'),

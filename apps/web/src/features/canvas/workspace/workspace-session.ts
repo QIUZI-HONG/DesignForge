@@ -137,6 +137,14 @@ export function createEditorWorkspace(preset: WorkspacePreset): EditorWorkspace 
 /** 模块级单例（插槽宿主不在同一棵 Provider 树里）。 */
 let singleton: EditorWorkspace | null = null;
 
+/** 单例变化订阅（载入/导入换栈后，跨 feature 的文档消费者据此重订阅）。 */
+const workspaceListeners = new Set<() => void>();
+
+/** 单例替换/复位后广播（跨 feature 消费者重订阅新栈）。 */
+function notifyWorkspace(): void {
+  for (const listener of [...workspaceListeners]) listener();
+}
+
 /** 取（必要时创建）工作区单例。 */
 export function getWorkspace(): EditorWorkspace {
   if (singleton === null) {
@@ -144,6 +152,31 @@ export function getWorkspace(): EditorWorkspace {
     singleton = createEditorWorkspace(readWorkspacePreset(search));
   }
   return singleton;
+}
+
+/**
+ * 替换工作区单例（载入/导入后换会话与栈）。
+ *
+ * 纪律：替换方负责把命令/视口同步/门禁探针**按新会话重挂**（`setWorkspaceBootstrap`
+ * 注册的实现可重复调用，幂等）；本函数只做「换单例 + 广播」两件事，
+ * 让跨 feature 的文档消费者（评审会话的文档端口）能跟着换订阅。
+ */
+export function setWorkspace(next: EditorWorkspace): void {
+  singleton = next;
+  notifyWorkspace();
+}
+
+/**
+ * 订阅「工作区单例被替换/复位」（引用稳定；退订函数返回值同形）。
+ *
+ * 用途：评审会话的文档端口——栈被换掉后要重新订阅新栈的文档变化
+ * （否则「载入新文档」之后演示判定/版本快照停在旧栈上）。
+ */
+export function subscribeWorkspace(listener: () => void): () => void {
+  workspaceListeners.add(listener);
+  return () => {
+    workspaceListeners.delete(listener);
+  };
 }
 
 /**
@@ -174,4 +207,5 @@ export function ensureWorkspaceBootstrapped(): void {
 export function resetWorkspace(): void {
   singleton = null;
   bootstrapped = false;
+  notifyWorkspace();
 }

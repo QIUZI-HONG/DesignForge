@@ -6,8 +6,10 @@ import { useState } from 'react';
  *
  * 列表读法（`threads.ts` 的 `groupThreads`）：
  * - 「未解决」段按时间新→旧；点击条目即在下方展开线程（回复列表 + 回复输入）；
- * - 「已解决」段**默认折叠**（Figma 同款）：点分段头展开，条目不可再编辑（无回复输入），
- *   只能「重新打开」——解决态不可再编辑是状态机的硬规则，界面不提供绕过路径。
+ * - 「已解决」段**默认折叠**（Figma 同款）：点分段头展开，条目不可再编辑（无回复输入）；
+ *   每条条目自带**行内「重新打开」按钮**（始终可见，UX-06/UX-13 修复）——
+ *   解决态不可再编辑是状态机的硬规则，界面不提供绕过路径，但重开必须一步可达；
+ * - 画布钉点 → 悬停卡 → 线程面板仍是不受影响的既有观察路径。
  *
  * `data-df-*` 挂点是门禁取样契约（`scripts/verify-figma-review.mjs`）。
  */
@@ -135,6 +137,24 @@ function ThreadItem({ thread, active }: { thread: CommentThread; active: boolean
         ) : null}
       </button>
 
+      {thread.resolved ? (
+        // 显式「重新打开」入口（UX-06/UX-13）：已解决条目**在列表行里就能重开**，
+        // 不藏在「展开分段 → 点条目 → 再点重开」的三跳路径后面（实测三次尝试未达）。
+        // 画布钉点详情（点钉点 → 展开线程）仍是既有路径，二者写的是同一份状态。
+        <div style={commentStyles.rowActions}>
+          <button
+            type="button"
+            className="dfg-btn dfg-btn--secondary dfg-btn--sm"
+            data-df-comment-reopen={thread.id}
+            onClick={() => {
+              session.comments.getState().reopen(thread.id);
+            }}
+          >
+            {t('review.comments.reopen')}
+          </button>
+        </div>
+      ) : null}
+
       {active ? (
         <div data-df-comment-thread-detail={thread.id} style={commentStyles.threadDetail}>
           <div style={commentStyles.reply}>
@@ -149,19 +169,7 @@ function ThreadItem({ thread, active }: { thread: CommentThread; active: boolean
             ))}
           </div>
 
-          {thread.resolved ? (
-            <div style={reviewStyles.buttonRow}>
-              <button
-                type="button"
-                className="dfg-btn dfg-btn--secondary dfg-btn--sm"
-                onClick={() => {
-                  session.comments.getState().reopen(thread.id);
-                }}
-              >
-                {t('review.comments.reopen')}
-              </button>
-            </div>
-          ) : (
+          {thread.resolved ? null : (
             <>
               <textarea
                 aria-label={t('review.comments.reply.placeholder')}
