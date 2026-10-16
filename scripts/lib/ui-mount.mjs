@@ -23,17 +23,26 @@
  * 服务自报地址时复用之，与 `verify-canvas` 同口径）。
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { createServer as createNetServer } from 'node:net';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  DAEMON_ROUTE_PREFIX,
+  forwardDaemonRequests,
+  resolveChromeExecutable,
+} from './browser-toolchain.mjs';
+
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/** daemon 请求在页面里的相对前缀（Playwright 路由据此转发；见模块头注释）。 */
-export const DAEMON_ROUTE_PREFIX = '/df-daemon';
+/**
+ * daemon 请求在页面里的相对前缀（Playwright 路由据此转发；见模块头注释）。
+ *
+ * 实现与 Chromium 解析回抽到 `./browser-toolchain.mjs`（复核 J8：一处实现，不再第三份）。
+ */
+export { DAEMON_ROUTE_PREFIX };
 
 /** 自起站点的端口扫描起点（4420+：避开常驻的 4318（daemon）/ 3000（站点））。 */
 const WEB_PORT_START = 4420;
@@ -48,20 +57,8 @@ export class UiMountBlockedError extends Error {
   }
 }
 
-/** 缓存的 Chromium（playwright-core 需显式 executablePath；与 verify-canvas 同口径）。 */
-export function resolveChrome() {
-  if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) {
-    return process.env.BENCH_CHROME_EXECUTABLE;
-  }
-  const cacheRoot = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(cacheRoot)) return undefined;
-  for (const entry of readdirSync(cacheRoot)) {
-    if (!entry.startsWith('chromium-')) continue;
-    const candidate = join(cacheRoot, entry, 'chrome-linux64', 'chrome');
-    if (existsSync(candidate)) return candidate;
-  }
-  return undefined;
-}
+/** 缓存的 Chromium（playwright-core 需显式 executablePath；实现见共享工具链模块）。 */
+export const resolveChrome = resolveChromeExecutable;
 
 /** 端口是否空闲（能 listen 即空闲）。 */
 function portFree(port) {
@@ -272,32 +269,7 @@ export async function runUiMountCheck(options) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     // daemon 请求经页面相对前缀 → Playwright 转发真 daemon（Node 侧 fetch；见模块头注释）
-    await page.route(`**${DAEMON_ROUTE_PREFIX}/**`, async (route) => {
-      const request = route.request();
-      const url = new URL(request.url());
-      const target = `${daemonUrl}${url.pathname.slice(DAEMON_ROUTE_PREFIX.length)}${url.search}`;
-      const hasBody = request.method() !== 'GET' && request.method() !== 'HEAD';
-      try {
-        const response = await fetch(target, {
-          method: request.method(),
-          headers: {
-            'content-type': 'application/json',
-            ...(hasBody ? { body: request.postData() ?? '{}' } : {}),
-          },
-        });
-        await route.fulfill({
-          status: response.status,
-          contentType: 'application/json',
-          body: await response.text(),
-        });
-      } catch (error) {
-        await route.fulfill({
-          status: 502,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: false, message: String(error) }),
-        });
-      }
-    });
+    await forwardDaemonRequests(page, daemonUrl);
     log(`daemon 请求代理就绪：${DAEMON_ROUTE_PREFIX}/** → ${daemonUrl}`);
 
     // 页面直接开站点本源（dev 形态有开发源限制，经网关打开会停在 SSR 空槽）；`?daemon=` 用相对前缀
