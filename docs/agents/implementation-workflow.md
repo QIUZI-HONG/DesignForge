@@ -4,6 +4,23 @@
 （**移植自 `QIUZI-HONG/DesignForge-legacy` 的 `docs/agents/implementation-workflow.md`**，
 按设界口径重写：本地优先、pnpm workspace、全中文基线、门禁退出码语义。）
 
+## 多代理批次作战（导航）
+
+本仓按「批次 → 工作包 → 一票一树」组织多代理并行施工。接手战役的新会话先在这里认坐标，
+各坐标的细则都在本文件对应小节（本段只做**指针**，不搬内容）：
+
+- **工作树**：一票一树 `/home/QIU/df-wt/<票号>`（**禁用 `/tmp`**）；命名、建法与提交节奏见
+  「工作树纪律」。
+- **简报**：`~/df-charting/briefs/`——`_shared.md` 是全体实现子代理共享的坐标与纪律
+  （**开工前必读**，含目录归属与禁止事项），另有批次简报（如 `fix-batch3.md` = 批次 3 的规格
+  与工作包）与各票简报。口径：**票面（GitHub issue）给范围，简报给坐标**，两者都读。
+- **证据**：`~/df-evidence/<票号>/`——对照证据（截图 / 证据 JSON / benchmark 输出）一律落仓库外，
+  **仓库只存代码与文档**；细则见「证据存仓库外」。
+- **门禁实况表的维护 DoD**：实况以**两处同源**记载为准——本文件「门禁退出码语义」的**守卫实况行**，
+  与 `AGENTS.md`「工程命令」的**门禁实况行**。**任何改门禁的票**（新增 / 实现 / 接 CI / 退役 /
+  桩转真）必须在同一票内**同步这两处**，写清：三态语义、是否已接 CI、仍为挂点的是谁；
+  不同步 = 实况表停留在旧口径，下一个会话会按错口径开工。
+
 ## 工作树纪律
 
 - 主工作树 `/home/QIU/OpenDesign` **恒在 `main`**；任何代理不得在其中 `checkout` / `switch` / 建分支。
@@ -38,6 +55,10 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 - 杀进程时让 pattern 不要匹配自己的命令行（`pkill -f "http[.]server 81[2]3"`），
   否则会连正在跑 `pkill` 的 shell 一起杀掉。
 - 合并/收尾提交必须过钩子；只有保现场的 wip 提交允许 `git commit --no-verify`。
+- **Mimosa git 门（本机现状，如实记录）**：本机 Mimosa 插件的 git 门会拦 `git commit` /
+  `git push`，且对**跨文件**改动存在误报会把提交打回。**不得用环境变量（`MIMOSA_NO_GIT_GATE`
+  一类）绕过**——提交 / 推送改由子代理执行；插件级策略（豁免白名单等）属**用户决策**，
+  本仓侧只留这一行痕迹，别每个会话重复撞墙。
 
 ## 门禁退出码语义（禁止假绿）
 
@@ -68,6 +89,33 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   Node 级测试看不见浏览器专属故障（被遮挡的下拉、`window.setTimeout` 的 Illegal invocation、
   React 版本门禁）——浏览器门禁就是逮住它们的地方。
 - 对抗性门禁（如「字体已加载、禁止静默回退」）必须真断言，不能只断言「页面能打开」。
+
+## CI 环境与开发机的差异（写用例前先读）
+
+CI runner（GitHub Actions `ubuntu-latest`，node 22）与开发机（node 24，有 gh 凭据、有仓外证据）
+**不是同一个环境**。批次 3 的三处 CI 首红全部源于「用例假设了开发机有、而 CI 没有的东西」——
+写用例时先逐条对照本清单，别让 CI 红一轮才发现环境假设。
+
+- **无 gh 凭据**：CI 里 `GH_TOKEN` 与 `github.token` **都没有**（`gh` 也未登录，凭据预检会先于
+  任何网络分类抢先阻塞）。凭据相关用例要**注入占位凭据或自起桩**（先例：批次 2
+  `tools/cli/src/verify-market/cli-replay.test.ts` 在 `beforeAll` 注入占位 `GH_TOKEN`、
+  `afterAll` 还原，走 `resolveGitHubToken` 的「env 优先于 `gh`」口径；真请求仍由 fetch 桩拦截）；
+  **不要依赖「本机 gh auth 恰好可用」**——这种环境巧合在 CI 直接翻红。
+- **runner 更慢**：CI runner 抖动可达本机 3–4×，**vitest 默认 5s 超时会在 CI 误红**。整管线 /
+  回放类用例给足超时上限（先例：批次 2 `services/ingest/vitest.config.ts` 把包级 `testTimeout`
+  提到 30s——本机 1.3s 的 3000 条目用例在 runner 上 >5s）。口径：**只放宽超时上限，不放宽任何
+  断言**——真退化（复杂度劣化、挂起）仍以超时失败，不引入假绿。
+- **无仓外证据**：`~/df-evidence/**` 是开发机产物（按纪律存仓库外，见「证据存仓库外」），
+  **CI 上不存在**。用例不得读它——离线回放要读的样本必须**冻结进仓库**（先例：`services/ingest`
+  的冻结样本），否则读到的是 `exit 2` / ENOENT，而不是断言。
+- **无 Electron 二进制**：CI 不拉 `apps/desktop` 的 Electron 二进制（见「环境与安装」），
+  桌面用例必须**纯静态 / 单测**（先例：`guard:electron-baseline` 的窗口选项静态断言 +
+  `test:scripts` 的对抗夹具回归），不得 `require('electron')`、更不得起真窗口。
+- **追加式落盘的清理竞态**：遥测 / 审计一类**追加写**在 `close()` 返回后仍可能有在途写入，
+  与临时目录的递归删除竞速会偶发 `ENOTEMPTY`；清临时根一律用**可重试删除**
+  `rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })`（批次 2 实例：
+  `apps/daemon/src/testing/harness.ts` 的 `cleanup()`——`export.test.ts` 的 PDF 用例红于
+  `ENOTEMPTY: rmdir '.../data/telemetry'`，本机从不复现，CI 才现形）。
 
 ## 代码规范
 
