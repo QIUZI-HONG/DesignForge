@@ -178,4 +178,33 @@ describe('df config set-key --stdin：凭据 stdin 注入（工作包 F）', () 
       source: 'stored',
     });
   }, 60_000);
+
+  it('set-key --clear → exit 0；随后 /ai/status configured=false（daemon 侧真降级）', async () => {
+    // 布景：先经 daemon 接口写入再清（不经 CLI 写，保证本用例自包含）
+    const put = await fetch(`${daemon.url}/config/credentials`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiKey: SENTINEL_KEY }),
+    });
+    expect(put.status).toBe(200);
+    const before = await getJson<{ configured: boolean }>(`${daemon.url}/ai/status`);
+    expect(before.configured).toBe(true);
+
+    const run = await runDf(['config', 'set-key', '--clear', '--daemon', daemon.url]);
+    expect(run.code).toBe(0);
+    expect(`${run.stdout}${run.stderr}`).not.toContain(SENTINEL_KEY);
+    expect(`${run.stdout}${run.stderr}`).not.toContain(SENTINEL_FRAGMENT);
+
+    const summary = lastJson(run.stdout);
+    expect(summary).toMatchObject({
+      command: 'config set-key',
+      exitCode: 0,
+      cleared: true,
+      hasKey: false,
+      maskedKey: null,
+    });
+
+    const after = await getJson<{ configured: boolean }>(`${daemon.url}/ai/status`);
+    expect(after.configured).toBe(false);
+  }, 60_000);
 });

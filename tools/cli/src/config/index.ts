@@ -20,6 +20,7 @@
 import type { Readable } from 'node:stream';
 
 import {
+  type CredentialClearResponse,
   type CredentialSetResponse,
   type CredentialSummary,
   DAEMON_ROUTES,
@@ -89,15 +90,42 @@ export async function runConfigCli(
     throw new CliUsageError(`未知子命令：config ${sub}（支持 set-key）`);
   }
 
-  const parsed = parseArgv(rest, { value: ['daemon'], flags: ['stdin'] });
+  const parsed = parseArgv(rest, { value: ['daemon'], flags: ['stdin', 'clear'] });
   if (parsed.help) {
     log(CONFIG_USAGE);
     return { command: 'config set-key', exitCode: 0, summary: {}, blockedReason: null };
   }
-  if (!parsed.flag('stdin')) {
+  const useStdin = parsed.flag('stdin');
+  const useClear = parsed.flag('clear');
+  if (useStdin === useClear) {
     throw new CliUsageError(
-      'set-key 需 --stdin：从标准输入读 key（argv 传 key 会进 shell 历史，本命令刻意不支持）',
+      'set-key 需恰给其一：--stdin（管道注入）或 --clear（清除本地 key）；' +
+        'argv 直接传 key 会进 shell 历史，本命令刻意不支持',
     );
+  }
+
+  const baseUrl = resolveDaemonBaseUrl(parsed.value('daemon'));
+
+  if (useClear) {
+    const result = await requestDaemon<CredentialClearResponse>(
+      baseUrl,
+      DAEMON_ROUTES.configCredentialsClear,
+    );
+    if (!result.ok) {
+      return {
+        command: 'config set-key',
+        exitCode: 2,
+        summary: { error: result.failure.message },
+        blockedReason: result.failure.message,
+      };
+    }
+    log('已清除本地 DeepSeek API key（AI 随即进入降级态；环境变量来源不受影响）');
+    return {
+      command: 'config set-key',
+      exitCode: 0,
+      summary: { cleared: result.value.cleared, ...summaryFields(result.value.summary) },
+      blockedReason: null,
+    };
   }
 
   const apiKey = await readKeyFromStdin(stdin);
@@ -105,7 +133,6 @@ export async function runConfigCli(
     throw new CliUsageError('标准输入为空：未读到 API key');
   }
 
-  const baseUrl = resolveDaemonBaseUrl(parsed.value('daemon'));
   const result = await requestDaemon<CredentialSetResponse>(
     baseUrl,
     DAEMON_ROUTES.configCredentialsSet,
