@@ -22,6 +22,7 @@ import {
 } from '@/features/editor-shell';
 import { t } from '@/i18n';
 import { CanvasSlot, LeftPanelSlot, OverlaysSlot, RightPanelSlot } from './workspace/slots';
+import { connectToolSync, registerWorkspaceToolCommands } from './workspace/tool-bridge';
 
 import {
   ensureWorkspaceBootstrapped,
@@ -101,18 +102,32 @@ export function registerWorkspaceCommands(): void {
       canvas.zoom100();
     },
   });
+
+  // 工具命令接管（D-1）：同 id 覆盖壳层默认实现，工具态落到**画布会话**（唯一真源）。
+  // 覆盖后：工具栏/快捷键/命令面板三处入口同一条命令 → 会话切工具 → 外壳高亮经
+  // `connectWorkspaceSync` 单向跟随（见 `workspace/tool-bridge.ts` 头注释）。
+  registerWorkspaceToolCommands(workspace);
 }
 
-/** 视口/选择/文档变化 → 外壳视图态同步（缩放百分比）。 */
-function connectViewSync(): () => void {
+/**
+ * 会话 → 外壳的显示态同步（画布是引擎真值的唯一持有者，外壳只做投影）：
+ * - 视口缩放 → 缩放菜单/状态栏的百分比；
+ * - 当前工具 → 工具条 active 高亮（拖画落节点后会话回选择工具，高亮必须跟着回）。
+ */
+function connectWorkspaceSync(): () => void {
   const workspace = getWorkspace();
   const sync = (): void => {
     useEditorView.getState().setZoom(workspace.canvas.viewport().zoom);
   };
   sync();
-  return workspace.canvas.store.subscribe((state, previous) => {
+  const unsubscribeZoom = workspace.canvas.store.subscribe((state, previous) => {
     if (state.viewport.zoom !== (previous as typeof state).viewport.zoom) sync();
   });
+  const unsubscribeTool = connectToolSync(workspace);
+  return () => {
+    unsubscribeZoom();
+    unsubscribeTool();
+  };
 }
 
 /**
@@ -180,7 +195,7 @@ export function WorkspaceBootstrap(): null {
   useEffect(() => {
     registerWorkspaceSlots();
     registerWorkspaceCommands();
-    connectViewSync();
+    connectWorkspaceSync();
     installInspectorProbe();
     installWorkspaceProbe();
     ensureWorkspaceBootstrapped();
@@ -192,7 +207,7 @@ export function WorkspaceBootstrap(): null {
 setWorkspaceBootstrap(() => {
   // 幂等：重复调用无副作用（注册表同 id 覆盖、探针重复赋值同一形状）
   registerWorkspaceCommands();
-  connectViewSync();
+  connectWorkspaceSync();
   installInspectorProbe();
   installWorkspaceProbe();
 });

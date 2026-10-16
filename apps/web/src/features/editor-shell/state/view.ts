@@ -33,8 +33,13 @@ export function stepZoom(zoom: number, steps: number): number {
   return ZOOM_LEVELS[target] ?? zoom;
 }
 
-/** 工具标识（白名单交互的 UI 侧入口；语义以引擎为准）。 */
-export type EditorTool = 'move' | 'frame' | 'rect' | 'text' | 'hand';
+/**
+ * 工具标识（白名单交互的 UI 侧入口；语义以引擎为准）。
+ *
+ * `move` 是 Figma 词表的「移动工具」，落到画布会话即选择工具（映射见
+ * `features/canvas/workspace/tool-bridge.ts` 的 `SHELL_TO_CANVAS`）。
+ */
+export type EditorTool = 'move' | 'frame' | 'rect' | 'ellipse' | 'text' | 'hand';
 
 /** 缩放/工具 UI 态。 */
 export interface EditorViewState {
