@@ -51,9 +51,11 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 
 - `2` **不是通过**：任何脚本把「未实现」当绿报，都是假绿，一律按缺陷处理。
 - 未接入的门禁必须在 CI/文档里显式标注「挂点（随票接入）」，不得静默缺席。
-- 本仓预留四守卫 `guard:deps` / `guard:electron-baseline` / `guard:mcp-contract` /
-  `guard:channel-pairing`（`scripts/guard-*.mjs`），当前一律 `exit 2`，
-  **不接 CI**；实现后由接管票一并接入。
+- **守卫实况（2026-10-16 批次 2 后）**：`scripts/guard-tokens.mjs` 与
+  `scripts/guard-electron-baseline.mjs`（含检出强度回归 `scripts/tests/guard-electron-baseline.test.mjs`）
+  **已实现并接入 CI**；`verify:engine` / `test:scripts` 同批入 CI；`verify:figma-baseline` 以
+  「CI 无参照集 → 断言 `exit 2` 且日志点名『阻塞：参照集未冻结』」的**阻塞语义断言**入 CI（不是当绿）。
+  仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:mcp-contract` / `guard:channel-pairing`。
 
 ## 门禁清单（本段）
 
@@ -101,6 +103,9 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 - Node ≥ 22（开发机 node 24）+ `pnpm@10.33.2`（由根 `package.json` 的 `packageManager` 锁定）；
   脚本一律经根 `package.json` 的 scripts 走，不在包内自建工具链。
 - 依赖版本统一走 `pnpm-workspace.yaml` 的 `catalog:`，不在各包散写版本号。
-- pnpm 10 默认不跑依赖的 build script：`apps/desktop` 的 Electron 二进制需
-  `pnpm approve-builds`（或临时 `onlyBuiltDependencies`）才会下载——FE-12 落地时处理，
-  **当前不启用**（避免 CI 拉 ~100MB 二进制）。
+- Electron 二进制（`apps/desktop`）：electron@44 的 npm 包**没有** postinstall，二进制在首次
+  `require('electron')` 时经 `@electron/get` 懒下载——pnpm 10 的 `approve-builds` 白名单对它不适用。
+  取二进制走本仓工具（幂等）：`node apps/desktop/tools/fetch-electron.cjs`。
+  **网络约束（本机实测）**：GitHub Releases 直连会 `fetch failed`，需带镜像，例如
+  `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node apps/desktop/tools/fetch-electron.cjs`（约 123MB）。
+  壳的运行法见 README「工程启动」；CI 仍不拉该二进制（`pnpm test` 的桌面用例是纯静态/单测，不依赖二进制）。
