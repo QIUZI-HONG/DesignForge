@@ -97,14 +97,18 @@ function track(child) {
   return child;
 }
 process.on('exit', () => {
-  for (const child of children) {
-    try {
-      child.kill('SIGTERM');
-    } catch {
-      // 已退出
-    }
-  }
+  for (const child of children) signalChild(child, 'SIGTERM');
 });
+// 手动 Ctrl-C / kill 也要带走独立进程组（detached 的子进程不在本进程组内，不受终端信号影响）。
+for (const [signal, code] of [
+  ['SIGINT', 130],
+  ['SIGTERM', 143],
+]) {
+  process.on(signal, () => {
+    for (const child of children) signalChild(child, 'SIGTERM');
+    process.exit(code);
+  });
+}
 
 /** 证据对象（`finish` 落盘；中途可直接改字段）。 */
 const evidence = {
@@ -242,13 +246,33 @@ function resolveChrome() {
   return undefined;
 }
 
+/** 起了「独立进程组」的子进程 pid（pnpm → next dev 这类多跳链：整组信号才不漏孙进程）。 */
+const groupLeaderPids = new Set();
+
+/** 给子进程发信号：独立进程组整组发（`-pid`），否则只发它自己；已退出则忽略。 */
+function signalChild(child, signal) {
+  try {
+    if (child.pid !== undefined && groupLeaderPids.has(child.pid)) {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  } catch {
+    // 已退出 / 组内已空
+  }
+}
+
 /** 起子进程（收集输出便于诊断）。 */
 function startProcess(command, commandArgs, options = {}) {
   const child = spawn(command, commandArgs, {
     cwd: options.cwd ?? REPO_ROOT,
     env: { ...process.env, ...(options.env ?? {}) },
     stdio: ['ignore', 'pipe', 'pipe'],
+    // 多跳链（`pnpm … exec next dev`）必须成「独立进程组」：只 SIGTERM 直接子进程时，
+    // 孙进程（真 dev server）可能在父进程退出后仍活着（实测退出瞬间仍可见残留 1–2 个）。
+    detached: options.detached === true,
   });
+  if (options.detached === true && child.pid !== undefined) groupLeaderPids.add(child.pid);
   let buffer = '';
   const collect = (chunk) => {
     buffer += chunk.toString();
@@ -265,6 +289,36 @@ function startProcess(command, commandArgs, options = {}) {
   return { child, output: () => buffer };
 }
 
+/**
+ * 等「独立进程组」彻底空。
+ *
+ * 为什么需要：多跳链里的孙进程（`pnpm → next dev`）不是本进程的子进程，`wait()` 管不到——
+ * 只等到直接子进程退出（pnpm）就返回时，dev server 还在自己收尾（实测退出瞬间仍可见 1–2 个
+ * next 进程，数秒后才消失）。此处按进程组存活轮询（`kill(-pgid, 0)`），超时再整组 SIGKILL。
+ */
+async function awaitGroupGone(pgid, timeoutMs) {
+  const isAlive = () => {
+    try {
+      process.kill(-pgid, 0);
+      return true;
+    } catch {
+      return false; // ESRCH：组内已无活进程
+    }
+  };
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isAlive()) return true;
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  try {
+    process.kill(-pgid, 'SIGKILL');
+  } catch {
+    // 组内已空
+  }
+  await new Promise((done) => setTimeout(done, 200));
+  return !isAlive();
+}
+
 /** 释放子进程与临时目录（`finish` 的唯一出口必须先走这里，否则进程泄漏）。 */
 async function release() {
   for (const cleanup of cleanups) {
@@ -277,7 +331,7 @@ async function release() {
   await browser?.close().catch(() => undefined);
   browser = null;
   const running = [...children];
-  for (const child of running) child.kill('SIGTERM');
+  for (const child of running) signalChild(child, 'SIGTERM');
   await Promise.all(
     running.map(
       (child) =>
@@ -287,11 +341,7 @@ async function release() {
             return;
           }
           const timer = setTimeout(() => {
-            try {
-              child.kill('SIGKILL');
-            } catch {
-              // 已退出
-            }
+            signalChild(child, 'SIGKILL');
             done();
           }, 5000);
           child.on('exit', () => {
@@ -301,6 +351,12 @@ async function release() {
         }),
     ),
   );
+  // 独立进程组的孙进程不受 wait() 管辖：轮询到组空才算清干净（否则退出瞬间仍有残留）。
+  for (const pgid of groupLeaderPids) {
+    if (!(await awaitGroupGone(pgid, 5000))) {
+      notes.push(`清理告警：进程组 ${String(pgid)} 仍有存活进程（已补 SIGKILL）。`);
+    }
+  }
   if (workspaceDir !== undefined) {
     await rm(workspaceDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -366,7 +422,8 @@ async function ensureWeb(plannedPort) {
   const started = startProcess(
     'pnpm',
     ['--filter', '@dforge/web', 'exec', 'next', 'dev', '-p', String(port)],
-    { cwd: REPO_ROOT },
+    // detached：pnpm 之下还有真 dev server（孙进程），退出时要整组信号才不留残留。
+    { cwd: REPO_ROOT, detached: true },
   );
   track(started.child);
   // 用 localhost 打开：Next 16 dev 对 `/_next/*` 有开发源限制，127.0.0.1 会被拦（HMR/chunk 404）
