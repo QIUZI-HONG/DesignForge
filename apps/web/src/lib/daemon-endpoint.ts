@@ -21,14 +21,21 @@
  *   全段不可达抛 `DaemonEndpointError('daemon_unreachable')`——给页面级取数（首页），
  *   让页面立刻进错误态并给重试，而不是等请求超时。
  *
- * 端口窗起点/宽度取自 `@dforge/contracts`（与 daemon 自身的端口纪律同源），本模块不另立数字。
+ * 端口窗起点/宽度取自 `@dforge/contracts`（与 daemon 自身的端口纪律同源）；**端点串本身
+ * 也由契约包的纯构造函数单点给出**（`daemonEndpointDefault` / `daemonEndpointForPort`）——
+ * 本模块不再自拼 `http://127.0.0.1:<port>`（code-review #2：注释写「同源」实为第二份复制）。
  * 依赖方向：`features/* → lib/*` 允许；`lib/* → features/*` **禁止**（本模块不认识任何 feature）。
  */
 
-import { DAEMON_PORT_BASE, DAEMON_PORT_MAX_OFFSET } from '@dforge/contracts';
+import {
+  DAEMON_PORT_BASE,
+  DAEMON_PORT_MAX_OFFSET,
+  daemonEndpointDefault,
+  daemonEndpointForPort,
+} from '@dforge/contracts';
 
-/** daemon 缺省端点（端口纪律的起点，本机回环）。 */
-export const DAEMON_ENDPOINT_DEFAULT = `http://127.0.0.1:${String(DAEMON_PORT_BASE)}`;
+/** daemon 缺省端点（端口纪律的起点，本机回环；端点串由契约包单点构造）。 */
+export const DAEMON_ENDPOINT_DEFAULT = daemonEndpointDefault();
 
 /** 单个候选端点的健康探测超时（毫秒；本地回环，超时即视为不在）。 */
 export const DAEMON_PROBE_TIMEOUT_MS = 400;
@@ -97,11 +104,11 @@ export function resolveDaemonEndpointSync(options: DaemonEndpointOptions = {}): 
   return searchEndpoint(options) ?? envEndpoint(options) ?? DAEMON_ENDPOINT_DEFAULT;
 }
 
-/** 端口窗候选（顺序 = 探测顺序：起点 → 起点 + 上限偏移）。 */
+/** 端口窗候选（顺序 = 探测顺序：起点 → 起点 + 上限偏移；端点串由契约包单点构造）。 */
 export function daemonEndpointCandidates(): string[] {
   const candidates: string[] = [];
   for (let offset = 0; offset <= DAEMON_PORT_MAX_OFFSET; offset += 1) {
-    candidates.push(`http://127.0.0.1:${String(DAEMON_PORT_BASE + offset)}`);
+    candidates.push(daemonEndpointForPort(DAEMON_PORT_BASE + offset));
   }
   return candidates;
 }

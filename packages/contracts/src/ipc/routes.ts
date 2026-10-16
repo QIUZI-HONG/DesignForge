@@ -57,3 +57,20 @@ export const DAEMON_PORT_BASE = 4318;
 
 /** daemon 监听端口探测上限偏移。 */
 export const DAEMON_PORT_MAX_OFFSET = 32;
+
+/**
+ * 本机回环 daemon 端点（纯构造，无副作用；端口纪律只允许 127.0.0.1）。
+ *
+ * 为什么放在契约包：CLI（`tools/cli/src/config/daemon.ts`）与 web 单点模块
+ * （`apps/web/src/lib/daemon-endpoint.ts`，ADR-0004 ①）都要构造端点串——此前各自
+ * 自拼 `http://127.0.0.1:${DAEMON_PORT_BASE}`（注释写「同源」实为第二份复制，code-review #2）。
+ * 这里给出**唯一构造点**：与端口常量同处一地，改端口纪律只改这一行。
+ */
+export function daemonEndpointForPort(port: number): string {
+  return `http://127.0.0.1:${String(port)}`;
+}
+
+/** 缺省 daemon 端点（端口纪律起点；消费方不得再自拼第二份）。 */
+export function daemonEndpointDefault(): string {
+  return daemonEndpointForPort(DAEMON_PORT_BASE);
+}

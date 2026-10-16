@@ -10,7 +10,13 @@ import {
   isSha256Digest,
   isStringArray,
 } from './guards.ts';
-import { DAEMON_PORT_BASE, DAEMON_ROUTES } from './routes.ts';
+import {
+  DAEMON_PORT_BASE,
+  DAEMON_PORT_MAX_OFFSET,
+  DAEMON_ROUTES,
+  daemonEndpointDefault,
+  daemonEndpointForPort,
+} from './routes.ts';
 
 describe('ipc · 基础守卫', () => {
   it('isRecord 排除 null 与数组', () => {
@@ -74,5 +80,18 @@ describe('ipc · 路由表', () => {
     expect(DAEMON_ROUTES.exportDocument.path).toBe('/export');
     expect(DAEMON_ROUTES.imageRunsCreate.path).toBe('/image/runs');
     expect(DAEMON_ROUTES.marketQuery.path).toBe('/market/query');
+  });
+});
+
+describe('ipc · daemon 端点缺省构造（单一构造点，web 单点模块与 CLI 复用）', () => {
+  it('缺省端点 = 本机回环 + 端口起点（字面量冻结，防消费方各拼一份）', () => {
+    expect(daemonEndpointDefault()).toBe('http://127.0.0.1:4318');
+  });
+
+  it('端口窗构造：起点 → 起点 + 上限偏移（两端都是字面量冻结）', () => {
+    expect(daemonEndpointForPort(DAEMON_PORT_BASE)).toBe(daemonEndpointDefault());
+    expect(daemonEndpointForPort(DAEMON_PORT_BASE + DAEMON_PORT_MAX_OFFSET)).toBe(
+      'http://127.0.0.1:4350',
+    );
   });
 });
