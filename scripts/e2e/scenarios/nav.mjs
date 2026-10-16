@@ -191,6 +191,20 @@ export async function run(page, ctx) {
     '编辑器内无「无法连接本地服务」',
     editorBody.slice(0, 160).replaceAll('\n', ' / '),
   );
+  // 请求级携带端点：编辑器按 documentId 载入文档（工作包 A 的取数），端点来自刚续写的参数
+  const editorLoadDeadline = Date.now() + 8_000;
+  while (
+    Date.now() < editorLoadDeadline &&
+    !requests.some((url) => url.includes('/df/documents/'))
+  ) {
+    await page.waitForTimeout(150);
+  }
+  const editorLoadRequests = requests.filter((url) => url.includes('/df/documents/'));
+  ctx.assert(
+    editorLoadRequests.length > 0 && editorLoadRequests.every((url) => httpOrigin(url) === gateway),
+    '编辑器取数经同源网关（请求级携带端点）',
+    `${String(editorLoadRequests.length)} 次：${editorLoadRequests[0] ?? '无'}`,
+  );
 
   // --- 3) ② 市场列表 → 详情 ---
   await page.goto(`${gateway}/market?${daemonQuery}`, { waitUntil: 'networkidle' });
