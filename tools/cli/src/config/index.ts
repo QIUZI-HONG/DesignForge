@@ -27,6 +27,7 @@ import {
 } from '@dforge/contracts';
 
 import { CliUsageError, parseArgv } from '../market/args.ts';
+import type { CliOutcome } from '../outcome.ts';
 import { CLI_DAEMON_DEFAULT_URL, requestDaemon, resolveDaemonBaseUrl } from './daemon.ts';
 
 export const CONFIG_USAGE = `df config —— 本地凭据（DeepSeek API key；工作包 F）
@@ -46,13 +47,9 @@ export const CONFIG_USAGE = `df config —— 本地凭据（DeepSeek API key；
       不落日志；输出只含掩码摘要（形如 sk-…abcd）。
 退出码：0 成功 / 2 阻塞（参数错误、daemon 不可达、凭据被拒）。`;
 
-/** 子命令分发结果（与 `df market` 的 outcome 形状一致，供入口统一打印）。 */
-export interface ConfigCliOutcome {
-  command: string;
-  exitCode: 0 | 1 | 2;
-  summary: Record<string, unknown>;
-  blockedReason: string | null;
-}
+/** 子命令分发结果：复用统一形状 `CliOutcome`（`../outcome.ts`，code-review #4：
+ *  此前本文件逐字重复了同一 interface；具名别名保留可读性，字段漂移由编译期收口）。 */
+export type ConfigCliOutcome = CliOutcome;
 
 /** stdin 的消费面（TTY 时经 `setRawMode` 关回显；测试可注入假流）。 */
 export interface CliStdin extends Readable {

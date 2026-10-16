@@ -210,8 +210,13 @@ function unwrap(expression) {
   }
 }
 
-/** 找 `export const <name> = <表达式>`（任意位置）；重名各自保留，第一处为准。 */
-function findExportedConst(sourceFile, name) {
+/** 找 `<name> = <表达式>` 的 const 声明（**任意位置、不判 export**）；重名各自保留，第一处为准。
+ *
+ * 为什么诚实命名（code-review #4）：本函数只按声明名匹配，层内**非导出**的 const 同样是
+ * 漂移源（R2/R3 就要拦它），故不能叫 findExportedConst；真源侧的「登记导出」约定由 R1
+ * 的登记名清单保证，不靠本函数判 export。
+ */
+function findConstDeclaration(sourceFile, name) {
   let found;
   const visit = (node) => {
     if (found !== undefined) return;
@@ -266,7 +271,7 @@ function loadTrueSource(path) {
   const sourceFile = parse(path, text);
   const values = new Map();
   for (const entry of VOCAB_REGISTRY) {
-    const declaration = findExportedConst(sourceFile, entry.source);
+    const declaration = findConstDeclaration(sourceFile, entry.source);
     if (declaration === undefined) {
       return { ok: false, reason: `真源缺登记导出 ${entry.source}（${displayPath(path)}）` };
     }
@@ -432,7 +437,7 @@ function analyzeLayerFile(path, text, sourceValues, scanInline) {
   const registeredInitializers = new Set();
   for (const entry of VOCAB_REGISTRY) {
     for (const name of entry.values) {
-      const declaration = findExportedConst(sourceFile, name);
+      const declaration = findConstDeclaration(sourceFile, name);
       if (declaration === undefined) continue;
       registeredInitializers.add(declaration.initializer);
       const initializer = unwrap(declaration.initializer);

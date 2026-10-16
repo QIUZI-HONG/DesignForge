@@ -15,6 +15,7 @@
  */
 
 import { collect } from '@dforge/ingest';
+import type { CliOutcome } from '../outcome.ts';
 import { CliUsageError, intOption, listOption, parseArgv } from './args.ts';
 import { runCollectCommand } from './collect-cmd.ts';
 import { runIndexCommand } from './index-cmd.ts';
@@ -64,12 +65,9 @@ search 选项：
 
 退出码：0 通过 / 1 断言失败 / 2 阻塞（缺依赖产物、无凭据、参数错误；禁止假绿）。`;
 
-export interface MarketCliOutcome {
-  command: string;
-  exitCode: 0 | 1 | 2;
-  summary: Record<string, unknown>;
-  blockedReason: string | null;
-}
+/** 子命令分发结果：复用统一形状 `CliOutcome`（`../outcome.ts`，code-review #4：
+ *  第三份逐字重复一并收敛；具名别名保留，对外类型名不变）。 */
+export type MarketCliOutcome = CliOutcome;
 
 /** 执行 `df market <子命令>`（argv 不含 `market`）。 */
 export async function runMarketCli(

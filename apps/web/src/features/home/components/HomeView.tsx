@@ -55,14 +55,6 @@ async function defaultSearchMarket(query: string): Promise<MarketSearchResult> {
   return searchMarketAssets({ baseUrl, query });
 }
 
-/** 市场检索兜底上限默认值（毫秒）——与网关统一超时**同源**（`GATEWAY_TIMEOUT_MS`）。
- *
- * 两层的关系（不重复实现）：客户端侧超时（`api/gateway-timeout`）让真实请求到点失败；
- * 页面侧兜底是**最后出口**，还要盖住被注入的非 fetch 实现（测试/宿主）——但上限是
- * 同一个数字：一处声明，不两处各写一份。
- */
-export const MARKET_SEARCH_DEADLINE_MS = GATEWAY_TIMEOUT_MS;
-
 /** 首页编排 props（全部可选：缺省即真实浏览器路径）。 */
 export interface HomeViewProps {
   /** 文档数据源（测试注入替身）。 */
@@ -81,10 +73,14 @@ export interface HomeViewProps {
   searchDebounceMs?: number;
   /**
    * 市场检索兜底上限（毫秒）：超过仍无结果先落「市场不可用」降级态（可读出口），
-   * 结果迟到再覆盖。缺省 {@link MARKET_SEARCH_DEADLINE_MS}（= 网关统一超时上限
-   * {@link GATEWAY_TIMEOUT_MS}）——压在 daemon 端口段健康探测最坏耗时（~2.4s，
-   * 见 `home/api/daemon-url`）之上，避免误报；客户端侧已由同一上限保证请求有界，
-   * 本参数只覆盖「兜底出口」这一层；测试传小值。
+   * 结果迟到再覆盖。
+   *
+   * 缺省即网关统一超时 {@link GATEWAY_TIMEOUT_MS}——**同一个数字，一处声明**
+   * （code-review #4：此前这里转发了一个 `MARKET_SEARCH_DEADLINE_MS` 别名常量，
+   * 无独立语义，已删）。两层的关系（不重复实现）：客户端侧超时
+   * （`api/gateway-timeout`）让真实请求到点失败；页面侧兜底是**最后出口**，还要盖住
+   * 被注入的非 fetch 实现（测试/宿主）。取值 3s 压在 daemon 端口段健康探测最坏耗时
+   * （~2.4s，见 `home/api/daemon-url`）之上，避免误报；测试传小值。
    */
   marketSearchDeadlineMs?: number;
 }
@@ -104,7 +100,7 @@ export function HomeView({
   onOpenMarket,
   store,
   searchDebounceMs = 200,
-  marketSearchDeadlineMs = MARKET_SEARCH_DEADLINE_MS,
+  marketSearchDeadlineMs = GATEWAY_TIMEOUT_MS,
 }: HomeViewProps) {
   const toast = useToast();
   const activeStore = store ?? useHomeStoreSingleton();

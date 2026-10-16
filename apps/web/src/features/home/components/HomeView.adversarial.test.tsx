@@ -12,9 +12,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createDocumentsGateway, DocumentApiError } from '../api/documents';
-import { GATEWAY_TIMEOUT_MS } from '../api/gateway-timeout';
 import { createHomeStore } from '../state/home-store';
-import { HomeView, MARKET_SEARCH_DEADLINE_MS } from './HomeView';
+import { HomeView } from './HomeView';
 
 const NOW = new Date('2026-10-15T12:00:00.000Z');
 
@@ -282,7 +281,7 @@ describe('对抗 · 网关超时归一（页面级，修复批次 3 · 工作包
     expect(await screen.findByText('E_DF_DAEMON_UNREACHABLE')).toBeTruthy();
   });
 
-  it('市场兜底上限与网关统一超时同源（同一数字，不两处各写）', () => {
-    expect(MARKET_SEARCH_DEADLINE_MS).toBe(GATEWAY_TIMEOUT_MS);
-  });
+  // code-review #4：原「MARKET_SEARCH_DEADLINE_MS === GATEWAY_TIMEOUT_MS」是恒真的转发别名断言
+  // （零覆盖）。别名已删，缺省值现在**字面上就是** `GATEWAY_TIMEOUT_MS`（组件签名一处声明），
+  // 无可断言的第二份；缺省路径「非小值、挂起停在 loading」由上一例（30ms 预算内不落降级）覆盖。
 });

@@ -11,6 +11,9 @@
 
 import { CONFIG_USAGE, runConfigCli } from './config/index.ts';
 import { MARKET_USAGE, runMarketCli } from './market/index.ts';
+import type { CliOutcome } from './outcome.ts';
+
+export type { CliOutcome } from './outcome.ts';
 
 /** CLI 名。 */
 export const CLI_BIN_NAME = 'df' as const;
@@ -31,13 +34,6 @@ export const CLI_USAGE = `df —— 设界 CLI
 ${MARKET_USAGE}
 
 ${CONFIG_USAGE}`;
-
-export interface CliOutcome {
-  command: string;
-  exitCode: 0 | 1 | 2;
-  summary: Record<string, unknown>;
-  blockedReason: string | null;
-}
 
 /** 命令族执行 + 统一收口（打印人类可读摘要 + 末尾一行 JSON 供门禁脚本解析）。 */
 async function dispatchFamily(
