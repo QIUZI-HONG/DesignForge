@@ -17,6 +17,8 @@ export const DF_ERROR_CODES = [
   'doc_not_found',
   'doc_exists',
   'doc_invalid_name',
+  // 标识符不安全（越界路径/分隔符/控制字符/超长/非 NFC）——Q1 路径穿越修复新增
+  'doc_invalid_id',
   'doc_invalid_body',
   'doc_invalid_manifest',
   'doc_last_page',
@@ -61,6 +63,7 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   doc_not_found: 404,
   doc_exists: 409,
   doc_invalid_name: 400,
+  doc_invalid_id: 400,
   doc_invalid_body: 400,
   doc_invalid_manifest: 422,
   doc_last_page: 409,
