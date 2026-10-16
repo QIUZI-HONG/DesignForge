@@ -109,6 +109,19 @@ describe('searchMarketAssets', () => {
     });
   });
 
+  it('daemon 不响应（请求悬挂）→ 到注入上限降级为 available=false（有界出口，不永久挂起）', async () => {
+    // 修复批次 3 · 工作包 C：市场检索走同一超时归一（`gateway-timeout`）。
+    // 首页市场分组不能因为 daemon 不回话而永久停在「正在搜索…」。
+    const never = (async () => new Promise<Response>(() => undefined)) as unknown as typeof fetch;
+    const outcome = await Promise.race([
+      searchMarketAssets({ baseUrl: BASE, query: '设计', fetchImpl: never, timeoutMs: 20 }),
+      new Promise<'pending'>((resolve) => {
+        setTimeout(() => resolve('pending'), 300);
+      }),
+    ]);
+    expect(outcome).toEqual({ available: false, items: [] });
+  });
+
   it('失败信封 → available=false', async () => {
     const { fetchImpl } = fakeFetch({
       status: 500,

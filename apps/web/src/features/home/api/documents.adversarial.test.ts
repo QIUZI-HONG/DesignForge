@@ -8,6 +8,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createDocumentsGateway, DocumentApiError, describeApiErrorCode } from './documents';
+import { GATEWAY_TIMEOUT_MS } from './gateway-timeout';
 
 /** 造一个返回给定响应的假 fetch。 */
 function fetchReturning(response: Response): typeof fetch {
@@ -23,6 +24,11 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function gateway(fetchImpl: typeof fetch) {
   return createDocumentsGateway({ baseUrl: 'http://127.0.0.1:4399', fetchImpl });
+}
+
+/** 注入短超时上限的网关（避免真等默认上限，验证同一条逻辑路径）。 */
+function gatewayWithTimeout(fetchImpl: typeof fetch, timeoutMs: number) {
+  return createDocumentsGateway({ baseUrl: 'http://127.0.0.1:4399', fetchImpl, timeoutMs });
 }
 
 describe('对抗 · 传输层异常归一', () => {
@@ -102,21 +108,61 @@ describe('对抗 · 传输层异常归一', () => {
     await expect(gateway(fetchReturning(response)).list()).rejects.toThrow(TypeError);
   });
 
-  it('daemon 不响应（请求悬挂）→ 网关没有超时，Promise 永久 pending（UI 停在骨架）', async () => {
+  it('daemon 不响应（请求悬挂）→ 到注入上限归一到 daemon_timeout，不假成功、不永久挂起', async () => {
+    // 原为记录现状断言（「网关没有超时，Promise 永久 pending（UI 停在骨架）」）——
+    // 修复批次 3 · 工作包 C 落地后翻正为行为契约：超时是**有界**的失败，不是永久 loading。
     const never = (async () => new Promise<Response>(() => undefined)) as unknown as typeof fetch;
-    let settled = false;
-    void gateway(never)
+    const outcome = await Promise.race([
+      gatewayWithTimeout(never, 20)
+        .list()
+        .then(
+          () => 'resolved' as const, // 假成功（超时却当成功）不可接受
+          (error: unknown) => error,
+        ),
+      new Promise<'pending'>((resolve) => {
+        setTimeout(() => resolve('pending'), 300);
+      }),
+    ]);
+    expect(outcome).toBeInstanceOf(DocumentApiError);
+    expect((outcome as DocumentApiError).code).toBe('daemon_timeout');
+  });
+
+  it('超时同时 abort 在飞请求（注入 fetch 收到 signal，到点 aborted=true）', async () => {
+    const signals: Array<AbortSignal | undefined> = [];
+    const hanging = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      signals.push(init?.signal ?? undefined);
+      return new Promise<Response>(() => undefined);
+    }) as unknown as typeof fetch;
+
+    await gatewayWithTimeout(hanging, 10)
       .list()
-      .then(
-        () => {
-          settled = true;
-        },
-        () => {
-          settled = true;
-        },
-      );
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect(settled).toBe(false); // 无 AbortSignal/超时：卡住即永久 loading
+      .catch(() => undefined);
+
+    expect(signals[0]).toBeDefined();
+    expect(signals[0]?.aborted).toBe(true); // 不 abort 会留下悬挂 socket（真实 fetch 不释放）
+  });
+
+  it('daemon 不可达（fetch 立即抛错，非超时）→ 仍是 daemon_unreachable（两类失败可分辨）', async () => {
+    const refused = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const outcome = await gatewayWithTimeout(refused, 20)
+      .list()
+      .catch((error: unknown) => error);
+    expect((outcome as DocumentApiError).code).toBe('daemon_unreachable');
+  });
+
+  it('同族端点共用同一实现：列表/新建/删除悬挂都归一到 daemon_timeout', async () => {
+    const never = (async () => new Promise<Response>(() => undefined)) as unknown as typeof fetch;
+    const client = gatewayWithTimeout(never, 10);
+    await expect(client.list()).rejects.toMatchObject({ code: 'daemon_timeout' });
+    await expect(client.create('海报 A')).rejects.toMatchObject({ code: 'daemon_timeout' });
+    await expect(client.remove('海报 A')).rejects.toMatchObject({ code: 'daemon_timeout' });
+  });
+
+  it('统一上限是模块常量 3s（与首页既有 3s 兜底同一数字）', () => {
+    // 其余用例经 `timeoutMs` 注入短上限验证同一条逻辑路径（可注入覆盖）。
+    expect(GATEWAY_TIMEOUT_MS).toBe(3000);
   });
 
   it('删除接口同样归一（坏 JSON → daemon_unreachable）', async () => {
