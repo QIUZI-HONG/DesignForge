@@ -5,8 +5,11 @@
   "type": "module",
   "description": "设界 Web 前端（Next.js 16 App Router + React 18；i18n zh-CN 唯一暴露）",
   "scripts": {
+    "predev": "node src/features/canvas/tools/copy-canvaskit-assets.mjs",
     "dev": "next dev",
+    "prebuild": "node src/features/canvas/tools/copy-canvaskit-assets.mjs",
     "build": "next build",
+    "prestart": "node src/features/canvas/tools/copy-canvaskit-assets.mjs",
     "start": "next start",
     "copy:canvaskit": "node src/features/canvas/tools/copy-canvaskit-assets.mjs",
     "lint": "biome check .",
