@@ -43,7 +43,7 @@ export const CONFIG_USAGE = `df config —— 本地凭据（DeepSeek API key；
   --daemon <url>        本地服务基址（缺省 NEXT_PUBLIC_DF_DAEMON_URL 或 ${CLI_DAEMON_DEFAULT_URL}）
 
 安全：key 经内存直达本机 daemon（AES-256-GCM 落库 0600）；不带 argv 传 key、不回显、
-      不落日志；输出只含掩码摘要（形如 sk-…0zzz）。
+      不落日志；输出只含掩码摘要（形如 sk-…abcd）。
 退出码：0 成功 / 2 阻塞（参数错误、daemon 不可达、凭据被拒）。`;
 
 /** 子命令分发结果（与 `df market` 的 outcome 形状一致，供入口统一打印）。 */
