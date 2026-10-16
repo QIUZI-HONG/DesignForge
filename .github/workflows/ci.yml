@@ -50,6 +50,9 @@ jobs:
       - name: 词表同源守卫（kind/lane 等规范词表唯一真源在 @dforge/contracts；层内字面量即违规）
         run: pnpm guard:vocab
 
+      - name: feature 边界守卫（跨 feature 深导入归零；register 接缝为登记例外，ADR-0004 ②）
+        run: pnpm guard:feature-boundaries
+
       - name: 桌面壳安全基线守卫（窗口选项静态断言；对抗夹具回归在 pnpm test:scripts）
         run: pnpm guard:electron-baseline
 
