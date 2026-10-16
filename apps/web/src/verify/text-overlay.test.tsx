@@ -176,6 +176,101 @@ describe('文本覆盖层 · 与渲染层同口径（祖先链）', () => {
     // 期望：祖先 30° + 自身 0° = 30°（与渲染层 drawNode 的 rotate 语义一致）
     expect(overlay.style.transform).toBe('rotate(30deg)');
   });
+
+  it('[补充] 深层嵌套（4 层）偏移与旋转累加：位置 = 祖先链世界位置（缩放/平移同口径）', () => {
+    // 帧套帧套帧再套文本：只算自身局部坐标会差出 1075/597 这种量级
+    const makeDeep = (rotationOfLayer: (level: 2 | 3) => number): CanvasSession => {
+      const text = createText({
+        id: 'n_deep',
+        x: 5,
+        y: 7,
+        width: 200,
+        height: 24,
+        rotation: 0,
+        text: {
+          characters: '深层文本',
+          fontFamily: 'Noto Sans SC',
+          fontSize: 14,
+          fontWeight: 400,
+          lineHeight: 1.4,
+          letterSpacing: 0,
+          align: 'left',
+          autoResize: 'none',
+        },
+      });
+      const inner = createFrame({
+        id: 'n_l3',
+        x: 20,
+        y: 30,
+        width: 300,
+        height: 200,
+        rotation: rotationOfLayer(3),
+        children: ['n_deep'],
+      });
+      const middle = createFrame({
+        id: 'n_l2',
+        x: 50,
+        y: 60,
+        width: 400,
+        height: 300,
+        rotation: rotationOfLayer(2),
+        children: ['n_l3'],
+      });
+      const outer = createFrame({
+        id: 'n_l1',
+        x: 1000,
+        y: 500,
+        width: 600,
+        height: 400,
+        rotation: 0,
+        children: ['n_l2'],
+      });
+      const page = createPage({
+        id: 'page_1',
+        rootIds: ['n_l1'],
+        nodes: { n_l1: outer, n_l2: middle, n_l3: inner, n_deep: text },
+      });
+      return createCanvasSession({
+        document: createDocument({ id: 'doc_1', pages: [page] }),
+        pageId: 'page_1',
+        viewport: { zoom: 2, panX: 10, panY: 20 },
+      });
+    };
+
+    // ① 纯偏移累加（无旋转）：4 层祖先的 x/y 逐层相加
+    const plain = makeDeep(() => 0);
+    expect(localPointToWorld(plain.page(), 'n_deep', { x: 0, y: 0 })).toEqual({
+      x: 1075,
+      y: 597,
+    });
+    plain.beginTextEditing('n_deep', { selectAll: true });
+    const first = render(<TextOverlay session={plain} />);
+    const geometry = overlayGeometry();
+    expect(geometry.left, '深层偏移未累加 → 覆盖层落在局部坐标').toBeCloseTo(1075 * 2 + 10, 6);
+    expect(geometry.top, '深层偏移未累加 → 覆盖层落在局部坐标').toBeCloseTo(597 * 2 + 20, 6);
+    expect(geometry.width).toBeCloseTo(200 * 2, 6);
+    expect(geometry.height).toBeCloseTo(24 * 2, 6);
+    first.unmount();
+
+    // ② 带旋转的祖先链（10° + 20° = 30°）：位置必须等于**引擎真值**（不是简单相加，更不是局部坐标）
+    const rotated = makeDeep((level) => (level === 2 ? 10 : 20));
+    const expectedWorld = localPointToWorld(rotated.page(), 'n_deep', { x: 0, y: 0 });
+    rotated.beginTextEditing('n_deep', { selectAll: true });
+    render(<TextOverlay session={rotated} />);
+    const rotatedGeometry = overlayGeometry();
+    const worldScreen = {
+      x: expectedWorld!.x * 2 + 10,
+      y: expectedWorld!.y * 2 + 20,
+    };
+    expect(rotatedGeometry.left).toBeCloseTo(worldScreen.x, 6);
+    expect(rotatedGeometry.top).toBeCloseTo(worldScreen.y, 6);
+    // 与「按局部坐标落位」的错位量级：确实把祖先偏移算进来了（不得静默错位）
+    expect(Math.abs(rotatedGeometry.left - (5 * 2 + 10))).toBeGreaterThan(1000);
+    // 旋转同样按祖先链累加：10° + 20° + 0° = 30°
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).style.transform).toBe(
+      'rotate(30deg)',
+    );
+  });
 });
 
 describe('文本覆盖层 · 提交/取消/空文本', () => {

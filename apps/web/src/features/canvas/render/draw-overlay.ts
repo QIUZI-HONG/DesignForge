@@ -14,7 +14,7 @@ import { normalizeRect, worldQuad } from '@dforge/engine';
 import type { CanvasKit } from 'canvaskit-wasm';
 
 import { parseColor } from './color';
-import { cachedColor, type DrawContext, type DrawTools, worldToScreenPoint } from './draw-scene';
+import { cachedColor, type DrawContext, type DrawTools } from './draw-scene';
 import type { SceneFrame, SelectionFrame } from './frame';
 import type { ParagraphCache } from './paragraph-cache';
 import {
@@ -27,6 +27,8 @@ import {
   visibleGridValues,
   worldRectToScreen,
 } from './scale';
+// 世界 → 屏幕：与 DOM 文本覆盖层共用同一份纯函数（render/viewport-map）
+import { worldToScreenPoint } from './viewport-map';
 
 /** 覆盖层绘制计数（门禁断言「画了什么」）。 */
 export interface OverlayCounters {
