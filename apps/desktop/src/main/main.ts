@@ -7,6 +7,9 @@
  * - `--df-baseline-probe`：**不开窗**只读一次运行时偏好，往 stdout 打印 JSON（守卫的运行时兜底）；
  * - `--df-dpr=<n>`：指定设备像素比（对照态 1.5，见验收标准 §3）。
  *
+ * 模式判定与自检硬超时的武装判据在 `run-mode.ts`（纯函数，单测钉死）：**硬超时只对自检类运行
+ * （probe/smoke）武装**——交互壳要长期存活，被兜底计时器扫到就是误杀（D-8 / UX-04）。
+ *
  * 安全面：窗口选项取自 `window-options.ts`（守卫静态断言该文件，勿在此就地放宽）；
  * 新窗口一律拒绝、页内导航按 `external-links.ts` 白名单判决，白名单外链转 `shell.openExternal`。
  * 多标签 / 托盘 / 更新通道等 15 项按《范围边界》A 区缓归 P6——本文件不得顺手长胖。
@@ -22,6 +25,12 @@ import { resolveLoadPlanFromDisk } from './load-target.js';
 import { buildMenuTemplate } from './menu.js';
 import { resolvePreloadPath } from './preload-path.js';
 import {
+  armsSelfCheckTimeout,
+  readArg,
+  resolveRunMode,
+  SELF_CHECK_TIMEOUT_MS,
+} from './run-mode.js';
+import {
   evaluateSelfCheck,
   type SecuritySnapshot,
   SHELL_SELF_CHECK_SCHEMA,
@@ -36,22 +45,12 @@ import { buildWindowOptions, WINDOW_SIZE } from './window-options.js';
 const SHELL_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** 仓库根：壳再上溯两级。 */
 const REPO_ROOT = join(SHELL_ROOT, '..', '..');
-/** 自检硬超时：装载卡死或渲染进程崩掉时，冒烟段不能无限等。 */
-const SELF_CHECK_TIMEOUT_MS = 30_000;
 /** 截图前的稳定等待（字体/首帧落定）。 */
 const CAPTURE_SETTLE_MS = 600;
 
-/** 取 argv 里 `--name=value` 形式的值。 */
-function readArg(name: string): string | undefined {
-  const prefix = `--${name}=`;
-  const hit = process.argv.find((arg) => arg.startsWith(prefix));
-  return hit?.slice(prefix.length);
-}
-
-const smokeReportPath = readArg('df-shell-smoke');
-const capturePath = readArg('df-capture');
-const probeMode = process.argv.includes('--df-baseline-probe');
-const requestedDpr = Number(readArg('df-dpr') ?? Number.NaN);
+/** 运行模式与自检超时判据（纯函数层，见 `run-mode.ts`；与门禁/单测同一份口径）。 */
+const runMode = resolveRunMode(process.argv);
+const requestedDpr = Number(readArg(process.argv, 'df-dpr') ?? Number.NaN);
 const hasDpr = Number.isFinite(requestedDpr) && requestedDpr > 0;
 
 /** 对照态的设备像素比必须先于 app ready 生效（Chromium 启动开关）。 */
@@ -370,24 +369,27 @@ function normalizeCapture(image: NativeImage, notes: string[]): NativeImage {
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate()));
 
-  const timeout = setTimeout(() => {
-    process.stderr.write(`壳自检超时（${SELF_CHECK_TIMEOUT_MS}ms）：装载或渲染未完成\n`);
-    finish(1);
-  }, SELF_CHECK_TIMEOUT_MS);
-  timeout.unref();
+  // 自检硬超时**只在自检类运行（probe/smoke）武装**：那两类的契约是「跑完就退出」，装载卡死
+  // 必须被掐断；交互壳的契约是长期存活，被这个兜底计时器扫到就是误杀（D-8：存活恰好 30 秒后退 1）。
+  if (armsSelfCheckTimeout(runMode)) {
+    const timeout = setTimeout(() => {
+      process.stderr.write(`壳自检超时（${SELF_CHECK_TIMEOUT_MS}ms）：装载或渲染未完成\n`);
+      finish(1);
+    }, SELF_CHECK_TIMEOUT_MS);
+    timeout.unref();
+  }
 
   try {
-    if (probeMode) {
+    if (runMode.kind === 'probe') {
       await runBaselineProbe();
       return;
     }
-    if (smokeReportPath) {
-      await runSmoke(smokeReportPath, capturePath);
+    if (runMode.kind === 'smoke') {
+      await runSmoke(runMode.reportPath, runMode.capturePath);
       return;
     }
-    if (capturePath) {
-      // 截图必须与冒烟报告同批产出（证据要能互相对上）；单独给 PNG 路径视为用法错误。
-      process.stderr.write('用法错误：--df-capture 只能与 --df-shell-smoke 同用\n');
+    if (runMode.kind === 'usage-error') {
+      process.stderr.write(`${runMode.message}\n`);
       finish(2);
       return;
     }
