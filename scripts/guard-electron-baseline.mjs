@@ -194,11 +194,16 @@ function collectVariableInitializers(sourceFile) {
  * 返回 `{ ok: true, keys, unresolved }` 或 `{ ok: false, reason }`；不可判定一律交给调用方记阻塞。
  */
 function resolveSpreadKeys(expression, context, visited = new Set()) {
-  if (ts.isObjectLiteralExpression(expression)) {
-    return collectObjectKeys(expression, context, visited);
+  // `as const` / `satisfies X` 裹壳先剥掉（同 findExportedObjectLiteral 的口径）。
+  let target = expression;
+  while (ts.isAsExpression(target) || ts.isSatisfiesExpression(target)) {
+    target = target.expression;
   }
-  if (ts.isIdentifier(expression)) {
-    const name = expression.text;
+  if (ts.isObjectLiteralExpression(target)) {
+    return collectObjectKeys(target, context, visited);
+  }
+  if (ts.isIdentifier(target)) {
+    const name = target.text;
     if (context.ambiguous.has(name)) {
       return { ok: false, reason: `...${name} 重名定义，无法静态确定指向` };
     }
@@ -210,6 +215,16 @@ function resolveSpreadKeys(expression, context, visited = new Set()) {
     return resolveSpreadKeys(initializer, context, new Set(visited).add(name));
   }
   return { ok: false, reason: `${expression.getText()} 非字面量展开（静态判不出）` };
+}
+
+/** 对象字面量是否**直接**展开了基线常量（只看本层，不跟进变量）。 */
+function hasDirectBaselineSpread(objectLiteral) {
+  return objectLiteral.properties.some(
+    (property) =>
+      ts.isSpreadAssignment(property) &&
+      ts.isIdentifier(property.expression) &&
+      property.expression.text === BASELINE_CONST,
+  );
 }
 
 /** 对象字面量引入的键集合（含嵌套展开，递归）；`unresolved` 收集判不出的子项。 */
@@ -285,17 +300,25 @@ function checkWebPreferencesObject(declaration, context) {
   while (ts.isAsExpression(initializer) || ts.isSatisfiesExpression(initializer)) {
     initializer = initializer.expression;
   }
+  // 声明点取值经「标识符 ← 本地对象字面量」间接化：**违规**（基线必须就地直接展开），
+  // 但要把「间接但确实展开了」与「压根没展开」分开说——前者更隐蔽（间接化即绕过口子）。
   if (ts.isIdentifier(initializer)) {
+    const name = initializer.text;
     const resolved = resolveSpreadKeys(initializer, context);
     if (!resolved.ok) {
       undetermined.push(`${label}：取值 ${resolved.reason}`);
       return { violations, undetermined };
     }
-    // 解析成功时只能拿到键集合：无基线展开键即视为未展开基线（下同口径）。
-    if (!resolved.keys.has(BASELINE_CONST)) {
-      violations.push(`${label}：经变量指向的对象没有直接展开 ${BASELINE_CONST}`);
-      return { violations, undetermined };
-    }
+    const target = context.initializers.get(name);
+    const indirectlySecured =
+      target !== undefined &&
+      ts.isObjectLiteralExpression(target) &&
+      hasDirectBaselineSpread(target);
+    violations.push(
+      indirectlySecured
+        ? `${label}：取值经变量 ${name} 间接展开 ${BASELINE_CONST}——安全基线必须就地直接展开，禁止间接化`
+        : `${label}：经变量 ${name} 指向的对象没有展开 ${BASELINE_CONST}`,
+    );
     return { violations, undetermined };
   }
   if (!ts.isObjectLiteralExpression(initializer)) {
