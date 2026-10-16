@@ -137,6 +137,26 @@ describe('FilterBar · 清空与计数', () => {
     expect(screen.getByText('正在加载市场索引…')).toBeTruthy();
   });
 
+  it('daemon 不可达（countUnavailable）时统计显示「—」，不显示 0、也不说「正在加载」（UX-19）', () => {
+    render(
+      <FilterBar
+        filters={INITIAL_MARKET_FILTERS}
+        scenes={[]}
+        installedView={false}
+        total={null}
+        globalTotal={null}
+        loadableCount={null}
+        generatedAt={null}
+        countUnavailable
+        onChange={vi.fn()}
+        onInstalledViewChange={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('—')).toBeTruthy();
+    expect(screen.queryByText('正在加载市场索引…')).toBeNull();
+  });
+
   it('筛选后统计行区分「全局 N / 当前结果 M」（0 不冒充全量口径）', () => {
     render(
       <FilterBar

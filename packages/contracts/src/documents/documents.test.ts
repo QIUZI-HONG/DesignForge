@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DFG_MANIFEST_SCHEMA,
+  describeDocumentNameIssue,
   documentIdFromName,
   isDfgManifest,
   isValidDocumentName,
@@ -22,6 +23,18 @@ describe('documents · 名称规则', () => {
     expect(isValidDocumentName('a:b')).toBe(false);
     expect(isValidDocumentName('.hidden')).toBe(false);
     expect(isValidDocumentName(42)).toBe(false);
+  });
+
+  it('分因：空 / 超长（≤64）/ 非法字符 各归其因，合规为 null（UX-11 文案真源）', () => {
+    expect(describeDocumentNameIssue('我的设计')).toBeNull();
+    expect(describeDocumentNameIssue('a'.repeat(64))).toBeNull();
+    expect(describeDocumentNameIssue('')).toBe('empty');
+    expect(describeDocumentNameIssue('   ')).toBe('empty');
+    expect(describeDocumentNameIssue('a'.repeat(65))).toBe('too_long');
+    expect(describeDocumentNameIssue('a/b')).toBe('invalid');
+    expect(describeDocumentNameIssue('.hidden')).toBe('invalid');
+    expect(describeDocumentNameIssue('a\u0001b')).toBe('invalid');
+    expect(describeDocumentNameIssue(42)).toBe('invalid');
   });
 
   it('文档名 → 目录 id：空白压成 -，中文保留', () => {

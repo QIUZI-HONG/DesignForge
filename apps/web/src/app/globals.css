@@ -15,3 +15,23 @@ body {
   padding: 0;
   font-family: var(--dfg-font-sans);
 }
+
+/* 未知路由 404 页（G1 / UX-14）：品牌化中文页，全屏居中；只用令牌（禁裸值）。 */
+.dfg-notfound {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dfg-space-4);
+  min-height: 100vh;
+  padding: var(--dfg-space-8);
+  background: var(--dfg-color-surface);
+}
+
+.dfg-notfound__badge {
+  margin: 0;
+  font-size: var(--dfg-font-size-24);
+  font-weight: var(--dfg-font-weight-bold);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+  color: var(--dfg-color-text-disabled);
+}

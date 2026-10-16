@@ -243,3 +243,9 @@
   font-size: var(--dfg-font-size-11);
   color: var(--dfg-color-text-secondary);
 }
+
+/* 行动建议（G4）：与失败原因同区；比错误码醒目，但仍属次级信息 */
+.dfx-export__error-hint {
+  margin: 0;
+  color: var(--dfg-color-text-primary);
+}

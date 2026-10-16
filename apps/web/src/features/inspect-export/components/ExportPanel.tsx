@@ -22,6 +22,17 @@ import { createExportClient } from '../model/export-client';
 /** 三档（顺序 = 呈现顺序）。 */
 const FORMATS: readonly ExportFormat[] = ['png', 'svg', 'pdf'];
 
+/**
+ * 失败态的行动建议（G4 / UX-17）：为什么之外必须给下一步。
+ * 分派只认错误码：`doc_not_found` 是「文档还没保存到本地」（编辑器里未保存的文档
+ * 没有可导出的 `.dfg`），`daemon_offline` 是「服务没起来」；其余给通用重试指引。
+ */
+function failureHint(code: string): string {
+  if (code === 'doc_not_found') return t('editor.export.hint.docNotFound');
+  if (code === 'daemon_offline') return t('editor.export.hint.daemonOffline');
+  return t('editor.export.hint.retry');
+}
+
 /** 单档状态。 */
 interface FormatState {
   status: 'idle' | 'running' | 'error' | 'done';
@@ -128,6 +139,10 @@ export function ExportPanel({ documentId, pageId, client }: ExportPanelProps) {
                       {state.code === 'daemon_offline'
                         ? t('editor.export.daemonOffline')
                         : t('editor.export.state.error', { message: state.message ?? '' })}
+                    </p>
+                    {/* 行动建议（G4）：为什么 + 下一步，紧跟在失败原因之后 */}
+                    <p className="dfx-export__error-hint" data-df-inspect={`export-${format}-hint`}>
+                      {failureHint(state.code ?? 'unknown')}
                     </p>
                     <p className="dfx-export__error-code">
                       {t('editor.export.state.errorCode', { code: state.code ?? 'unknown' })}

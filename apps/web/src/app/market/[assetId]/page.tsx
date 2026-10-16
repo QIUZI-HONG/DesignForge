@@ -152,6 +152,7 @@ export default function MarketAssetPage() {
           }}
           retryLabel={t('market.error.retry')}
           code="MARKET_LOAD_PLAN_FAILED"
+          diagnosticsLabel={t('state.diagnostics')}
         />
       ) : null}
 

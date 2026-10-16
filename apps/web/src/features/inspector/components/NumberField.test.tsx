@@ -174,6 +174,36 @@ describe('NumberField', () => {
     expect(input.value).toBe('10');
   });
 
+  it('非法输入被拒时行内提示「已恢复原值」（UX-16/G3：拒绝不再静默）', () => {
+    const { input } = renderField();
+    expect(screen.queryByRole('status')).toBeNull();
+    fireEvent.change(input, { target: { value: 'abc' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(input.value).toBe('10');
+    expect(screen.getByRole('status').textContent).toBe('已恢复原值');
+
+    // 下一次编辑即清除提示（不长期驻留）
+    fireEvent.change(input, { target: { value: '12' } });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('负值口径 · 坐标（无 min）：负值原样提交，不给限制提示', () => {
+    // 画布坐标系原点可负（Figma 同口径）：X/Y 字段不带 min，负值是合法输入
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '-99999' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(-99999);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('负值口径 · 尺寸（min 0）：负值被限制为 0 并给「已限制为 0」提示', () => {
+    const { onCommit, input } = renderField({ value: 80, min: 0, precision: 0 });
+    fireEvent.change(input, { target: { value: '-5' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(0);
+    expect(screen.getByRole('status').textContent).toBe('已限制为 0');
+  });
+
   it('disabled：输入框禁用且不响应拖拽', () => {
     const { onCommit, input } = renderField({ disabled: true });
     expect(input.disabled).toBe(true);

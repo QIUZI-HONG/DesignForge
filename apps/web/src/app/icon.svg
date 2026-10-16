@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="设界">
+  <!-- 设界 favicon（G5 / UX-21）：品牌主色 --dfg-color-primary #0d99ff + 白色字形块。
+       为什么是 SVG：Next App Router 的 app/icon.svg 会被自动注入 <link rel="icon">，
+       浏览器不再请求缺省的 /favicon.ico（此前 404）。 -->
+  <rect width="32" height="32" rx="7" fill="#0d99ff" />
+  <rect x="8" y="8" width="7" height="16" rx="2" fill="#ffffff" />
+  <rect x="18" y="8" width="6" height="6" rx="2" fill="#ffffff" />
+  <rect x="18" y="18" width="6" height="6" rx="3" fill="#ffffff" />
+</svg>

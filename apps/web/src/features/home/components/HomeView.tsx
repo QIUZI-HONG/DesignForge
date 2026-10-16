@@ -364,7 +364,8 @@ export function HomeView({
                 onSortChange={(sort) => activeStore.getState().setSort(sort)}
                 viewMode={home.viewMode}
                 onViewModeChange={(viewMode) => activeStore.getState().setViewMode(viewMode)}
-                resultCount={visible.length}
+                // 计数只在「就绪」时真实可得：加载中/错误态显示「—」，不谎报 0（UX-19）
+                resultCount={status === 'ready' ? visible.length : null}
               />
               <HomeWarnings warnings={warnings} />
 

@@ -735,6 +735,16 @@
   letter-spacing: var(--dfg-letter-spacing-wide);
 }
 
+/* 诊断信息折叠（G6）：人话在主位、内部错误码按需展开（默认收起） */
+.dfg-state__diagnostics {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-state__diagnostics-toggle {
+  cursor: pointer;
+}
+
 /* ---------- Spinner / 骨架 / 进度（F13：加载态族） ---------- */
 
 .dfg-spinner {

@@ -112,6 +112,16 @@
 
 /* ---------- 数值输入（28 高、圆角 3） ---------- */
 
+/* 字段单元（G3）：门禁/测试挂点与状态所在层；控件几何仍由内层 .dfi-numberfield 决定。
+   行内提示（拒绝/夹取）在其下自然占位——不加绝对定位，避免压到相邻行。 */
+.dfi-numberfield-cell {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+}
+
 .dfi-numberfield {
   box-sizing: border-box;
   display: flex;
@@ -126,11 +136,17 @@
   background: var(--dfg-color-surface-subtle);
 }
 
+/* 控件在字段单元里是块级整宽（列向布局下不吃 flex 基准，保持 28 高） */
+.dfi-numberfield-cell > .dfi-numberfield {
+  flex: none;
+  width: 100%;
+}
+
 .dfi-numberfield:focus-within {
   border-color: var(--dfg-color-focus-ring);
 }
 
-.dfi-numberfield[data-df-state="disabled"] {
+.dfi-numberfield-cell[data-df-state="disabled"] .dfi-numberfield {
   opacity: 0.6;
 }
 
@@ -161,7 +177,7 @@
   outline: none;
 }
 
-.dfi-numberfield[data-df-state="mixed"] .dfi-numberfield__input {
+.dfi-numberfield-cell[data-df-state="mixed"] .dfi-numberfield__input {
   color: var(--dfg-color-text-secondary);
 }
 
@@ -170,8 +186,14 @@
   color: var(--dfg-color-text-secondary);
 }
 
-.dfi-numberfield[data-df-state="disabled"] .dfi-numberfield__label {
+.dfi-numberfield-cell[data-df-state="disabled"] .dfi-numberfield__label {
   cursor: default;
+}
+
+/* 行内提示（G3）：拒绝/夹取说明；11 号次级色，随字段单元自然占位。 */
+.dfi-numberfield__notice {
+  margin: 0;
+  text-align: right;
 }
 
 /* ---------- 文本 / 颜色输入 ---------- */

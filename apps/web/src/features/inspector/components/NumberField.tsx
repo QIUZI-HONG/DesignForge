@@ -12,7 +12,9 @@
  * 禁裸值：几何与颜色一律走 `@dforge/ui` 令牌（`inspector.css` 引用 var(--dfg-*)）。
  */
 
-import { type ChangeEvent, type KeyboardEvent, type PointerEvent, useRef } from 'react';
+import { type ChangeEvent, type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
+
+import { t } from '@/i18n';
 
 import { useDraftCommit } from '../model/draft';
 
@@ -76,6 +78,9 @@ export function NumberField({
   onCommit,
 }: NumberFieldProps) {
   const scrubRef = useRef<ScrubSession>({ active: false, startX: 0, startValue: 0 });
+  // 行内提示（G3）：拒绝/限制都要说一声——「已恢复原值」/「已限制为 N」；
+  // 下一次编辑即清除（不长期驻留，也不挡住数字）。
+  const [notice, setNotice] = useState<string | null>(null);
   const externalText =
     value === undefined ? MIXED_PLACEHOLDER : formatFieldNumber(value, precision);
 
@@ -90,9 +95,21 @@ export function NumberField({
     value: externalText,
     // 提交时刻：解析 → 夹取 → 无变化则静默回滚（不产生空命令）
     commit: (text) => {
-      const parsed = Number(text.trim());
-      if (text.trim() === '' || !Number.isFinite(parsed)) return;
+      const trimmed = text.trim();
+      const parsed = Number(trimmed);
+      if (trimmed === '' || !Number.isFinite(parsed)) {
+        setNotice(t('inspector.number.reverted'));
+        return;
+      }
       const next = clampValue(parsed);
+      // 负值口径：坐标（X/Y 无 min）允许负值（画布原点可负，Figma 同口径）；
+      // 尺寸类（min 0）越界即夹取，并明确告知夹取结果，不静默改值。
+      const outOfRange = (min !== undefined && parsed < min) || (max !== undefined && parsed > max);
+      setNotice(
+        outOfRange
+          ? t('inspector.number.clamped', { value: formatFieldNumber(next, precision) })
+          : null,
+      );
       if (value !== undefined && next === value) return;
       onCommit(next);
     },
@@ -110,6 +127,7 @@ export function NumberField({
   };
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    setNotice(null); // 用户重新编辑：旧提示立即退场
     setDraft(event.target.value);
   };
 
@@ -156,43 +174,52 @@ export function NumberField({
   };
 
   return (
+    // 外层单元（cell）：门禁/测试的字段挂点 + 状态都在这一个元素上（单点），
+    // 内层仍是原来的控件盒子（几何不变，见 inspector.css 的 .dfi-numberfield-cell）
     <div
-      className="dfi-numberfield"
+      className="dfi-numberfield-cell"
       data-df-inspector-field={fieldName}
       data-df-state={disabled ? 'disabled' : value === undefined ? 'mixed' : 'default'}
     >
-      {/* 标签双击即拖拽改值（Figma 惯例）；键盘用户走输入框的上下键 */}
-      {/* 标签即拖拽把手：Figma 惯例；键盘步进由输入框的上下键承担（把手不进 Tab 序列） */}
-      <button
-        type="button"
-        className="dfi-numberfield__label"
-        data-testid={`numberfield-scrub-${fieldName}`}
-        data-df-scrub=""
-        tabIndex={-1}
-        aria-disabled={disabled}
-        data-df-state={disabled ? 'disabled' : 'default'}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={() => {
-          scrubRef.current.active = false;
-        }}
-        onDoubleClick={(event) => event.preventDefault()}
-      >
-        {label}
-      </button>
-      <input
-        className="dfi-numberfield__input"
-        type="text"
-        inputMode="decimal"
-        aria-label={label}
-        value={display}
-        disabled={disabled}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onBlur={() => flush()}
-      />
-      {suffix === undefined ? null : <span className="dfi-numberfield__suffix">{suffix}</span>}
+      <div className="dfi-numberfield">
+        {/* 标签双击即拖拽改值（Figma 惯例）；键盘用户走输入框的上下键 */}
+        {/* 标签即拖拽把手：Figma 惯例；键盘步进由输入框的上下键承担（把手不进 Tab 序列） */}
+        <button
+          type="button"
+          className="dfi-numberfield__label"
+          data-testid={`numberfield-scrub-${fieldName}`}
+          data-df-scrub=""
+          tabIndex={-1}
+          aria-disabled={disabled}
+          data-df-state={disabled ? 'disabled' : 'default'}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={() => {
+            scrubRef.current.active = false;
+          }}
+          onDoubleClick={(event) => event.preventDefault()}
+        >
+          {label}
+        </button>
+        <input
+          className="dfi-numberfield__input"
+          type="text"
+          inputMode="decimal"
+          aria-label={label}
+          value={display}
+          disabled={disabled}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onBlur={() => flush()}
+        />
+        {suffix === undefined ? null : <span className="dfi-numberfield__suffix">{suffix}</span>}
+      </div>
+      {notice === null ? null : (
+        <p className="dfi-hint dfi-numberfield__notice" role="status">
+          {notice}
+        </p>
+      )}
     </div>
   );
 }

@@ -67,10 +67,15 @@ export interface FilterBarProps {
   loadableCount: number | null;
   /** 索引生成时刻（ISO；无索引不显示）。 */
   generatedAt: string | null;
+  /** 计数不可得的原因是否为「服务不可达」（UX-19）：真时显示「—」，不说「正在加载」。 */
+  countUnavailable?: boolean | undefined;
   onChange: (patch: Partial<MarketFilters>) => void;
   onInstalledViewChange: (installed: boolean) => void;
   onClear: () => void;
 }
+
+/** 计数不可得的占位（UX-19；符号量，不入 i18n 目录）。 */
+export const MARKET_COUNT_UNAVAILABLE = '—';
 
 /** 筛选栏。 */
 export function FilterBar({
@@ -81,6 +86,7 @@ export function FilterBar({
   globalTotal,
   loadableCount,
   generatedAt,
+  countUnavailable = false,
   onChange,
   onInstalledViewChange,
   onClear,
@@ -273,18 +279,20 @@ export function FilterBar({
 
       <div style={badgeRowStyle} data-df-market="summary">
         <span style={hintStyle} data-df-market="result-count">
-          {total === null
-            ? t('market.loading')
-            : scoped
-              ? t('market.summaryScoped', {
-                  global: globalTotal,
-                  total,
-                  loadable: loadableCount ?? 0,
-                })
-              : t('market.summary', {
-                  total,
-                  loadable: loadableCount ?? 0,
-                })}
+          {countUnavailable
+            ? MARKET_COUNT_UNAVAILABLE
+            : total === null
+              ? t('market.loading')
+              : scoped
+                ? t('market.summaryScoped', {
+                    global: globalTotal,
+                    total,
+                    loadable: loadableCount ?? 0,
+                  })
+                : t('market.summary', {
+                    total,
+                    loadable: loadableCount ?? 0,
+                  })}
         </span>
         {generatedAt === null ? null : (
           <span style={hintStyle}>{t('market.generatedAt', { at: generatedAt })}</span>
