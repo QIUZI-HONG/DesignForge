@@ -49,6 +49,7 @@ import { fileURLToPath } from 'node:url';
 
 import { resolveChromeExecutable } from './lib/browser-toolchain.mjs';
 import { freePort, startFixtureDaemon, startSameOriginGateway } from './lib/gates.mjs';
+import { buildJUnitXml } from './lib/junit.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scenariosDir = join(repoRoot, 'scripts', 'e2e', 'scenarios');
@@ -189,10 +190,35 @@ async function shutdown() {
 async function finish(result, code) {
   result.exitCode = code;
   result.finishedAt = new Date().toISOString();
+  result.attempts ??= {
+    policy: 'no-retry',
+    maxAttemptsPerStep: 1,
+    retriedSteps: 0,
+    totalStepExecutions: 0,
+    byScenario: [],
+  };
   mkdirSync(runDir, { recursive: true });
+  // JUnit 与 JSON 同一次落盘：三态映射在 scripts/lib/junit.mjs 里由步骤现算，
+  // 不复制 summary 数字（两处统计漂移会掩盖 flake）。
+  const junitPath = join(runDir, `e2e-smoke-${stamp}.junit.xml`);
+  writeFileSync(
+    junitPath,
+    buildJUnitXml({
+      name: 'e2e-smoke',
+      startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
+      exitCode: code,
+      scenarios: result.scenarios,
+      editorGate: result.editorGate,
+      blockedReason: Array.isArray(result.notes) ? result.notes.join('；') : undefined,
+    }),
+    'utf8',
+  );
+  result.junitPath = junitPath;
   const evidencePath = join(runDir, `e2e-smoke-${stamp}.json`);
   writeFileSync(evidencePath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
   log(`证据：${evidencePath}`);
+  log(`JUnit：${junitPath}`);
   if (process.env.DF_E2E_KEEP === '1') log(`临时数据目录（保留）：${dataRoot}`);
   await shutdown();
   process.exit(code);
@@ -221,6 +247,8 @@ const evidence = {
   scenarios: [],
   // 编辑器真实门禁（见「四之二」）：/editor 的资产 / Skia / 首帧 / 无异常硬断言
   editorGate: null,
+  // 尝试记录（#107）：runner 不做重试；每个场景恰好执行一次，失败按真缺陷登记。
+  attempts: { policy: 'no-retry', maxAttemptsPerStep: 1, retriedSteps: 0, byScenario: [] },
   // 验收标准 §4 字段族：冒烟是步骤级断言，不逐像素对照 → 无像素比对（三项 null + 说明）。
   diff: {
     bbox: null,
@@ -593,21 +621,32 @@ try {
 
   const allSteps = [];
   for (const file of selected) {
+    const scenarioStarted = Date.now();
     const scenario = await runScenario(file);
+    // 尝试记录：每个场景只跑一次（不重试）。durationMs 用于 flake 统计的抖动观察。
+    scenario.attempt = 1;
+    scenario.durationMs = Date.now() - scenarioStarted;
     evidence.scenarios.push(scenario);
     allSteps.push(...scenario.steps);
   }
 
   // --- 四之二、编辑器真实门禁（D4：/editor 不再只看「body 非空」） ---
   log('编辑器门禁开始：/editor 真实渲染断言（资产 / Skia / 首帧 / 无异常）');
+  const editorGateStarted = Date.now();
   const editorGate = await runEditorGate(browser, { webUrl, gatewayUrl });
+  const editorGateDurationMs = Date.now() - editorGateStarted;
   for (const gateStep of editorGate.steps) {
     const mark = gateStep.status === 'pass' ? '✓' : gateStep.status === 'blocked' ? '⏸' : '✗';
     log(
       `  ${mark} ${gateStep.name}${gateStep.detail === undefined ? '' : ` —— ${gateStep.detail}`}`,
     );
   }
-  evidence.editorGate = { steps: editorGate.steps, pageErrors: editorGate.pageErrors };
+  evidence.editorGate = {
+    steps: editorGate.steps,
+    pageErrors: editorGate.pageErrors,
+    attempt: 1,
+    durationMs: editorGateDurationMs,
+  };
   allSteps.push(...editorGate.steps);
 
   // --- 汇总与退出码 ---
@@ -620,6 +659,29 @@ try {
     passed: passed.length,
     failed: failures.length,
     blocked: blocked.length,
+    byScenario: evidence.scenarios.map((scenario) => ({
+      id: scenario.id,
+      steps: scenario.steps.length,
+      passed: scenario.steps.filter((step) => step.status === 'pass').length,
+      failed: scenario.steps.filter((step) => step.status === 'fail').length,
+      blocked: scenario.steps.filter((step) => step.status === 'blocked').length,
+      attempt: scenario.attempt,
+      durationMs: scenario.durationMs,
+    })),
+  };
+  // 尝试记录：本 runner 不重试；失败如实保留（4 条已知红见交接说明，不接必过门禁）。
+  evidence.attempts = {
+    policy: 'no-retry',
+    maxAttemptsPerStep: 1,
+    retriedSteps: 0,
+    totalStepExecutions: allSteps.length,
+    byScenario: evidence.scenarios.map((scenario) => ({
+      id: scenario.id,
+      attempt: scenario.attempt,
+      steps: scenario.steps.length,
+      durationMs: scenario.durationMs,
+    })),
+    editorGate: { attempt: 1, steps: editorGate.steps.length, durationMs: editorGateDurationMs },
   };
 
   if (failures.length > 0) {

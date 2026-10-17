@@ -12,6 +12,11 @@ catalog:
   # 工具链
   typescript: ~5.9.3
   vitest: 5.0.5
+  # 覆盖率（#107 · 审计 10a）：与 vitest 同版本发布，锁同一版本避免报告格式漂移。
+  '@vitest/coverage-v8': 5.0.5
+  # Mutation（#107 · 审计 10a）：选择性工装（优先 engine/contracts），默认不进 CI。
+  '@stryker-mutator/core': 10.0.0
+  '@stryker-mutator/vitest-runner': 10.0.0
   '@biomejs/biome': 2.5.15
   '@types/node': ^22.20.5
   # Web 前端（apps/web）

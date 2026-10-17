@@ -24,5 +24,14 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test-setup.ts'],
+    // #107：vitest 5 默认把 fs 模块缓存放在 workspace 根共享（node_modules/.vitest-cache），
+    // `pnpm -r test` 并行时偶发 ENOTEMPTY；按包固定后互不干扰。
+    fsModuleCachePath: fileURLToPath(new URL('./node_modules/.vitest-cache', import.meta.url)),
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'json-summary'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test-setup.ts'],
+    },
   },
 });

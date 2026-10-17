@@ -30,13 +30,15 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { countImpacts, loadAxeSource, runAxe, WCAG_TAGS } from '../lib/axe.mjs';
 import { resolveChromeExecutable } from '../lib/browser-toolchain.mjs';
 import { freePort, startFixtureDaemon, startSameOriginGateway } from '../lib/gates.mjs';
+import { seedMarketIndex } from '../lib/market-fixture.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WEB_DIR = join(REPO_ROOT, 'apps', 'web');
@@ -58,7 +60,6 @@ const skipFigmaReview = args.includes('--skip-figma-review');
 
 const DOCUMENT_NAME = '审计04-编辑器深挖';
 const PERF_DOCUMENT_NAME = '审计04-性能基线';
-const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
 /** 审计证据骨架。 */
 const evidence = {
@@ -208,59 +209,6 @@ function ensureCanvasKitAssets() {
   }
   console.error(`CanvasKit 资产准备失败：${result.stderr ?? String(result.error)}`);
   return false;
-}
-
-/** 市场索引夹具（单条 view-only 资产；与 e2e nav 场景同形）。 */
-function seedMarketIndex(dataRoot) {
-  const marketDir = join(dataRoot, 'market');
-  mkdirSync(marketDir, { recursive: true });
-  const fixture = {
-    schema: 'df.marketplace.index/v1',
-    generatedAt: '2026-10-16T00:00:00.000Z',
-    collector: { name: 'audit-04-fixture', version: '0.0.0', runId: 'aud-04', odsWatermark: '' },
-    counts: {
-      total: 1,
-      byKind: { skill: 1, plugin: 0, 'design-system': 0, template: 0 },
-      loadable: 0,
-    },
-    assets: [
-      {
-        id: 'gh:audit-fixture/skills#skills/slide-deck',
-        kind: 'skill',
-        name: 'slide-deck',
-        displayName: { 'zh-CN': '幻灯片演示技能', en: 'Slide deck skill' },
-        summary: { 'zh-CN': '审计用市场夹具（不代表真实采集数据）', en: 'Audit fixture' },
-        description: '审计 04 夹具：仅用于市场页 axe 与焦点检查。',
-        source: {
-          repo: 'audit-fixture/skills',
-          repoId: 1,
-          path: 'skills/slide-deck',
-          ref: 'abcdef1234567890',
-          fetchedAt: '2026-10-16T00:00:00.000Z',
-          license: { spdx: 'MIT', gate: 'view-only', evidence: { path: 'LICENSE', sha256: '' } },
-          stars: 1,
-          pushedAt: '2026-10-16T00:00:00.000Z',
-          archived: false,
-        },
-        capabilities: [],
-        facets: { category: '其他', lane: 'create', mode: null, tags: [], scenes: [] },
-        quality: { score: 70, dims: {} },
-        installGate: {
-          mode: 'view-only',
-          licenseGate: 'view-only',
-          security: 'pass',
-          reasons: [],
-          ackRequired: [],
-        },
-        digest: 'audit-04-fixture',
-      },
-    ],
-  };
-  writeFileSync(
-    join(marketDir, 'df.marketplace.index.v1.json'),
-    `${JSON.stringify(fixture, null, 2)}\n`,
-    'utf8',
-  );
 }
 
 /** 起生产站点（构建 + next start）。 */
@@ -1207,12 +1155,6 @@ async function runPerf500(page) {
 // axe / 焦点 / 可访问名
 // ---------------------------------------------------------------------------
 
-function axeSource() {
-  const path = join(REPO_ROOT, 'node_modules', 'axe-core', 'axe.min.js');
-  if (!existsSync(path)) throw new Error(`未找到 axe-core：${path}（先 pnpm install）`);
-  return readFileSync(path, 'utf8');
-}
-
 /** 焦点元素的可访问信息（近似名 + 标签来源；精确名由 CDP AX 树另采）。 */
 async function focusedInfo(page) {
   return page.evaluate(() => {
@@ -1329,19 +1271,9 @@ async function auditPageWithAxe(context, name, url, options = {}) {
   }
   await page.waitForTimeout(1200);
 
-  await page.addScriptTag({ content: axeSource() });
-  const result = await page.evaluate(async (tags) => {
-    return await globalThis.axe.run(document, {
-      runOnly: { type: 'tag', values: tags },
-      resultTypes: ['violations', 'incomplete'],
-    });
-  }, WCAG_TAGS);
-
-  const impactCounts = { critical: 0, serious: 0, moderate: 0, minor: 0, unknown: 0 };
-  for (const violation of result.violations) {
-    const impact = violation.impact ?? 'unknown';
-    impactCounts[impact] = (impactCounts[impact] ?? 0) + 1;
-  }
+  // #107：与 audit:a11y 共用 lib/axe.mjs 的注入与 tag 口径（两边结果可比）。
+  const result = await runAxe(page, loadAxeSource(REPO_ROOT));
+  const impactCounts = countImpacts(result.violations);
   const summary = {
     page: name,
     url,
