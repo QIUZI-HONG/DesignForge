@@ -16,6 +16,7 @@
     "test:scripts": "node --test \"scripts/tests/**/*.test.mjs\"",
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run test",
     "verify:daemon": "node scripts/verify-daemon.mjs",
+    "verify:resilience": "node scripts/verify-resilience.mjs",
     "verify:engine": "node scripts/verify-engine.mjs",
     "verify:mcp-stub": "node scripts/verify-mcp-stub.mjs",
     "verify:ai-two-state": "node scripts/verify-ai-two-state.mjs",
