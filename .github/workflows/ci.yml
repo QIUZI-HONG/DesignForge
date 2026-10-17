@@ -1,13 +1,21 @@
 name: ci
 
 # 设界 · 主 CI（骨架期口径，见 docs/plan/skeleton-and-package-layout-v1.md §2）
-# 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck → 逐包测试
-#      → 脚本单测 → **非浏览器门禁**（守卫 / 引擎 / 参照集阻塞语义；明细见文末挂点说明）。
+# 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck
+#      → 覆盖率（逐包测试 + v8 覆盖；#107，**不再重复跑 `pnpm test`**）
+#      → 生产构建（web）→ 脚本单测 → **非浏览器门禁**
+#      （守卫 / 引擎 / 参照集阻塞语义；明细见文末挂点说明）。
+# 供应链：见 dependabot.yml / codeql.yml / dependency-review.yml / dependency-audit.yml。
+# 已知红（e2e 4 条、resilience 9 条）**不在本文件执行**；修复前不得接成必过步骤。
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+# 最小权限：CI 只读仓库内容（上传 artifact 由 Actions 运行时提供，不需要写 contents）。
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -16,7 +24,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45 # 新增覆盖率与生产构建后留足 runner 抖动余量（原 30）
     steps:
       - uses: actions/checkout@v4
 
@@ -36,8 +44,41 @@ jobs:
       - name: 类型检查（逐包 tsc --noEmit）
         run: pnpm typecheck
 
-      - name: 单元测试（逐包 vitest）
-        run: pnpm test
+      # 覆盖率脚本由 #107（审计 10a）提供。脚本尚未合并时必须**显式阻塞**（exit 2），
+      # 不得「缺脚本就跳过」——跳过会被误读为通过（禁止假绿）。
+      # `pnpm test:coverage` = `pnpm -r test --coverage`：**测试本身已在其中执行**，
+      # 因此不再另跑 `pnpm test`（重复执行整套测试，且让失败来源不唯一）。
+      - name: 单元测试 + 覆盖率（逐包 vitest --coverage；脚本缺失 → 阻塞）
+        run: |
+          set +e
+          node -e "process.exit(JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts['test:coverage'] ? 0 : 2)"
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then
+            echo "阻塞：根 package.json 尚无 test:coverage（依赖 #107 / 审计 10a）；本步骤不是通过。"
+            exit 2
+          fi
+          pnpm test:coverage
+
+      - name: 上传覆盖率产物（coverage-v8；路径按 #107 逐包输出）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage/
+            apps/*/coverage/
+            packages/*/coverage/
+            services/*/coverage/
+            tools/*/coverage/
+          if-no-files-found: warn
+          retention-days: 14
+
+      # 生产构建：用户实际构建路径（next build，prebuild 会就位 CanvasKit 资产）。
+      - name: 生产构建（web，next build）
+        run: pnpm --filter @dforge/web build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
 
       # --- 非浏览器门禁（C5 接入：离线可判定的一律进 CI） -------------------------------
 
@@ -55,6 +96,9 @@ jobs:
 
       - name: 桌面壳安全基线守卫（窗口选项静态断言；对抗夹具回归在 pnpm test:scripts）
         run: pnpm guard:electron-baseline
+
+      - name: MCP 契约快照守卫（工具集/路由/跨进程信封形状；漂移 → exit 1，快照缺失 → exit 2）
+        run: pnpm guard:mcp-contract
 
       - name: 引擎门禁（对抗用例 + 快照哈希回归）
         run: pnpm verify:engine
@@ -84,10 +128,19 @@ jobs:
       #   - 浏览器门禁（挂点，随对应实现票接入）：
       #       pnpm verify:figma-home / verify:figma-editor / verify:figma-panels /
       #       verify:figma-inspect / verify:figma-inspector / verify:figma-component
-      #       （逐页/逐组件对照）、pnpm verify:canvas（画布挂载 6 断言）、
-      #       pnpm e2e:smoke（10 步冒烟）、pnpm verify:shell-parity（FE-12 壳内一致性）。
+      #       （逐页/逐组件对照）、pnpm verify:canvas（功能 7 断言 + 15 接线；视觉段
+      #       REF-01 blocked）、pnpm verify:shell-parity（FE-12 壳内一致性）。
       #       驱动口径：playwright-core 1.63.0 锁 chromium-1243，生产构建 + headless；
       #       需 Chromium 与冻结参照集，CI 暂不具备。
+      #   - pnpm e2e:smoke：6 场景 114 步 = 110 pass / 4 known-red（审计 08）。
+      #       known-red：F-07-01×3（#69 导出空白）与 F-05-01×1（#79 过滤×分页死路）。
+      #       修复前**不得接成必过步骤**，也不得静默跳过；接法：生产构建 + Chromium +
+      #       fixture daemon + 证据/JUnit 上传（runner 输出由 #107 提供）。
+      #   - pnpm verify:resilience：47 步 / 9 known-red（对应 #67 等 A/B 缺陷），
+      #       仅本地；修复转绿前不接 CI。缺 C 编译器时按 exit 2 阻塞点名。
+      #   - pnpm test:mutation（#107 提供；选择性、默认不进 CI）与 pnpm audit:a11y
+      #       （#107 提供；axe 需生产构建 + Chromium）仅本地运行；审计期 axe 仍有
+      #       2 critical / 5 serious（#74–#77），修复前不接必过门禁。
       #   - verify:figma-baseline 的**正式判定**（像素/哈希对照）：参照集按纪律存仓库外
       #     （~/df-evidence/reference-v1，见 implementation-workflow.md「证据存仓库外」），
       #     CI 环境不存在 → 只会是 exit 2；本轮只断言其阻塞语义（上一步骤），
@@ -95,7 +148,7 @@ jobs:
       #   - pnpm verify:mk-01：判据来自 ~/df-evidence/mk-01 的采集产物（需真网 + GH_TOKEN
       #     采集，产物按纪律存仓库外）→ CI 内无产物，只会 exit 2（阻塞），故不接；
       #     其离线重放路径（--replay 冻结样本）由 services/ingest 单测覆盖（pnpm test）。
-      #   - 未实现守卫 guard:deps / guard:mcp-contract / guard:channel-pairing：当前一律
-      #     exit 2（阻塞，禁止当绿），按 implementation-workflow.md「不接 CI」，
-      #     实现后由接管票一并接入本文件。
+      #   - 未实现守卫 guard:deps / guard:channel-pairing：当前一律 exit 2（阻塞，禁止当绿），
+      #     按 implementation-workflow.md「不接 CI」，实现后由接管票一并接入本文件。
+      #     （guard:mcp-contract 已由 aud-05 实现并接入上方步骤；快照见 scripts/snapshots/。）
       # ---------------------------------------------------------------------------------

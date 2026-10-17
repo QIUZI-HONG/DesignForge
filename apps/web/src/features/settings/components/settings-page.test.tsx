@@ -40,7 +40,9 @@ describe('设置页 · 加载与分区导航', () => {
     expect(container.querySelector('[data-df-state="loading"]')).not.toBeNull();
 
     expect(await screen.findByRole('heading', { level: 1, name: '设置' })).toBeTruthy();
-    const nav = screen.getByRole('navigation', { name: '设置分区' });
+    // 标题在 loading 态就已渲染；分区导航要等配置读完才出现（CI runner 较慢时会晚于标题）。
+    // 只放宽等待上限（默认 1s）到 5s，断言口径不变。
+    const nav = await screen.findByRole('navigation', { name: '设置分区' }, { timeout: 5000 });
     for (const name of ['工作目录', 'DeepSeek', 'ComfyUI', '埋点与数据']) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
     }

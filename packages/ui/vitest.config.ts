@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig } from 'vitest/config';
 
 /**
@@ -11,5 +13,16 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     setupFiles: ['./src/test-setup.ts'],
+    // #107：按包隔离 vitest 5 的 fs 模块缓存（默认在 workspace 根共享，并行时偶发 ENOTEMPTY）。
+    fsModuleCachePath: fileURLToPath(new URL('./node_modules/.vitest-cache', import.meta.url)),
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'json-summary'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test-setup.ts'],
+      // 阈值取 2026-10-17 实测值下留 2–4pp 余量（实测 statements 90.92 / branches 84.82 /
+      // functions 99.09 / lines 92.94），只降不升；提升阈值需单独评审。
+      thresholds: { statements: 87, branches: 81, functions: 96, lines: 89 },
+    },
   },
 });
