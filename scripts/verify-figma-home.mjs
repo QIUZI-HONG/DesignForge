@@ -35,6 +35,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { resolveChromeExecutable as resolveChrome } from './lib/browser-toolchain.mjs';
 import { startFixtureDaemon, startSameOriginGateway } from './lib/gates.mjs';
 import { bboxOfDiff } from './lib/pixels.mjs';
 
@@ -133,18 +134,6 @@ function referenceForState(files, state) {
     );
   });
   return hit === undefined ? null : join(REF_DIR, hit);
-}
-
-/** 缓存的 Chromium 可执行文件（研究 #5：playwright-core 1.63 需显式 executablePath）。 */
-function resolveChrome() {
-  if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) return process.env.BENCH_CHROME_EXECUTABLE;
-  const cacheRoot = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(cacheRoot)) return undefined;
-  const candidates = readdirSync(cacheRoot)
-    .filter((name) => name.startsWith('chromium-'))
-    .sort()
-    .map((name) => join(cacheRoot, name, 'chrome-linux64', 'chrome'));
-  return candidates.find((file) => existsSync(file));
 }
 
 /** 站点探测（不可达即阻塞，不猜）。 */
