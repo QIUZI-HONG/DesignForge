@@ -889,7 +889,7 @@
   "review.comments.replyCount": "{count} 条回复",
   "review.comments.resolved.badge": "已解决",
   "review.comments.resolved.section": "已解决（{count}）",
-  "review.comments.resolved.toggleLabel": "已解决评论分组（{count}）",
+  "review.comments.resolved.toggleLabel": "已解决评论分组：已解决（{count}）",
   "review.comments.resolved.expand": "展开已解决的评论",
   "review.comments.resolved.collapse": "收起已解决的评论",
   "review.comments.resolve": "解决",

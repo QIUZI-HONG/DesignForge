@@ -98,8 +98,8 @@ describe('线程面板 · 回复与解决', () => {
       seedThread(session, '已经处理完', { replies: ['改好了'], resolved: true });
     });
     // 折叠态：正文不可见，只有分段头（含计数）；可访问名 = 面前缀 aria-label（批次 5 · D）
-    const toggle = screen.getByRole('button', { name: '已解决评论分组（1）' });
-    expect(toggle.getAttribute('aria-label')).toBe('已解决评论分组（1）');
+    const toggle = screen.getByRole('button', { name: '已解决评论分组：已解决（1）' });
+    expect(toggle.getAttribute('aria-label')).toBe('已解决评论分组：已解决（1）');
     expect(screen.queryByText('已经处理完')).toBeNull();
     expect(screen.queryByPlaceholderText('回复…')).toBeNull();
 
@@ -117,7 +117,7 @@ describe('线程面板 · 回复与解决', () => {
     act(() => {
       seedThread(session, '需要再改一版', { resolved: true });
     });
-    fireEvent.click(screen.getByRole('button', { name: '已解决评论分组（1）' }));
+    fireEvent.click(screen.getByRole('button', { name: '已解决评论分组：已解决（1）' }));
     fireEvent.click(screen.getByRole('button', { name: '面板线程：需要再改一版' }));
     fireEvent.click(screen.getByRole('button', { name: '重新打开' }));
 
@@ -135,7 +135,7 @@ describe('线程面板 · 回复与解决', () => {
     act(() => {
       seedThread(session, '遗留问题', { resolved: true });
     });
-    expect(screen.getByRole('button', { name: '已解决评论分组（1）' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '已解决评论分组：已解决（1）' })).toBeDefined();
     expect(session.comments.getState().threads).toHaveLength(1);
   });
 });
@@ -150,13 +150,13 @@ describe('线程面板 · 可访问名面前缀（批次 5 · D）', () => {
     expect(item.getAttribute('aria-label')?.startsWith('面板线程：')).toBe(true);
   });
 
-  it('已解决分段开关的 aria-label 为「已解决评论分组（n）」，可见文本不变', () => {
+  it('已解决分段开关的 aria-label 为「已解决评论分组：已解决（n）」，可见文本不变', () => {
     const session = renderPanel();
     act(() => {
       seedThread(session, '分组开关', { resolved: true });
     });
-    const toggle = screen.getByRole('button', { name: '已解决评论分组（1）' });
-    expect(toggle.getAttribute('aria-label')).toBe('已解决评论分组（1）');
+    const toggle = screen.getByRole('button', { name: '已解决评论分组：已解决（1）' });
+    expect(toggle.getAttribute('aria-label')).toBe('已解决评论分组：已解决（1）');
     expect(toggle.textContent).toContain('已解决（1）');
   });
 });

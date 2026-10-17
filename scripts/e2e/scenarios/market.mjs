@@ -16,8 +16,7 @@
  * 不依赖真实采集线产物、不依赖开发机已有数据——CI 与开发机同一条链。
  * 场景协议见 `scripts/e2e-smoke.mjs` 头注释。
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { seedMarketIndex } from '../fixtures/market-index.mjs';
 
 export const id = 'market';
 export const title = '市场列表可达性（首屏 60 → 加载更多 → 已全部加载 · DEF-R1）';
@@ -27,9 +26,6 @@ const TOTAL_ASSETS = 70;
 
 /** 首屏页大小（与 `apps/web/src/features/market/filters.ts` 的 `toQueryParams` 缺省值一致）。 */
 const FIRST_PAGE_SIZE = 60;
-
-/** 市场索引文件名（daemon 候选路径 `<数据根>/market/df.marketplace.index.v1.json`）。 */
-const MARKET_INDEX_FILENAME = 'df.marketplace.index.v1.json';
 
 /**
  * 构造第 `index` 张夹具资产。
@@ -101,17 +97,6 @@ function marketIndexFixture() {
   };
 }
 
-/** 播种市场索引夹具（daemon 每次查询按请求现读索引，落盘即生效）。 */
-function seedMarketIndex(dataRoot) {
-  const marketDir = join(dataRoot, 'market');
-  mkdirSync(marketDir, { recursive: true });
-  writeFileSync(
-    join(marketDir, MARKET_INDEX_FILENAME),
-    `${JSON.stringify(marketIndexFixture(), null, 2)}\n`,
-    'utf8',
-  );
-}
-
 /** 轮询直到 `probe()` 为真（返回最终真值；超时返回 false）。 */
 async function waitForCondition(probe, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -134,7 +119,7 @@ export async function run(page, ctx) {
   if (health?.ok !== true) return { steps: [] };
 
   // --- 1) 播种 70 条索引，再打开市场页（懒加载：导航前落盘即可被消费） ---
-  seedMarketIndex(ctx.dataRoot);
+  seedMarketIndex(ctx.dataRoot, marketIndexFixture());
   const gateway = ctx.pageUrl; // 同源网关 origin（无查询串）
   const daemonParam = `${gateway}/df`; // 网关形态下的端点（同源，与生产形态一致）
   await page.goto(`${gateway}/market?daemon=${encodeURIComponent(daemonParam)}`, {

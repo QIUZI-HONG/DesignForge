@@ -37,7 +37,8 @@
 | `data-df-slot="right-panel"` | `features/editor-shell/ui/editor-shell.tsx` | 右栏槽（**作用域读点**） |
 | `data-df-slot="toolbar"` | `features/editor-shell/ui/toolbar.tsx` | 工具栏插槽（AI 入口等） |
 | `data-df-tool={toolId}` | `features/editor-shell/ui/toolbar.tsx` | 工具按钮（确定性切工具） |
-| `data-df-preview="editor/<单元>"` | `features/editor-shell/ui/*.tsx` | 截图门禁取样单元（topbar/toolbar/zoom-menu/command-palette/shortcuts/hud/app-menu/canvas） |
+| `data-df-preview="editor/<单元>"` | `features/editor-shell/ui/*.tsx` | 截图门禁取样单元（topbar/toolbar/zoom-menu/command-palette/shortcuts/app-menu/canvas） |
+| `data-df-preview="editor/hud"` | `features/editor-shell/hud/context.tsx` | 截图门禁取样单元（HUD；不在 `ui/*.tsx`） |
 | `data-df-command={commandId}` | `features/editor-shell/ui/command-*.tsx`、`shortcuts-dialog.tsx` | 命令项（命令面板 / 快捷键表） |
 | `data-df-zoom={percent}` | `features/editor-shell/ui/zoom-menu.tsx` | 缩放菜单项 |
 | `data-df-document-name` | `features/editor-shell/ui/topbar.tsx` | 顶栏文档名 |
@@ -202,6 +203,9 @@ await right.getByRole('radio', { name: '导出' }).click(); // 只点右栏的�
   与面板都有「导出」「图层」一类词），撞名会把断言落到另一面（F-03 就是这样假红的）。
 - `data-df-workspace="right-panel"` / `"inspector"` 只是工作区内部子分组标记，**不得**当作
   槽位作用域使用；槽位契约只有 `data-df-slot`。
+- **口径修正登记（批次 5 评审）**：验收规格示例曾写作 `data-df-workspace="right-panel"`
+  作为右栏作用域；经代码核实槽位契约是 `data-df-slot`（本表第 2 行），`data-df-workspace`
+  只是工作区内部子分组标记。脚本按本页执行，规格示例以本登记为准。
 
 ## aria 前缀约定（retro F-07）
 
@@ -211,10 +215,10 @@ await right.getByRole('radio', { name: '导出' }).click(); // 只点右栏的�
 |---|---|---|
 | 画布钉点 | `画布钉点：` | `画布钉点：{body}`；已解决 `画布钉点：已解决·{body}` |
 | 面板线程条目 | `面板线程：` | `面板线程：{body}` |
-| 已解决评论分组开关 | `已解决评论分组` | `已解决评论分组（{count}）`（可见文本仍是 `已解决（{count}）`） |
+| 已解决评论分组开关 | `已解决评论分组：` | `已解决评论分组：已解决（{count}）`（可见文本是 `已解决（{count}）`） |
 
 - **禁止**用 `/已解决/` 这类裸正则跨面匹配：它会同时命中画布钉点（已解决态）与面板开关
-  （F-07 的根因）。画布侧用 `/^画布钉点：/`，面板侧用 `已解决评论分组（n）`。
+  （F-07 的根因）。画布侧用 `/^画布钉点：/`，面板侧用 `已解决评论分组：已解决（n）`。
 - 新交互元素：`aria-label` 必须带界面前缀，且不得与其它面的可访问名同名；新增控件须
   同步补单测（可访问名断言）与 `zh-CN.json` / `en.json` 键。约定见
   `implementation-workflow.md`「代码规范」（批次 5 · D）。
