@@ -11,7 +11,24 @@
  *
  * 场景协议见 `scripts/e2e-smoke.mjs` 头部注释；runner 自带夹具 daemon 与同源网关，
  * 场景不假设任何仓外前置（gh 凭据/Electron/显示器一律不需要）。
+ *
+ * 审计 08 加固（F-07-01 回归资产）：导出段不再只看「已导出 …」文案与文件名——
+ * 捕获 UI 实际收到的 `POST /export` 响应，落盘 base64 产物后做内容断言：
+ * PNG 背景/矩形像素、SVG 背景之外的节点矩形、PDF 结构 + pdfinfo/pdftoppm 外部渲染像素。
+ * 真实编辑器页信封（`dforge.canvas.page`）在缺陷修复前会如实判红（三格式全空白）。
  */
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+
+import {
+  decodeArtifactPayload,
+  inspectPdf,
+  inspectPng,
+  inspectSvg,
+  pdfHasFillColor,
+  pdfInfo,
+  renderPdfPage,
+} from '../../lib/export-artifact.mjs';
 
 export const id = 'editor';
 export const title = '编辑器主路径（D-1/D-2 · 建→画→存→重开→导出）';
@@ -48,9 +65,47 @@ function editorUrlFromCard(href, ctx) {
   return target.toString();
 }
 
+/**
+ * 等一次导出响应：URL 以 `/export` 结尾、POST、请求体的 format 匹配。
+ * 返回的 response 由调用方 `json()` 解包——这就是 UI 实际收到的产物（不是二次请求）。
+ */
+function waitForExportResponse(page, format) {
+  return page.waitForResponse(
+    (response) => {
+      if (response.request().method() !== 'POST') return false;
+      let pathname;
+      try {
+        pathname = new URL(response.url()).pathname;
+      } catch {
+        return false;
+      }
+      if (!pathname.endsWith('/export')) return false;
+      try {
+        const posted = JSON.parse(response.request().postData() ?? '{}');
+        return posted.format === format;
+      } catch {
+        return false;
+      }
+    },
+    { timeout: 30_000 },
+  );
+}
+
 /** 主入口。 */
 export async function run(page, ctx) {
   const steps = [];
+
+  // 四类不变量（审计 08）：请求面（同源网关）、console/pageerror、产物内容（导出段）。
+  const pageRequests = [];
+  const consoleErrors = [];
+  const pageErrors = [];
+  page.on('request', (request) => pageRequests.push(request.url()));
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      consoleErrors.push({ text: message.text(), url: message.location().url });
+    }
+  });
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
 
   const api = {
     nodeCount: () => page.evaluate(() => globalThis.__dforgeCanvas.nodeCount()),
@@ -313,23 +368,299 @@ export async function run(page, ctx) {
   }
 
   // —— 8) 导出（右栏「导出」页签：PNG / SVG / PDF）——
+  //
+  // 判定分两层：① UI 完成态只证明「面板收到响应」（保留，但名称注明非产物判定）；
+  // ② 对 UI 实际收到的响应做产物内容断言（F-07-01 的回归面）。产物同时落盘到
+  //    `<场景数据根>/../export-artifacts/`，供报告与外部工具复核。
+  const pageBody = stored?.result?.body?.page ?? null;
+  const shapeNode = pageBody?.nodes?.[drawnId] ?? null;
+  const shapeColor =
+    shapeNode?.fills?.find?.((fill) => typeof fill?.color === 'string')?.color ?? null;
+  const expectedBackground = pageBody?.backgroundColor ?? null;
+  const expected = {
+    width: 1440,
+    height: 900,
+    background: expectedBackground,
+    shapes:
+      shapeNode === null || shapeNode === undefined
+        ? []
+        : [
+            {
+              x: shapeNode.x,
+              y: shapeNode.y,
+              width: shapeNode.width,
+              height: shapeNode.height,
+              color: shapeColor,
+            },
+          ],
+  };
+  const artifactDir = join(ctx.dataRoot, '..', 'export-artifacts');
+  mkdirSync(artifactDir, { recursive: true });
+  const exportReport = {
+    ticket: 'audit-08',
+    documentId: DOCUMENT_NAME,
+    pageId: 'page-1',
+    expected,
+    artifacts: [],
+  };
+  ctx.assert(
+    pageBody !== null &&
+      shapeNode !== null &&
+      shapeNode !== undefined &&
+      shapeColor !== null &&
+      expectedBackground !== null,
+    '导出内容断言的期望值可独立取得（daemon 页面正文）',
+    JSON.stringify({
+      hasPage: pageBody !== null,
+      hasNode: shapeNode !== null && shapeNode !== undefined,
+      shapeColor,
+      expectedBackground,
+    }),
+  );
+
   try {
     await page.locator('.dfg-segmented__item', { hasText: '导出' }).first().click();
     await page.locator('[data-df-inspect="export-png"]').waitFor({ timeout: 10_000 });
-    for (const format of ['png', 'svg', 'pdf']) {
+  } catch (error) {
+    steps.push(step('打开导出页签', 'fail', String(error).slice(0, 300)));
+    return { steps };
+  }
+
+  for (const format of ['png', 'svg', 'pdf']) {
+    const upper = format.toUpperCase();
+    try {
+      // 先挂响应监听再点击：拿到的是 UI 本条请求的响应，不是事后二次请求。
+      const responsePromise = waitForExportResponse(page, format).catch(() => null);
       await page.locator(`[data-df-inspect="export-${format}"]`).click();
-      await page.locator(`[data-df-inspect="export-${format}-done"]`).waitFor({ timeout: 30_000 });
+      await page.waitForSelector(
+        `[data-df-inspect="export-${format}-done"], [data-df-inspect="export-${format}-error"]`,
+        { timeout: 30_000 },
+      );
+
+      const errorText = await page
+        .locator(`[data-df-inspect="export-${format}-error"]`)
+        .textContent()
+        .catch(() => null);
+      if (errorText !== null) {
+        ctx.assert(false, `编辑器内导出 ${upper} 失败态`, errorText.slice(0, 300));
+        exportReport.artifacts.push({ format, ui: 'error', errorText: errorText.slice(0, 500) });
+        continue;
+      }
+
       const doneText =
         (await page.locator(`[data-df-inspect="export-${format}-done"]`).textContent()) ?? '';
+      // 仅 UI 完成态：明确标注「非产物判定」，避免下一轮又把文案绿当产物绿。
       ctx.assert(
         doneText.includes(`.${format}`),
-        `编辑器内导出 ${format.toUpperCase()} 成功`,
+        `编辑器内导出 ${upper} 完成态（UI 文案，非产物判定）`,
         doneText,
       );
+
+      const response = await responsePromise;
+      if (response === null) {
+        ctx.assert(false, `导出 ${upper} 响应可捕获（UI 实际请求）`, '未捕获到 POST /export 响应');
+        exportReport.artifacts.push({ format, ui: 'missing-response' });
+        continue;
+      }
+      const payload = await response.json().catch(() => null);
+      const artifact = decodeArtifactPayload(payload);
+      const responseUrl = response.url();
+      ctx.assert(
+        response.status() === 200 && artifact !== null,
+        `导出 ${upper} 响应信封含可用产物（HTTP 200 + base64）`,
+        JSON.stringify({
+          status: response.status(),
+          url: responseUrl,
+          ok: payload?.ok ?? null,
+          code: payload?.error?.code ?? null,
+        }),
+      );
+      if (artifact === null) {
+        exportReport.artifacts.push({ format, ui: 'bad-response', status: response.status() });
+        continue;
+      }
+
+      const filePath = join(artifactDir, basename(artifact.fileName || `export.${format}`));
+      writeFileSync(filePath, artifact.bytes);
+      const record = {
+        format,
+        fileName: artifact.fileName,
+        filePath,
+        length: artifact.length,
+        sha256: artifact.sha256,
+        sha256Matches: artifact.sha256Matches,
+        lengthMatches: artifact.lengthMatches,
+        responseUrl,
+      };
+      ctx.assert(
+        artifact.sha256Matches === true && artifact.lengthMatches === true,
+        `导出 ${upper} 产物的 length/sha256 与 bytes 自洽`,
+        JSON.stringify({
+          length: artifact.length,
+          bytes: artifact.bytes.length,
+          sha256Matches: artifact.sha256Matches,
+          lengthMatches: artifact.lengthMatches,
+        }),
+      );
+
+      if (format === 'png') {
+        const inspection = inspectPng(artifact.bytes, expected);
+        record.inspection = inspection;
+        ctx.assert(
+          inspection.width === expected.width && inspection.height === expected.height,
+          '导出 PNG 尺寸正确（1440×900）',
+          JSON.stringify({ width: inspection.width, height: inspection.height }),
+        );
+        ctx.assert(
+          inspection.ok,
+          '导出 PNG 含设计内容（页面底色 + 矩形填充像素）',
+          JSON.stringify({
+            problems: inspection.problems,
+            backgroundSample: inspection.backgroundSample,
+            backgroundMatches: inspection.backgroundMatches,
+            nonBackgroundPixels: inspection.nonBackgroundPixels,
+            shapes: inspection.shapes.map(({ match, sample, matchedPixels, area }) => ({
+              match,
+              sample,
+              matchedPixels,
+              area,
+            })),
+          }),
+        );
+      } else if (format === 'svg') {
+        const text = artifact.bytes.toString('utf8');
+        const inspection = inspectSvg(text, expected);
+        record.inspection = inspection;
+        ctx.assert(
+          inspection.width === expected.width && inspection.height === expected.height,
+          '导出 SVG 尺寸正确（1440×900）',
+          JSON.stringify({ width: inspection.width, height: inspection.height }),
+        );
+        ctx.assert(
+          inspection.ok,
+          '导出 SVG 含设计节点（背景之外）',
+          JSON.stringify({
+            problems: inspection.problems,
+            rectCount: inspection.rectCount,
+            drawableCount: inspection.drawableCount,
+            backgroundMatches: inspection.backgroundMatches,
+            shapes: inspection.shapes,
+          }),
+        );
+      } else if (format === 'pdf') {
+        const structure = inspectPdf(artifact.bytes);
+        const info = pdfInfo(filePath);
+        const render = renderPdfPage(filePath, join(artifactDir, 'pdf-page-1'));
+        const structureOk =
+          structure.isPdf &&
+          structure.pageCount === 1 &&
+          structure.mediaBox !== null &&
+          structure.mediaBox.width === expected.width &&
+          structure.mediaBox.height === expected.height;
+        ctx.assert(
+          structureOk,
+          '导出 PDF 结构/页尺寸正确（单页 1440×900）',
+          JSON.stringify({
+            isPdf: structure.isPdf,
+            pageCount: structure.pageCount,
+            mediaBox: structure.mediaBox,
+            pdfinfo: info.blocked
+              ? 'blocked: pdfinfo 不可用'
+              : { pages: info.pages, pageSize: info.pageSize },
+          }),
+        );
+
+        let contentOk = false;
+        let contentDetail = {};
+        if (!render.blocked && render.pngPath !== null) {
+          const rendered = inspectPng(readFileSync(render.pngPath), expected);
+          contentOk = rendered.ok;
+          contentDetail = {
+            mode: 'pdftoppm 外部渲染像素',
+            problems: rendered.problems,
+            backgroundSample: rendered.backgroundSample,
+            backgroundMatches: rendered.backgroundMatches,
+            nonBackgroundPixels: rendered.nonBackgroundPixels,
+            shapes: rendered.shapes.map(({ match, sample, matchedPixels, area }) => ({
+              match,
+              sample,
+              matchedPixels,
+              area,
+            })),
+          };
+        } else {
+          // 降级：外部渲染工具缺失/失败 → 结构 + 内容流填充色断言（报告须注明）。
+          contentOk =
+            pdfHasFillColor(structure, shapeColor ?? '') &&
+            structure.fillRectCount >= 2 &&
+            structure.fillColors.length >= 2;
+          contentDetail = {
+            mode: '降级：内容流填充色断言',
+            reason: render.reason ?? render.stderr ?? 'pdftoppm 失败',
+            fillColors: structure.fillColors,
+            fillRectCount: structure.fillRectCount,
+            expectedFill: shapeColor,
+            structureFillMatch: pdfHasFillColor(structure, shapeColor ?? ''),
+          };
+        }
+        record.structure = structure;
+        record.pdfInfo = info;
+        record.pdfRender = render;
+        record.pdfContent = contentDetail;
+        ctx.assert(
+          contentOk,
+          '导出 PDF 含设计内容（外部渲染像素或内容流填充色）',
+          JSON.stringify(contentDetail),
+        );
+      }
+      exportReport.artifacts.push(record);
+    } catch (error) {
+      steps.push(step(`编辑器内导出 ${upper}`, 'fail', String(error).slice(0, 300)));
+      exportReport.artifacts.push({ format, error: String(error).slice(0, 500) });
     }
-  } catch (error) {
-    steps.push(step('编辑器内导出 PNG/SVG/PDF', 'fail', String(error).slice(0, 300)));
   }
+  writeFileSync(
+    join(artifactDir, 'export-verification.json'),
+    `${JSON.stringify(exportReport, null, 2)}\n`,
+    'utf8',
+  );
+
+  // —— 9) 四类不变量（审计 08）：请求只在同源网关、无 console/pageerror ——
+  const gatewayOrigin = new URL(ctx.pageUrl).origin;
+  const httpRequests = pageRequests.filter((url) => /^https?:\/\//.test(url));
+  const foreign = httpRequests.filter((url) => new URL(url).origin !== gatewayOrigin);
+  ctx.assert(
+    foreign.length === 0,
+    '编辑器全程请求都在同源网关（无直连 daemon / 非网关 origin）',
+    JSON.stringify({ requests: httpRequests.length, gatewayOrigin, foreign: foreign.slice(0, 5) }),
+  );
+  const resident = httpRequests.filter((url) => /:(?:3000|4318)(?:\/|$)/.test(url));
+  ctx.assert(
+    resident.length === 0,
+    '无对 3000/4318 常驻实例的调用（不碰真实数据根）',
+    JSON.stringify({ resident: resident.slice(0, 5) }),
+  );
+  // 已知且已登记的观察（审计 04 · F-04 文档探测 404）：打开文档时按 page-{N} 顺序探测，
+  // 第一个缺失页产生一条资源 404 console 错误。它不属于本票缺陷，单独放行并计数；
+  // 其余 console 错误一律判红。
+  const probe404 = consoleErrors.filter((entry) =>
+    /\/documents\/[^/]+\/pages\/page-\d+$/.test(entry.url),
+  );
+  const otherConsole = consoleErrors.filter((entry) => !probe404.includes(entry));
+  ctx.assert(
+    otherConsole.length === 0,
+    '无 console 错误（仅允许已登记的文档页探测 404）',
+    JSON.stringify({
+      consoleErrors: consoleErrors.length,
+      allowedProbe404: probe404.length,
+      other: otherConsole.slice(0, 3),
+    }),
+  );
+  ctx.assert(
+    pageErrors.length === 0,
+    '无未捕获异常（pageerror）',
+    JSON.stringify({ pageErrors: pageErrors.slice(0, 3) }),
+  );
 
   return { steps };
 }
