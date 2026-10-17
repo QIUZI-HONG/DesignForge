@@ -88,7 +88,7 @@
 
 - `main` **没有 branch protection**（`GET /branches/main/protection` → 404）；CI 绿是约定，不是合并强制条件。
 - PR **#49**（base `integration/batch5`）`statusCheckRollup` 为空：**完全没有 CI 检查**；PR #48（base main）有成功 `verify`。
-- 工作流文档与实测存在漂移：e2e 仍写「10 步」（实际 6 场景 114 步）、canvas 仍写「6 断言」（实际 7 断言 + 15 接线）；`verify-canvas` / 两态门禁仍自起 `next dev`（工作流要求生产构建）。归 #60。
+- 工作流文档与实测存在漂移：e2e 仍写「10 步」（实际 6 场景 114 步）、canvas 仍写「6 断言」（实际 7 断言 + 15 接线）；`verify-canvas` / 两态门禁仍自起 `next dev`（工作流要求生产构建）。归 #60（审计 10b 已同步门禁实况与 known-red 口径，漂移细节见 `60-ci-hardening.md`）。
 
 ## 2. 五态能力表统计
 
