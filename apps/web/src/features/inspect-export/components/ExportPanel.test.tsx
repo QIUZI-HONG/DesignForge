@@ -126,7 +126,7 @@ describe('ExportPanel · 三档导出', () => {
 });
 
 describe('ExportPanel · 失败态与重试', () => {
-  it('daemon 500：显示错误码与文案，并提供重试', async () => {
+  it('daemon 500：显示文案与重试，错误码沉进「诊断信息」折叠（G6 复核 a4）', async () => {
     const { client, calls } = immediateClient([
       { ok: false, code: 'export_render_failed', message: '渲染失败：坏数据' },
     ]);
@@ -135,7 +135,12 @@ describe('ExportPanel · 失败态与重试', () => {
 
     const error = await screen.findByRole('alert');
     expect(error.textContent).toContain('导出失败：渲染失败：坏数据');
-    expect(error.textContent).toContain('错误码：export_render_failed');
+    // 错误码不在主位：默认收起的 <details> 里，展开才见（与其余四处同口径）
+    const diagnostics = error.querySelector('details');
+    expect(diagnostics).not.toBeNull();
+    expect(diagnostics?.open).toBe(false);
+    expect(diagnostics?.querySelector('summary')?.textContent).toBe('诊断信息');
+    expect(diagnostics?.textContent).toContain('错误码：export_render_failed');
     expect(screen.getByRole('button', { name: '重试' })).toBeDefined();
     expect(calls).toHaveLength(1);
   });
@@ -163,6 +168,40 @@ describe('ExportPanel · 失败态与重试', () => {
     fireEvent.click(screen.getByRole('button', { name: '导出 PNG' }));
     const error = await screen.findByRole('alert');
     expect(error.textContent).toContain('本地服务未启动');
-    expect(error.textContent).toContain('错误码：daemon_offline');
+    // 错误码同口径沉进折叠（G6 复核 a4）
+    expect(error.querySelector('details')?.textContent).toContain('错误码：daemon_offline');
+  });
+
+  it('失败文案带行动建议（UX-17）：未保存文档 → 先保存 / 从已保存文档导出', async () => {
+    const { client } = immediateClient([
+      { ok: false, code: 'doc_not_found', message: '文档不存在' },
+    ]);
+    render(<ExportPanel documentId="doc1" pageId="p1" client={client} />);
+    fireEvent.click(screen.getByRole('button', { name: '导出 PNG' }));
+    const error = await screen.findByRole('alert');
+    expect(error.textContent).toContain('导出失败：文档不存在');
+    expect(error.textContent).toContain('请先保存本文档，或从首页打开已保存的文档后再导出。');
+  });
+
+  it('失败文案带行动建议（UX-17）：离线 → 启动本地服务后重试', async () => {
+    const { client } = immediateClient([
+      { ok: false, code: 'daemon_offline', message: 'fetch failed' },
+    ]);
+    render(<ExportPanel documentId="doc1" pageId="p1" client={client} />);
+    fireEvent.click(screen.getByRole('button', { name: '导出 PDF' }));
+    const error = await screen.findByRole('alert');
+    expect(error.textContent).toContain('请启动设界本地服务（daemon）后重试。');
+  });
+
+  it('失败文案带行动建议（UX-17）：其余失败给通用重试指引（确认文档已保存）', async () => {
+    const { client } = immediateClient([
+      { ok: false, code: 'export_render_failed', message: '渲染失败' },
+    ]);
+    render(<ExportPanel documentId="doc1" pageId="p1" client={client} />);
+    fireEvent.click(screen.getByRole('button', { name: '导出 SVG' }));
+    const error = await screen.findByRole('alert');
+    expect(error.textContent).toContain(
+      '请重试；若仍失败，请确认文档已保存（未保存的文档没有可导出的本地文件）。',
+    );
   });
 });

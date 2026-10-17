@@ -7,9 +7,9 @@
  * 名称 13 / 元信息 11 / 圆角 8 / 缩略图圆角 6 属视觉口径（令牌 + 截图门禁取证）。
  */
 import type { DocumentSummary } from '@dforge/contracts';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DocumentCard } from './DocumentCard';
 
@@ -79,5 +79,25 @@ describe('DocumentCard', () => {
     await userEvent.click(screen.getByRole('button', { name: '「海报 A」的更多操作' }));
     await userEvent.click(screen.getByRole('menuitem', { name: '删除' }));
     expect(props.onRequestDelete).toHaveBeenCalledWith(DOC);
+  });
+});
+
+describe('DocumentCard · 卡片链接携带当前 daemon 端点（D-3/UX-01）', () => {
+  // jsdom 的地址在用例间共享：跑完复位，避免污染本文件其余用例（它们都假设无查询串）
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('当前页带 ?daemon= 时链接续写同一端点（挂载后写入，中键新开标签也带参数）', async () => {
+    const endpoint = 'http://127.0.0.1:4999';
+    const encoded = encodeURIComponent(endpoint);
+    window.history.replaceState(null, '', `/?daemon=${encoded}`);
+    renderCard();
+    const link = screen.getByRole('link', { name: '打开「海报 A」' });
+    await waitFor(() => {
+      expect(link.getAttribute('href')).toBe(
+        `/editor?documentId=%E6%B5%B7%E6%8A%A5%20A&daemon=${encoded}`,
+      );
+    });
   });
 });

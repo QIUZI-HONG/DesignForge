@@ -1,5 +1,6 @@
 'use client';
 
+import { Overlay } from '@dforge/ui';
 /**
  * Present 浮层（C13）：**黑底全屏 + 顶部悬浮控制条**。
  *
@@ -17,7 +18,6 @@
  * `data-df-*` 挂点是门禁取样契约（`scripts/verify-figma-review.mjs`）。
  */
 import { useEffect, useRef } from 'react';
-
 import { t } from '@/i18n';
 import { useReviewDocument, useReviewSession } from '../review-context';
 import { keyboardActionOf } from './controller';
@@ -89,92 +89,111 @@ export function Presenter() {
   if (!open) return null;
 
   return (
-    <section
-      ref={rootRef}
-      data-df-presenter=""
-      data-df-slide-index={String(index)}
-      data-df-state={barVisible ? 'controls-visible' : 'controls-hidden'}
-      aria-label={t('review.present.title')}
-      style={presentStyles.stage}
-      onPointerMove={() => {
-        session.present.getState().markActivity();
+    // 层级口径（C1/D-4）：演示舞台走 `@dforge/ui` 的 `Overlay`——与抽屉/模态同一条浮层栈
+    // （后开必在上、焦点入层、滚动锁同源）。修复前舞台自持 `position: fixed` + z 令牌，
+    // 与「后挂到 body 的抽屉」同值 → 抽屉开着时舞台会被压在下面。
+    // Esc 单一真源（复核 J4）：演示的 Esc 语义**只**归本组件的 window 级处理器（`keyboardActionOf`
+    // → exit）——浮层层的 Esc 关层显式关掉（`closeOnEsc={false}`），不再出现「同一次 Esc 走两条
+    // 退出路径」；`use-overlay` 的 `closeOnEsc` 由此被真实消费（此前是无人使用的预留项）。
+    <Overlay
+      open
+      closeOnEsc={false}
+      onOpenChange={(next) => {
+        if (next) return;
+        session.present.getState().exitPresentation();
+        exitFullscreenIfNeeded();
       }}
+      label={t('review.present.title')}
     >
       <section
-        data-df-present-stage=""
-        data-df-state={slide === undefined ? 'empty' : 'slide'}
-        aria-label={t('review.present.stage.label')}
-        style={presentStyles.canvas}
+        ref={rootRef}
+        data-df-presenter=""
+        data-df-slide-index={String(index)}
+        data-df-state={barVisible ? 'controls-visible' : 'controls-hidden'}
+        aria-label={t('review.present.title')}
+        style={presentStyles.stage}
+        onPointerMove={() => {
+          session.present.getState().markActivity();
+        }}
       >
-        {slide === undefined ? (
-          <div data-df-sample="present/empty" style={presentStyles.empty}>
-            <span style={presentStyles.emptyTitle}>{t('review.present.empty.title')}</span>
+        <section
+          data-df-present-stage=""
+          data-df-state={slide === undefined ? 'empty' : 'slide'}
+          aria-label={t('review.present.stage.label')}
+          style={presentStyles.canvas}
+        >
+          {slide === undefined ? (
+            <div data-df-sample="present/empty" style={presentStyles.empty}>
+              <span style={presentStyles.emptyTitle}>{t('review.present.empty.title')}</span>
+              <span style={presentStyles.emptyDesc}>{t('review.present.empty.desc')}</span>
+            </div>
+          ) : frame === null ? (
             <span style={presentStyles.emptyDesc}>{t('review.present.empty.desc')}</span>
-          </div>
-        ) : frame === null ? (
-          <span style={presentStyles.emptyDesc}>{t('review.present.empty.desc')}</span>
-        ) : (
-          <SlidePreview frame={frame} pageId={slide.pageId} document={document_} />
-        )}
-      </section>
+          ) : (
+            <SlidePreview frame={frame} pageId={slide.pageId} document={document_} />
+          )}
+        </section>
 
-      <section
-        data-df-present-controls=""
-        data-df-state={barVisible ? 'visible' : 'hidden'}
-        aria-label={t('review.present.controls.label')}
-        aria-hidden={!barVisible}
-        style={
-          barVisible ? presentStyles.bar : { ...presentStyles.bar, ...presentStyles.barHidden }
-        }
-      >
-        <span data-df-present-page="" style={presentStyles.pageText}>
-          {t('review.present.page', { current: total === 0 ? 0 : index + 1, total })}
-        </span>
-        <span style={presentStyles.slideLabel}>{slide === undefined ? '' : slideLabel(slide)}</span>
-        <span style={presentStyles.barSpacer} />
-        <button
-          type="button"
-          aria-label={t('review.present.prev')}
-          style={presentStyles.barButton}
-          onClick={() => {
-            session.present.getState().step(-1, total);
-          }}
+        <section
+          data-df-present-controls=""
+          data-df-state={barVisible ? 'visible' : 'hidden'}
+          aria-label={t('review.present.controls.label')}
+          aria-hidden={!barVisible}
+          style={
+            barVisible ? presentStyles.bar : { ...presentStyles.bar, ...presentStyles.barHidden }
+          }
         >
-          ‹
-        </button>
-        <button
-          type="button"
-          aria-label={t('review.present.next')}
-          style={presentStyles.barButton}
-          onClick={() => {
-            session.present.getState().step(1, total);
-          }}
-        >
-          ›
-        </button>
-        <button
-          type="button"
-          aria-label={t('review.present.fullscreen')}
-          style={presentStyles.barButton}
-          onClick={() => {
-            void requestFullscreenIfPossible();
-          }}
-        >
-          ⛶
-        </button>
-        <button
-          type="button"
-          aria-label={t('review.present.exit')}
-          style={presentStyles.barButton}
-          onClick={() => {
-            session.present.getState().exitPresentation();
-            exitFullscreenIfNeeded();
-          }}
-        >
-          ✕
-        </button>
+          <span data-df-present-page="" style={presentStyles.pageText}>
+            {t('review.present.page', { current: total === 0 ? 0 : index + 1, total })}
+          </span>
+          <span style={presentStyles.slideLabel}>
+            {slide === undefined ? '' : slideLabel(slide)}
+          </span>
+          <span style={presentStyles.barSpacer} />
+          <button
+            type="button"
+            aria-label={t('review.present.prev')}
+            style={presentStyles.barButton}
+            onClick={() => {
+              session.present.getState().step(-1, total);
+            }}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            aria-label={t('review.present.next')}
+            style={presentStyles.barButton}
+            onClick={() => {
+              session.present.getState().step(1, total);
+            }}
+          >
+            ›
+          </button>
+          <button
+            type="button"
+            aria-label={t('review.present.fullscreen')}
+            style={presentStyles.barButton}
+            onClick={() => {
+              void requestFullscreenIfPossible();
+            }}
+          >
+            ⛶
+          </button>
+          <button
+            type="button"
+            aria-label={t('review.present.exit')}
+            style={presentStyles.barButton}
+            onClick={() => {
+              session.present.getState().exitPresentation();
+              exitFullscreenIfNeeded();
+            }}
+          >
+            ✕
+          </button>
+        </section>
       </section>
-    </section>
+    </Overlay>
   );
 }
 

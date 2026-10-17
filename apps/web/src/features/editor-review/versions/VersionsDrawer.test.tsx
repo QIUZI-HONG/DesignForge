@@ -14,6 +14,7 @@ import {
   type DesignDocument,
   insertNode,
 } from '@dforge/engine';
+import { ToastProvider } from '@dforge/ui';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ReviewProvider } from '../review-context';
@@ -52,9 +53,11 @@ function versionsSession(): ReviewSession {
 
 function renderDrawer(session: ReviewSession = versionsSession()) {
   render(
-    <ReviewProvider session={session}>
-      <VersionsDrawer />
-    </ReviewProvider>,
+    <ToastProvider>
+      <ReviewProvider session={session}>
+        <VersionsDrawer />
+      </ReviewProvider>
+    </ToastProvider>,
   );
   return session;
 }
@@ -152,6 +155,8 @@ describe('版本抽屉 · 两步确认回滚', () => {
     // 对比视图关闭、抽屉仍在
     expect(document.querySelector('[data-df-version-compare]')).toBeNull();
     expect(session.versions.getState().compareId).toBeNull();
+    // C1 成功反馈：恢复是「隐式的浮层消失」之外，必须给明确提示
+    expect(screen.getByText('已恢复所选版本')).toBeDefined();
 
     // 可撤销：命令栈的逆命令是「换回旧文档」
     act(() => {

@@ -17,7 +17,7 @@
  */
 
 import type { DesignDocument, PageId, Selection } from '@dforge/engine';
-import { createDocument, createPage } from '@dforge/engine';
+import { createDocument, createPage, createSelection, IDLE } from '@dforge/engine';
 import {
   type ComponentPreviewState,
   createComponentsPreviewDocument,
@@ -31,8 +31,11 @@ import {
 } from '@/features/inspect-export';
 import type { InspectorPreviewState } from '@/features/inspector';
 import { createPreviewDocument, previewSelection } from '@/features/inspector';
+import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
+import { createDocumentsClient, type DocumentsClient } from '../persistence/documents-client';
 import { type CanvasSession, createCanvasSession, type SelectionPort } from '../state/session';
+import { createDocumentBridge, type DocumentBridge } from './document-bridge';
 
 /** 工作区预设（各票门禁的宿主协议）。 */
 export interface WorkspacePreset {
@@ -68,15 +71,27 @@ export function readWorkspacePreset(search: string): WorkspacePreset {
   };
 }
 
+/**
+ * 从查询串解析文档 id（首页卡片契约 `/editor?documentId=…`，见
+ * `features/home/lib/routes.ts`）。空串/纯空白视为未给（不发起无意义的载入）。
+ */
+export function readDocumentId(search: string): string | null {
+  const value = new URLSearchParams(search).get('documentId');
+  if (value === null) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 /** 预设 → 文档（未命中预设时给一个最小可编辑文档）。 */
 export function documentForPreset(preset: WorkspacePreset): DesignDocument {
   if (preset.inspector !== null) return createPreviewDocument();
   if (preset.inspect !== null) return createInspectPreviewDocument();
   if (preset.components !== null) return createComponentsPreviewDocument(preset.components);
+  // 页面名走引擎缺省（`createPage` 的 `'页面 1'`）：默认名单一真源，装配层不另抄一份（复核 J5）
   return createDocument({
     id: 'doc-editor',
     name: '未命名文件',
-    pages: [createPage({ id: 'page-editor', name: '页面 1' })],
+    pages: [createPage({ id: 'page-editor' })],
   });
 }
 
@@ -95,8 +110,23 @@ export interface EditorWorkspace {
   panels: PanelsSession;
   /** 画布会话（共享上面那份命令栈与选择集）。 */
   canvas: CanvasSession;
-  /** 当前页面 id。 */
-  pageId: PageId;
+  /** 当前页面 id（= 面板会话的当前页；载入新文档后随之切换）。 */
+  readonly pageId: PageId;
+  /** 文档桥：`?documentId=` 载入、显式保存、保存态（D-2）。 */
+  readonly documents: DocumentBridge;
+  /**
+   * 采纳一份文档（载入/导入后的唯一入口）：以 `document.replace` 命令写进共享命令栈
+   * （写路径唯一性），并同步页面 id、清空选择集与画布交互态、清空历史。
+   *
+   * 为什么必须在**同一个栈**上替换而不是重建会话：工作区是模块级单例，各槽组件
+   * 已持有 `panels` / `canvas` 的引用与订阅——重建会话会让已挂载的面板/画布指向旧对象
+   * （「载入了但界面不动」）。同栈替换后所有订阅者照常收到通知。
+   *
+   * 「本文档对应的 daemon 文档 id」不在这里——它归文档桥的投影（`workspace.documents`）。
+   *
+   * @returns 文档是否被采纳（无任何页面 → 不采纳，会话保持原样）
+   */
+  adoptDocument(document: DesignDocument): boolean;
 }
 
 /** 由面板 UI store 造选择集端口（画布 ⇄ 面板同源）。 */
@@ -110,8 +140,22 @@ export function panelsSelectionPort(panels: PanelsSession): SelectionPort {
   };
 }
 
+/**
+ * 装配选项。
+ */
+export interface EditorWorkspaceOptions {
+  /**
+   * 文档持久化客户端（缺省：经 `@/lib/daemon-endpoint` 单点解析基址后自建）。
+   * 门禁/单测显式注入（夹具 daemon）。
+   */
+  client?: DocumentsClient;
+}
+
 /** 装配工作区（纯函数，便于单测；浏览器里由单例调用）。 */
-export function createEditorWorkspace(preset: WorkspacePreset): EditorWorkspace {
+export function createEditorWorkspace(
+  preset: WorkspacePreset,
+  options: EditorWorkspaceOptions = {},
+): EditorWorkspace {
   const document = documentForPreset(preset);
   const pageId = document.pages[0]?.id as PageId;
   // 生产装配开启**文档深冻结**（写路径唯一性）：装配层把快照交给整棵 UI 树，
@@ -125,7 +169,59 @@ export function createEditorWorkspace(preset: WorkspacePreset): EditorWorkspace 
     pageId,
     selectionPort: panelsSelectionPort(panels),
   });
-  return { preset, panels, canvas, pageId };
+
+  const client = options.client ?? createDocumentsClient({ baseUrl: resolveDaemonEndpointSync() });
+
+  const workspace: EditorWorkspace = {
+    preset,
+    panels,
+    canvas,
+    get pageId(): PageId {
+      return panels.pageId;
+    },
+    documents: createDocumentBridge({
+      host: {
+        document: () => panels.stack.getSnapshot(),
+        adopt: (next) => adoptDocumentInto(workspace, next),
+        subscribe: (listener) => panels.stack.subscribe(() => listener()),
+      },
+      client,
+      // 初始名取内存文档（未落盘 → 顶栏走「未命名设计文件」占位文案）
+      initial: { documentId: null, name: document.name },
+    }),
+    adoptDocument(next) {
+      return adoptDocumentInto(workspace, next);
+    },
+  };
+  return workspace;
+}
+
+/**
+ * 采纳文档的实现（装配层私有）：一条 `document.replace` + 会话 UI 态收尾 + 清历史。
+ */
+function adoptDocumentInto(workspace: EditorWorkspace, document: DesignDocument): boolean {
+  const firstPageId = document.pages[0]?.id;
+  if (firstPageId === undefined) return false;
+  const { panels, canvas } = workspace;
+  panels.setPageId(firstPageId);
+  // 画布 UI 态：页面 id 换血 + 交互/草稿/文本编辑/悬停全部收摊（旧页面的临时态不跨文档）
+  canvas.store.setState({
+    pageId: firstPageId,
+    selection: createSelection([]),
+    interaction: IDLE,
+    snap: null,
+    draft: null,
+    editing: null,
+    hoverId: null,
+    hoverCursor: 'default',
+    hud: null,
+  });
+  panels.ui.getState().setSelection(createSelection([]));
+  // 写路径唯一：整文档替换走命令栈（结构化校验在引擎侧，非法快照整体不生效）
+  panels.stack.dispatch({ type: 'document.replace', document }, { label: '载入文档' });
+  // 载入不是一次「编辑」：撤销不该把用户带回内存占位文档
+  panels.stack.clearHistory();
+  return true;
 }
 
 /**
@@ -137,6 +233,14 @@ export function createEditorWorkspace(preset: WorkspacePreset): EditorWorkspace 
 /** 模块级单例（插槽宿主不在同一棵 Provider 树里）。 */
 let singleton: EditorWorkspace | null = null;
 
+/** 单例变化订阅（载入/导入换栈后，跨 feature 的文档消费者据此重订阅）。 */
+const workspaceListeners = new Set<() => void>();
+
+/** 单例替换/复位后广播（跨 feature 消费者重订阅新栈）。 */
+function notifyWorkspace(): void {
+  for (const listener of [...workspaceListeners]) listener();
+}
+
 /** 取（必要时创建）工作区单例。 */
 export function getWorkspace(): EditorWorkspace {
   if (singleton === null) {
@@ -144,6 +248,31 @@ export function getWorkspace(): EditorWorkspace {
     singleton = createEditorWorkspace(readWorkspacePreset(search));
   }
   return singleton;
+}
+
+/**
+ * 替换工作区单例（载入/导入后换会话与栈）。
+ *
+ * 纪律：替换方负责把命令/视口同步/门禁探针**按新会话重挂**（`setWorkspaceBootstrap`
+ * 注册的实现可重复调用，幂等）；本函数只做「换单例 + 广播」两件事，
+ * 让跨 feature 的文档消费者（评审会话的文档端口）能跟着换订阅。
+ */
+export function setWorkspace(next: EditorWorkspace): void {
+  singleton = next;
+  notifyWorkspace();
+}
+
+/**
+ * 订阅「工作区单例被替换/复位」（引用稳定；退订函数返回值同形）。
+ *
+ * 用途：评审会话的文档端口——栈被换掉后要重新订阅新栈的文档变化
+ * （否则「载入新文档」之后演示判定/版本快照停在旧栈上）。
+ */
+export function subscribeWorkspace(listener: () => void): () => void {
+  workspaceListeners.add(listener);
+  return () => {
+    workspaceListeners.delete(listener);
+  };
 }
 
 /**
@@ -174,4 +303,5 @@ export function ensureWorkspaceBootstrapped(): void {
 export function resetWorkspace(): void {
   singleton = null;
   bootstrapped = false;
+  notifyWorkspace();
 }

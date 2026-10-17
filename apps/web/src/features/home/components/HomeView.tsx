@@ -67,6 +67,16 @@ export interface HomeViewProps {
   onOpenDocument: (document: DocumentSummary) => void;
   /** 打开市场资产（页面注入：跳市场详情）。 */
   onOpenMarket: (assetId: string) => void;
+  /**
+   * 打开 AI 助手（页面注入：跳编辑器并带 `?ai=1` 落地即开抽屉）。
+   * D3 文案口径同步：修复前这里是「暂未接入」Toast，与已交付的 AI 抽屉互相矛盾。
+   */
+  onOpenAi: () => void;
+  /**
+   * 挂载后自动打开「新建设计文件」对话框（`/?create=1`，编辑器 `file.new` 的落点，D-7）。
+   * 缺省 false：正常进首页不弹窗。
+   */
+  autoOpenCreate?: boolean;
   /** store 注入（测试独立实例）。 */
   store?: HomeStore;
   /** 市场检索防抖（毫秒；测试传 0）。 */
@@ -98,6 +108,8 @@ export function HomeView({
   now = () => new Date(),
   onOpenDocument,
   onOpenMarket,
+  onOpenAi,
+  autoOpenCreate = false,
   store,
   searchDebounceMs = 200,
   marketSearchDeadlineMs = GATEWAY_TIMEOUT_MS,
@@ -120,6 +132,7 @@ export function HomeView({
     loading: false,
     available: true,
     items: [],
+    degraded: false,
   });
 
   const gatewayRef = useRef<DocumentsGateway | null>(injectedDocuments ?? null);
@@ -131,6 +144,11 @@ export function HomeView({
    * ref 在调用栈内立即生效，与渲染时机无关。
    */
   const creatingRef = useRef(false);
+
+  // `/?create=1`（编辑器 `file.new` 的落点，D-7）：挂载后自动打开新建对话框
+  useEffect(() => {
+    if (autoOpenCreate) setCreateOpen(true);
+  }, [autoOpenCreate]);
 
   /** 取文档接口（缺省按 daemon 基址解析创建，只解析一次）。 */
   const ensureGateway = useCallback(async (): Promise<DocumentsGateway> => {
@@ -180,7 +198,7 @@ export function HomeView({
   useEffect(() => {
     const query = home.query.trim();
     if (query === '') {
-      setMarket({ loading: false, available: true, items: [] });
+      setMarket({ loading: false, available: true, items: [], degraded: false });
       return undefined;
     }
     let cancelled = false;
@@ -188,7 +206,7 @@ export function HomeView({
     setMarket((current) => ({ ...current, loading: true }));
     const timer = setTimeout(() => {
       deadline = setTimeout(() => {
-        if (!cancelled) setMarket({ loading: false, available: false, items: [] });
+        if (!cancelled) setMarket({ loading: false, available: false, items: [], degraded: false });
       }, marketSearchDeadlineMs);
       // `Promise.resolve().then(…)`：连「同步抛错」的实现也归一到拒绝路径，异常不逃出定时器回调
       void Promise.resolve()
@@ -197,12 +215,17 @@ export function HomeView({
           (result) => {
             if (deadline !== null) clearTimeout(deadline);
             if (cancelled) return;
-            setMarket({ loading: false, available: result.available, items: result.items });
+            setMarket({
+              loading: false,
+              available: result.available,
+              items: result.items,
+              degraded: result.searchDegraded,
+            });
           },
           () => {
             if (deadline !== null) clearTimeout(deadline);
             if (cancelled) return;
-            setMarket({ loading: false, available: false, items: [] });
+            setMarket({ loading: false, available: false, items: [], degraded: false });
           },
         );
     }, searchDebounceMs);
@@ -280,8 +303,16 @@ export function HomeView({
         toast.show({ message: t('home.new.success', { name }), tone: 'success' });
         await load('refresh');
       } catch (cause) {
+        // 重名分因（G2/UX-11 · 复核 Spec a3）：`doc_exists` 走专用 i18n 键并点名冲突文件名，
+        // 不再把 daemon 的原文（「同名文档已存在」）透出给用户；其余失败保留原因透出（可诊断）。
+        const duplicate = cause instanceof DocumentApiError && cause.code === 'doc_exists';
         const message = cause instanceof DocumentApiError ? cause.message : String(cause);
-        toast.show({ message: t('home.new.failed', { message }), tone: 'error' });
+        toast.show({
+          message: duplicate
+            ? t('home.new.failedExists', { name })
+            : t('home.new.failed', { message }),
+          tone: 'error',
+        });
       } finally {
         creatingRef.current = false;
         setCreating(false);
@@ -317,7 +348,8 @@ export function HomeView({
         />
 
         <div className="dfg-home__content">
-          <AiHintBar onOpenAi={() => toast.show({ message: t('home.ai.stub'), tone: 'info' })} />
+          {/* AI 提示区（D3）：按钮交回页面导航（进编辑器 + 打开 AI 抽屉），不再给「暂未接入」Toast */}
+          <AiHintBar onOpenAi={onOpenAi} />
 
           <div className="dfg-home__sectionhead">
             <h1 className="dfg-home__sectiontitle">{sectionTitle}</h1>
@@ -346,7 +378,8 @@ export function HomeView({
                 onSortChange={(sort) => activeStore.getState().setSort(sort)}
                 viewMode={home.viewMode}
                 onViewModeChange={(viewMode) => activeStore.getState().setViewMode(viewMode)}
-                resultCount={visible.length}
+                // 计数只在「就绪」时真实可得：加载中/错误态显示「—」，不谎报 0（UX-19）
+                resultCount={status === 'ready' ? visible.length : null}
               />
               <HomeWarnings warnings={warnings} />
 

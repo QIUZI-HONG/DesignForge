@@ -40,12 +40,17 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  DAEMON_ROUTE_PREFIX,
+  forwardDaemonRequests,
+  resolveChromeExecutable,
+} from './lib/browser-toolchain.mjs';
 import { bboxOfDiff } from './lib/pixels.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -62,7 +67,8 @@ const SCREENSHOT_UNIT = 'figma-C-C8-canvas-dark-default';
 const SCREENSHOT_THEME = 'dark';
 const THRESHOLD = 0.1;
 const MAX_RATIO = 0.001;
-const DAEMON_PREFIX = '/df-daemon';
+/** 页面里的 daemon 相对前缀（实现与解析回抽到 `lib/browser-toolchain.mjs`，复核 J8）。 */
+const DAEMON_PREFIX = DAEMON_ROUTE_PREFIX;
 
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
@@ -234,17 +240,8 @@ async function freePort(start) {
 }
 
 /** 缓存的 Chromium（研究 #5：playwright-core 需显式 executablePath）。 */
-function resolveChrome() {
-  if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) return process.env.BENCH_CHROME_EXECUTABLE;
-  const cacheRoot = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(cacheRoot)) return undefined;
-  for (const entry of readdirSync(cacheRoot)) {
-    if (!entry.startsWith('chromium-')) continue;
-    const candidate = join(cacheRoot, entry, 'chrome-linux64', 'chrome');
-    if (existsSync(candidate)) return candidate;
-  }
-  return undefined;
-}
+/** Chromium 解析（实现回抽到 `lib/browser-toolchain.mjs`，复核 J8）。 */
+const resolveChrome = resolveChromeExecutable;
 
 /** 起了「独立进程组」的子进程 pid（pnpm → next dev 这类多跳链：整组信号才不漏孙进程）。 */
 const groupLeaderPids = new Set();
@@ -468,33 +465,9 @@ async function ensureWeb(plannedPort) {
   }
 }
 
-/** 页面里的 daemon 请求 → Node 侧转发（绕开浏览器 CORS）。 */
+/** 页面里的 daemon 请求 → Node 侧转发（绕开浏览器 CORS；实现见 `lib/browser-toolchain.mjs`）。 */
 async function routeDaemon(page) {
-  await page.route(`**${DAEMON_PREFIX}/**`, async (route) => {
-    const request = route.request();
-    const parsed = new URL(request.url());
-    const target = `${daemonUrl}${parsed.pathname.replace(DAEMON_PREFIX, '')}${parsed.search}`;
-    try {
-      const response = await fetch(target, {
-        method: request.method(),
-        headers: { 'content-type': 'application/json' },
-        ...(request.method() === 'GET' || request.method() === 'HEAD'
-          ? {}
-          : { body: request.postData() ?? '{}' }),
-      });
-      await route.fulfill({
-        status: response.status,
-        contentType: 'application/json',
-        body: await response.text(),
-      });
-    } catch (error) {
-      await route.fulfill({
-        status: 502,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: false, message: String(error) }),
-      });
-    }
-  });
+  await forwardDaemonRequests(page, daemonUrl, DAEMON_PREFIX);
 }
 
 /** 主流程。 */

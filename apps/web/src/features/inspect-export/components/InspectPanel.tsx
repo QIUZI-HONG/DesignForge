@@ -40,6 +40,12 @@ export interface InspectPanelProps {
   selection: Selection;
   /** 导出目标的文档 id（daemon `/export` 请求用）。 */
   documentId: string;
+  /**
+   * 导出目标的页面 id（daemon `/export` 请求用）。
+   * 缺省沿用 `pageId`（门禁/预览夹具里画布页面 id 与 daemon 页面 id 同址）；
+   * 编辑器宿主传 daemon 的 `page-{N}`——两套坐标系不同，必须能分开给（A3/D-2）。
+   */
+  exportPageId?: string;
   /** 导出客户端（宿主注入；门禁/测试一律注入假实现）。 */
   client?: ExportClient;
   /** 复制实现（透传给代码区；测试注入）。 */
@@ -52,6 +58,7 @@ export function InspectPanel({
   pageId,
   selection,
   documentId,
+  exportPageId,
   client,
   copyText,
 }: InspectPanelProps) {
@@ -146,7 +153,7 @@ export function InspectPanel({
 
       <ExportPanel
         documentId={documentId}
-        pageId={pageId}
+        pageId={exportPageId ?? pageId}
         {...(client === undefined ? {} : { client })}
       />
     </section>

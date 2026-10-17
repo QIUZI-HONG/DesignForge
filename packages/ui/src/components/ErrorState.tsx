@@ -9,6 +9,10 @@
  * 口径：重试按钮 + 错误码（借鉴 A9「错误标签页 7 类」的形状：标题 + 描述 + 重试）；
  * `retrying` 时重试按钮进加载态（不拆按钮，避免页面跳动）。
  * 文案（标题/描述/重试名）与错误码全由调用方给。
+ *
+ * 分层（G6 / UX-16）：人话（标题 + 描述）在主位；内部错误码属诊断信息——
+ * 调用方给 `diagnosticsLabel` 时收进 `<details>` 折叠（默认收起，可展开复制报障），
+ * 不给则维持原样的次级小字（`_design` 展示页等既有用法不受影响）。
  */
 import type { ReactNode } from 'react';
 
@@ -22,6 +26,8 @@ export interface ErrorStateProps {
   description?: ReactNode;
   /** 错误码（如 `E_NET_503`）；便于用户报障与日志定位。 */
   code?: string;
+  /** 诊断信息折叠的标题（i18n 文案由调用方给）；给了才折叠错误码。 */
+  diagnosticsLabel?: string;
   /** 重试回调；与 `retryLabel` 同时给出才渲染重试按钮。 */
   onRetry?: () => void;
   /** 重试按钮文案（由调用方给）。 */
@@ -38,6 +44,7 @@ export function ErrorState({
   title,
   description,
   code,
+  diagnosticsLabel,
   onRetry,
   retryLabel,
   retrying = false,
@@ -50,7 +57,14 @@ export function ErrorState({
       <div className="dfg-state__art">{art ?? <AlertTriangleIcon size={48} />}</div>
       <div className="dfg-state__title">{title}</div>
       {description === undefined ? null : <p className="dfg-state__desc">{description}</p>}
-      {code === undefined ? null : <span className="dfg-state__code">{code}</span>}
+      {code === undefined ? null : diagnosticsLabel === undefined ? (
+        <span className="dfg-state__code">{code}</span>
+      ) : (
+        <details className="dfg-state__diagnostics">
+          <summary className="dfg-state__diagnostics-toggle">{diagnosticsLabel}</summary>
+          <span className="dfg-state__code">{code}</span>
+        </details>
+      )}
       {showRetry ? (
         <div className="dfg-state__action">
           <Button variant="secondary" loading={retrying} onClick={onRetry}>

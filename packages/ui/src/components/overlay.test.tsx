@@ -1,8 +1,9 @@
 /**
- * 浮层族行为测试（F1 模态族 / F2 抽屉族）。
+ * 浮层族行为测试（F1 模态族 / F2 抽屉族 / Overlay 整屏层）。
  *
- * 断言角度：dialog 语义与可访问名、Esc 关闭、焦点陷阱（Tab 回环）、
- * 关闭后焦点归还、滚动锁、遮罩点击、抽屉的宽度分级与「关闭记忆」。
+ * 断言角度：dialog 语义与可访问名、Esc 关闭（只关最内层）、焦点陷阱（Tab 回环）、
+ * 关闭后焦点归还/交接、滚动锁、遮罩点击、抽屉的宽度分级与「关闭记忆」、
+ * Overlay 的**栈序 z 序**（后开必在上——D-4 的根因回归）。
  */
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -12,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Button } from './Button';
 import { Drawer } from './Drawer';
 import { Modal } from './Modal';
+import { Overlay } from './Overlay';
 
 /** 受控宿主：模拟调用方的开合管理。 */
 function ModalHost({ closeOnBackdrop = true }: { closeOnBackdrop?: boolean }) {
@@ -201,5 +203,130 @@ describe('Drawer（F2 抽屉族）', () => {
       </Drawer>,
     );
     expect(screen.getByRole('dialog', { name: 'AI 助手' })).toBeTruthy();
+  });
+});
+
+describe('Overlay（整屏视图层——接入同一浮层栈）', () => {
+  /** 抽屉 + 浮层同屏（C1 实测场景：版本抽屉开着 → 打开并排对比）。 */
+  function DrawerThenOverlayHost({ closeOnEsc = true }: { closeOnEsc?: boolean }) {
+    const [drawerOpen, setDrawerOpen] = useState(true);
+    const [overlayOpen, setOverlayOpen] = useState(true);
+    return (
+      <>
+        <Drawer
+          open={drawerOpen}
+          onOpenChange={setDrawerOpen}
+          title="版本历史"
+          closeLabel="关闭版本历史"
+        >
+          <button type="button" onClick={() => setOverlayOpen(true)}>
+            对比
+          </button>
+        </Drawer>
+        <Overlay
+          open={overlayOpen}
+          onOpenChange={setOverlayOpen}
+          label="版本对比"
+          closeOnEsc={closeOnEsc}
+        >
+          <button type="button">确认恢复</button>
+        </Overlay>
+      </>
+    );
+  }
+
+  it('后开的 Overlay 层序高于先开的 Drawer（z 序按栈序推导，不靠挂 body 的先后）', () => {
+    render(<DrawerThenOverlayHost />);
+    const drawer = screen.getByRole('dialog', { name: '版本历史' });
+    const overlay = screen.getByRole('dialog', { name: '版本对比' });
+    const drawerBackdrop = drawer.parentElement as HTMLElement;
+    const drawerZ = Number(drawerBackdrop.style.zIndex);
+    const overlayZ = Number(overlay.style.zIndex);
+    expect(Number.isFinite(drawerZ)).toBe(true);
+    expect(Number.isFinite(overlayZ)).toBe(true);
+    expect(overlayZ).toBeGreaterThan(drawerZ);
+  });
+
+  it('Overlay 内的按钮在层序内仍是真实可点控件（指针不被抽屉截走）', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(
+      <>
+        <Drawer open onOpenChange={() => {}} title="版本历史" closeLabel="关闭版本历史">
+          <p>抽屉内容</p>
+        </Drawer>
+        <Overlay open onOpenChange={() => {}} label="版本对比">
+          <button type="button" onClick={onConfirm}>
+            确认恢复
+          </button>
+        </Overlay>
+      </>,
+    );
+    const overlay = screen.getByRole('dialog', { name: '版本对比' });
+    const confirm = screen.getByRole('button', { name: '确认恢复' });
+    expect(overlay.contains(confirm)).toBe(true);
+    await user.click(confirm);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('Esc 只关最内层：先关 Overlay，再关 Drawer（各自触发一次）', async () => {
+    const user = userEvent.setup();
+    render(<DrawerThenOverlayHost />);
+    expect(screen.getByRole('dialog', { name: '版本对比' })).toBeTruthy();
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '版本对比' })).toBeNull();
+    });
+    // 抽屉仍在：同一次 Esc 没有波及外层
+    expect(screen.getByRole('dialog', { name: '版本历史' })).toBeTruthy();
+  });
+
+  it('closeOnEsc=false 时 Esc 交回调用方（本层不关）', async () => {
+    const user = userEvent.setup();
+    render(<DrawerThenOverlayHost closeOnEsc={false} />);
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: '版本对比' })).toBeTruthy();
+  });
+
+  it('打开后焦点落在层内；关闭后交还下层层顶（抽屉）', async () => {
+    const user = userEvent.setup();
+    function Host() {
+      const [overlayOpen, setOverlayOpen] = useState(true);
+      return (
+        <>
+          <Drawer open onOpenChange={() => {}} title="版本历史" closeLabel="关闭版本历史">
+            <button type="button">抽屉内按钮</button>
+          </Drawer>
+          <Overlay
+            open={overlayOpen}
+            onOpenChange={setOverlayOpen}
+            label="版本对比"
+            data-df-version-compare=""
+          >
+            <button type="button">确认恢复</button>
+          </Overlay>
+        </>
+      );
+    }
+    render(<Host />);
+    const overlay = screen.getByRole('dialog', { name: '版本对比' });
+    expect(overlay.contains(document.activeElement) || document.activeElement === overlay).toBe(
+      true,
+    );
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '版本对比' })).toBeNull();
+    });
+    const drawer = screen.getByRole('dialog', { name: '版本历史' });
+    expect(drawer.contains(document.activeElement) || document.activeElement === drawer).toBe(true);
+  });
+
+  it('data-* 挂点透传到浮层根（门禁取样契约）', () => {
+    render(
+      <Overlay open onOpenChange={() => {}} label="版本对比" data-df-version-compare="">
+        <span>内容</span>
+      </Overlay>,
+    );
+    expect(document.querySelectorAll('[data-df-version-compare]').length).toBe(1);
   });
 });

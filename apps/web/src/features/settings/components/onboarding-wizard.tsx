@@ -18,6 +18,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { useState } from 'react';
 
 import { t } from '@/i18n';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 import type { SettingsApi } from '../api/settings-api';
 import {
@@ -164,9 +165,11 @@ function StepItem({ id, status }: { id: SettingsSectionId; status: OnboardingSte
   );
 }
 
-/** 默认完成动作：进入冷启动页（空库 → 一键示例）。 */
+/** 默认完成动作：进入冷启动页（空库 → 一键示例）；端点参数经单点续写（D-3/UX-01）。 */
 function defaultFinish(): void {
-  if (typeof window !== 'undefined') window.location.assign('/settings/welcome');
+  if (typeof window !== 'undefined') {
+    window.location.assign(withDaemonEndpoint('/settings/welcome'));
+  }
 }
 
 /** OnboardingWizard props。 */

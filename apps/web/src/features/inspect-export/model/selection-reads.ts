@@ -14,6 +14,8 @@ import {
   type Selection,
 } from '@dforge/engine';
 
+import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
+
 /** 一行属性摘要。 */
 export interface InspectFieldRead {
   /** 标签的 i18n 键（文案真源在 messages）。 */
@@ -56,14 +58,16 @@ export function readInspectSummary(page: ScenePage, selection: Selection): Inspe
   if (fill !== undefined) {
     fields.push({
       labelKey: 'editor.inspect.field.fill',
-      value: fill.type === 'solid' ? fill.color : (fill.stops[0]?.color ?? '—'),
+      value: fill.type === 'solid' ? fill.color : (fill.stops[0]?.color ?? UNAVAILABLE_PLACEHOLDER),
     });
   }
 
   const stroke = node.strokes[0];
   if (stroke !== undefined && isPaintVisible(stroke.paint)) {
     const color =
-      stroke.paint.type === 'solid' ? stroke.paint.color : (stroke.paint.stops[0]?.color ?? '—');
+      stroke.paint.type === 'solid'
+        ? stroke.paint.color
+        : (stroke.paint.stops[0]?.color ?? UNAVAILABLE_PLACEHOLDER);
     fields.push({
       labelKey: 'editor.inspect.field.stroke',
       value: `${format(stroke.width)} · ${color}`,

@@ -183,7 +183,7 @@ describe('评论层 · 落草稿与提交', () => {
     expect(screen.queryByPlaceholderText('写下你的评论…')).toBeNull();
   });
 
-  it('空正文提交：给出错误提示且不落线程', () => {
+  it('空正文：发布按钮禁用（空内容禁发）且不落线程', () => {
     const session = renderLayer();
     act(() => {
       session.comments.getState().setMode(true);
@@ -192,9 +192,25 @@ describe('评论层 · 落草稿与提交', () => {
       clientX: 30,
       clientY: 30,
     });
-    fireEvent.click(screen.getByRole('button', { name: '发布' }));
+    const publish = screen.getByRole('button', { name: '发布' }) as HTMLButtonElement;
+    // UX-13：空内容禁发——按钮禁用（而不是点了才报错）
+    expect(publish.disabled).toBe(true);
+    fireEvent.click(publish);
     expect(session.comments.getState().threads).toHaveLength(0);
-    expect(screen.getByRole('alert').textContent).toContain('不能为空');
+    expect(screen.getByPlaceholderText('写下你的评论…')).toBeDefined();
+  });
+
+  it('草稿出现即自动聚焦（点完画布就能直接打字）', () => {
+    const session = renderLayer();
+    act(() => {
+      session.comments.getState().setMode(true);
+    });
+    fireEvent.click(screen.getByRole('button', { name: '在画布上添加评论' }), {
+      clientX: 30,
+      clientY: 30,
+    });
+    const draft = screen.getByPlaceholderText('写下你的评论…');
+    expect(document.activeElement).toBe(draft);
   });
 
   it('评论模式下点画布：命中半径内的钉点优先打开线程而不是叠新草稿', () => {

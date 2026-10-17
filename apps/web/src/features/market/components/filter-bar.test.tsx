@@ -29,6 +29,7 @@ function setup(overrides: Partial<MarketFilters> = {}) {
       scenes={['ppt-design', 'web-app']}
       installedView={false}
       total={12}
+      globalTotal={12}
       loadableCount={9}
       generatedAt="2026-10-15T22:40:00Z"
       onChange={onChange}
@@ -125,6 +126,7 @@ describe('FilterBar · 清空与计数', () => {
         scenes={[]}
         installedView={false}
         total={null}
+        globalTotal={null}
         loadableCount={null}
         generatedAt={null}
         onChange={vi.fn()}
@@ -133,5 +135,45 @@ describe('FilterBar · 清空与计数', () => {
       />,
     );
     expect(screen.getByText('正在加载市场索引…')).toBeTruthy();
+  });
+
+  it('daemon 不可达（countUnavailable）时统计显示「—」，不显示 0、也不说「正在加载」（UX-19）', () => {
+    render(
+      <FilterBar
+        filters={INITIAL_MARKET_FILTERS}
+        scenes={[]}
+        installedView={false}
+        total={null}
+        globalTotal={null}
+        loadableCount={null}
+        generatedAt={null}
+        countUnavailable
+        onChange={vi.fn()}
+        onInstalledViewChange={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('—')).toBeTruthy();
+    expect(screen.queryByText('正在加载市场索引…')).toBeNull();
+  });
+
+  it('筛选后统计行区分「全局 N / 当前结果 M」（0 不冒充全量口径）', () => {
+    render(
+      <FilterBar
+        filters={{ ...INITIAL_MARKET_FILTERS, category: '设计系统' }}
+        scenes={[]}
+        installedView={false}
+        total={0}
+        globalTotal={344}
+        loadableCount={298}
+        generatedAt={null}
+        onChange={vi.fn()}
+        onInstalledViewChange={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('全局 344 个资源（可装载 298 个）· 当前结果 0 个')).toBeTruthy();
+    // 不再混说成「共 0 个资源 · 可装载 298 个」
+    expect(screen.queryByText('共 0 个资源 · 可装载 298 个')).toBeNull();
   });
 });

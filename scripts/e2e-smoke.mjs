@@ -47,6 +47,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { resolveChromeExecutable } from './lib/browser-toolchain.mjs';
 import { freePort, startFixtureDaemon, startSameOriginGateway } from './lib/gates.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -114,17 +115,9 @@ async function waitForHttp(url, timeoutMs, label) {
   return false;
 }
 
-/** 缓存的 Chromium 可执行文件（研究 #5：playwright-core 1.63 需显式 executablePath）。 */
-function resolveChrome() {
-  if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) return process.env.BENCH_CHROME_EXECUTABLE;
-  const cacheRoot = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(cacheRoot)) return undefined;
-  const candidates = readdirSync(cacheRoot)
-    .filter((name) => name.startsWith('chromium-'))
-    .sort()
-    .map((name) => join(cacheRoot, name, 'chrome-linux64', 'chrome'));
-  return candidates.find((file) => existsSync(file));
-}
+/** 缓存的 Chromium 可执行文件（研究 #5：playwright-core 1.63 需显式 executablePath）。
+ *  实现回抽到 `lib/browser-toolchain.mjs`（复核 J8：一处实现，不再第三份）。 */
+const resolveChrome = resolveChromeExecutable;
 
 // ---------------------------------------------------------------------------
 // 子进程登记与清理（任何退出路径都不得留残留进程）

@@ -11,7 +11,10 @@ import type { DocumentSummary } from '@dforge/contracts';
  * ——市场索引由采集线产出，没跑采集时本就该是空的。
  *
  * B10 无账号简化版：没有头像/账号位，改为「本地优先 · 无需账号」提示 + 设置/快捷键入口；
- * 两条入口在目标页落地前保持禁用并给理由（F15），不做点了没反应的假入口。
+ * 两条入口都是**可用链接**（修复批次 4 · D2/UX-09：修复前硬编码禁用且理由停留在「随后续版本接入」）：
+ * - 「设置」 → `/settings`（FE-09 已交付）；
+ * - 「键盘快捷键」 → `/editor?shortcuts=1`（编辑器落地即打开快捷键说明，E8 已交付）。
+ * 两条地址都经 `useDaemonEndpointHref` 续写当前 daemon 端点参数（B 包单点口径）。
  */
 import {
   Button,
@@ -25,6 +28,7 @@ import {
 import { useId, useState } from 'react';
 
 import { t } from '@/i18n';
+import { useDaemonEndpointHref } from '@/lib/daemon-href';
 import type { MarketSearchHit } from '../api/market';
 import { GearIcon, TemplateIcon } from '../icons';
 
@@ -33,6 +37,8 @@ export interface MarketPanelState {
   loading: boolean;
   available: boolean;
   items: MarketSearchHit[];
+  /** 检索索引降级（E1 补口 · 复核 Spec c）：结果照常展示 + 「暂按字面匹配」提示。 */
+  degraded?: boolean;
 }
 
 /** 顶栏 props。 */
@@ -61,6 +67,9 @@ export function HomeTopbar({
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
   const panelId = useId();
+  // 设置/快捷键入口地址（D2）：续写当前 daemon 端点参数；首帧与 SSR 一致（无参数），挂载后补写
+  const settingsHref = useDaemonEndpointHref('/settings');
+  const shortcutsHref = useDaemonEndpointHref('/editor?shortcuts=1');
   const showPanel = searchFocused && !searchCollapsed && query.trim() !== '';
   const nothingFound = documentHits.length === 0 && market.items.length === 0 && !market.loading;
 
@@ -144,6 +153,9 @@ export function HomeTopbar({
                 onSelect: () => onOpenMarket(hit.id),
               }))}
               onSelected={() => setSearchCollapsed(true)}
+              // 检索索引降级（E1 补口 · 复核 Spec c）：与市场页同一条提示（复用同一 i18n 键），
+              // 结果照常展示——不误导用户以为「字面命中就是全部」。
+              {...(market.degraded === true ? { note: t('market.warning.searchDegraded') } : {})}
             />
             {nothingFound ? (
               <div className="dfg-home__searchempty">
@@ -206,14 +218,12 @@ export function HomeTopbar({
                   id: 'settings',
                   label: t('home.settings.item'),
                   icon: <GearIcon />,
-                  disabled: true,
-                  disabledReason: t('home.settings.itemDisabled'),
+                  href: settingsHref,
                 },
                 {
                   id: 'shortcuts',
                   label: t('home.settings.shortcuts'),
-                  disabled: true,
-                  disabledReason: t('home.settings.shortcutsDisabled'),
+                  href: shortcutsHref,
                 },
               ] satisfies MenuItemSpec[],
             },
@@ -231,6 +241,7 @@ function SearchSection({
   empty,
   loading = false,
   onSelected,
+  note,
 }: {
   title: string;
   items: Array<{ id: string; label: string; onSelect: () => void }>;
@@ -238,10 +249,17 @@ function SearchSection({
   loading?: boolean;
   /** 选中后的收尾（父级收面板）。 */
   onSelected?: () => void;
+  /** 组级提示（如检索降级「暂按字面匹配」；给了才渲染）。 */
+  note?: string;
 }) {
   return (
     <div className="dfg-home__searchgroup">
       <div className="dfg-home__searchgroup-title">{title}</div>
+      {note === undefined ? null : (
+        <div className="dfg-home__searchgroup-note" role="status">
+          {note}
+        </div>
+      )}
       {items.length === 0 ? (
         <div className="dfg-home__searchgroup-empty">
           {loading ? t('home.search.loading') : empty}

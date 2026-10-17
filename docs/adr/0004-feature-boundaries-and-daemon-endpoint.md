@@ -167,3 +167,94 @@
 - **待裁决项**：v2 `digestScope`（文本子集摘要）+ 双写过渡（《技能市场规格 v1》§1.5.3）；
   裁决后按该路径实施，并同步更新规格、`guard:vocab` 相关门禁口径与本 ADR 的结论条目。
 - **本批状态**：仅预留接入点（本补记即登记）；不改 `computeAssetDigest` 的行为与签名。
+
+## 补记 · ① daemon 端点随站内导航传递（修复批次 4 · 工作包 B）
+
+日期：2026-10-16（缺陷来源 D-3 / UX-01：客户端跳转丢 `?daemon=`，下一页面回退端口窗探测，
+在同源网关/非默认端口形态下整页「无法连接本地服务」。上文 ① 的解析顺序结论不动，
+本条只**追加**「端点的站内传递」这一子口径。）
+
+- **单点新增（纯函数，仍在 `apps/web/src/lib/daemon-endpoint.ts`）**：
+  `withDaemonEndpoint(href, options?)` —— 当前页带**合法** `?daemon=`（http/https 绝对地址）
+  时把同一参数续写到站内地址；否则**原样返回**（canonical / env 注入形态的 URL 保持干净）。
+  只动 `daemon` 这一个参数（不用 `URLSearchParams` 重建整串——它会把 `%20` 规范化成 `+`，
+  改变既有地址的字节形态）；幂等（已有同名参数则覆盖）；保留 `#hash`；站外地址不改
+  （不把本地端点泄到站外）。
+- **React 绑定拆独立模块**：`apps/web/src/lib/daemon-href.ts` 的 `useDaemonEndpointHref(href)`
+  —— 首帧返回基址（与 SSR 输出逐字一致，避免 hydration 属性不一致），挂载后经 effect 补写。
+  为什么不在单点模块里：单点模块经 `features/market` 数据面被 Server Component
+  （`app/market/layout.tsx`）间接导入，挂 React hook 会让 `next build` 失败（RSC 边界）。
+- **纪律**：站内 `Link`/客户端跳转一律经该单点构造地址（`href=` / `router.push` /
+  `window.location.assign` 三类入口一次收口），不得各自拼查询串；本轮覆盖首页卡片→编辑器、
+  首页市场命中→市场、市场卡片→详情、详情→返回市场、市场面板→详情、看板→市场、
+  冷启动→编辑器与返回首页、引导→冷启动页。
+- **回归固定**：`scripts/e2e/scenarios/nav.mjs`（同源网关形态：跳转后 URL 携带端点参数、
+  取数请求经网关 `/df`、全程无 4318 越权调用与 CORS 类错误）。
+
+## 补记 · ① app → services 依赖方向例外与 `./ads` 服务公开面登记（修复批次 4 · code-review 整改）
+
+日期：2026-10-16（复核 H1；上文 ① 的解析顺序结论不动，本条只**登记依赖方向与公开面**，
+不改任何解析行为。）
+
+- **事实**：daemon 的市场检索消费 `@dforge/ingest/ads`——`apps/daemon/src/market/search-index.ts`
+  与 `apps/daemon/src/market/service.ts` 直接引入 ingest 的 `searchMarketIndex`
+  （`import { searchMarketIndex } from '@dforge/ingest/ads'`）。
+- **为什么是必然的（不是随手跨界）**：检索语义（中文重叠二元组切词 + 术语等价类扩展 +
+  BM25 k1/b 打分）必须与 CLI `df market search` **同一条代码路径**——在 daemon 里重抄第二份
+  必然与 ingest 层漂移（中文分词口径漂移正是本仓已登记过的词表债同族），表现为
+  「UI 命中 ≠ CLI 命中」（UX-08 缺陷现场即此）。故按「实现单一真源」裁决保留该方向，
+  并在此登记为**依赖方向命名例外**：`apps/** → services/**` 允许（守卫预留口径
+  `apps → services/tools → packages` 本已涵盖此方向，此处补记防误判为越界）。
+- **`./ads` 子路径 = 服务包公开面**：`services/ingest/package.json` 的 `exports` 只暴露
+  `.`（采集全链）与 `./ads`（ADS 检索层：index/terms/search/schema/pipeline）两个入口。
+  daemon **只能经 `./ads` 子路径**消费（禁深导入 `services/ingest/src/**`）；运行时只装载 ADS 层，
+  **不**把采集线与 Parquet 依赖带进 daemon 进程（daemon 的 `package.json` 仅声明 `@dforge/ingest`）。
+  该子路径即服务包的公开面登记项（ADR-0004 ② 口径的「服务包版」）。
+- **门禁可见性**：`scripts/guard-deps.mjs` 是四守卫挂点之一（未接入 CI 前一律 `exit 2` 阻塞）；
+  其头注释已按本条口径写明预期（允许方向 + `./ads` 公开面 + 深导入判违规），
+  接入时无需再翻本 ADR 之外的出处。
+
+## 补记 · ② 新增公开面与登记例外清单增补（修复批次 4 · code-review 整改）
+
+日期：2026-10-16（复核 Spec b2/b3/b6 · P2-15；上文 ② 与「样式入口」补记的既有例外结论不动，
+本条按 ② 的「新增跨边界消费 = 显式加行」纪律**逐条登记**本轮新增面。）
+
+- **`packages/ui` 新增公开面（包级 `index.ts` 显式导出，正常加行）**：
+  `Overlay`（+ `type OverlayProps`）——演示舞台等全屏浮层与抽屉/模态走同一条浮层栈
+  （C1/D-4 修复的落点）；`MenuItemSpec.href`（链接条目渲染为 `<a role="menuitem">`）——
+  首页「设置 / 键盘快捷键」入口接通（D2/UX-09）的承载面；消费方为 `apps/web`（经包公开面导入，
+  不深导入 `packages/ui/src/**`）。
+- **canvas feature barrel 的 workspace 接缝**：`features/canvas/index.ts` 显式导出
+  `getWorkspace` / `setWorkspace` / `subscribeWorkspace` / `resetWorkspace` 与 `type EditorWorkspace`
+  ——评审会话（FE-07）的文档端口与画布必须读**同一份**文档真值（演示判定/版本快照），
+  这是刻意的跨 feature 公开面（不是深导入例外）。`connectDocumentBridge` 虽从 `./register.tsx`
+  导出，但按上文 ② 的 register 接缝口径，**只有** `app/**` 路由层与同 feature 测试可用。
+- **contracts `describeDocumentNameIssue`**：新建文件对话框的分因前置校验（空 / 超长 ≤64 /
+  非法字符 / 重名分流，G2/UX-11）由 `packages/contracts/src/documents` 公开面承载，
+  前端与 daemon 共源同判据（`DOCUMENT_NAME_MAX_LENGTH` 一并导出）；消费方经
+  `@dforge/contracts` 包公开面导入。
+- **无新增深导入例外**：以上三条都是「经公开面显式加行」的正常形态；本轮未出现
+  feature→feature 深导入或 `services/**` 深导入的新增（daemon→`./ads` 见上一条补记）。
+  若后续出现，仍按 ② 的纪律先在 `scripts/guard-feature-boundaries.mjs` 的
+  `REGISTERED_EXCEPTIONS` 登记并在此补行，未登记形态不得静默放行。
+
+## 补记 · 批次 4 复核遗留债登记（daemon 页面 id 约定与默认页名 / 浏览器工具链副本）
+
+日期：2026-10-16（code-review 整改收口；**已就地收敛的部分不在本清单**——
+「不可用占位符 `'—'`」已抽 `apps/web/src/lib/unavailable.ts` 单点，
+canvas 装配层与 `/_canvas` 夹具的默认页名已改走引擎缺省 `createPage`。本清单只留
+「就地收敛超出本批预算」的两项，**登记为债、不静默**。）
+
+- **债一：daemon 页面 id 约定（`page-{N}`）与默认页名（`'页面 1'`）跨包重复表达。**
+  事实位置：daemon 侧 `apps/daemon/src/documents/store.ts`（`page-${counter}` 分配与
+  `'page-1'` / `'页面 1'` 初值）、web 侧 `apps/web/src/features/canvas/persistence/documents-client.ts`
+  的 `daemonPageId()`（同规则的第二份表达）、引擎缺省 `packages/engine/src/model/document.ts`
+  的 `name: init.name ?? '页面 1'`。收敛方案（建议）：把「页面 id 约定 + 默认页名」提升为
+  `@dforge/contracts` 的具名常量与函数（daemon 分配器与 web 客户端共用），并在
+  `guard:vocab` 家族加一条「同源」判据。**为什么本批不做**：daemon 落盘格式与既有 `.dfg`
+  数据的兼容面在此约定上（分配器改了要跑 daemon 全量测试与迁移判据），超出 P2 卫生预算。
+- **债二：Chromium 解析副本仍在 figma 系列门禁。** 本轮已把 `lib/browser-toolchain.mjs`
+  作为单点，并收口 `lib/ui-mount` / `verify-canvas` / `e2e-smoke` 三处消费；
+  `verify-figma-*.mjs`（component/editor/panels/inspect/home）与 `verify-shell-parity.mjs`
+  仍各存一份 `resolveChrome`。收敛方案：随下一次「façade 清理」小票逐文件替换为
+  `resolveChromeExecutable()`（替换是机械的，但每个文件都要重跑其门禁，不宜与本次整改混跑）。

@@ -68,8 +68,8 @@ export type CommentsStore = StoreApi<CommentsUiState>;
 export interface CommentsStoreOptions {
   /** 归属文档（持久化键空间按文档隔离）。 */
   documentId: string;
-  /** 当前页面 id（新评论落在当前页）。 */
-  pageId: PageId;
+  /** 当前页面 id（新评论落在当前页）；给函数则**每次建线程时取值**（载入/切页后跟随）。 */
+  pageId: PageId | (() => PageId);
   /** 当前用户显示名（评论署名）。 */
   author: string;
   /** 本地后端；省略用 localStorage（测试注入内存后端）。 */
@@ -94,6 +94,9 @@ export function createCommentsStore(options: CommentsStoreOptions): CommentsStor
   if (options.onWriteError !== undefined) storageOptions.onWriteError = options.onWriteError;
   const storage = createLocalStore<CommentThread>(storageOptions);
   const initialThreads = storage.load();
+  /** 当前页面 id 的即时读法（函数形式支持「载入/切页后跟随」）。 */
+  const currentPageId = (): PageId =>
+    typeof options.pageId === 'function' ? options.pageId() : options.pageId;
 
   /** 写回 + 持久化（唯一出口：任何线程变更都经这里落盘）。 */
   const commit = (
@@ -146,7 +149,7 @@ export function createCommentsStore(options: CommentsStoreOptions): CommentsStor
       try {
         created = createThread({
           id: nextId(),
-          pageId: options.pageId,
+          pageId: currentPageId(),
           anchor,
           author: options.author,
           body,

@@ -592,6 +592,15 @@
   border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
 }
 
+/* ---------- Overlay（整屏视图层：接入同一浮层栈的第三种形态） ---------- */
+
+.dfg-overlay {
+  position: fixed;
+  inset: 0;
+  /* z-index 由组件按浮层栈序内联注入（后开必在上）；此处只兜底层归属 */
+  isolation: isolate;
+}
+
 /* ---------- Toast（F11：底部居中胶囊 + 内嵌撤销） ---------- */
 
 .dfg-toast-region {
@@ -724,6 +733,16 @@
   font-size: var(--dfg-font-size-11);
   color: var(--dfg-color-text-disabled);
   letter-spacing: var(--dfg-letter-spacing-wide);
+}
+
+/* 诊断信息折叠（G6）：人话在主位、内部错误码按需展开（默认收起） */
+.dfg-state__diagnostics {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-state__diagnostics-toggle {
+  cursor: pointer;
 }
 
 /* ---------- Spinner / 骨架 / 进度（F13：加载态族） ---------- */

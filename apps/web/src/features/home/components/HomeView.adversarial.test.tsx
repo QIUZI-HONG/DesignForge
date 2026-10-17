@@ -50,12 +50,13 @@ function renderHome(gateway: {
     <ToastProvider>
       <HomeView
         documents={gateway}
-        searchMarket={async () => ({ available: true, items: [] })}
+        searchMarket={async () => ({ available: true, items: [], searchDegraded: false })}
         now={() => NOW}
         store={store}
         searchDebounceMs={0}
         onOpenDocument={() => undefined}
         onOpenMarket={() => undefined}
+        onOpenAi={() => undefined}
       />
     </ToastProvider>,
   );
@@ -139,7 +140,7 @@ describe('对抗 · 新建对话的重复提交', () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it('创建失败（同名 doc_exists）→ Toast 原样展示 daemon 文案，不静默', async () => {
+  it('创建失败（同名 doc_exists）→ Toast 用专用分因文案（点名冲突名），不透出 daemon 原文', async () => {
     renderHome({
       list: async () => ({ documents: [], warnings: [] }),
       create: async () => {
@@ -153,7 +154,9 @@ describe('对抗 · 新建对话的重复提交', () => {
     fireEvent.change(input, { target: { value: '重复名' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(await screen.findByText(/新建失败：同名文档已存在/)).toBeTruthy();
+    expect(await screen.findByText(/新建失败：已存在同名设计文件「重复名」/)).toBeTruthy();
+    // 复核 Spec a3：daemon 的原文（内部口径）不再直出
+    expect(screen.queryByText(/同名文档已存在/)).toBeNull();
   });
 });
 
@@ -168,12 +171,13 @@ describe('对抗 · 搜索与市场降级', () => {
             create: async (name) => summary(name),
             remove: async (id) => ({ id, deleted: true }),
           }}
-          searchMarket={async () => ({ available: false, items: [] })}
+          searchMarket={async () => ({ available: false, items: [], searchDegraded: false })}
           now={() => NOW}
           store={store}
           searchDebounceMs={0}
           onOpenDocument={() => undefined}
           onOpenMarket={() => undefined}
+          onOpenAi={() => undefined}
         />
       </ToastProvider>,
     );
@@ -206,6 +210,7 @@ describe('对抗 · 搜索与市场降级', () => {
           marketSearchDeadlineMs={5}
           onOpenDocument={() => undefined}
           onOpenMarket={() => undefined}
+          onOpenAi={() => undefined}
         />
       </ToastProvider>,
     );
@@ -235,6 +240,7 @@ describe('对抗 · 搜索与市场降级', () => {
           searchDebounceMs={0}
           onOpenDocument={() => undefined}
           onOpenMarket={() => undefined}
+          onOpenAi={() => undefined}
         />
       </ToastProvider>,
     );

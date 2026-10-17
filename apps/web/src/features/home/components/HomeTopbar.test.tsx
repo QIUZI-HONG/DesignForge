@@ -6,10 +6,11 @@
  * - 新建菜单：展开后「设计文件」可选中（回调），「从模板新建」为禁用项（F15：留着理由）；
  * - 全局搜索：输入即出下拉、两条结果线分组（本地文档 / 技能市场）、点结果回调、
  *   Esc 关闭、清除按钮回调；
- * - 设置入口：无账号简化版——下拉含「设置」「键盘快捷键」两条禁用项（页面未落地，给理由）。
+ * - 设置入口（D2）：下拉含「设置」「键盘快捷键」两条**可用链接**（href 续写当前 daemon
+ *   端点参数，指到已交付的设置页 / 编辑器快捷键说明）。
  */
 import type { DocumentSummary } from '@dforge/contracts';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -119,6 +120,35 @@ describe('HomeTopbar · 全局搜索（B9）', () => {
     expect(screen.getByText('正在搜索…')).toBeDefined();
   });
 
+  it('检索索引降级（E1 补口 · 复核 Spec c）→ 市场分组给「暂按字面匹配」提示，结果照常展示', async () => {
+    renderTopbar({
+      query: '幻灯片',
+      market: {
+        loading: false,
+        available: true,
+        items: [{ id: 's/ppt', name: '幻灯片技能', kind: 'skill' }],
+        degraded: true,
+      },
+    });
+    await userEvent.click(screen.getByRole('searchbox', { name: '搜索文件与技能资产' }));
+    // 复用市场页同一条 i18n 键（E 口径）：提示与结果并存，不互相取代
+    expect(screen.getByText(/当前按字面匹配/)).toBeDefined();
+    expect(screen.getByRole('menuitem', { name: '幻灯片技能' })).toBeDefined();
+  });
+
+  it('未降级（degraded 缺省）→ 不给「按字面匹配」提示（不误报）', async () => {
+    renderTopbar({
+      query: '幻灯片',
+      market: {
+        loading: false,
+        available: true,
+        items: [{ id: 's/ppt', name: '幻灯片技能', kind: 'skill' }],
+      },
+    });
+    await userEvent.click(screen.getByRole('searchbox', { name: '搜索文件与技能资产' }));
+    expect(screen.queryByText(/当前按字面匹配/)).toBeNull();
+  });
+
   it('Esc 关闭下拉（焦点路径，不依赖鼠标移开）', async () => {
     renderTopbar({ query: '海报', documentHits: [DOC] });
     const input = screen.getByRole('searchbox', { name: '搜索文件与技能资产' });
@@ -135,16 +165,30 @@ describe('HomeTopbar · 全局搜索（B9）', () => {
   });
 });
 
-describe('HomeTopbar · 设置入口（B10 无账号简化版）', () => {
-  it('展开设置下拉：本地优先提示 + 两条禁用项（页面未落地的如实说明）', async () => {
+describe('HomeTopbar · 设置入口（B10 无账号简化版 / D2）', () => {
+  it('展开设置下拉：两条入口都是可用链接（不再禁用），href 指向已交付目标页', async () => {
+    // 当前页带端点参数（D-3 口径）：入口 href 必须续写它，否则跳转后整页断链
+    const endpoint = 'http://127.0.0.1:4999';
+    const encoded = encodeURIComponent(endpoint);
+    window.history.replaceState(null, '', `/market?daemon=${encoded}`);
     renderTopbar();
     await userEvent.click(screen.getByRole('button', { name: '设置与帮助' }));
     expect(screen.getByText('本地优先 · 无需账号')).toBeDefined();
-    expect(screen.getByRole('menuitem', { name: '设置' }).getAttribute('aria-disabled')).toBe(
-      'true',
-    );
-    expect(screen.getByRole('menuitem', { name: '键盘快捷键' }).getAttribute('aria-disabled')).toBe(
-      'true',
-    );
+
+    const settings = screen.getByRole('menuitem', { name: '设置' });
+    expect(settings.tagName).toBe('A');
+    expect(settings.getAttribute('aria-disabled')).toBeNull();
+    await waitFor(() => {
+      expect(settings.getAttribute('href')).toBe(`/settings?daemon=${encoded}`);
+    });
+
+    const shortcuts = screen.getByRole('menuitem', { name: '键盘快捷键' });
+    expect(shortcuts.tagName).toBe('A');
+    expect(shortcuts.getAttribute('aria-disabled')).toBeNull();
+    await waitFor(() => {
+      expect(shortcuts.getAttribute('href')).toBe(`/editor?shortcuts=1&daemon=${encoded}`);
+    });
+
+    window.history.replaceState(null, '', '/');
   });
 });

@@ -27,10 +27,17 @@ export interface MarketEmptyStateProps {
   onClearFilters?: () => void;
   /** 已装载空态：回市场列表。 */
   onGoMarket?: () => void;
+  /** 无结果附加说明（检索索引降级时「暂按字面匹配」；不改变空态种类与出口）。 */
+  note?: string;
 }
 
 /** 空态（六态之一的 empty 挂点：`data-df-state="empty"`）。 */
-export function MarketEmptyState({ kind, onClearFilters, onGoMarket }: MarketEmptyStateProps) {
+export function MarketEmptyState({
+  kind,
+  onClearFilters,
+  onGoMarket,
+  note,
+}: MarketEmptyStateProps) {
   if (kind === 'index-missing' || kind === 'index-invalid') {
     return (
       <div data-df-state="empty" data-df-empty={kind}>
@@ -71,11 +78,20 @@ export function MarketEmptyState({ kind, onClearFilters, onGoMarket }: MarketEmp
       </div>
     );
   }
+  // 检索索引降级时明确说明当前是字面匹配（UX-08/E1），不误导用户；不改变空态种类与出口
+  const noResultDescription =
+    note === undefined ? (
+      t('market.empty.noResult.desc')
+    ) : (
+      <>
+        {t('market.empty.noResult.desc')} <span data-df-market="empty-note">{note}</span>
+      </>
+    );
   return (
     <div data-df-state="empty" data-df-empty="no-result">
       <EmptyState
         title={t('market.empty.noResult.title')}
-        description={t('market.empty.noResult.desc')}
+        description={noResultDescription}
         action={
           onClearFilters === undefined ? undefined : (
             <Button variant="secondary" onClick={onClearFilters}>
@@ -110,6 +126,7 @@ export function MarketErrorState({
         title={title}
         description={message}
         code={code.toUpperCase()}
+        diagnosticsLabel={t('state.diagnostics')}
         onRetry={onRetry}
         retryLabel={t('market.error.retry')}
       />

@@ -23,6 +23,20 @@ export type ShellLoadPlan =
   | { kind: 'static-export'; rootDir: string; reason: string }
   | { kind: 'fallback'; fileUrl: string; reason: string };
 
+/** 装载目标 stdout 标记前缀（一行 JSON；门禁存活段据此**如实**记录 `target.kind`，含 fallback 诊断页）。 */
+export const LOAD_TARGET_MARKER_PREFIX = 'DFORGE_LOAD_TARGET:';
+
+/**
+ * 装载目标标记（stdout 一行）。
+ *
+ * 为什么要有：存活段（`verify-shell-parity --stage=alive`）不跑自检，没有自检 JSON 里的
+ * `target` 字段；而「壳里到底装的是 dev URL / 静态产物 / 壳内诊断页」是存活证据的必要上下文
+ * （fallback 也如实记，不许猜）。标记由壳在装载完成后打印，门禁解析后写进存活段证据。
+ */
+export function formatLoadTargetMarker(target: { kind: string; url?: string | null }): string {
+  return `${LOAD_TARGET_MARKER_PREFIX}${JSON.stringify({ kind: target.kind, url: target.url ?? null })}`;
+}
+
 /** 解析入参；`exists` 注入以便单测不触盘。 */
 export interface ResolveLoadPlanInput {
   /** 环境变量表（生产传 `process.env`）。 */

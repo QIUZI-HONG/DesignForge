@@ -68,7 +68,7 @@
         },
         "empty": {
           "marker": "data-df-empty=\"not-found\"",
-          "how": "daemon 返回 market_asset_not_found → 资源不存在空态"
+          "how": "daemon 返回 market_asset_not_found（或信封 found=false）→ 独立「未找到该资产」空态 + 去市场出口；设置/连接错误才走错误态（E2 分流）"
         },
         "error": {
           "marker": "data-df-state=\"error\"",
@@ -105,7 +105,7 @@
         },
         "empty": {
           "marker": "data-df-empty=\"no-result\"",
-          "how": "搜索/筛选无命中 → 无结果空态 + 清空筛选"
+          "how": "搜索/筛选无命中 → 无结果空态 + 清空筛选；检索索引降级时附「暂按字面匹配」说明（E1）"
         },
         "error": {
           "marker": "data-df-state=\"error\"",

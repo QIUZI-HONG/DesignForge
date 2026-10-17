@@ -30,8 +30,14 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
-/** 扫描的扩展名。 */
-export const SCAN_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css'];
+/**
+ * 扫描的扩展名。
+ *
+ * `.svg` 也在内（复核 J7）：静态 SVG（如 `app/icon.svg` favicon）里的裸色值同样是「禁裸值」
+ * 的口径泄漏面——此前扫描扩展名漏掉它，等于给 SVG 开了一扇无人察觉的后门；
+ * SVG 无 CSS 运行时（`var()` 不可达），确需基准值的行按行内豁免注释逐行登记理由。
+ */
+export const SCAN_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css', '.svg'];
 
 /** 默认扫描根（相对仓库根）。 */
 export const DEFAULT_ROOTS = ['apps/web/src', 'packages/ui/src'];

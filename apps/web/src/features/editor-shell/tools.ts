@@ -23,11 +23,18 @@ export interface EditorToolSpec {
   shortcut: string;
 }
 
-/** 工具表（顺序即工具条顺序）。 */
+/**
+ * 工具表（顺序即工具条顺序）。
+ *
+ * 工具集合取 Figma 本体的创建类工具面：移动 / 画板 / 矩形 / 椭圆 / 文本 / 抓手。
+ * 快捷键 O（椭圆）与 Figma 一致；工具键在输入区内不派发（见 shortcuts 的输入区保护）。
+ */
 export const EDITOR_TOOLS: readonly EditorToolSpec[] = [
   { id: 'move', icon: MoveIcon, labelKey: 'editor.tool.move', shortcut: 'V' },
   { id: 'frame', icon: FrameIcon, labelKey: 'editor.tool.frame', shortcut: 'F' },
   { id: 'rect', icon: BoxIcon, labelKey: 'editor.tool.rect', shortcut: 'R' },
+  // 椭圆与矩形同族（图标几何归 FE-01：先用同族方框图标，椭圆图标随图标族扩充替换）
+  { id: 'ellipse', icon: BoxIcon, labelKey: 'editor.tool.ellipse', shortcut: 'O' },
   { id: 'text', icon: TextIcon, labelKey: 'editor.tool.text', shortcut: 'T' },
   { id: 'hand', icon: HandIcon, labelKey: 'editor.tool.hand', shortcut: 'H' },
 ];

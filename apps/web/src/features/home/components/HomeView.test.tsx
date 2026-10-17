@@ -66,6 +66,8 @@ function renderHome(
     searchMarket?: Parameters<typeof HomeView>[0]['searchMarket'];
     onOpenDocument?: Parameters<typeof HomeView>[0]['onOpenDocument'];
     onOpenMarket?: Parameters<typeof HomeView>[0]['onOpenMarket'];
+    onOpenAi?: Parameters<typeof HomeView>[0]['onOpenAi'];
+    autoOpenCreate?: boolean;
   } = {},
 ) {
   const fake = options.gateway ?? fakeGateway(options.docs ?? []);
@@ -74,12 +76,17 @@ function renderHome(
     <ToastProvider>
       <HomeView
         documents={fake.gateway}
-        searchMarket={options.searchMarket ?? (async () => ({ available: true, items: [] }))}
+        searchMarket={
+          options.searchMarket ??
+          (async () => ({ available: true, items: [], searchDegraded: false }))
+        }
         now={() => NOW}
         store={store}
         searchDebounceMs={0}
         onOpenDocument={options.onOpenDocument ?? (() => {})}
         onOpenMarket={options.onOpenMarket ?? (() => {})}
+        onOpenAi={options.onOpenAi ?? (() => {})}
+        autoOpenCreate={options.autoOpenCreate ?? false}
       />
     </ToastProvider>,
   );
@@ -110,11 +117,20 @@ describe('HomeView · 加载与三态', () => {
     renderHome({ gateway: fake });
 
     await screen.findByText('无法连接本地服务');
-    expect(screen.getByText('E_DF_DAEMON_UNREACHABLE')).toBeDefined();
+    // 错误码沉到「诊断信息」折叠（G6/UX-16）：人话在主位，默认收起
+    const code = screen.getByText('E_DF_DAEMON_UNREACHABLE');
+    const diagnostics = code.closest('details');
+    expect(diagnostics).not.toBeNull();
+    expect(diagnostics?.open).toBe(false);
+    expect(screen.getByText('诊断信息')).toBeDefined();
+    // 计数不可得时说「—」，不谎报「0 个文档」（UX-19）
+    expect(screen.queryByText('0 个文档')).toBeNull();
+    expect(screen.getByText('—')).toBeDefined();
 
     fake.list.mockResolvedValueOnce({ documents: [summary('海报 A')], warnings: [] });
     await userEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(await screen.findByRole('link', { name: '打开「海报 A」' })).toBeDefined();
+    expect(screen.getByText('1 个文档')).toBeDefined();
   });
 
   it('列表告警（目录损坏）显示为提示条，不阻塞列表', async () => {
@@ -274,12 +290,19 @@ describe('HomeView · 侧栏与回收站空态', () => {
   });
 });
 
-describe('HomeView · AI 提示区（桩）', () => {
-  it('点「打开 AI 助手」→ Toast 说明当前版本未接入（不假装可用）', async () => {
-    renderHome({ docs: [] });
+describe('HomeView · AI 提示区（D3：与编辑器实态同步）', () => {
+  it('点「打开 AI 助手」→ 交回 onOpenAi 导航回调（不再给「暂未接入」Toast）', async () => {
+    const onOpenAi = vi.fn();
+    renderHome({ docs: [], onOpenAi });
     await screen.findByText('还没有设计文件');
     await userEvent.click(screen.getByRole('button', { name: '打开 AI 助手' }));
-    expect(await screen.findByText(/AI 助手随编辑器一起提供/)).toBeDefined();
+    expect(onOpenAi).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/暂未接入/)).toBeNull();
+  });
+
+  it('autoOpenCreate（/?create=1 落点）→ 挂载即打开新建对话框', async () => {
+    renderHome({ docs: [], autoOpenCreate: true });
+    expect(await screen.findByRole('dialog', { name: '新建设计文件' })).toBeDefined();
   });
 });
 
@@ -288,6 +311,7 @@ describe('HomeView · 市场结果线', () => {
     const searchMarket = vi.fn(async () => ({
       available: true,
       items: [{ id: 'skill/a', name: '图标技能', kind: 'skill' as const }],
+      searchDegraded: false,
     }));
     renderHome({ docs: [], searchMarket });
     await screen.findByText('还没有设计文件');

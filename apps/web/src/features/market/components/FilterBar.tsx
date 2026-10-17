@@ -22,6 +22,7 @@ import {
 import type { ReactNode } from 'react';
 
 import { t } from '@/i18n';
+import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 
 import {
   activeFilterCount,
@@ -61,14 +62,22 @@ export interface FilterBarProps {
   installedView: boolean;
   /** 结果计数（索引缺失时为 null，不显示「0 个资源」误导）。 */
   total: number | null;
+  /** 全局资源数（索引 counts.total；用于与「当前结果」分流，E3）。 */
+  globalTotal: number | null;
   /** 可装载计数（索引缺失时 null）。 */
   loadableCount: number | null;
   /** 索引生成时刻（ISO；无索引不显示）。 */
   generatedAt: string | null;
+  /** 计数不可得的原因是否为「服务不可达」（UX-19）：真时显示「—」，不说「正在加载」。 */
+  countUnavailable?: boolean | undefined;
   onChange: (patch: Partial<MarketFilters>) => void;
   onInstalledViewChange: (installed: boolean) => void;
   onClear: () => void;
 }
+
+/** 计数不可得的占位（UX-19；符号量，不入 i18n 目录）。 */
+/** 计数不可用占位（值来自单点 `@/lib/unavailable`，复核 J5）。 */
+export const MARKET_COUNT_UNAVAILABLE = UNAVAILABLE_PLACEHOLDER;
 
 /** 筛选栏。 */
 export function FilterBar({
@@ -76,14 +85,18 @@ export function FilterBar({
   scenes,
   installedView,
   total,
+  globalTotal,
   loadableCount,
   generatedAt,
+  countUnavailable = false,
   onChange,
   onInstalledViewChange,
   onClear,
 }: FilterBarProps) {
   const filterCount = activeFilterCount(filters);
   const kindLabelKeys = new Map(MARKET_KIND_TABS.map((tab) => [tab.value, tab.labelKey]));
+  // E3 口径：筛选/检索后「当前结果」≠ 全局资源数时分别报数，不把筛选后的 0 混说成全量
+  const scoped = total !== null && globalTotal !== null && total !== globalTotal;
 
   return (
     <section style={filterBarStyle} data-df-page="market-home" data-df-market="filter-bar">
@@ -268,12 +281,20 @@ export function FilterBar({
 
       <div style={badgeRowStyle} data-df-market="summary">
         <span style={hintStyle} data-df-market="result-count">
-          {total === null
-            ? t('market.loading')
-            : t('market.summary', {
-                total,
-                loadable: loadableCount ?? 0,
-              })}
+          {countUnavailable
+            ? MARKET_COUNT_UNAVAILABLE
+            : total === null
+              ? t('market.loading')
+              : scoped
+                ? t('market.summaryScoped', {
+                    global: globalTotal,
+                    total,
+                    loadable: loadableCount ?? 0,
+                  })
+                : t('market.summary', {
+                    total,
+                    loadable: loadableCount ?? 0,
+                  })}
         </span>
         {generatedAt === null ? null : (
           <span style={hintStyle}>{t('market.generatedAt', { at: generatedAt })}</span>

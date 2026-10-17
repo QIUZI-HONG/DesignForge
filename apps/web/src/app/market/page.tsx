@@ -27,6 +27,7 @@ import {
   headerStyle,
   hintStyle,
   INITIAL_MARKET_FILTERS,
+  isSearchDegraded,
   isUpdateAvailable,
   LoadConfirmDialog,
   MarketEmptyState,
@@ -44,6 +45,7 @@ import {
   useMarketQuery,
 } from '@/features/market';
 import { t } from '@/i18n';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 /** 市场首页。 */
 export default function MarketHomePage() {
@@ -63,6 +65,7 @@ export default function MarketHomePage() {
     ? { ...filters, loadedOnly: true }
     : filters;
   const outcome = response === null ? null : classifyMarketOutcome(response);
+  const searchDegraded = response !== null && isSearchDegraded(response.warnings);
   const clientFiltered =
     response === null
       ? []
@@ -79,7 +82,8 @@ export default function MarketHomePage() {
   };
 
   const openDetail = (assetId: string): void => {
-    router.push(`/market/${encodeURIComponent(assetId)}`);
+    // 卡片 → 详情：续写当前端点参数（D-3/UX-01）——详情页的取数才能命中同一 daemon
+    router.push(withDaemonEndpoint(`/market/${encodeURIComponent(assetId)}`));
   };
 
   const uninstall = (assetId: string): void => {
@@ -91,7 +95,9 @@ export default function MarketHomePage() {
       ? t('market.warning.partial', {
           message: response?.warnings.map((warning) => warning.message).join('；') ?? '',
         })
-      : null;
+      : searchDegraded
+        ? t('market.warning.searchDegraded')
+        : null;
 
   /**
    * 结果区（三态补齐：加载 / 错误 / 就绪；**任何输入都有分支可匹配**，不得静默空白）。
@@ -127,7 +133,11 @@ export default function MarketHomePage() {
           }}
         />
       ) : (
-        <MarketEmptyState kind="no-result" onClearFilters={clearFilters} />
+        <MarketEmptyState
+          kind="no-result"
+          {...(searchDegraded ? { note: t('market.empty.noResult.literalNote') } : {})}
+          onClearFilters={clearFilters}
+        />
       );
     }
     return (
@@ -162,8 +172,11 @@ export default function MarketHomePage() {
         scenes={scenes}
         installedView={installedView}
         total={response?.total ?? null}
+        globalTotal={response?.counts?.total ?? null}
         loadableCount={response?.counts?.loadable ?? null}
         generatedAt={response?.generatedAt ?? null}
+        // 服务不可达时计数显示「—」而不是「0 个资源」/「正在加载」（UX-19）
+        countUnavailable={status === 'error'}
         onChange={updateFilters}
         onInstalledViewChange={setInstalledView}
         onClear={clearFilters}

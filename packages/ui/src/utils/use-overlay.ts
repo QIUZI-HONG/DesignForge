@@ -60,6 +60,14 @@ export interface OverlayBehaviorOptions {
   open: boolean;
   onClose: () => void;
   containerRef: RefObject<HTMLElement | null>;
+  /**
+   * Esc（栈顶时）是否关闭本层；默认 true。
+   *
+   * 何时置 false：浮层自己已经拥有 Esc 语义（如演示舞台的全局键盘处理）时，
+   * 若两处都处理会出现「同一次 Esc 走两条退出路径」；置 false 后本层只保留
+   * 栈序/焦点/滚动锁语义，Esc 交回调用方。
+   */
+  closeOnEsc?: boolean;
 }
 
 /** 焦点入层：容器内第一个可聚焦元素，没有可聚焦元素则落在容器自身（需 tabIndex=-1）。 */
@@ -116,7 +124,12 @@ function releaseScrollLock(): void {
  *
  * @returns `depth`（供组件提供给子树）、`zIndex`（由栈序推导）、`isTop`（栈顶判定）与 `onKeyDown`（Esc / Tab 回环）
  */
-export function useOverlayBehavior({ open, onClose, containerRef }: OverlayBehaviorOptions) {
+export function useOverlayBehavior({
+  open,
+  onClose,
+  containerRef,
+  closeOnEsc = true,
+}: OverlayBehaviorOptions) {
   const depth = useContext(OverlayDepthContext) + 1;
   const layerRef = useRef<OverlayLayer | null>(null);
   const onCloseRef = useRef(onClose);
@@ -176,7 +189,7 @@ export function useOverlayBehavior({ open, onClose, containerRef }: OverlayBehav
     isTop,
     onKeyDown: (event: ReactKeyboardEvent<HTMLElement> | KeyboardEvent): void => {
       if (!isTop()) return;
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && closeOnEsc) {
         event.preventDefault();
         // 拒绝继续冒泡：同一次 Esc 只归最内层（对非栈顶层则原样放行给栈下各层判定）
         event.stopPropagation();

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveLoadPlan, SHELL_STATIC_ENV, SHELL_URL_ENV } from './load-target.js';
+import {
+  formatLoadTargetMarker,
+  LOAD_TARGET_MARKER_PREFIX,
+  resolveLoadPlan,
+  SHELL_STATIC_ENV,
+  SHELL_URL_ENV,
+} from './load-target.js';
 
 /** 造一个「只认给定文件存在」的存在谓词。 */
 const existsOf = (...paths: string[]) => {
@@ -87,5 +93,22 @@ describe('壳装载目标解析（dev / 静态产物 / 回退页）', () => {
       throw new Error(`期望回退目标，实际 ${plan.kind}`);
     }
     expect(plan.fileUrl).toContain('fallback.html');
+  });
+});
+
+describe('装载目标标记（门禁存活段的 target 证据来源）', () => {
+  it('一行 JSON、前缀固定、url 缺省归 null（stub/门禁解析口径）', () => {
+    const line = formatLoadTargetMarker({ kind: 'fallback', url: 'file:///tmp/fallback.html' });
+    expect(line.startsWith(LOAD_TARGET_MARKER_PREFIX)).toBe(true);
+    expect(line).not.toContain('\n');
+    expect(JSON.parse(line.slice(LOAD_TARGET_MARKER_PREFIX.length))).toEqual({
+      kind: 'fallback',
+      url: 'file:///tmp/fallback.html',
+    });
+    expect(
+      JSON.parse(
+        formatLoadTargetMarker({ kind: 'dev-server' }).slice(LOAD_TARGET_MARKER_PREFIX.length),
+      ),
+    ).toEqual({ kind: 'dev-server', url: null });
   });
 });

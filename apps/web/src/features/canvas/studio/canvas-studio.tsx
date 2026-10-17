@@ -8,6 +8,13 @@
  * 画布舞台 + 工具行 + 持久化动作（保存/重载/导出/导入）+ 调试句柄安装。
  * FE-03 合入后，编辑器路由只需组合 `createCanvasSession` + `<CanvasStage/>` 两件东西
  * （本宿主的工具行由 FE-03 的 C2 工具栏替代，持久化动作由其保存流程替代）。
+ *
+ * 载入/保存编排（A2 复核整改）：**不在本宿主自编一套**——与 `/editor` 工作区共用
+ * `workspace/document-bridge.ts` 的**单点编排**（幂等落盘、URL 同步、保存态、载入替换
+ * 全部在那里）。本宿主只做两件宿主侧的事：会话装配（React state 持有 `CanvasSession`，
+ * 载入/导入时整会话换代——`/_canvas` 没有面板/多槽消费方，换会话即换真值）与
+ * 展示层（notice/busy）。文档桥的 host 接缝由下面的 `sessionCell` 提供（会话换代时
+ * 订阅迁移到新命令栈，桥的「未保存」判定不因换代失真）。
  */
 
 import type { DesignDocument } from '@dforge/engine';
@@ -41,15 +48,11 @@ import { t } from '@/i18n';
 import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 import { type CanvasDebugHandle, installCanvasDebugHandle } from '../debug/canvas-debug';
-import {
-  createDocumentsClient,
-  type DocumentsClient,
-  loadDesignDocument,
-  saveDesignDocument,
-} from '../persistence/documents-client';
+import { createDocumentsClient, type DocumentsClient } from '../persistence/documents-client';
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasSession, type CanvasTool, createCanvasSession } from '../state/session';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
+import { createDocumentBridge } from '../workspace/document-bridge';
 
 import './studio.css';
 
@@ -114,13 +117,58 @@ export function sampleDocument(): DesignDocument {
     height: 96,
     name: '矩形 1',
   });
+  // 页面名走引擎缺省（`createPage` 的 `'页面 1'`）：默认名单一真源，宿主不另抄一份
   const page = createPage({
     id: 'page_1',
-    name: '页面 1',
     rootIds: [rect.id],
     nodes: { [rect.id]: rect },
   });
   return createDocument({ id: 'doc_local', name: '画布夹具', pages: [page] });
+}
+
+/** 新建宿主会话（初版与载入/导入换代共用同一口径）。 */
+function createStudioSession(document: DesignDocument): CanvasSession {
+  return createCanvasSession({
+    document,
+    viewport: createViewport(1, 80, 60),
+    ids: createIdFactory(1000),
+  });
+}
+
+/**
+ * 会话单元：承载「当前会话」并把命令行栈的订阅**跨会话换代**迁移
+ * （载入/导入会整会话替换；文档桥在创建时订阅一次，换代后旧栈不再发变更，
+ * 「未保存」判定会失真——故订阅在这里跟着换代走）。
+ */
+function createSessionCell(initial: CanvasSession) {
+  let current = initial;
+  let unsubscribeStack: (() => void) | null = null;
+  const listeners = new Set<() => void>();
+  const attach = (session: CanvasSession): void => {
+    unsubscribeStack?.();
+    current = session;
+    unsubscribeStack = session.stack.subscribe(() => {
+      for (const listener of [...listeners]) listener();
+    });
+  };
+  attach(initial);
+  return {
+    get: () => current,
+    set: (session: CanvasSession): void => {
+      attach(session);
+    },
+    subscribe: (listener: () => void): (() => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    dispose: (): void => {
+      unsubscribeStack?.();
+      unsubscribeStack = null;
+      listeners.clear();
+    },
+  };
 }
 
 /** 画布宿主。 */
@@ -135,36 +183,51 @@ export function CanvasStudio({
     [daemonUrl],
   );
   const [session, setSession] = useState<CanvasSession>(() =>
-    createCanvasSession({
-      document: sampleDocument(),
-      viewport: createViewport(1, 80, 60),
-      ids: createIdFactory(1000),
-    }),
+    createStudioSession(sampleDocument()),
   );
   const [runtimeStatus, setRuntimeStatus] = useState<CanvasRuntimeStatus | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(documentId);
   const [busy, setBusy] = useState(false);
   const statsRef = useRef<SceneRenderStats | null>(null);
-  /** 当前文档 id 的即时读法（state 更新是异步的，回调里读到旧值会走错分支）。 */
-  const documentIdRef = useRef<string | null>(documentId);
-  documentIdRef.current = currentDocumentId;
+  /** 会话单元：桥的 host 接缝（订阅随换代迁移）；初值为首版会话。 */
+  const sessionCell = useMemo(() => createSessionCell(session), []);
+
+  /**
+   * 文档桥（载入/保存**单点编排**，见 `workspace/document-bridge.ts`）：
+   * - 载入 `?doc=`（宿主自己的参数名经 `syncUrlParam` 传入，编排仍在桥内一处）；
+   * - 保存：未落盘先按名幂等落盘（同名复用）；URL 同步由桥做。
+   */
+  const bridge = useMemo(
+    () =>
+      createDocumentBridge({
+        host: {
+          document: () => sessionCell.get().document(),
+          adopt: (document) => {
+            const next = createStudioSession(document);
+            sessionCell.set(next);
+            setSession(next);
+            // 落盘身份归桥（`documentId` 投影）——此处只确认「有页面可采纳」
+            return document.pages.length > 0;
+          },
+          subscribe: (listener) => sessionCell.subscribe(listener),
+        },
+        client,
+        initial: { documentId, name: sessionCell.get().document().name },
+        // `/_canvas` 宿主页读 `?doc=`（编辑器读 `?documentId=`）——参数名是宿主契约
+        syncUrlParam: 'doc',
+      }),
+    [client, sessionCell, documentId],
+  );
+  // 桥随客户端/宿主换代时退订旧桥（订阅挂在会话单元上，不能只靠 GC）
+  useEffect(() => () => bridge.dispose(), [bridge]);
+  // 会话单元的生命周期也跟着组件走
+  useEffect(() => () => sessionCell.dispose(), [sessionCell]);
 
   const tool = useStore(session.store, (state) => state.tool);
+  /** 当前文档 id（桥的投影；notice 缺省显示用它）。 */
+  const currentDocumentId = useStore(bridge.store, (state) => state.documentId);
 
-  /** 替换会话（载入/导入后）：新文档 → 新命令栈 + 新 UI 态。 */
-  const adoptDocument = useCallback((document: DesignDocument, id: string | null) => {
-    setSession(
-      createCanvasSession({
-        document,
-        viewport: createViewport(1, 80, 60),
-        ids: createIdFactory(1000),
-      }),
-    );
-    setCurrentDocumentId(id);
-  }, []);
-
-  /** 载入指定文档（null → 提示先保存）。 */
+  /** 载入指定文档（null → 提示先保存）；编排全在桥（loadDesignDocument + adopt + 落盘身份）。 */
   const reloadDocument = useCallback(
     async (id: string | null): Promise<{ ok: boolean; error?: string }> => {
       if (id === null) {
@@ -173,25 +236,27 @@ export function CanvasStudio({
       }
       setBusy(true);
       try {
-        const loaded = await loadDesignDocument(client, id);
-        if (!loaded.ok) {
-          setNotice(loaded.error);
-          return { ok: false, error: loaded.error };
+        const result = await bridge.load(id);
+        if (!result.ok) {
+          setNotice(result.error ?? '');
+          return { ok: false, error: result.error ?? 'load-failed' };
         }
-        adoptDocument(loaded.value, id);
         setNotice(t('canvas.dev.loaded', { id }));
         return { ok: true };
       } finally {
         setBusy(false);
       }
     },
-    [adoptDocument, client],
+    [bridge],
   );
 
   /** 重载（按钮与初始载入共用）。 */
-  const reload = useCallback(() => reloadDocument(documentIdRef.current), [reloadDocument]);
+  const reload = useCallback(
+    () => reloadDocument(bridge.store.getState().documentId),
+    [bridge, reloadDocument],
+  );
 
-  /** 保存（首次保存会先在 daemon 建文档，并同步到 URL query 便于刷新恢复）。 */
+  /** 保存（未落盘 → 桥先按名幂等落盘；URL 同步也在桥内）。 */
   const save = useCallback(async (): Promise<{
     ok: boolean;
     error?: string;
@@ -199,45 +264,34 @@ export function CanvasStudio({
   }> => {
     setBusy(true);
     try {
-      let documentIdToUse = documentIdRef.current;
-      const document = session.document();
-      if (documentIdToUse === null) {
-        // 幂等：同名文档已存在（例如上次保存过）时复用它，而不是报 doc_exists
-        const existing = await client.findDocumentByName(document.name);
-        if (existing.ok && existing.value !== null) {
-          documentIdToUse = existing.value.id;
-        } else {
-          const created = await client.createDocument(document.name);
-          if (!created.ok) {
-            setNotice(created.error);
-            return { ok: false, error: created.error };
-          }
-          documentIdToUse = created.value.id;
-        }
-        setCurrentDocumentId(documentIdToUse);
-        syncUrl(documentIdToUse);
+      const result = await bridge.save();
+      if (!result.ok) {
+        setNotice(result.error ?? '');
+        return { ok: false, error: result.error ?? 'save-failed' };
       }
-      const saved = await saveDesignDocument(client, documentIdToUse, document);
-      if (!saved.ok) {
-        setNotice(saved.error);
-        return { ok: false, error: saved.error };
-      }
-      setNotice(t('canvas.dev.saved', { id: documentIdToUse }));
-      return { ok: true, documentId: documentIdToUse };
+      setNotice(t('canvas.dev.saved', { id: result.documentId ?? '' }));
+      return result.documentId === undefined
+        ? { ok: true }
+        : { ok: true, documentId: result.documentId };
     } finally {
       setBusy(false);
     }
-  }, [client, currentDocumentId, session]);
+  }, [bridge]);
 
   /** 导出 IR（稳定键序 JSON；给 e2e 的导出/导入往返）。 */
-  const exportIr = useCallback((): string => serializeDocument(session.document()), [session]);
+  const exportIr = useCallback(
+    (): string => serializeDocument(sessionCell.get().document()),
+    [sessionCell],
+  );
 
-  /** 导入 IR（结构非法会被引擎打回）。 */
+  /** 导入 IR（结构非法会被引擎打回）；导入走桥的**本地替换**（清落盘身份，不写回上一份文档）。 */
   const importIr = useCallback(
     (text: string): { ok: boolean; error?: string } => {
       try {
         const parsed = parseDocument(text);
-        adoptDocument(parsed.document, null);
+        if (!bridge.adoptLocal(parsed.document)) {
+          return { ok: false, error: '文档无可用页面' };
+        }
         const firstPage = parsed.document.pages[0];
         setNotice(
           t('canvas.dev.imported', { nodes: firstPage === undefined ? 0 : countNodes(firstPage) }),
@@ -249,7 +303,7 @@ export function CanvasStudio({
         return { ok: false, error: message };
       }
     },
-    [adoptDocument],
+    [bridge],
   );
 
   // 主题：编辑器族默认深色（与画布配色同一基准）
@@ -263,11 +317,9 @@ export function CanvasStudio({
     };
   }, [theme]);
 
-  // 初始载入（query 里带 doc 时自动拉取）；query 变化也同步进 state
+  // 初始载入（query 里带 doc 时自动拉取）；query 变化也同步重载
   useEffect(() => {
     if (documentId === null) return;
-    setCurrentDocumentId(documentId);
-    documentIdRef.current = documentId;
     void reloadDocument(documentId);
   }, [documentId, reloadDocument]);
 
@@ -305,7 +357,7 @@ export function CanvasStudio({
       nodeCount: () => Object.keys(session.page().nodes).length,
       pageId: () => session.page().id,
       documentName: () => session.document().name,
-      documentId: () => currentDocumentId,
+      documentId: () => bridge.store.getState().documentId,
       hud: () => session.store.getState().hud,
       editingText: () => {
         const editing = session.store.getState().editing;
@@ -342,7 +394,7 @@ export function CanvasStudio({
       session: () => session,
     };
     return installCanvasDebugHandle(handle);
-  }, [session, runtimeStatus, currentDocumentId, save, reload, exportIr, importIr]);
+  }, [session, runtimeStatus, bridge, save, reload, exportIr, importIr]);
 
   // 开发工具栏的键盘可达性：输入框聚焦时不抢键（舞台自己处理）
   return (
@@ -442,12 +494,4 @@ export function CanvasStudio({
       ) : null}
     </div>
   );
-}
-
-/** 把当前文档 id 写进地址栏（刷新后可恢复）。 */
-function syncUrl(documentId: string): void {
-  if (typeof window === 'undefined') return;
-  const url = new URL(window.location.href);
-  url.searchParams.set('doc', documentId);
-  window.history.replaceState(null, '', url.toString());
 }

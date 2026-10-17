@@ -1,6 +1,6 @@
 'use client';
 
-import { type CSSProperties, useState } from 'react';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 /**
  * 评论钉点覆盖层（C12/F7 的画布侧）。
  *
@@ -12,8 +12,14 @@ import { type CSSProperties, useState } from 'react';
  * - 落点是**真控件**「在画布上添加评论」——铺满视口的透明按钮：鼠标点哪就在哪落草稿，
  *   键盘 Tab 到它按回车则在视口中心落草稿（键盘等价路径，不是给 div 打补丁）；
  * - 评论模式关闭时整层不渲染钉点与落点按钮（与 Figma 一致：评论只在评论模式可见）；
+ * - 草稿**出现即自动聚焦**（UX-13：落草稿后可直接打字，不用再点一次输入框）；
+ *   空内容（去掉首尾空白）时「发布」按钮禁用——空评论不该能提交（store 侧还有一道拒绝）；
  * - 钉点悬停/键盘聚焦 → 展开预览卡（作者 / 正文 / 回复数）；点击 → 打开线程面板；
  * - 草稿输入框里按 Esc 取消（与 Figma 的评论草稿一致）；已解决钉点有解决态样式与可读名。
+ *
+ * 光标（UX-12）：评论模式下**画布区整体切十字**（`cursor: crosshair`）——
+ * 由 `editor-shell.css` 的 `:has([data-df-comment-layer][data-df-state='active'])` 规则声明
+ * （光标是继承属性，canvas 与其覆盖层都跟着变），本层根节点的 `data-df-state` 即开关信号。
  *
  * `data-df-*` 挂点是门禁取样契约（`scripts/verify-figma-review.mjs`），改动需同步脚本。
  */
@@ -39,6 +45,7 @@ export function CommentLayer({ className }: CommentLayerProps) {
   const viewport = useReviewViewport(session);
   const [error, setError] = useState<string | null>(null);
   const [draftBody, setDraftBody] = useState('');
+  const draftRef = useRef<HTMLTextAreaElement | null>(null);
 
   const mode = useCommentsUi(session, (state) => state.mode);
   const threads = useCommentsUi(session, (state) => state.threads);
@@ -46,7 +53,16 @@ export function CommentLayer({ className }: CommentLayerProps) {
   const activeThreadId = useCommentsUi(session, (state) => state.activeThreadId);
   const draftAnchor = useCommentsUi(session, (state) => state.draftAnchor);
 
+  // 草稿出现即聚焦（UX-13）：落点后直接进入打字，不用再点一次输入框。
+  // 只依赖 draftAnchor：同一份草稿的重渲染（如引用更新）不重复抢焦点。
+  useEffect(() => {
+    if (draftAnchor === null) return;
+    draftRef.current?.focus();
+  }, [draftAnchor]);
+
   const pageThreads = threads.filter((thread) => thread.pageId === session.pageId);
+  /** 空内容（含纯空白）不可发布：按钮禁用（store 侧对空正文另有一道拒绝）。 */
+  const canSubmit = draftBody.trim().length > 0;
   const hovered =
     hoveredThreadId === null ? null : (threads.find((item) => item.id === hoveredThreadId) ?? null);
 
@@ -195,6 +211,7 @@ export function CommentLayer({ className }: CommentLayerProps) {
                 }}
               >
                 <textarea
+                  ref={draftRef}
                   aria-label={t('review.comments.draft.placeholder')}
                   placeholder={t('review.comments.draft.placeholder')}
                   value={draftBody}
@@ -224,6 +241,7 @@ export function CommentLayer({ className }: CommentLayerProps) {
                   <button
                     type="button"
                     className="dfg-btn dfg-btn--primary dfg-btn--sm"
+                    disabled={!canSubmit}
                     onClick={submitDraft}
                   >
                     {t('review.comments.draft.submit')}

@@ -30,6 +30,7 @@ export {
 export { Input, type InputKind, type InputProps } from './Input';
 export { LoadingOverlay, type LoadingOverlayProps } from './LoadingOverlay';
 export { Modal, type ModalProps, type ModalSize } from './Modal';
+export { Overlay, type OverlayProps } from './Overlay';
 export { Progress, type ProgressProps, type ProgressTone } from './Progress';
 export {
   SegmentedControl,

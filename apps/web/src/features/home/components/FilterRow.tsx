@@ -18,6 +18,7 @@ import {
 } from '@dforge/ui';
 
 import { t } from '@/i18n';
+import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 
 import { GridViewIcon, ListViewIcon } from '../icons';
 import type { DocumentRange, DocumentSort } from '../lib/filter';
@@ -31,9 +32,13 @@ export interface FilterRowProps {
   onSortChange: (sort: DocumentSort) => void;
   viewMode: HomeViewMode;
   onViewModeChange: (mode: HomeViewMode) => void;
-  /** 当前列表条数（筛选后的结果计数）。 */
-  resultCount: number;
+  /** 当前列表条数（筛选后的结果计数）；`null` = 计数不可得（加载中 / daemon 不可达）。 */
+  resultCount: number | null;
 }
+
+/** 计数不可得的占位（UX-19：不可达时不得谎报「0 个文档」；符号量，不入 i18n 目录）。 */
+/** 计数不可用占位（值来自单点 `@/lib/unavailable`，复核 J5）。 */
+export const COUNT_UNAVAILABLE = UNAVAILABLE_PLACEHOLDER;
 
 /** 时间范围选项（顺序即菜单顺序）。 */
 const RANGE_OPTIONS: Array<{ value: DocumentRange; label: () => string }> = [
@@ -115,7 +120,11 @@ export function FilterRow({
         )}
       />
       <div className="dfg-home__filterrow-end">
-        <span className="dfg-home__count">{t('home.filter.count', { count: resultCount })}</span>
+        <span className="dfg-home__count">
+          {resultCount === null
+            ? COUNT_UNAVAILABLE
+            : t('home.filter.count', { count: resultCount })}
+        </span>
         <SegmentedControl
           label={t('home.filter.view')}
           value={viewMode}

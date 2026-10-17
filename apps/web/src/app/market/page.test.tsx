@@ -148,6 +148,79 @@ describe('/market · 空态与错误态（验收 §5）', () => {
       expect(screen.getByRole('status').textContent).toContain('部分来源加载失败');
     });
   });
+
+  it('检索索引降级（有结果）→ 结果照常展示 + 提示条说明「按字面匹配」', async () => {
+    respondWith(
+      makeQueryResponse({
+        warnings: [
+          {
+            code: 'search-index-missing',
+            message: '未找到 BM25 检索索引（market_search_index.v1.json）：当前按字面匹配',
+          },
+        ],
+      }),
+    );
+    render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('按字面匹配');
+    });
+    expect(screen.queryAllByRole('heading', { name: 'PDF 导出' }).length).toBeGreaterThan(0);
+  });
+
+  it('检索索引降级 + 无结果 → 空态注明「按字面匹配」（不是采集指引）', async () => {
+    respondWith(
+      makeQueryResponse({
+        items: [],
+        total: 0,
+        warnings: [{ code: 'search-index-invalid', message: 'BM25 检索索引不兼容' }],
+      }),
+    );
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getByText('没有匹配的资源')).toBeTruthy();
+    });
+    const note = container.querySelector('[data-df-market="empty-note"]');
+    expect(note?.textContent).toContain('按字面匹配');
+    expect(screen.queryByText(/市场索引尚未产出/)).toBeNull();
+  });
+
+  it('搜索态按 daemon 相关度序渲染（不在客户端按质量分重排）', async () => {
+    const user = userEvent.setup();
+    const low = makeAsset({
+      id: 'gh:acme/skills#skills/low',
+      displayName: { 'zh-CN': '低分高相关' },
+      quality: { ...makeAsset().quality, score: 0.1 },
+    });
+    const high = makeAsset({
+      id: 'gh:acme/skills#skills/high',
+      displayName: { 'zh-CN': '高分低相关' },
+      quality: { ...makeAsset().quality, score: 0.9 },
+    });
+    // daemon 返回的次序即相关度 × 质量分序（此 mock 固定为 [low, high]；浏览态才由客户端兜底排序）
+    // 注意每次请求都新建 Response（Response body 只能消费一次）
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            result: makeQueryResponse({ items: [low, high], total: 2 }),
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '低分高相关' })).toBeTruthy();
+    });
+    const names = (): (string | null)[] =>
+      [...container.querySelectorAll('[data-df-market="card"] h3')].map((node) => node.textContent);
+    expect(names()).toEqual(['高分低相关', '低分高相关']);
+
+    await user.type(screen.getByLabelText('搜索市场资源'), '幻灯片');
+    await waitFor(() => {
+      expect(names()).toEqual(['低分高相关', '高分低相关']);
+    });
+  });
 });
 
 describe('/market · 客户端过滤与已装载（D3/§7.4）', () => {

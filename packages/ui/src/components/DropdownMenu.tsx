@@ -43,6 +43,12 @@ export interface MenuItemSpec {
   disabledReason?: string;
   /** 危险语义（删除类）。 */
   danger?: boolean;
+  /**
+   * 站内/站外链接（修复批次 4 · D2）：给出时条目渲染为 `<a role="menuitem" href>`，
+   * 点击走**浏览器原生导航**——中键/修饰键可新开标签，href 可被测试与门禁静态断言。
+   * 给出 href 时无需（也不应）再给 onSelect：两者同时给出时点击会先调 onSelect 再导航。
+   */
+  href?: string;
   onSelect?: () => void;
 }
 
@@ -98,7 +104,8 @@ export function DropdownMenu({
   const menuId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  // 条目可渲染为 button（动作）或 a（链接，href）；引用类型取两者的公共父级
+  const itemRefs = useRef<Array<HTMLElement | null>>([]);
   const pendingFocus = useRef<number | null>(null);
 
   // 展开后的条目是扁平序列（分组只是视觉分段），键盘漫游按扁平下标走
@@ -154,11 +161,22 @@ export function DropdownMenu({
     }
   };
 
-  const activate = (index: number): void => {
+  /**
+   * 激活条目（点击/键盘共用）。
+   *
+   * 禁用条目**吞掉默认行为**（复核 J3「假禁用」）：条目用 `aria-disabled` 而不是 `disabled`
+   * 才保得住悬停原因提示，但链接条目（`href`）的原生导航不认 `aria-disabled`——
+   * 不 preventDefault 就是「可见禁用、点了却真的跳走」。点击与空格都经这里，一条口径。
+   */
+  const activate = (index: number, event?: { preventDefault: () => void }): void => {
     const item = flatItems[index];
-    if (item === undefined || item.disabled === true) return;
+    if (item === undefined || item.disabled === true) {
+      event?.preventDefault();
+      return;
+    }
     item.onSelect?.();
-    close(true);
+    // 链接条目：导航由浏览器完成（页面即将切换），不把焦点抢回触发器
+    close(item.href === undefined);
   };
 
   const handleMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -185,6 +203,15 @@ export function DropdownMenu({
       }
       case 'Enter':
       case ' ':
+        // 链接条目：Enter 交还原生（浏览器对聚焦链接直接点击）；Space 显式派发点击。
+        // 两者的 onClick 都是 activate，收尾（关闭菜单）与动作条目同一条路径。
+        if (flatItems[current]?.href !== undefined) {
+          if (event.key === ' ') {
+            event.preventDefault();
+            itemRefs.current[current]?.click();
+          }
+          break;
+        }
         event.preventDefault();
         activate(current);
         break;
@@ -269,21 +296,15 @@ export function DropdownMenu({
               )}
               {section.items.map((item) => {
                 const index = flatItems.indexOf(item);
-                const itemNode = (
-                  <button
-                    key={item.id}
-                    ref={(node) => {
-                      itemRefs.current[index] = node;
-                    }}
-                    type="button"
-                    role="menuitem"
-                    aria-disabled={item.disabled === true ? true : undefined}
-                    className={cx(
-                      'dfg-menu__item',
-                      item.danger === true && 'dfg-menu__item--danger',
-                    )}
-                    onClick={() => activate(index)}
-                  >
+                const itemClass = cx(
+                  'dfg-menu__item',
+                  item.danger === true && 'dfg-menu__item--danger',
+                );
+                const assignRef = (node: HTMLElement | null): void => {
+                  itemRefs.current[index] = node;
+                };
+                const body = (
+                  <>
                     {item.icon === undefined ? null : (
                       <span className="dfg-menu__icon">{item.icon}</span>
                     )}
@@ -291,8 +312,36 @@ export function DropdownMenu({
                     {item.shortcut === undefined ? null : (
                       <span className="dfg-menu__shortcut">{item.shortcut}</span>
                     )}
-                  </button>
+                  </>
                 );
+                // 链接条目（D2）：href 给出时渲染 <a>——原生导航、可新开标签、href 可断言
+                // 禁用态（J3）：onClick 经 activate 吞默认（禁用的 <a> 不得导航）
+                const itemNode =
+                  item.href === undefined ? (
+                    <button
+                      key={item.id}
+                      ref={assignRef}
+                      type="button"
+                      role="menuitem"
+                      aria-disabled={item.disabled === true ? true : undefined}
+                      className={itemClass}
+                      onClick={(event) => activate(index, event)}
+                    >
+                      {body}
+                    </button>
+                  ) : (
+                    <a
+                      key={item.id}
+                      ref={assignRef}
+                      role="menuitem"
+                      href={item.href}
+                      aria-disabled={item.disabled === true ? true : undefined}
+                      className={itemClass}
+                      onClick={(event) => activate(index, event)}
+                    >
+                      {body}
+                    </a>
+                  );
                 if (item.disabledReason === undefined) return itemNode;
                 // asChild：提示直接挂在条目上，不再夹 inline-flex 锚点包裹——
                 // 包裹会让多条禁用条目并排成一行，并把 menuitem 塞进无语义 span（ARIA 层级被破坏）

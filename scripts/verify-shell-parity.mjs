@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 /**
- * verify-shell-parity —— 桌面壳门禁（FE-12）。**两段式**，退出码语义各自独立：
+ * verify-shell-parity —— 桌面壳门禁（FE-12）。**三段式**，退出码语义各自独立：
  *
- * ① 启动冒烟段（`--stage=smoke`，默认与对照段同跑）：
+ * ① 启动冒烟段（`--stage=smoke`，默认与存活段、对照段同跑）：
  *    在真实 Electron 里装载目标页（dev URL / 内置静态服务 / 壳内诊断页），实测安全五项、窗口尺寸、
  *    DPR 与页面事实，并与 `guard-electron-baseline.mjs` 的静态基线**交叉核对**。
  *    退出码：**0 = 通过 / 1 = 壳有缺陷（装载失败或基线与静态声明不符）/ 2 = 阻塞**（无 Electron 二进制、
  *    未构建、无显示环境且无 xvfb-run——阻塞即「本机判不了」，禁当作通过）。
  *
- * ② 一致性对照段（`--stage=parity`）：同一 web 产物的**浏览器侧冻结参照**与壳内现产截图，同容差比对
+ * ② 交互存活段（`--stage=alive`）：**不传任何自检开关**启动正常交互壳，等过壳内自检硬超时窗口
+ *    （默认 35s > 壳内 30s）后进程必须仍在。退出码：**0 = 窗口后仍存活 / 1 = 窗口内自行退出**
+ *    （D-8 类超时误杀、崩溃、装载失败都在此暴露）/ **2 = 阻塞**（无 Electron 二进制、壳未构建、
+ *    无显示环境且无 xvfb-run——CI 属此列，如实报阻塞、不出红）。
+ *
+ * ③ 一致性对照段（`--stage=parity`）：同一 web 产物的**浏览器侧冻结参照**与壳内现产截图，同容差比对
  *    （验收标准 §3 壳内条款）。退出码：**0 = 在容差内 / 1 = 超容差 / 2 = 阻塞**。
  *    参照集未冻结时脚本**必须 exit 2 并打印「阻塞：参照集未冻结」**——禁止拿自截图/近似图假绿。
  *
@@ -18,13 +23,17 @@
  * 对照参数：pixelmatch threshold 0.1、差异像素率 ≤ `--max-ratio`（默认 **0.001** = A 级 0.1%）。
  * 截图工具链：playwright-core（锁缓存 chromium-1243，可 `BENCH_CHROME_EXECUTABLE` 指定）+ pixelmatch + pngjs。
  * `--live-browser` 现采浏览器图作对照伙伴：**仅诊断/调参用**，不作为验收证据（验收只认冻结参照）。
+ * `--alive-window=<ms>`：存活段的等待窗口（默认 35000；仅调参/夹具回归用，验收跑默认值）。
  *
  * 环境变量：DF_REF_DIR（参照集根，默认 ~/df-evidence/reference-v1）、DF_EVIDENCE_DIR（证据根，默认
  *   ~/df-evidence）、DFORGE_PARITY_URL（`--live-browser` 的站点，默认 http://127.0.0.1:3000/）、
- *   BENCH_CHROME_EXECUTABLE。
+ *   BENCH_CHROME_EXECUTABLE、DFORGE_ELECTRON_BINARY / DFORGE_SHELL_APP_DIR（**测试注入，验收禁用**：
+ *   覆盖 Electron 二进制与壳目录，供违规/存活夹具在无 Electron 的环境里回归；默认即仓库内的真壳。
+ *   注入=stub：证据 JSON 记 `binarySource:"env-stub"`，且在注入下 `--alive-window` 才允许跌破下限——
+ *   验收跑（binarySource:"real"）不得注入、不得短窗口）。
  * 证据：`<DF_EVIDENCE_DIR>/fe-12/shell-parity-<时间戳>/`：evidence.json（字段依验收标准 §4）+ 壳自检 JSON + PNG。
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -33,8 +42,13 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHELL_DIR = join(REPO_ROOT, 'apps', 'desktop');
-const ELECTRON_BINARY = join(SHELL_DIR, 'node_modules', 'electron', 'dist', 'electron');
-const BUILT_MAIN = join(SHELL_DIR, 'dist', 'main', 'main.js');
+/** 壳应用目录（env 可覆盖，见头部「测试注入」；默认仓库内 apps/desktop）。 */
+const SHELL_APP_DIR = resolve(process.env.DFORGE_SHELL_APP_DIR ?? SHELL_DIR);
+const ELECTRON_BINARY = resolve(
+  process.env.DFORGE_ELECTRON_BINARY ??
+    join(SHELL_DIR, 'node_modules', 'electron', 'dist', 'electron'),
+);
+const BUILT_MAIN = join(SHELL_APP_DIR, 'dist', 'main', 'main.js');
 const GUARD = join(REPO_ROOT, 'scripts', 'guard-electron-baseline.mjs');
 const REF_DIR = resolve(process.env.DF_REF_DIR ?? join(homedir(), 'df-evidence', 'reference-v1'));
 const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df-evidence'));
@@ -45,6 +59,33 @@ const VIEWPORT = { width: 1440, height: 900, dpr: 1.5 };
 const TOLERANCE = { maxDiffRatio: 0.001, perPixelThreshold: 0.1 };
 /** 冒烟段超时：与壳内自检硬超时（30s）留出余量。 */
 const SMOKE_TIMEOUT_MS = 90_000;
+/**
+ * 交互存活段的等待窗口：必须**略超**壳内自检硬超时（30s，`apps/desktop/src/main/run-mode.ts` 的
+ * `SELF_CHECK_TIMEOUT_MS`）——D-8 的表现正是「存活恰好 30 秒后自行退出」，窗口不留余量就漏判。
+ * 两处常量改动须同步（不变量由 `apps/desktop/src/guards/shell-parity-gate.test.ts` 钉住）。
+ */
+const ALIVE_WINDOW_MS = 35_000;
+/** 窗口到点后的进程回收容差：SIGTERM 等多久、仍在则 SIGKILL 再等多久（毫秒）。 */
+const PROCESS_REAP_GRACE_MS = 3_000;
+const PROCESS_REAP_KILL_MS = 2_000;
+
+/**
+ * 壳内自检硬超时（`apps/desktop/src/main/run-mode.ts` 的 `SELF_CHECK_TIMEOUT_MS`）——存活窗口的基准。
+ * `apps/desktop/src/guards/shell-parity-gate.test.ts` 对着源码常量钉住两边同步。
+ */
+const SELF_CHECK_TIMEOUT_MS = 30_000;
+/**
+ * `--alive-window` 下限：必须**略超**自检硬超时（31s > 30s），否则 D-8 类「存活恰好 30 秒后自行退出」
+ * 会被窗口漏判（复核 J2：此前只校验「正数」，`--alive-window=1` 就能把存活段跑成假绿）。
+ */
+const ALIVE_WINDOW_MIN_MS = 31_000;
+/**
+ * 二进制来源：默认仓库内真壳（`real`）；`DFORGE_ELECTRON_BINARY` 覆盖 = 测试注入（`env-stub`，
+ * **验收禁用**）。stub 证据会被如实标注（且只有 stub 允许跌破 `--alive-window` 下限）。
+ */
+const BINARY_SOURCE = process.env.DFORGE_ELECTRON_BINARY === undefined ? 'real' : 'env-stub';
+/** 装载目标标记（壳在装载后打一行；`apps/desktop/src/main/load-target.ts` 的同名前缀）。 */
+const LOAD_TARGET_MARKER = 'DFORGE_LOAD_TARGET:';
 
 const REFS_BLOCKED = '阻塞：参照集未冻结（REF-01 未完成）——不得以自截图/近似图假绿';
 const TOOLCHAIN_BLOCKED =
@@ -62,7 +103,7 @@ function readArg(name) {
 }
 
 const stageArg = readArg('stage') ?? 'both';
-const VALID_STAGES = ['smoke', 'parity', 'both'];
+const VALID_STAGES = ['smoke', 'alive', 'parity', 'both'];
 if (!VALID_STAGES.includes(stageArg)) {
   process.stderr.write(
     `用法错误：--stage=${stageArg} 不在 ${VALID_STAGES.join('|')} 之内（不给默认值，避免静默跑错段）\n`,
@@ -70,7 +111,22 @@ if (!VALID_STAGES.includes(stageArg)) {
   process.exit(BLOCKED);
 }
 const runSmokeStage = stageArg === 'smoke' || stageArg === 'both';
+const runAliveStage = stageArg === 'alive' || stageArg === 'both';
 const runParityStage = stageArg === 'parity' || stageArg === 'both';
+const aliveWindowMs = Number(readArg('alive-window') ?? ALIVE_WINDOW_MS);
+if (!Number.isFinite(aliveWindowMs) || aliveWindowMs <= 0) {
+  process.stderr.write(`用法错误：--alive-window=${readArg('alive-window')} 须为正数毫秒\n`);
+  process.exit(BLOCKED);
+}
+if (BINARY_SOURCE === 'real' && aliveWindowMs < ALIVE_WINDOW_MIN_MS) {
+  process.stderr.write(
+    `用法错误：--alive-window=${String(aliveWindowMs)} 低于下限 ${String(ALIVE_WINDOW_MIN_MS)}ms` +
+      `——存活窗口必须**略超**壳内自检硬超时（${String(SELF_CHECK_TIMEOUT_MS)}ms），` +
+      '否则 D-8 类「恰好 30 秒自行退出」会被窗口漏判。\n' +
+      '短窗口只对测试注入（DFORGE_ELECTRON_BINARY，验收禁用）放开；注入证据会标注 binarySource="env-stub"。\n',
+  );
+  process.exit(BLOCKED);
+}
 const refsDir = resolve(readArg('refs') ?? REF_DIR);
 const pageName = readArg('page') ?? 'home';
 const liveBrowser = process.argv.includes('--live-browser');
@@ -128,6 +184,8 @@ function runSmoke() {
     stage: 'shell-smoke',
     level: 'A',
     exitCode: BLOCKED,
+    /** 二进制来源（真壳 / 测试注入 stub）——与存活段同一口径。 */
+    binarySource: BINARY_SOURCE,
     artifacts,
     notes: [],
     failures: [],
@@ -155,7 +213,7 @@ function runSmoke() {
   const selfCheckPath = join(runDir, 'shell-selfcheck.json');
   const shellPng = join(runDir, 'shell.png');
   const electronArgs = [
-    SHELL_DIR,
+    SHELL_APP_DIR,
     `--df-shell-smoke=${selfCheckPath}`,
     `--df-capture=${shellPng}`,
     `--df-dpr=${VIEWPORT.dpr}`,
@@ -228,6 +286,228 @@ function runSmoke() {
   return result;
 }
 
+/** 只留末尾若干行非空输出（失败信息与证据里够用）。 */
+function tailLines(text, count = 3) {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .slice(-count)
+    .join(' | ');
+}
+
+/**
+ * 解析壳打印的装载目标标记（`DFORGE_LOAD_TARGET:{kind,url}` 一行）。
+ *
+ * 真壳在装载完成后打印（见 `apps/desktop/src/main/load-target.ts`）；测试注入的 stub 二进制
+ * 不打印 → null（证据里记 null + note，**不猜**）。前缀两处一致性由
+ * `apps/desktop/src/guards/shell-parity-gate.test.ts` 对着两份源码钉住。
+ */
+function parseLoadTarget(stdout) {
+  const line = stdout.split('\n').find((entry) => entry.startsWith(LOAD_TARGET_MARKER));
+  if (line === undefined) return null;
+  try {
+    const parsed = JSON.parse(line.slice(LOAD_TARGET_MARKER.length));
+    return parsed !== null && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 等若干毫秒（进程回收的容差窗口用）。 */
+function delay(ms) {
+  return new Promise((resolveDelay) => {
+    setTimeout(resolveDelay, ms);
+  });
+}
+
+/**
+ * 向**独立进程组**发信号。壳以 `detached: true` 启动，组内还有 Electron 的 zygote/renderer
+ * 子进程——只杀主进程会留孤儿，故按负 pid 打死整组；组已不存在（子进程先行退出）时退回单进程信号。
+ */
+function signalProcessTree(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    try {
+      child.kill(signal);
+    } catch {
+      // 两级都 ESRCH：进程（与进程组）已回收，无需处理。
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * 起进程并等一个窗口：窗口到点仍存活 → `alive: true`（终止进程组后返回）；窗口内自行退出 →
+ * 带退出码 / 信号 / stderr 返回。窗口到点后的退出（门禁自己杀的）不算「壳自退」。
+ */
+function runUntilAliveWindow(command, commandArgs, windowMs) {
+  return new Promise((resolveWindow) => {
+    const startedAt = Date.now();
+    const child = spawn(command, commandArgs, {
+      env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      // 独立进程组：窗口到点后连同 Electron 的子进程一并回收。
+      detached: true,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    let settled = false;
+    let windowElapsed = false;
+    let windowTimer = null;
+    const settle = (payload) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (windowTimer !== null) {
+        clearTimeout(windowTimer);
+      }
+      resolveWindow({
+        ...payload,
+        elapsedMs: Date.now() - startedAt,
+        stdout,
+        stderr,
+      });
+    };
+
+    child.once('error', (error) => {
+      settle({ alive: false, exitCode: null, signal: null, spawnError: String(error) });
+    });
+    child.once('exit', (exitCode, signal) => {
+      if (windowElapsed) {
+        // 窗口到点后的退出是门禁自己回收的结果，不计入「窗口内自行退出」。
+        return;
+      }
+      settle({ alive: false, exitCode, signal });
+    });
+
+    windowTimer = setTimeout(() => {
+      windowElapsed = true;
+      void (async () => {
+        signalProcessTree(child, 'SIGTERM');
+        const reapedGracefully = await Promise.race([
+          new Promise((resolveExit) => {
+            child.once('exit', () => resolveExit(true));
+          }),
+          delay(PROCESS_REAP_GRACE_MS).then(() => false),
+        ]);
+        if (!reapedGracefully) {
+          signalProcessTree(child, 'SIGKILL');
+          await Promise.race([
+            new Promise((resolveExit) => {
+              child.once('exit', () => resolveExit(true));
+            }),
+            delay(PROCESS_REAP_KILL_MS),
+          ]);
+        }
+        settle({ alive: true, exitCode: null, signal: null });
+      })();
+    }, windowMs);
+  });
+}
+
+/**
+ * 交互存活段（D-8 / UX-04 回归）：**不传任何自检开关**启动正常交互壳，等过硬超时窗口后必须仍存活。
+ *
+ * 为什么要有这一段：既有冒烟段只跑「跑完就退」的自检模式，交互路径零覆盖——D-8（壳存活恰好 30 秒
+ * 后 exit 1）就是从这个缝里漏到用户手里的。判据取「进程仍存活」而非「窗口可见」：进程层存活是壳
+ * 「能一直用下去」的必要条件，且不依赖任何产物（装载目标可以是壳内诊断页）。
+ * 退出码：0 = 窗口后仍存活 / 1 = 窗口内自行退出 / 2 = 阻塞（二进制缺失、未构建、无显示环境）。
+ */
+async function runAlive() {
+  const result = {
+    stage: 'shell-alive',
+    level: 'A',
+    windowMs: aliveWindowMs,
+    /** 二进制来源（真壳 / 测试注入 stub）——stub 证据不作验收凭据（见头注释）。 */
+    binarySource: BINARY_SOURCE,
+    exitCode: BLOCKED,
+    artifacts: {},
+    notes: [],
+    failures: [],
+    humanReview: { verdict: 'pending', reviewer: null, reason: '人工复核属验收会话，脚本不代签' },
+  };
+
+  if (!existsSync(ELECTRON_BINARY)) {
+    result.notes.push(
+      `Electron 二进制缺失：${ELECTRON_BINARY}（pnpm --filter @dforge/desktop fetch-electron）`,
+    );
+    return result;
+  }
+  if (!existsSync(BUILT_MAIN)) {
+    result.notes.push(`壳未构建：${BUILT_MAIN}（pnpm --filter @dforge/desktop build）`);
+    return result;
+  }
+
+  const display = resolveDisplayWrapper();
+  if (!display.note) {
+    result.notes.push('无显示环境且未找到 xvfb-run：本机无法启动壳（如实报阻塞，不假绿）');
+    return result;
+  }
+  result.notes.push(`显示：${display.note}`);
+  const shellUrl = process.env.DFORGE_SHELL_URL;
+  result.notes.push(
+    shellUrl === undefined || shellUrl === ''
+      ? '装载目标：按磁盘解析（无 DFORGE_SHELL_URL；web 产物缺失时为壳内诊断页）——存活判据不依赖装载产物'
+      : `装载目标：env DFORGE_SHELL_URL=${shellUrl}（装载失败会以「窗口内自行退出」暴露，不作豁免）`,
+  );
+
+  const command = display.wrapper ? display.wrapper : ELECTRON_BINARY;
+  const commandArgs = display.wrapper ? [ELECTRON_BINARY, SHELL_APP_DIR] : [SHELL_APP_DIR];
+  const outcome = await runUntilAliveWindow(command, commandArgs, aliveWindowMs);
+
+  if (outcome.stderr !== '') {
+    const stderrPath = join(runDir, 'shell-alive-stderr.txt');
+    writeFileSync(stderrPath, outcome.stderr);
+    result.artifacts.aliveStderr = { path: stderrPath, ...digest(stderrPath) };
+  }
+
+  result.observed = {
+    alive: outcome.alive,
+    aliveMs: outcome.elapsedMs,
+    exitCode: outcome.exitCode ?? null,
+    signal: outcome.signal ?? null,
+  };
+  // 装载落点如实记（fallback 诊断页也如实记；stub 不打印标记 → null + note，不猜）
+  result.target = parseLoadTarget(outcome.stdout);
+  if (result.target === null) {
+    result.notes.push(
+      BINARY_SOURCE === 'env-stub'
+        ? '装载目标不可判定：注入二进制（env-stub，验收禁用）不产 `DFORGE_LOAD_TARGET:` 标记——target 记 null，不猜'
+        : '装载目标不可判定：壳未打印 `DFORGE_LOAD_TARGET:` 标记（装载失败会先以「窗口内自行退出」暴露）',
+    );
+  } else {
+    result.notes.push(`装载目标：kind=${String(result.target.kind)}（壳自报，含 fallback 诊断页）`);
+  }
+
+  if (outcome.alive) {
+    result.notes.push(
+      `交互壳在 ${aliveWindowMs}ms 窗口（略超壳内自检硬超时 30s）后仍存活（已由门禁回收进程组）`,
+    );
+    result.exitCode = PASS;
+    return result;
+  }
+
+  const cause = outcome.spawnError ?? (tailLines(outcome.stderr) || '（无 stderr）');
+  result.failures.push(
+    `交互壳在存活窗口（${aliveWindowMs}ms）内自行退出：存活 ${(outcome.elapsedMs / 1000).toFixed(2)}s，` +
+      `exit=${String(outcome.exitCode)}${outcome.signal ? ` signal=${outcome.signal}` : ''}；${cause}`,
+  );
+  result.exitCode = FAIL;
+  return result;
+}
+
 /** 找 Chromium 可执行文件（FE-01 同口径：`BENCH_CHROME_EXECUTABLE` 优先，其次探测 playwright 缓存）。 */
 function resolveChromium() {
   if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) {
@@ -275,7 +555,7 @@ function captureShell(outPng, selfCheckOut) {
   const run = spawnSync(
     ELECTRON_BINARY,
     [
-      SHELL_DIR,
+      SHELL_APP_DIR,
       `--df-shell-smoke=${selfCheckOut}`,
       `--df-capture=${outPng}`,
       `--df-dpr=${VIEWPORT.dpr}`,
@@ -407,7 +687,7 @@ function boundingBoxOfDiff(rgba, width, height) {
   return maxX < 0 ? null : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
-/** 主流程：先冒烟，再对照；合并退出码取「先失败者」，两段皆过才是 0。 */
+/** 主流程：先冒烟，再存活，最后对照；合并退出码取「先失败者」，三段皆过才是 0。 */
 async function main() {
   const report = {
     schema: 'dforge.shell-gate/1',
@@ -421,6 +701,13 @@ async function main() {
     const smoke = runSmoke();
     report.stages.push(smoke);
     report.exitCode = smoke.exitCode;
+  }
+  if (runAliveStage) {
+    const alive = await runAlive();
+    report.stages.push(alive);
+    if (report.exitCode === PASS) {
+      report.exitCode = alive.exitCode;
+    }
   }
   if (runParityStage) {
     const parity = await runParity();

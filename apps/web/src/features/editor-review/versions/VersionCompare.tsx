@@ -9,8 +9,14 @@
  *
  * 为什么是全屏浮层而不是抽屉内嵌：抽屉宽 420，两栏并排在窄抽屉里无法真实「并排」；
  * Figma 本体的版本对比也是铺开的视图。浮层保留 `data-df-version-compare` 挂点供门禁取样。
+ *
+ * 层级口径（D-4 修复）：本浮层走 `@dforge/ui` 的 `Overlay`——**与版本抽屉（Drawer）同一条浮层栈**。
+ * 修复前这里自己写 `position: fixed` + `z-index: var(--dfg-z-modal)`，与抽屉的栈序 z 同值、
+ * 而抽屉内容经 portal 挂在 body 末尾 → 抽屉在层序上盖住对比浮层，
+ * 「确认恢复」可见但命中点被 `dfg-drawer__body` 截走（点击超时 = 用户「点了没反应」）。
  */
 import type { DesignDocument } from '@dforge/engine';
+import { Overlay, useToast } from '@dforge/ui';
 import type { CSSProperties } from 'react';
 
 import { t } from '@/i18n';
@@ -24,6 +30,7 @@ import { type DocumentDiff, documentSummary, type PageDiffEntry } from './snapsh
 /** 版本对比浮层。 */
 export function VersionCompare() {
   const session = useReviewSession();
+  const toast = useToast();
   const compareId = useVersionsUi(session, (state) => state.compareId);
   const document_ = useReviewDocument(session);
 
@@ -33,10 +40,15 @@ export function VersionCompare() {
   const diff = session.versions.getState().diffOf(compareId);
 
   return (
-    <section
+    <Overlay
+      open
+      onOpenChange={(next) => {
+        // Esc（栈顶时）等价于点「取消」：只退出对比态，不动文档
+        if (!next) session.versions.getState().cancelCompare();
+      }}
+      label={t('review.versions.compare.title')}
       data-df-version-compare=""
       data-df-state="compare"
-      aria-label={t('review.versions.compare.title')}
       style={versionStyles.overlay}
     >
       <header style={versionStyles.overlayHeader}>
@@ -91,13 +103,19 @@ export function VersionCompare() {
           className="dfg-btn dfg-btn--primary dfg-btn--sm"
           data-df-version-confirm=""
           onClick={() => {
+            const wasComparing = session.versions.getState().compareId !== null;
             session.versions.getState().confirmRestore(t('review.versions.autoLabel'));
+            // 恢复成功反馈（C1）：第二步确认后文档已被整份替换——给明确成功提示，
+            // 而不是「浮层消失」这种需要用户自己推断的信号
+            if (wasComparing) {
+              toast.show({ message: t('review.versions.restored'), tone: 'success' });
+            }
           }}
         >
           {t('review.versions.confirm.submit')}
         </button>
       </footer>
-    </section>
+    </Overlay>
   );
 }
 

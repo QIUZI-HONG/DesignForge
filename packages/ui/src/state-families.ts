@@ -46,8 +46,8 @@ export const STATE_FAMILIES: StateFamilyEntry[] = [
   {
     id: 'F1',
     name: '模态族',
-    owner: 'FE-01 基础件（Modal）；页面级 8 种模态归各页票',
-    components: ['Modal'],
+    owner: 'FE-01 基础件（Modal / Overlay 整屏层）；页面级 8 种模态归各页票',
+    components: ['Modal', 'Overlay'],
     states: ['hover', 'active', 'disabled', 'loading', 'error'],
     icon: 'FrameIcon',
   },

@@ -20,6 +20,8 @@ import {
   type MarketQueryResponse,
 } from '@dforge/contracts';
 
+import { isSearchDegraded } from '@/features/market';
+
 import { fetchWithinTimeout, GATEWAY_TIMEOUT_MS } from './gateway-timeout';
 
 /** 结果线条数上限（下拉里的一行分组，给多了喧宾夺主）。 */
@@ -36,6 +38,11 @@ export interface MarketSearchHit {
 export interface MarketSearchResult {
   available: boolean;
   items: MarketSearchHit[];
+  /**
+   * 检索索引降级（有卡片但检索退化为字面匹配，E1 补口 · 复核 Spec c）：
+   * 首页市场结果线与市场页同口径，给「暂按字面匹配」提示（复用市场侧 i18n 键）。
+   */
+  searchDegraded: boolean;
 }
 
 /** 检索选项。 */
@@ -53,7 +60,7 @@ export async function searchMarketAssets(
   options: MarketSearchOptions,
 ): Promise<MarketSearchResult> {
   const query = options.query.trim();
-  if (query === '') return { available: true, items: [] };
+  if (query === '') return { available: true, items: [], searchDegraded: false };
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const limit = options.limit ?? MARKET_RESULT_LIMIT;
@@ -72,10 +79,10 @@ export async function searchMarketAssets(
     payload = await response.json();
   } catch {
     // 含超时（GatewayTimeoutError）：市场侧一律降级，不抛给页面
-    return { available: false, items: [] };
+    return { available: false, items: [], searchDegraded: false };
   }
   if (isApiFailure(payload) || !isApiSuccess<MarketQueryResponse>(payload)) {
-    return { available: false, items: [] };
+    return { available: false, items: [], searchDegraded: false };
   }
   const items = Array.isArray(payload.result.items) ? payload.result.items : [];
   return {
@@ -85,5 +92,7 @@ export async function searchMarketAssets(
       name: displayText(asset.displayName, asset.name),
       kind: asset.kind,
     })),
+    // 降级判定与市场页同一实现（`@/features/market` 公开面）：`search-index-*` → 字面匹配
+    searchDegraded: isSearchDegraded(payload.result.warnings),
   };
 }
