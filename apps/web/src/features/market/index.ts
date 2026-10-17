@@ -25,6 +25,7 @@ export * from './components';
 export * from './feedback';
 export * from './filters';
 export * from './load-store';
+export * from './pagination';
 export { MarketPanel, type MarketPanelProps } from './panel/MarketPanel';
 export * from './styles';
 export {
@@ -32,5 +33,6 @@ export {
   useLoadPlan,
   useLoadRecords,
   useMarketAsset,
+  useMarketPagination,
   useMarketQuery,
 } from './use-market';

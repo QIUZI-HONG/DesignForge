@@ -24,6 +24,7 @@ import {
   clientFilterOf,
   collectScenes,
   FilterBar,
+  hasMorePages,
   headerStyle,
   hintStyle,
   INITIAL_MARKET_FILTERS,
@@ -35,6 +36,8 @@ import {
   type MarketFilters,
   MarketSkeletonGrid,
   MarketWarningBanner,
+  paginationErrorStyle,
+  paginationStyle,
   selectFeatured,
   subtitleStyle,
   titleStyle,
@@ -42,7 +45,7 @@ import {
   toQueryParams,
   useLoadPlan,
   useLoadRecords,
-  useMarketQuery,
+  useMarketPagination,
 } from '@/features/market';
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
@@ -56,7 +59,17 @@ export default function MarketHomePage() {
   const [pendingAsset, setPendingAsset] = useState<MarketAsset | null>(null);
 
   const params = useMemo(() => toQueryParams(filters), [filters]);
-  const { status, response, error, errorCode, reload } = useMarketQuery(params);
+  const {
+    status,
+    response,
+    error,
+    errorCode,
+    reload,
+    items: allItems,
+    loadMore,
+    loadMoreState,
+    loadMoreError,
+  } = useMarketPagination(params);
   const { records, loadedIds, save, remove } = useLoadRecords();
   const loadPlan = useLoadPlan(pendingAsset?.id ?? null);
 
@@ -69,9 +82,9 @@ export default function MarketHomePage() {
   const clientFiltered =
     response === null
       ? []
-      : applyClientFilters(response.items, clientFilterOf(effectiveFilters, loadedIds));
+      : applyClientFilters(allItems, clientFilterOf(effectiveFilters, loadedIds));
   const visible = featuredOnly ? selectFeatured(clientFiltered) : clientFiltered;
-  const scenes = collectScenes(response?.items ?? []);
+  const scenes = collectScenes(allItems);
 
   const updateFilters = (patch: Partial<MarketFilters>): void => {
     setFilters((previous) => ({ ...previous, ...patch }));
@@ -158,6 +171,38 @@ export default function MarketHomePage() {
     );
   };
 
+  /** 分页行（DEF-R1）：已加载计数 +「加载更多」；终点给「已全部加载」。 */
+  const renderPagination = (): ReactElement | null => {
+    if (status !== 'ready' || response === null || featuredOnly || visible.length === 0) {
+      return null;
+    }
+    const shown = allItems.length;
+    const total = response.total;
+    if (total <= 0) return null;
+    return (
+      <div data-df-market="pagination" style={paginationStyle}>
+        <span style={hintStyle}>{t('market.list.progress', { shown, total })}</span>
+        {hasMorePages(shown, total) ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={loadMoreState === 'loading'}
+            onClick={loadMore}
+          >
+            {loadMoreState === 'loading' ? t('market.list.loadingMore') : t('market.list.loadMore')}
+          </Button>
+        ) : (
+          <span style={hintStyle}>{t('market.list.allShown', { total })}</span>
+        )}
+        {loadMoreState === 'error' ? (
+          <span style={paginationErrorStyle}>
+            {t('market.list.loadMoreFailed', { message: loadMoreError ?? '' })}
+          </span>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <>
       <header style={headerStyle}>
@@ -199,6 +244,8 @@ export default function MarketHomePage() {
       {warningMessage === null ? null : <MarketWarningBanner message={warningMessage} />}
 
       {renderResults()}
+
+      {renderPagination()}
 
       {pendingAsset !== null && loadPlan.plan !== null ? (
         <LoadConfirmDialog

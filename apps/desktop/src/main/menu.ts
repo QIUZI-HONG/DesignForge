@@ -43,5 +43,14 @@ export function buildMenuTemplate(): MenuItemConstructorOptions[] {
         { role: 'togglefullscreen', label: '全屏' },
       ],
     },
+    {
+      // 桌面端 UX 补全（retro 优化批）：标准窗口控制——最小化/关闭。
+      // 多标签工作台/标签组等 P6 体验项仍不混入（范围边界 A 区）。
+      label: '窗口',
+      submenu: [
+        { role: 'minimize', label: '最小化' },
+        { role: 'close', label: '关闭窗口' },
+      ],
+    },
   ];
 }
