@@ -87,6 +87,10 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   回归 `scripts/tests/guard-feature-boundaries.test.mjs`；批次 3 · 工作包 E）
   **已实现并接入 CI**；`verify:engine` / `test:scripts` 同批入 CI；`verify:figma-baseline` 以
   「CI 无参照集 → 断言 `exit 2` 且日志点名『阻塞：参照集未冻结』」的**阻塞语义断言**入 CI（不是当绿）。
+  `verify:resilience`（#53 审计 03：韧性故障注入；临时数据根 + 空闲端口 + LD_PRELOAD 注入
+  ENOSPC/EIO/fsync/rename 失败、真 SIGKILL；自测 `scripts/tests/verify-resilience.test.mjs`）
+  **已实现、仅本地、未接 CI**——审计期按 5 类 A/B 缺陷 `exit 1`（跨进程丢页、根内软链跨文档写、
+  半提交、深嵌套页读取 500、CORS null），修复前不得当通过；缺 C 编译器时故障注入段按阻塞 `exit 2` 点名。
   仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:mcp-contract` / `guard:channel-pairing`。
 - **守卫输出口径（批次 3 收口 · code-review）**：`guard-vocab` 与 `guard-feature-boundaries` 的
   退出码优先级为「**违规 exit 1 优先于未判定 exit 2**」，但两类问题必须**同屏列出**
