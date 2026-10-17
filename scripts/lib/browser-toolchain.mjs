@@ -61,10 +61,8 @@ export async function forwardDaemonRequests(page, daemonUrl, prefix = DAEMON_ROU
     try {
       const response = await fetch(target, {
         method: request.method(),
-        headers: {
-          'content-type': 'application/json',
-          ...(hasBody ? { body: request.postData() ?? '{}' } : {}),
-        },
+        headers: { 'content-type': 'application/json' },
+        ...(hasBody ? { body: request.postData() ?? '{}' } : {}),
       });
       await route.fulfill({
         status: response.status,
