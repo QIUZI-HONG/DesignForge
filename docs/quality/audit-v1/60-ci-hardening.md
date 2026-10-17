@@ -5,7 +5,7 @@
 - **票**：[#108](https://github.com/QIUZI-HONG/DesignForge/issues/108)（父票 [#60](https://github.com/QIUZI-HONG/DesignForge/issues/60)，规格 [#50](https://github.com/QIUZI-HONG/DesignForge/issues/50)）
 - **工作树 / 分支**：`/home/QIU/df-wt/aud-10b` / `audit/10b-ci-docs`
 - **基线**：`integration/audit-v1` @ `a17034e`（审计 09 收口）
-- **本票提交**：`ef48282`（workflow）、`b535bd1`（门禁文档）、本文件所在提交（收尾）
+- **本票提交**：`ef48282`（workflow）、`b535bd1`（门禁文档）、`d59a7d9`（本文件与人工项）、证据哈希更新提交（收尾）
 - **依赖**：#107（审计 10a）提供 `test:coverage` / `test:mutation` / `audit:a11y`；合并顺序 **#60a → #60b**
 - **证据根**：`~/df-evidence/audit-50/aud-60b/`（日志与哈希见 §5）
 - **事实基线（只读复核，`repo-settings-readonly.log`）**：`main` 无 branch protection（404）；Dependabot alerts 关闭（404）；automated security fixes `enabled=false`；CodeQL default setup `state=not-configured`。
@@ -251,9 +251,9 @@ gh run list -R QIUZI-HONG/DesignForge --workflow dependency-audit.yml --limit 3
 |---|---|---|
 | `python3 yaml.safe_load` 遍历 `.github/**/*.yml` | 5 个文件全部可解析 | `yaml-parse.log`（sha256 `c92f6df9…`） |
 | `pnpm --filter @dforge/web build` | exit 0；13 路由（`next build`） | `web-build.log`（sha256 `cf490fda…`） |
-| `pnpm verify` | exit 0；9 包 / **2765 例** | `pnpm-verify.log`（sha256 `655bea76…`） |
-| `pnpm test:scripts` | exit 0；**79/79 pass** | `test-scripts.log`（sha256 `022edd73…`） |
-| `pnpm lint:scripts` | exit 0；1 条**既有** warning（`scripts/e2e-smoke.mjs` optional chain，非本票引入） | `lint-scripts.log`（sha256 `ce0b87f2…`） |
+| `pnpm verify` | exit 0；9 包 / **2765 例** | `pnpm-verify.log`（sha256 `f3b3db0a…`） |
+| `pnpm test:scripts` | exit 0；**79/79 pass** | `test-scripts.log`（sha256 `bf1dde75…`） |
+| `pnpm lint:scripts` | exit 0；1 条**既有** warning（`scripts/e2e-smoke.mjs` optional chain，非本票引入） | `lint-scripts.log`（sha256 `b189ed22…`） |
 | CI 覆盖率步骤的「脚本缺失」分支（本地执行同一段 shell） | `exit 2` + 打印「阻塞：…依赖 #107」，证明不会静默跳过 | `coverage-step-blocking-check.log`（sha256 `f5dd8dec…`） |
 | 仓库设置只读复核 | main 无保护；alerts/security updates 关闭；CodeQL default setup `not-configured` | `repo-settings-readonly.log`（sha256 `77945a7a…`） |
 
