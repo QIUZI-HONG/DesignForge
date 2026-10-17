@@ -114,6 +114,101 @@ describe('useMarketPagination', () => {
     expect(result.current.loadMoreError).toContain('boom');
   });
 
+  it('游标按服务端页长推进：第二页有重复项时第三页仍请求 offset=120（不是去重后的 110）', async () => {
+    const firstItems = Array.from({ length: 60 }, (_, index) =>
+      makeAsset({ id: `gh:acme/skills#skills/first-${String(index)}` }),
+    );
+    // 第二页：前 10 条与首屏末尾重复（模拟 index 漂移），其余 50 条为新卡
+    const secondItems = [
+      ...firstItems.slice(50),
+      ...Array.from({ length: 50 }, (_, index) =>
+        makeAsset({ id: `gh:acme/skills#skills/second-${String(index)}` }),
+      ),
+    ];
+    const thirdItems = Array.from({ length: 60 }, (_, index) =>
+      makeAsset({ id: `gh:acme/skills#skills/third-${String(index)}` }),
+    );
+    const first = makeQueryResponse({ items: firstItems, total: 200, counts: counts(200) });
+    const second = makeQueryResponse({ items: secondItems, total: 200, counts: counts(200) });
+    const third = makeQueryResponse({ items: thirdItems, total: 200, counts: counts(200) });
+    fetchMock.mockImplementation((url: string) => {
+      urls.push(String(url));
+      const value = String(url);
+      if (value.includes('offset=120')) return Promise.resolve(respond(third));
+      if (value.includes('offset=60')) return Promise.resolve(respond(second));
+      return Promise.resolve(respond(first));
+    });
+    const { result } = renderHook(() =>
+      useMarketPagination({ sort: 'score', limit: 60 }, { baseUrl: 'http://daemon.test' }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.items).toHaveLength(60);
+    expect(result.current.hasMore).toBe(true);
+
+    await act(async () => {
+      result.current.loadMore();
+    });
+    // 第二页 60 条里 10 条重复 → 去重后只多 50 张卡，但游标必须推进 60
+    await waitFor(() => expect(result.current.items).toHaveLength(110));
+    expect(result.current.hasMore).toBe(true);
+    expect(urls.some((url) => url.includes('offset=60'))).toBe(true);
+
+    await act(async () => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(result.current.items).toHaveLength(170));
+    expect(urls.some((url) => url.includes('offset=110'))).toBe(false);
+    expect(urls.some((url) => url.includes('offset=120'))).toBe(true);
+  });
+
+  it('加载更多失败后重试仍使用同一 offset（游标不前进）', async () => {
+    const firstItems = Array.from({ length: 60 }, (_, index) =>
+      makeAsset({ id: `gh:acme/skills#skills/first-${String(index)}` }),
+    );
+    const secondItems = Array.from({ length: 60 }, (_, index) =>
+      makeAsset({ id: `gh:acme/skills#skills/second-${String(index)}` }),
+    );
+    const first = makeQueryResponse({ items: firstItems, total: 120, counts: counts(120) });
+    const second = makeQueryResponse({ items: secondItems, total: 120, counts: counts(120) });
+    let failedOnce = false;
+    fetchMock.mockImplementation((url: string) => {
+      urls.push(String(url));
+      if (!String(url).includes('offset=60')) return Promise.resolve(respond(first));
+      if (!failedOnce) {
+        failedOnce = true;
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: false, error: { code: 'x', message: 'boom' } }), {
+            status: 500,
+            headers: { 'content-type': 'application/json' },
+          }),
+        );
+      }
+      return Promise.resolve(respond(second));
+    });
+    const { result } = renderHook(() =>
+      useMarketPagination({ sort: 'score', limit: 60 }, { baseUrl: 'http://daemon.test' }),
+    );
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    await act(async () => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(result.current.loadMoreState).toBe('error'));
+
+    await act(async () => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(result.current.items).toHaveLength(120));
+    expect(result.current.loadMoreState).toBe('done');
+    expect(result.current.hasMore).toBe(false);
+    const offsets = urls
+      .map((url) => /[?&]offset=(\d+)/.exec(url)?.[1])
+      .filter((offset): offset is string => offset !== undefined);
+    expect(offsets.filter((offset) => offset === '60')).toHaveLength(2);
+    expect(offsets.some((offset) => offset === '120')).toBe(false);
+  });
+
   it('参数变化：累积自动失效（回到首页结果）', async () => {
     const first = makeQueryResponse({ items: [a, b], total: 4, counts: counts(4) });
     const second = makeQueryResponse({ items: [c, d], total: 4, counts: counts(4) });
