@@ -45,10 +45,12 @@
     "guard:channel-pairing": "node scripts/guard-channel-pairing.mjs",
     "guard:electron-baseline": "node scripts/guard-electron-baseline.mjs",
     "guard:mcp-contract": "node scripts/guard-mcp-contract.mjs",
-    "e2e:smoke": "node scripts/e2e-smoke.mjs"
+    "e2e:smoke": "node scripts/e2e-smoke.mjs",
+    "audit:editor-review": "node scripts/audit/editor-review-audit.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "axe-core": "catalog:",
     "pixelmatch": "catalog:",
     "playwright-core": "catalog:",
     "pngjs": "catalog:",
