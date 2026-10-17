@@ -47,7 +47,7 @@
 | desktop 构建 | `pnpm --filter @dforge/desktop build` | 0 | `logs/build-desktop.log` | `tsc` 通过 |
 | verify-mcp-stub | `pnpm verify:mcp-stub` | **0** | `logs/verify-mcp-stub.log`；`gate-evidence/fe-10/verify-mcp-stub.json` | 16/16 步；真实进程 + 短 TTL 注入 |
 | guard-mcp-contract（新实现） | `pnpm guard:mcp-contract` | **0** | `logs/guard-mcp-contract.log`；`gate-evidence/aud-05/guard-mcp-contract.json` | 7 工具 / 5 caller / TTL / 33 路由 / 5 信封组与快照一致 |
-| test:scripts | `pnpm test:scripts` | **0** | `logs/test-scripts.log` | 63 例（新增 7 例契约守卫检出强度） |
+| test:scripts | `pnpm test:scripts` | **0** | `logs/test-scripts.log`；收尾复跑 `logs/test-scripts-after-merge.log` | 合并前 63 例 / 合并后 **73 例（66 + 本票新增 7）** |
 | verify（全量） | `pnpm verify` | **0** | `logs/verify.log` | lint + typecheck + 9 包单测全绿 |
 | web 生产构建 | `pnpm --filter @dforge/web build` | 0 | `logs/build-web.log` | 13 路由生成成功 |
 
@@ -249,7 +249,8 @@ C-05 的严重度判断加重，见 F-05-01）。
   三组漂移；快照缺失/损坏；正例不得把源判红）。夹具在 `scripts/tests/fixtures/mcp-contract/`。
 - **CI**：`.github/workflows/ci.yml` 新增 `pnpm guard:mcp-contract` 必过步骤；
   `docs/agents/implementation-workflow.md` 守卫实况同步（仅 `guard:deps` / `guard:channel-pairing` 仍为桩）。
-- **状态**：本票实现时源与快照一致（exit 0，0 violations / 0 undetermined）；`pnpm test:scripts` 63 例全过。
+- **状态**：本票实现时源与快照一致（exit 0，0 violations / 0 undetermined）；`pnpm test:scripts`
+  合并前 63 例、合并后 **73 例（66 + 本票新增 7）**全过。
 - **范围说明**：本快照固定的是**形状**（工具集/字段/路由/信封），不代表真实网关已实现（C-16 仍 missing）；
   P5 换实现不得改契约，否则该守卫会在 CI 红。
 
