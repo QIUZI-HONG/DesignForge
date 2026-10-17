@@ -35,6 +35,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { resolveChromeExecutable as resolveChrome } from './lib/browser-toolchain.mjs';
 import { bboxOfDiff } from './lib/pixels.mjs';
 
 const WEB_URL = process.env.DF_WEB_URL ?? 'http://127.0.0.1:3210';
@@ -365,18 +366,6 @@ function inspectReferenceDir() {
   const files = readdirSync(REF_DIR).filter((name) => name.endsWith('.png'));
   if (files.length === 0) return { ready: false, reason: `参照集为空（无 PNG）：${REF_DIR}` };
   return { ready: true, files };
-}
-
-/** 缓存的 Chromium 可执行文件（研究 #5：playwright-core 1.63 需显式 executablePath）。 */
-function resolveChrome() {
-  if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) return process.env.BENCH_CHROME_EXECUTABLE;
-  const cacheRoot = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(cacheRoot)) return undefined;
-  const candidates = readdirSync(cacheRoot)
-    .filter((name) => name.startsWith('chromium-'))
-    .sort()
-    .map((name) => join(cacheRoot, name, 'chrome-linux64', 'chrome'));
-  return candidates.find((file) => existsSync(file));
 }
 
 /** 站点探测（不可达即阻塞，不猜）。 */

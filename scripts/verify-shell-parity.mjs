@@ -35,10 +35,12 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { resolveChromeExecutable as resolveChromium } from './lib/browser-toolchain.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHELL_DIR = join(REPO_ROOT, 'apps', 'desktop');
@@ -506,24 +508,6 @@ async function runAlive() {
   );
   result.exitCode = FAIL;
   return result;
-}
-
-/** 找 Chromium 可执行文件（FE-01 同口径：`BENCH_CHROME_EXECUTABLE` 优先，其次探测 playwright 缓存）。 */
-function resolveChromium() {
-  if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) {
-    return existsSync(process.env.BENCH_CHROME_EXECUTABLE)
-      ? process.env.BENCH_CHROME_EXECUTABLE
-      : undefined;
-  }
-  const cacheRoot = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(cacheRoot)) {
-    return undefined;
-  }
-  const candidates = readdirSync(cacheRoot)
-    .filter((name) => name.startsWith('chromium-'))
-    .sort()
-    .map((name) => join(cacheRoot, name, 'chrome-linux64', 'chrome'));
-  return candidates.find((file) => existsSync(file));
 }
 
 /** 浏览器侧采集（`--live-browser` 诊断模式；验收只认冻结参照）。 */

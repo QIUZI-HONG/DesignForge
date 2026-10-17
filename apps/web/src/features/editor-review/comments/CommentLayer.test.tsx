@@ -44,9 +44,9 @@ function renderLayer(session: ReviewSession = fixtureSession()) {
   return session;
 }
 
-/** 取钉点（按可访问名匹配）。 */
+/** 取钉点（按面前缀可访问名匹配；批次 5 · D）。 */
 function pins(): HTMLElement[] {
-  return screen.queryAllByRole('button', { name: /评论钉点|已解决的评论/ });
+  return screen.queryAllByRole('button', { name: /^画布钉点：/ });
 }
 
 describe('评论层 · 钉点位置随视口换算', () => {
@@ -143,8 +143,34 @@ describe('评论层 · 钉点悬停展开', () => {
       const id = session.comments.getState().threads[0]?.id as string;
       session.comments.getState().resolve(id);
     });
-    const resolved = screen.getByRole('button', { name: /已解决的评论/ });
+    const resolved = screen.getByRole('button', { name: /^画布钉点：已解决·/ });
     expect(resolved.dataset.dfState).toBe('resolved');
+  });
+});
+
+describe('评论层 · 可访问名面前缀（批次 5 · D）', () => {
+  it('未解决钉点的可访问名以「画布钉点：」开头', () => {
+    const session = renderLayer();
+    act(() => {
+      session.comments.getState().setMode(true);
+      session.comments.getState().beginDraft({ x: 10, y: 10 });
+      session.comments.getState().submitDraft('正文内容');
+    });
+    const pin = screen.getByRole('button', { name: '画布钉点：正文内容' });
+    expect(pin.dataset.dfState).not.toBe('resolved');
+  });
+
+  it('已解决钉点的可访问名以「画布钉点：」开头并带解决标记', () => {
+    const session = renderLayer();
+    act(() => {
+      session.comments.getState().setMode(true);
+      session.comments.getState().beginDraft({ x: 10, y: 10 });
+      session.comments.getState().submitDraft('已处理');
+      const id = session.comments.getState().threads[0]?.id as string;
+      session.comments.getState().resolve(id);
+    });
+    const pin = screen.getByRole('button', { name: '画布钉点：已解决·已处理' });
+    expect(pin.getAttribute('aria-label')?.startsWith('画布钉点：')).toBe(true);
   });
 });
 

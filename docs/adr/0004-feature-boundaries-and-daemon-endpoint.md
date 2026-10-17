@@ -258,3 +258,22 @@ canvas 装配层与 `/_canvas` 夹具的默认页名已改走引擎缺省 `creat
   `verify-figma-*.mjs`（component/editor/panels/inspect/home）与 `verify-shell-parity.mjs`
   仍各存一份 `resolveChrome`。收敛方案：随下一次「façade 清理」小票逐文件替换为
   `resolveChromeExecutable()`（替换是机械的，但每个文件都要重跑其门禁，不宜与本次整改混跑）。
+
+## 补记 · 债二销账：Chromium 解析副本回抽（修复批次 5 · 工作包 E）
+
+日期：2026-10-17（上文「批次 4 复核遗留债登记」债二的事实与收敛方案**原文保留**，本条为执行记录；
+O-07 在 `docs/quality/test-report-v1.md` 同步标记「已销账（批次 5 · E）」。）
+
+- **已收敛（8 个门禁脚本）**：`scripts/verify-figma-component.mjs`、`verify-figma-editor.mjs`、
+  `verify-figma-home.mjs`、`verify-figma-inspect.mjs`、`verify-figma-inspector.mjs`、
+  `verify-figma-panels.mjs`、`verify-figma-review.mjs`、`verify-shell-parity.mjs` 的本地
+  `resolveChrome()` / `resolveChromium()` 实现全部删除，改为消费共享件
+  `scripts/lib/browser-toolchain.mjs` 的 `resolveChromeExecutable()`（本地名按原调用点别名导入：
+  figma 族 `resolveChrome`、shell-parity `resolveChromium`）。`verify-shell-parity.mjs` 随之删除
+  不再使用的 `readdirSync` 导入；`homedir` / `existsSync` 在参照集与产物探测中仍在使用，保留。
+- **口径统一（一处实现）**：解析顺序仍是 `BENCH_CHROME_EXECUTABLE`（存在才采用）→ playwright
+  缓存探测，与 `verify-canvas` / `lib/ui-mount` / `e2e-smoke` 同源。差异归一：figma 族旧副本在
+  env 指向不存在文件时会把坏路径交给 launch（门禁退出码不可控），共享件改为返回 `undefined`
+  走「阻塞」分支；这是本次回抽的预期行为收窄，不是回归。
+- **门禁复跑（2026-10-17）**：8 个脚本在参照集未冻结 / 站点与 daemon 显式指向不可达地址的条件下
+  均 **exit 2（阻塞）**，无 exit 1（不是语法/导入错误）；证据落 `~/df-evidence/<ticket>/`。
