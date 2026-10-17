@@ -80,7 +80,7 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 
 - `2` **不是通过**：任何脚本把「未实现」当绿报，都是假绿，一律按缺陷处理。
 - 未接入的门禁必须在 CI/文档里显式标注「挂点（随票接入）」，不得静默缺席。
-- **守卫实况（2026-10-16 批次 3 后）**：`scripts/guard-tokens.mjs`、
+- **守卫与 CI 实况（2026-10-17 审计 10b 后）**：`scripts/guard-tokens.mjs`、
   `scripts/guard-electron-baseline.mjs`（含检出强度回归 `scripts/tests/guard-electron-baseline.test.mjs`）、
   `scripts/guard-vocab.mjs`（词表同源；回归 `scripts/tests/guard-vocab.test.mjs`；批次 3 · 工作包 B）、
   `scripts/guard-feature-boundaries.mjs`（跨 feature 深导入归零，`register` 接缝为登记例外——ADR-0004 ② 机检；
@@ -89,11 +89,21 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   「CI 无参照集 → 断言 `exit 2` 且日志点名『阻塞：参照集未冻结』」的**阻塞语义断言**入 CI（不是当绿）。
   `verify:resilience`（#53 审计 03：韧性故障注入；临时数据根 + 空闲端口 + LD_PRELOAD 注入
   ENOSPC/EIO/fsync/rename 失败、真 SIGKILL；自测 `scripts/tests/verify-resilience.test.mjs`）
-  **已实现、仅本地、未接 CI**——审计期按 5 类 A/B 缺陷 `exit 1`（跨进程丢页、根内软链跨文档写、
-  半提交、深嵌套页读取 500、CORS null），修复前不得当通过；缺 C 编译器时故障注入段按阻塞 `exit 2` 点名。
+  **已实现、仅本地、未接 CI**——审计复跑 47 步 = 31 pass / **9 fail（known-red）**，9 红对应
+  #67 等 A/B 缺陷（跨进程丢页、根内软链跨文档写、半提交、深嵌套页读取 500、CORS null），
+  修复前不得当通过；缺 C 编译器时故障注入段按阻塞 `exit 2` 点名。
   `scripts/guard-mcp-contract.mjs`（MCP 工具集 + 跨端路由/信封快照；快照
   `scripts/snapshots/mcp-contract.v1.json`；回归 `scripts/tests/guard-mcp-contract.test.mjs`；
   审计 05 实现）**已实现并接入 CI**。
+  `pnpm --filter @dforge/web build`（生产构建，`next build`，prebuild 就位 CanvasKit 资产）与
+  根 `test:coverage`（#107 / 审计 10a 提供；engine/daemon/contracts 保守阈值，覆盖率产物随 CI run
+  上传，保留 14 天）**已接入 CI**；`test:coverage` 脚本缺失时 CI 步骤显式 `exit 2`（阻塞），
+  **不得**「缺脚本就跳过」。`test:mutation` / `audit:a11y`（#107 提供，随 #60a → #60b 合并生效）
+  **已实现、仅本地**：
+  mutation 选择性执行、默认不进 CI；axe 审计期仍有 2 critical / 5 serious（#74–#77），
+  修复前不接必过门禁。`e2e:smoke`（审计 08 扩为 6 场景 **114 步 = 110 pass / 4 fail**；
+  known-red = F-07-01×3（#69 导出空白）+ F-05-01×1（#79 过滤×分页死路））**仅本地、未接 CI**——
+  修复前不得当绿，也不得接成必过步骤（接法：生产构建 + Chromium + fixture daemon + 证据上传）。
   仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:channel-pairing`。
 - **守卫输出口径（批次 3 收口 · code-review）**：`guard-vocab` 与 `guard-feature-boundaries` 的
   退出码优先级为「**违规 exit 1 优先于未判定 exit 2**」，但两类问题必须**同屏列出**
@@ -104,10 +114,14 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 ## 门禁清单（本段）
 
 - 常规链路（CI 与本地同一条）：`pnpm install --frozen-lockfile` → `pnpm lint` →
-  `pnpm typecheck` → `pnpm test`；本地等价命令 `pnpm verify`。
+  `pnpm typecheck` → `pnpm test`；本地等价命令 `pnpm verify`。CI 在此之上还跑
+  `pnpm test:coverage`（#107）→ `pnpm --filter @dforge/web build`（生产构建）→ `test:scripts`
+  与非浏览器守卫（见 `ci.yml`）；覆盖率产物作为 `coverage` artifact 上传。
 - **浏览器门禁（挂点，随票接入）**：`verify-figma-page|component|states|baseline`（逐页/逐组件对照）、
-  `verify-canvas`（画布挂载 6 断言）、`e2e:smoke`（10 步冒烟：拖画→持久化→导出/导入往返）、
-  壳内渲染一致性断言（FE-12）。
+  `verify-canvas`（功能 7 断言 + 接线 15；视觉段 REF-01 blocked）、
+  `e2e:smoke`（6 场景 114 步 = 110 pass / 4 known-red：F-07-01×3 #69 + F-05-01 #79）、
+  `verify:shell-parity`（FE-12 壳内一致性；Electron 二进制/REF-01 blocked）。
+  `audit:a11y`（#107 提供；axe critical 断言）与 `test:mutation` 仅本地，暂不接必过门禁。
 - **驱动口径**：`playwright-core 1.63.0` 锁 `chromium-1243`，headless + **生产构建**。
   **不要用 `next dev` 跑 live 浏览器门禁/取证**：Next 16 Turbopack dev 源在本机不加载
   客户端引导件（槽位/评审面挂不上，整树停在 SSR 空槽），断言会以「看不见入口」假红；
@@ -115,6 +129,27 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   Node 级测试看不见浏览器专属故障（被遮挡的下拉、`window.setTimeout` 的 Illegal invocation、
   React 版本门禁）——浏览器门禁就是逮住它们的地方。
 - 对抗性门禁（如「字体已加载、禁止静默回退」）必须真断言，不能只断言「页面能打开」。
+
+## CI 与供应链（审计 10b）
+
+`.github/` 现有主 CI 与四个供应链配置；改动门禁的票必须同步本段与 `AGENTS.md`：
+
+- `workflows/ci.yml`：主 `verify` job（branch protection 的目标检查，job id/name 均为 `verify`）——
+  安装 → lint → typecheck → test → `test:coverage` → web 生产构建 → `test:scripts` → 守卫 /
+  引擎 / 参照集阻塞语义；覆盖率产物（artifact 名 `coverage`）保留 14 天。
+- `workflows/codeql.yml`：JS/TS；push/PR 到 `main` + 每周一 03:17 UTC。使用 **advanced setup**
+  （workflow 文件）；与仓库设置的 **CodeQL default setup 互斥**，管理员只能启用一种
+  （两者同时开启会导致 analysis 上传失败）。
+- `workflows/dependency-review.yml`：PR 上对比依赖图，high/critical 阻断。公开仓库免费；
+  仓库转私有后需 GitHub Advanced Security。
+- `workflows/dependency-audit.yml`：每周一 02:23 UTC + 手动；`pnpm audit --prod --audit-level=high`；
+  **只对网络类错误重试**（3 次），发现漏洞 `exit 1`、连续网络失败 `exit 2`（阻塞）。
+  该 job **不进 PR 必过门禁**——registry flake 不得随机阻塞合并；红/阻塞均需人工读结果，不得当绿。
+- `dependabot.yml`：npm（根 pnpm workspace）+ GitHub Actions，weekly；minor/patch 分组、major 独立。
+  首次启用后观察 Dependabot 对 `catalog:` 的解析；无法解析时按人工项处置（不得把「没开 PR」当「无更新」）。
+- 人工项（branch protection、Dependabot security updates、CodeQL 仓库设置、macOS/Windows runner、
+  e2e 必过前置、审计凭据）与可直接执行的 `gh api` 命令：`docs/quality/audit-v1/60-ci-hardening.md`。
+  仓库设置未被本仓代码更改——在该文档中登记，由管理员执行。
 
 ## CI 环境与开发机的差异（写用例前先读）
 

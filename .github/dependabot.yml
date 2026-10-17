@@ -1,0 +1,36 @@
+# Dependabot 版本更新（审计 10b · #108 / #60 P0-6）
+# - npm：根目录 pnpm workspace（pnpm-lock.yaml 由根统一维护；catalog: 版本见 pnpm-workspace.yaml）
+# - github-actions：跟踪 .github/workflows 中 action 的 tag
+# 安全更新（Dependabot security updates）需仓库管理员在设置中启用，见
+# docs/quality/audit-v1/60-ci-hardening.md「人工项」；本文件只负责版本更新 PR。
+#
+# 分组策略：minor/patch 合并为单个 PR（降噪）；major 逐条独立 PR（需人工评估）。
+# 首次启用后需观察 Dependabot 对 pnpm `catalog:` 的解析能力；若无法解析，按
+# 60-ci-hardening.md 的人工项处置（不得把「没开 PR」当成「无更新」）。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:40"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

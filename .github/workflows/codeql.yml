@@ -1,0 +1,47 @@
+# CodeQL 代码扫描（审计 10b · #108 / #60 P0-6）
+#
+# 覆盖语言：JavaScript/TypeScript（本仓唯一实现语言）。
+# 触发：push/PR 到 main + 每周定时（捕获新增规则与依赖变化）。
+# 说明：本仓使用 advanced setup（workflow 文件）。**不要同时启用仓库设置的
+# CodeQL default setup**——两者互斥，会导致 analysis 上传失败。二选一，见
+# docs/quality/audit-v1/60-ci-hardening.md「人工项 · CodeQL」。
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1" # 每周一 03:17 UTC（11:17 CST）
+
+permissions:
+  contents: read
+  security-events: write # 上传 SARIF 到 code scanning
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - uses: github/codeql-action/autobuild@v3
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
