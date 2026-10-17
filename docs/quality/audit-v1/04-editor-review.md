@@ -3,7 +3,7 @@
 - **状态**：已完成（本票证据 `~/df-evidence/audit-50/aud-04/`；机器可读汇总 `editor-review-2026-10-17T13-06-41.json`）
 - **日期**：2026-10-17（UTC 12:57–13:07；本地 UTC+8）
 - **代码基线**：`integration/audit-v1` @ `9079f02`（= `main` @ `c6b1654` + 审计 01 报告）
-- **本票分支/工作树**：`audit/04-editor-review` / `/home/QIU/df-wt/aud-04`
+- **本票分支/工作树**：`audit/04-editor-review` / `/home/QIU/df-wt/aud-04`（收尾已把 `integration/audit-v1` 并入本分支，merge commit `fc4e611`）
 - **范围**：画布 13 类交互、保存/重开、版本/评论/演示、文本/自动布局、500 节点基线；首页/编辑器/市场/设置 axe 与键盘路径。视觉像素对照仍因 REF-01 阻塞。
 
 ## 0. 结论摘要
@@ -37,6 +37,8 @@
 | 一次性审计 | `pnpm audit:editor-review` | 0 | 见 §3–§6 | `editor-review-2026-10-17T13-06-41.json`；`logs/audit-editor-review-final.log` |
 
 > `verify-canvas` 的 2 是**阻塞不是失败**：功能断言全过，仅 C8 深色截图因 REF-01 无参照集。`verify-figma-review` 同理，交互断言在参照集探测之前已跑完。
+>
+> **合并后复核**：并入 `integration/audit-v1`（审计 02/03）后重跑 `pnpm verify` = 0、`pnpm test:scripts` = 66/66、`verify-canvas` 仍 exit 2（挂载 7/7 + 接线 15/15）、`e2e:smoke` = 63/63；日志见 `logs/verify-postmerge.log`、`logs/test-scripts-postmerge.log`、`logs/verify-canvas-postmerge.log`、`logs/e2e-smoke-postmerge.log`。合并未改产品代码，§3–§6 结论沿用。
 
 ## 3. 画布 13 类交互（生产构建 `/editor`）
 
@@ -216,6 +218,7 @@ W1 的框选会连同两个画板一起选中（画板在世界坐标范围内�
 | 机器可读汇总（13 交互/评审/500 节点/axe 摘要） | `editor-review-2026-10-17T13-06-41.json` |
 | 审计日志（含生产构建输出） | `logs/audit-editor-review-final.log` |
 | 全量 verify / scripts / web 测试 / canvas / e2e 日志 | `logs/verify.log`、`logs/test-scripts.log`、`logs/web-test.log`、`logs/verify-canvas.log`、`logs/e2e-smoke.log` |
+| 合并后复核日志 | `logs/verify-postmerge.log`、`logs/test-scripts-postmerge.log`、`logs/verify-canvas-postmerge.log`、`logs/e2e-smoke-postmerge.log` |
 | axe 原始结果 / 摘要 / 焦点顺序 / AX 空名 | `axe/<page>.json`、`axe/<page>-summary.json`、`axe/<page>-focus.json`、`axe/<page>-ax-gaps.json` |
 | 截图（首页/编辑器/市场/设置/交互后/500 节点） | `shots/axe-<page>.png`、`shots/editor-after-interactions.png`、`shots/perf-500.png` |
 | 画布门禁证据 | `gate-evidence/fe-06/` |
