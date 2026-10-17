@@ -6,7 +6,7 @@
 - **工作树 / 分支**：`/home/QIU/df-wt/aud-10b` / `audit/10b-ci-docs`
 - **基线**：`integration/audit-v1` @ `a17034e`（审计 09 收口）
 - **本票提交**：`ef48282`（workflow）、`b535bd1`（门禁文档）、`d59a7d9`（本文件与人工项）、证据哈希更新提交（收尾）
-- **依赖**：#107（审计 10a）提供 `test:coverage` / `test:mutation` / `audit:a11y`；合并顺序 **#60a → #60b**
+- **依赖**：#107（审计 10a）提供 `test:coverage` / `test:mutation` / `audit:a11y`；合并顺序 **#60a → #60b**。收尾时 #107 已在 `audit/10a-test-tooling` 产生提交 `76b3b19`（`test:coverage` = `pnpm -r test --coverage`，各包默认 `coverage/`），但**尚未合并进 `integration/audit-v1`**；本分支 HEAD 仍无该脚本（CI 步骤会显式阻塞，见 §5）。
 - **证据根**：`~/df-evidence/audit-50/aud-60b/`（日志与哈希见 §5）
 - **事实基线（只读复核，`repo-settings-readonly.log`）**：`main` 无 branch protection（404）；Dependabot alerts 关闭（404）；automated security fixes `enabled=false`；CodeQL default setup `state=not-configured`。
 
@@ -38,7 +38,7 @@
 9. `guard:tokens` / `guard:vocab` / `guard:feature-boundaries` / `guard:electron-baseline` / **`guard:mcp-contract`（核对：已在位）** / `verify:engine`
 10. 参照集阻塞语义断言（无参照集 → 必须 `exit 2`）
 
-覆盖率阈值与 `coverage.reportsDirectory` 由 #107 的 vitest 配置决定；本票不设阈值、不复制数字。上传路径已覆盖根目录与 `apps/*`、`packages/*`、`services/*`、`tools/*` 的 `coverage/`；若 #107 使用其它目录，首次 CI run 的 artifact 会为空（`warn`，不是假绿——覆盖率步骤本身仍会按阈值失败）。**首次合并后要读一次 artifact 确认。**
+覆盖率阈值与 `coverage.reportsDirectory` 由 #107 的 vitest 配置决定；本票不设阈值、不复制数字。#107 未设置 `reportsDirectory`（Vitest 默认各包 `coverage/`，reporter 为 `text-summary` + `json-summary`），本票上传路径已覆盖根目录与 `apps/*`、`packages/*`、`services/*`、`tools/*` 的 `coverage/`；首次 CI run 的 artifact 应包含各包 `coverage-summary.json`。若后续 #107 调整目录，需同步本文件与 `ci.yml`。
 
 ## 3. Known-red 登记（不写成通过）
 
@@ -259,8 +259,10 @@ gh run list -R QIUZI-HONG/DesignForge --workflow dependency-audit.yml --limit 3
 
 未执行（如实登记）：
 
-- `pnpm test:coverage`：根脚本尚不存在（#107 未合并）。CI 步骤已做成「脚本缺失 → `exit 2` 阻塞」，
-  不会出现「没跑却绿」。收尾时 `audit/10a-test-tooling` 与 `integration/audit-v1` 仍停在 `a17034e`。
+- `pnpm test:coverage`：本分支 HEAD 尚无根脚本（#107 未合并进集成分支）。#107 的
+  `audit/10a-test-tooling` @ `76b3b19` 已提供 `test:coverage`（`pnpm -r test --coverage`，
+  各包 `coverage/`），合并顺序 #60a → #60b 后本步骤即可运行。CI 步骤已做成「脚本缺失 →
+  `exit 2` 阻塞」，不会出现「没跑却绿」。
 - CodeQL / dependency-review / dependency-audit：需在 GitHub Actions 上运行，本地不可复现；合并到
   `main` 后读首轮结果（`gh run list`）。
 - e2e / resilience / a11y / mutation：known-red 或仅本地，本票不跑、不接门禁（§3）。
