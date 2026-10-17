@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-import { OnboardingWizard } from '@/features/settings/components/onboarding-wizard';
+import { OnboardingWizard } from '@/features/settings';
 import { t } from '@/i18n';
 
 /**

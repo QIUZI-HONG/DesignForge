@@ -7,9 +7,13 @@
  *   3. `validateFilesSnapshot` —— 规格 §4.1 `raw_snapshots/.../files.json`（本票新增层）。
  *
  * 纪律：校验器只报问题、不做修复；调用方（CLI/门禁）据 issues 决定退出码，禁止假绿。
+ * 词表同源：kind/gate/compliance 词表真源在 `@dforge/contracts`（ADR-0004 ③ 收敛），
+ * 本层只消费守卫，不写字面量。
  */
 
 import { createHash } from 'node:crypto';
+
+import { isLicenseGate, isMarketAssetKind, isMarketCompliance } from '@dforge/contracts';
 
 import { type OdsValidationIssue, SHA256_RE } from '../types.ts';
 import { stableStringify } from './canonical.ts';
@@ -17,9 +21,6 @@ import { stableStringify } from './canonical.ts';
 const ASSET_ID_RE = /^gh:[^#\s]+#[^#\s]*$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;
 const GIT_SHA_RE = /^[0-9a-f]{7,40}$/;
-
-const ASSET_KINDS = ['skill', 'plugin', 'design-system', 'template'];
-const LICENSE_GATES = ['loadable', 'view-only', 'blocked'];
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -63,7 +64,7 @@ export function validateOdsRepoRecord(value: unknown): OdsValidationIssue[] {
   const license = value.license;
   if (!isObject(license)) {
     push('license-object', '缺 license 判定对象');
-  } else if (!LICENSE_GATES.includes(String(license.gate))) {
+  } else if (!isLicenseGate(license.gate)) {
     push('license-gate', 'license.gate 必须为 loadable|view-only|blocked');
   }
 
@@ -82,12 +83,12 @@ export function validateOdsRepoRecord(value: unknown): OdsValidationIssue[] {
           `资产 id 必须形如 gh:<owner>/<repo>#<path>（实际：${String(asset.id)}）`,
         );
       }
-      if (!ASSET_KINDS.includes(String(asset.kind)))
+      if (!isMarketAssetKind(asset.kind))
         push('asset-kind', `资产 kind 非法：${String(asset.kind)}`);
       if (typeof asset.treeDigest !== 'string' || !SHA256_RE.test(asset.treeDigest)) {
         push('asset-tree-digest', 'asset.treeDigest 必须形如 sha256:<64hex>');
       }
-      if (!['ok', 'non-compliant', 'deferred'].includes(String(asset.compliance))) {
+      if (!isMarketCompliance(asset.compliance)) {
         push('asset-compliance', `资产 compliance 非法：${String(asset.compliance)}`);
       }
       if (!Array.isArray(asset.checks) || asset.checks.length === 0) {

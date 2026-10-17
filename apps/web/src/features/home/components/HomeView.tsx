@@ -30,6 +30,7 @@ import {
   type DocumentsGateway,
   describeApiErrorCode,
 } from '../api/documents';
+import { GATEWAY_TIMEOUT_MS } from '../api/gateway-timeout';
 import { type MarketSearchResult, searchMarketAssets } from '../api/market';
 import { cx } from '../lib/cx';
 import { resolveEmptyKind } from '../lib/empty-kind';
@@ -70,6 +71,18 @@ export interface HomeViewProps {
   store?: HomeStore;
   /** 市场检索防抖（毫秒；测试传 0）。 */
   searchDebounceMs?: number;
+  /**
+   * 市场检索兜底上限（毫秒）：超过仍无结果先落「市场不可用」降级态（可读出口），
+   * 结果迟到再覆盖。
+   *
+   * 缺省即网关统一超时 {@link GATEWAY_TIMEOUT_MS}——**同一个数字，一处声明**
+   * （code-review #4：此前这里转发了一个 `MARKET_SEARCH_DEADLINE_MS` 别名常量，
+   * 无独立语义，已删）。两层的关系（不重复实现）：客户端侧超时
+   * （`api/gateway-timeout`）让真实请求到点失败；页面侧兜底是**最后出口**，还要盖住
+   * 被注入的非 fetch 实现（测试/宿主）。取值 3s 压在 daemon 端口段健康探测最坏耗时
+   * （~2.4s，见 `home/api/daemon-url`）之上，避免误报；测试传小值。
+   */
+  marketSearchDeadlineMs?: number;
 }
 
 /** 加载态。 */
@@ -87,6 +100,7 @@ export function HomeView({
   onOpenMarket,
   store,
   searchDebounceMs = 200,
+  marketSearchDeadlineMs = GATEWAY_TIMEOUT_MS,
 }: HomeViewProps) {
   const toast = useToast();
   const activeStore = store ?? useHomeStoreSingleton();
@@ -109,6 +123,14 @@ export function HomeView({
   });
 
   const gatewayRef = useRef<DocumentsGateway | null>(injectedDocuments ?? null);
+  /**
+   * 创建在飞守卫（同步 ref）。
+   *
+   * 为什么不能只看 `creating` 状态：状态更新要等重渲染才生效，同一帧内连按两次回车
+   * （或双击）时第二次提交读到的仍是旧值 → 会发出两次创建请求（对抗测试实测读数 2）。
+   * ref 在调用栈内立即生效，与渲染时机无关。
+   */
+  const creatingRef = useRef(false);
 
   /** 取文档接口（缺省按 daemon 基址解析创建，只解析一次）。 */
   const ensureGateway = useCallback(async (): Promise<DocumentsGateway> => {
@@ -151,7 +173,10 @@ export function HomeView({
     void load('initial');
   }, [load]);
 
-  // 市场结果线：输入搜索词后（防抖）查 daemon；清空即复位
+  // 市场结果线：输入搜索词后（防抖）查 daemon；清空即复位。
+  // 出口保证（三条，不允许永久 loading）：① 落定即用真实结果；② 被拒 → 落「市场不可用」降级态
+  // （拒绝不逃逸成 unhandled rejection）；③ 超上限仍未落定 → 先落降级态给可读出口，
+  // 结果迟到再覆盖（自愈）。
   useEffect(() => {
     const query = home.query.trim();
     if (query === '') {
@@ -159,19 +184,34 @@ export function HomeView({
       return undefined;
     }
     let cancelled = false;
+    let deadline: ReturnType<typeof setTimeout> | null = null;
     setMarket((current) => ({ ...current, loading: true }));
     const timer = setTimeout(() => {
-      void (async () => {
-        const result = await (searchMarket ?? defaultSearchMarket)(query);
-        if (cancelled) return;
-        setMarket({ loading: false, available: result.available, items: result.items });
-      })();
+      deadline = setTimeout(() => {
+        if (!cancelled) setMarket({ loading: false, available: false, items: [] });
+      }, marketSearchDeadlineMs);
+      // `Promise.resolve().then(…)`：连「同步抛错」的实现也归一到拒绝路径，异常不逃出定时器回调
+      void Promise.resolve()
+        .then(() => (searchMarket ?? defaultSearchMarket)(query))
+        .then(
+          (result) => {
+            if (deadline !== null) clearTimeout(deadline);
+            if (cancelled) return;
+            setMarket({ loading: false, available: result.available, items: result.items });
+          },
+          () => {
+            if (deadline !== null) clearTimeout(deadline);
+            if (cancelled) return;
+            setMarket({ loading: false, available: false, items: [] });
+          },
+        );
     }, searchDebounceMs);
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      if (deadline !== null) clearTimeout(deadline);
     };
-  }, [home.query, searchMarket, searchDebounceMs]);
+  }, [home.query, searchMarket, searchDebounceMs, marketSearchDeadlineMs]);
 
   const filtered = home.query.trim() !== '' || home.range !== 'all';
   // 时间基准在每次重算时取一次（`now` 为注入的稳定时钟；不把它当渲染依赖，避免每帧新建 Date）
@@ -230,6 +270,8 @@ export function HomeView({
   /** 新建：先落盘再回列表（新卡片出现 + Toast 提示）。 */
   const submitCreate = useCallback(
     async (name: string): Promise<void> => {
+      if (creatingRef.current) return; // 在飞守卫：同帧二次提交不是新动作，直接丢弃
+      creatingRef.current = true;
       setCreating(true);
       try {
         const gateway = await ensureGateway();
@@ -241,6 +283,7 @@ export function HomeView({
         const message = cause instanceof DocumentApiError ? cause.message : String(cause);
         toast.show({ message: t('home.new.failed', { message }), tone: 'error' });
       } finally {
+        creatingRef.current = false;
         setCreating(false);
       }
     },

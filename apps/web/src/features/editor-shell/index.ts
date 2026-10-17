@@ -105,3 +105,5 @@ export {
 
 // 壳层组件（整壳挂载入口）
 export { EditorShell } from './ui/editor-shell';
+// 深色作用域（编辑器路由布局挂它：客户端导航时把根元素切回深色基准）
+export { EditorThemeScope } from './ui/theme-scope';

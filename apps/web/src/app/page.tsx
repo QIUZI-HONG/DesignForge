@@ -9,8 +9,7 @@
  */
 import { useRouter } from 'next/navigation';
 
-import { HomeView } from '@/features/home/components/HomeView';
-import { editorHref } from '@/features/home/lib/routes';
+import { editorHref, HomeView } from '@/features/home';
 
 import '@/features/home/home.css';
 

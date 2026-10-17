@@ -11,7 +11,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { makeAsset, makeQueryResponse } from '@/features/market/__fixtures__/market';
+import { marketFixtures } from '@/features/market';
+
+// 夹具经 market 公开面取（`marketFixtures` 命名空间），不引 `__fixtures__` 深路径
+const { makeAsset, makeQueryResponse } = marketFixtures;
 
 // 路由能力：只测页面渲染与筛选，不做真实跳转。
 const push = vi.fn();
@@ -247,5 +250,33 @@ describe('/market · 客户端过滤与已装载（D3/§7.4）', () => {
     });
     await user.click(screen.getByRole('button', { name: 'PDF 导出' }));
     expect(push).toHaveBeenCalledWith('/market/gh%3Aacme%2Fskills%23skills%2Fpdf-export');
+  });
+});
+
+describe('/market · 加载态与坏响应出口（§5 补齐）', () => {
+  it('取数未落定 → 骨架网格挂点在位（data-df-state="loading"），不是空白', async () => {
+    fetchMock.mockImplementation(async () => await new Promise<Response>(() => undefined));
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(container.querySelector('[data-df-state="loading"]')).not.toBeNull();
+    });
+    // 首帧到落定之间不允许静默空白：结果区至少有一个六态挂点
+    expect(container.querySelectorAll('[data-df-state]').length).toBeGreaterThan(0);
+  });
+
+  it('内层形状坏（items 非数组）→ 错误态带归一码与契约说明，可重试', async () => {
+    respondWith({
+      schema: 'df.marketplace.index/v1',
+      state: 'empty',
+      generatedAt: null,
+      total: 0,
+      counts: null,
+      items: {},
+      warnings: [],
+    });
+    render(<MarketHomePage />);
+    expect(await screen.findByText(/形状不符合契约/)).toBeTruthy();
+    expect(screen.getByText('DAEMON_BAD_RESPONSE')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
   });
 });

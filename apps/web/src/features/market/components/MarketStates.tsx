@@ -88,14 +88,28 @@ export function MarketEmptyState({ kind, onClearFilters, onGoMarket }: MarketEmp
   );
 }
 
-/** 错误态（`data-df-state="error"`；六态之一的 error 挂点）。 */
-export function MarketErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+/** 错误态（`data-df-state="error"`；六态之一的 error 挂点）。
+ *
+ * `code` 由调用方给（daemon 错误码 / 前端归一码，如 `daemon_bad_response`）；
+ * 展示时统一大写（`daemon_unreachable` → `DAEMON_UNREACHABLE`，与旧挂点口径一致）。
+ */
+export function MarketErrorState({
+  message,
+  code = 'daemon_unreachable',
+  title = t('market.error.title'),
+  onRetry,
+}: {
+  message: string;
+  code?: string;
+  title?: string;
+  onRetry: () => void;
+}) {
   return (
     <div data-df-state="error" data-df-error="daemon">
       <ErrorState
-        title={t('market.error.title')}
+        title={title}
         description={message}
-        code="DAEMON_UNREACHABLE"
+        code={code.toUpperCase()}
         onRetry={onRetry}
         retryLabel={t('market.error.retry')}
       />

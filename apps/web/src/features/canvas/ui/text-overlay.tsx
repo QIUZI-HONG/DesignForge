@@ -11,8 +11,10 @@
  * - 每次输入把结果经引擎的「整段替换」写回文本会话（`insertText` + `setTextSelection`）；
  * - 失焦/⌘⏎ → `commitText()`（产出单条 `node.update`，一次撤销回退整段）；Esc → `cancelText()`。
  *
- * 对齐口径：世界矩形 → 屏幕（CSS 像素）→ `left/top/width/height` + 绕中心 `rotate`；
- * 字号/字距按 zoom 缩放，行高保持倍数（与画布渲染口径一致）。
+ * 对齐口径：世界矩形 → 屏幕（CSS 像素）→ `left/top/width/height` + 绕自身 `rotate`；
+ * 换算走 `render/viewport-map` 的**共享纯函数**（与渲染层同一份世界→屏幕口径，
+ * 父级偏移/旋转都由祖先链算进来——帧内文本是常态），字号/字距按 zoom 缩放、
+ * 行高保持倍数（与画布渲染口径一致）。
  */
 
 import { resolveNode } from '@dforge/engine';
@@ -21,6 +23,7 @@ import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 import { t } from '@/i18n';
 
+import { nodeOverlayBox } from '../render/viewport-map';
 import type { CanvasSession } from '../state/session';
 
 /** 覆盖层 props。 */
@@ -44,7 +47,8 @@ const OVERLAY_BASE: CSSProperties = {
   padding: 0,
   color: 'inherit',
   caretColor: 'var(--dfg-color-primary)',
-  transformOrigin: 'center center',
+  // 旋转原点 = 节点局部原点（左上角）：与引擎「world = R(祖先链累计角)·q + 局部原点世界位置」等价
+  transformOrigin: '0 0',
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
 };
@@ -83,15 +87,18 @@ export function TextOverlay({ session }: TextOverlayProps) {
   if (page === undefined) return null;
   const node = resolveNode(page, nodeId);
   if (node === undefined || node.type !== 'text') return null;
+  // 世界 → 屏幕走共享换算（祖先链偏移 + 累计旋转）：与渲染层同源，不静默按局部坐标落位
+  const box = nodeOverlayBox(page, nodeId, viewport);
+  if (box === null) return null;
 
   const content = editing.content;
   const style: CSSProperties = {
     ...OVERLAY_BASE,
-    left: node.x * viewport.zoom + viewport.panX,
-    top: node.y * viewport.zoom + viewport.panY,
-    width: Math.max(node.width * viewport.zoom, MIN_OVERLAY_WIDTH),
-    height: Math.max(node.height * viewport.zoom, MIN_OVERLAY_HEIGHT),
-    transform: `rotate(${node.rotation}deg)`,
+    left: box.left,
+    top: box.top,
+    width: Math.max(box.width, MIN_OVERLAY_WIDTH),
+    height: Math.max(box.height, MIN_OVERLAY_HEIGHT),
+    transform: `rotate(${box.rotation}deg)`,
     fontFamily: 'var(--dfg-font-sans)',
     fontSize: content.fontSize * viewport.zoom,
     fontWeight: content.fontWeight,

@@ -11,6 +11,15 @@
  * 一律显式补 null，不用 undefined 遛进计算）。
  */
 
+import {
+  isLicenseGate,
+  isMarketAssetKind,
+  isMarketCompliance,
+  MARKET_ASSET_KINDS,
+  MARKET_COMPLIANCES,
+  MARKET_LICENSE_GATES,
+} from '@dforge/contracts';
+
 import type {
   AssetKind,
   Compliance,
@@ -34,10 +43,6 @@ export class DwdShapeError extends Error {
     this.issues = issues;
   }
 }
-
-const KINDS: readonly AssetKind[] = ['skill', 'plugin', 'design-system', 'template'];
-const GATES: readonly LicenseGate[] = ['loadable', 'view-only', 'blocked'];
-const COMPLIANCES: readonly Compliance[] = ['ok', 'non-compliant', 'deferred'];
 
 /** 取对象记录（非对象 → null）。 */
 function record(value: unknown): Record<string, unknown> | null {
@@ -78,10 +83,11 @@ export function validateDwdAsset(raw: unknown): string[] {
   if (asset === null) missing(issues, 'asset', '对象');
   else {
     if (str(asset.id) === null) missing(issues, 'asset.id', '非空字符串（gh:owner/repo#path）');
-    if (!KINDS.includes(asset.kind as AssetKind)) missing(issues, 'asset.kind', KINDS.join('|'));
+    if (!isMarketAssetKind(asset.kind)) missing(issues, 'asset.kind', MARKET_ASSET_KINDS.join('|'));
     if (str(asset.name) === null) missing(issues, 'asset.name', '非空字符串');
-    if (asset.compliance !== undefined && !COMPLIANCES.includes(asset.compliance as Compliance))
-      missing(issues, 'asset.compliance', COMPLIANCES.join('|'));
+    if (asset.compliance !== undefined && !isMarketCompliance(asset.compliance)) {
+      missing(issues, 'asset.compliance', MARKET_COMPLIANCES.join('|'));
+    }
   }
 
   const repo = record(root.repo);
@@ -99,8 +105,8 @@ export function validateDwdAsset(raw: unknown): string[] {
 
   const license = record(root.license);
   if (license === null) missing(issues, 'license', '对象');
-  else if (!GATES.includes(license.gate as LicenseGate))
-    missing(issues, 'license.gate', GATES.join('|'));
+  else if (!isLicenseGate(license.gate))
+    missing(issues, 'license.gate', MARKET_LICENSE_GATES.join('|'));
 
   const files = record(root.files);
   if (files === null) missing(issues, 'files', '对象');
@@ -204,5 +210,50 @@ export function normalizeDwdAsset(raw: unknown): DwdAsset {
     files: { truncated: files.truncated === true, entries },
     text: textView,
     trend: trendView,
+  };
+}
+
+/** 非有限值一律归 null（可选数值位：无数据，不参与加权）。 */
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** 非有限值一律归 0（必填计数位：按「无采纳/未知计数」保守处理，宁可少判）。 */
+function finiteCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * 评分入口统一兜底（D4）：把**绕过 `normalizeDwdAsset` 直喂**的脏数值清洗为契约允许的值域。
+ *
+ * 为什么需要：`scoreBatch` 的调用方理论上都先归一化（NaN 会被 `DwdShapeError` 拦下），
+ * 但对抗验证证明直喂 `DwdAsset` 时 NaN 会一路进信号观测值（`maintenance.pushed-at=NaN`、
+ * `ecosystem.stars-growth=NaN` …）与扣分理由文本（「增速 NaN」）——JSONL 落盘时 NaN 又会
+ * 静默变 null（语义漂移），且人话理由不该出现 NaN。故在**评分入口**统一清洗：
+ *   - 数值位：非有限（NaN/±Infinity）→ 可选位归 null（信号不可得）；计数位归 0（保守）；
+ *   - 时间位：不可解析的 ISO 字符串由 `daysBetween` 归 null（信号不可得），本函数不改写。
+ * 纯函数：返回新对象，不改动调用方输入（`scoreBatch` 幂等：清洗前后结果一致）。
+ */
+export function sanitizeDwdAsset(input: DwdAsset): DwdAsset {
+  return {
+    ...input,
+    repo: {
+      ...input.repo,
+      repoId: finiteCount(input.repo.repoId),
+      stars: finiteCount(input.repo.stars),
+      forks: finiteCount(input.repo.forks),
+      commits90d: finiteOrNull(input.repo.commits90d),
+    },
+    files: {
+      truncated: input.files.truncated,
+      entries: input.files.entries.map((entry) => ({
+        ...entry,
+        size: finiteCount(entry.size),
+      })),
+    },
+    trend: {
+      stars90dAgo: finiteOrNull(input.trend.stars90dAgo),
+      referencedBy: finiteOrNull(input.trend.referencedBy),
+    },
   };
 }

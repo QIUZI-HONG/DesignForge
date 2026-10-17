@@ -47,9 +47,11 @@ export const ZOMBIE_PENALTY = 0.1;
  */
 export function scoreMaintenance(input: DwdAsset, asOf: string): DimensionResult {
   const { repo, files } = input;
+  // pushedAt 不可解析（直喂脏数据场景）→ 年龄无数据：信号不可得（不参与加权、不扣分），
+  // 不臆造「很新」或「很旧」——与「宁可少判，不可假判」同口径（D4：NaN 不得进观测值/理由）。
   const pushedAge = daysBetween(repo.pushedAt, asOf);
 
-  const pushedScore = pushedAge <= 90 ? 1 : pushedAge <= 365 ? 0.5 : 0;
+  const pushedScore = pushedAge === null ? null : pushedAge <= 90 ? 1 : pushedAge <= 365 ? 0.5 : 0;
   const ciFound = hasWorkflowFiles(files.entries);
   const commits = repo.commits90d;
   const releaseAge = repo.lastReleaseAt === null ? null : daysBetween(repo.lastReleaseAt, asOf);
@@ -85,18 +87,21 @@ export function scoreMaintenance(input: DwdAsset, asOf: string): DimensionResult
   };
 
   const signalDeductions = [
-    deduct(
-      'maintenance.pushed-at',
-      pushedAge > 365 ? 'M1' : 'M3',
-      pushedAge > 365 ? REASON_TEXT.M1 : REASON_TEXT.M3,
-    ),
+    pushedAge === null
+      ? null
+      : deduct(
+          'maintenance.pushed-at',
+          pushedAge > 365 ? 'M1' : 'M3',
+          pushedAge > 365 ? REASON_TEXT.M1 : REASON_TEXT.M3,
+        ),
     deduct('maintenance.ci', 'M4', REASON_TEXT.M4),
     deduct('maintenance.commits-90d', 'M5', REASON_TEXT.M5),
     deduct('maintenance.last-release', 'M6', REASON_TEXT.M6),
   ];
 
   const raw = weightedMean(signals);
-  const isZombie = pushedAge > ZOMBIE_DAYS && repo.stars < ZOMBIE_STAR_CEILING;
+  const isZombie =
+    pushedAge !== null && pushedAge > ZOMBIE_DAYS && repo.stars < ZOMBIE_STAR_CEILING;
   const adjusted = raw === null ? null : raw - (isZombie ? ZOMBIE_PENALTY : 0);
   const capped =
     adjusted === null

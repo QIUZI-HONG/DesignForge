@@ -22,6 +22,10 @@
  * 退出码（三态）：0 全过 / 1 功能断言违规 / 2 功能通过但截图段阻塞（参照集未冻结 / 站点不可达 /
  * Chromium 缺失）。
  *
+ * **任何退出路径**都先走 `release()`（浏览器 + daemon/next dev 子进程 + 临时目录），再 `process.exit`——
+ * 直接退出会把子进程留在机器上（实测残留 daemon 占端口，另一 worktree 曾积 21 个）。
+ * 证据字段按验收标准 §4：`diff{bbox,diffPixels,ratio}` 为顶层摘要（无比对时三项 null + note）。
+ *
  * 用法（仓库根执行）：
  *   node scripts/verify-canvas.mjs                 # 自动起 daemon（临时目录）+ next dev
  *   DF_WEB_URL=http://localhost:3000 node scripts/verify-canvas.mjs
@@ -77,9 +81,34 @@ const assertions = [];
 const wiring = [];
 const notes = [];
 const cleanups = [];
-let webProcess;
 let daemonProcess;
 let workspaceDir;
+/** 交互用浏览器（`finish` 前统一关闭；截图段另起浏览器，自管生命周期）。 */
+let browser = null;
+
+/**
+ * 子进程登记表：`finish()` 是唯一出口，但异常退出（`process.on('exit')`）也要兜底杀——
+ * 实测残留 daemon 会占端口（另一 worktree 曾积 21 个），故双保险：异步收尾 + 同步兜底。
+ */
+const children = new Set();
+function track(child) {
+  children.add(child);
+  child.on('exit', () => children.delete(child));
+  return child;
+}
+process.on('exit', () => {
+  for (const child of children) signalChild(child, 'SIGTERM');
+});
+// 手动 Ctrl-C / kill 也要带走独立进程组（detached 的子进程不在本进程组内，不受终端信号影响）。
+for (const [signal, code] of [
+  ['SIGINT', 130],
+  ['SIGTERM', 143],
+]) {
+  process.on(signal, () => {
+    for (const child of children) signalChild(child, 'SIGTERM');
+    process.exit(code);
+  });
+}
 
 /** 证据对象（`finish` 落盘；中途可直接改字段）。 */
 const evidence = {
@@ -101,6 +130,12 @@ const evidence = {
     diff: null,
     artifacts: {},
   },
+  /**
+   * 像素比对摘要（验收标准 §4 字段族：`diff.bbox` / `diffPixels` / `ratio`）。
+   * 无像素比对结论时（功能断言失败 / 参照集未冻结 / 尺寸不一致）三项均为 `null` + `note` 说明，
+   * 不写伪零值——0 差异与「没比对」必须可区分。
+   */
+  diff: { bbox: null, diffPixels: null, ratio: null, note: '尚未比对（截图段未执行）' },
   notes,
   humanReview: {
     verdict: 'pending',
@@ -119,8 +154,14 @@ function record(list, id, ok, detail) {
   );
 }
 
-/** 落盘证据并结束进程。 */
-function finish(code, message) {
+/**
+ * 落盘证据 → 释放子进程/浏览器/临时目录 → 结束进程。
+ *
+ * 为什么必须在这里 release：本函数是门禁的**唯一出口**，而子进程（daemon / next dev）
+ * 不会被父进程退出自动带走——旧的 `process.exit()` 直退会让 `release()` 永不执行，
+ * 实测残留 daemon 会持续占端口（另一 worktree 曾积 21 个）。
+ */
+async function finish(code, message) {
   evidence.finishedAt = new Date().toISOString();
   evidence.exitCode = code;
   evidence.webUrl = webUrl ?? null;
@@ -129,6 +170,7 @@ function finish(code, message) {
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
   console.log(`证据：${evidencePath}`);
   if (message) console.error(message);
+  await release();
   process.exit(code);
 }
 
@@ -204,13 +246,33 @@ function resolveChrome() {
   return undefined;
 }
 
+/** 起了「独立进程组」的子进程 pid（pnpm → next dev 这类多跳链：整组信号才不漏孙进程）。 */
+const groupLeaderPids = new Set();
+
+/** 给子进程发信号：独立进程组整组发（`-pid`），否则只发它自己；已退出则忽略。 */
+function signalChild(child, signal) {
+  try {
+    if (child.pid !== undefined && groupLeaderPids.has(child.pid)) {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  } catch {
+    // 已退出 / 组内已空
+  }
+}
+
 /** 起子进程（收集输出便于诊断）。 */
 function startProcess(command, commandArgs, options = {}) {
   const child = spawn(command, commandArgs, {
     cwd: options.cwd ?? REPO_ROOT,
     env: { ...process.env, ...(options.env ?? {}) },
     stdio: ['ignore', 'pipe', 'pipe'],
+    // 多跳链（`pnpm … exec next dev`）必须成「独立进程组」：只 SIGTERM 直接子进程时，
+    // 孙进程（真 dev server）可能在父进程退出后仍活着（实测退出瞬间仍可见残留 1–2 个）。
+    detached: options.detached === true,
   });
+  if (options.detached === true && child.pid !== undefined) groupLeaderPids.add(child.pid);
   let buffer = '';
   const collect = (chunk) => {
     buffer += chunk.toString();
@@ -227,13 +289,72 @@ function startProcess(command, commandArgs, options = {}) {
   return { child, output: () => buffer };
 }
 
-/** 释放子进程与临时目录。 */
+/**
+ * 等「独立进程组」彻底空。
+ *
+ * 为什么需要：多跳链里的孙进程（`pnpm → next dev`）不是本进程的子进程，`wait()` 管不到——
+ * 只等到直接子进程退出（pnpm）就返回时，dev server 还在自己收尾（实测退出瞬间仍可见 1–2 个
+ * next 进程，数秒后才消失）。此处按进程组存活轮询（`kill(-pgid, 0)`），超时再整组 SIGKILL。
+ */
+async function awaitGroupGone(pgid, timeoutMs) {
+  const isAlive = () => {
+    try {
+      process.kill(-pgid, 0);
+      return true;
+    } catch {
+      return false; // ESRCH：组内已无活进程
+    }
+  };
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isAlive()) return true;
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  try {
+    process.kill(-pgid, 'SIGKILL');
+  } catch {
+    // 组内已空
+  }
+  await new Promise((done) => setTimeout(done, 200));
+  return !isAlive();
+}
+
+/** 释放子进程与临时目录（`finish` 的唯一出口必须先走这里，否则进程泄漏）。 */
 async function release() {
   for (const cleanup of cleanups) {
     try {
       cleanup();
     } catch {
       // 忽略清理失败
+    }
+  }
+  await browser?.close().catch(() => undefined);
+  browser = null;
+  const running = [...children];
+  for (const child of running) signalChild(child, 'SIGTERM');
+  await Promise.all(
+    running.map(
+      (child) =>
+        new Promise((done) => {
+          if (child.exitCode !== null || child.signalCode !== null) {
+            done();
+            return;
+          }
+          const timer = setTimeout(() => {
+            signalChild(child, 'SIGKILL');
+            done();
+          }, 5000);
+          child.on('exit', () => {
+            clearTimeout(timer);
+            done();
+          });
+        }),
+    ),
+  );
+  // 独立进程组的孙进程不受 wait() 管辖：轮询到组空才算清干净（否则退出瞬间仍有残留）。
+  for (const pgid of groupLeaderPids) {
+    if (!(await awaitGroupGone(pgid, 5000))) {
+      notes.push(`清理告警：进程组 ${String(pgid)} 仍有存活进程（已补 SIGKILL）。`);
     }
   }
   if (workspaceDir !== undefined) {
@@ -252,7 +373,7 @@ function ensureAssets() {
 async function ensureDaemon(webPort) {
   if (daemonUrl !== undefined) {
     if (!(await probe(`${daemonUrl}/health`))) {
-      finish(2, `阻塞：外部 daemon 不可达（${daemonUrl}/health）`);
+      return finish(2, `阻塞：外部 daemon 不可达（${daemonUrl}/health）`);
     }
     notes.push('外部 daemon：其 CORS 白名单未由本脚本配置，页面请求走路由转发（Node 侧）。');
     return;
@@ -275,8 +396,7 @@ async function ensureDaemon(webPort) {
       DFORGE_CORS_ORIGINS: origins,
     },
   });
-  daemonProcess = started.child;
-  cleanups.push(() => daemonProcess?.kill('SIGTERM'));
+  daemonProcess = track(started.child);
   const url = await waitFor(
     () => {
       const match = started.output().match(/\[daemon\] listening on (http:\/\/[^\s]+)/);
@@ -285,7 +405,7 @@ async function ensureDaemon(webPort) {
     { timeout: 25000, label: 'daemon 启动' },
   ).catch(() => null);
   if (url === null) {
-    finish(2, `阻塞：daemon 未能启动（输出尾部：${started.output().slice(-400)}）`);
+    return finish(2, `阻塞：daemon 未能启动（输出尾部：${started.output().slice(-400)}）`);
   }
   daemonUrl = url;
 }
@@ -294,7 +414,7 @@ async function ensureDaemon(webPort) {
 async function ensureWeb(plannedPort) {
   if (webUrl !== undefined) {
     if (!(await probe(`${webUrl}/_canvas`))) {
-      finish(2, `阻塞：站点不可达（${webUrl}/_canvas）`);
+      return finish(2, `阻塞：站点不可达（${webUrl}/_canvas）`);
     }
     return;
   }
@@ -302,10 +422,10 @@ async function ensureWeb(plannedPort) {
   const started = startProcess(
     'pnpm',
     ['--filter', '@dforge/web', 'exec', 'next', 'dev', '-p', String(port)],
-    { cwd: REPO_ROOT },
+    // detached：pnpm 之下还有真 dev server（孙进程），退出时要整组信号才不留残留。
+    { cwd: REPO_ROOT, detached: true },
   );
-  webProcess = started.child;
-  cleanups.push(() => webProcess?.kill('SIGTERM'));
+  track(started.child);
   // 用 localhost 打开：Next 16 dev 对 `/_next/*` 有开发源限制，127.0.0.1 会被拦（HMR/chunk 404）
   webUrl = `http://localhost:${port}`;
   // Next 16 dev 每个项目只允许一个实例：若工作区已有 dev 服务在跑（多票并行开发常见），
@@ -344,7 +464,7 @@ async function ensureWeb(plannedPort) {
     .then(() => true)
     .catch(() => false);
   if (!ready) {
-    finish(2, `阻塞：站点未能启动（输出尾部：${started.output().slice(-400)}）`);
+    return finish(2, `阻塞：站点未能启动（输出尾部：${started.output().slice(-400)}）`);
   }
 }
 
@@ -382,7 +502,7 @@ async function main() {
   ensureAssets();
   const chrome = resolveChrome();
   if (chrome === undefined) {
-    finish(2, '阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）');
+    await finish(2, '阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）');
   }
   // 站点端口先定：daemon 的 CORS 白名单要按真实站点来源配置（真实跨源，不靠转发）
   const plannedWebPort = webUrl === undefined ? await freePort(3226) : null;
@@ -390,7 +510,7 @@ async function main() {
   await ensureWeb(plannedWebPort);
 
   const { chromium } = await import('playwright-core');
-  const browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox'] });
+  browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox'] });
   const context = await browser.newContext({
     viewport: { width: VIEWPORT.width, height: VIEWPORT.height },
     deviceScaleFactor: VIEWPORT.dpr,
@@ -651,8 +771,13 @@ async function main() {
     notes.push(
       `功能断言失败：挂载 ${failures.map((item) => item.id).join(',') || '无'}；接线 ${wiringFailures.map((item) => item.id).join(',') || '无'}`,
     );
-    await browser.close();
-    finish(
+    evidence.diff = {
+      bbox: null,
+      diffPixels: null,
+      ratio: null,
+      note: '功能断言未通过：截图对照段未执行（无像素比对结论）',
+    };
+    await finish(
       1,
       `违规：挂载断言失败 ${failures.length} 条、接线断言失败 ${wiringFailures.length} 条（明细见证据 JSON）。`,
     );
@@ -676,8 +801,13 @@ async function main() {
     notes.push(
       '阻塞：REF-01 未完成（C8 画布参照集未冻结）——截图对照段无结论；实际截图仅供人工预览。',
     );
-    await browser.close();
-    finish(
+    evidence.diff = {
+      bbox: null,
+      diffPixels: null,
+      ratio: null,
+      note: `参照集未冻结（REF-01 未完成）：无像素比对。原因：${evidence.screenshot.reason}`,
+    };
+    await finish(
       2,
       [
         '阻塞：参照集未冻结（REF-01 未完成）——该段不能出结论。',
@@ -693,8 +823,13 @@ async function main() {
   const refPng = PNG.sync.read(readFileSync(refPath));
   const actualPng = PNG.sync.read(readFileSync(actualPath));
   if (refPng.width !== actualPng.width || refPng.height !== actualPng.height) {
-    await browser.close();
-    finish(
+    evidence.diff = {
+      bbox: null,
+      diffPixels: null,
+      ratio: null,
+      note: `截图尺寸不一致（参照 ${refPng.width}×${refPng.height} vs 实际 ${actualPng.width}×${actualPng.height}）：无像素比对结论`,
+    };
+    await finish(
       1,
       `违规：截图尺寸不一致（参照 ${refPng.width}×${refPng.height} vs 实际 ${actualPng.width}×${actualPng.height}）。`,
     );
@@ -713,6 +848,7 @@ async function main() {
   );
   const total = refPng.width * refPng.height;
   const ratio = total === 0 ? 0 : diffPixels / total;
+  const diffBbox = bboxOfDiff(diffPng);
   const diffPath = join(ARTIFACTS_DIR, `${SCREENSHOT_UNIT}-diff-${stamp}.png`);
   writeFileSync(diffPath, PNG.sync.write(diffPng));
   evidence.screenshot = {
@@ -722,7 +858,7 @@ async function main() {
       diffPixels,
       totalPixels: total,
       ratio: Number(ratio.toFixed(6)),
-      bbox: bboxOfDiff(diffPng),
+      bbox: diffBbox,
     },
     reference: refPath,
     artifacts: {
@@ -731,14 +867,20 @@ async function main() {
       diff: fingerprint(diffPath),
     },
   };
-  await browser.close();
+  // 顶层摘要（验收标准 §4 字段族）：与截图段同源，便于消费方按统一路径读取。
+  evidence.diff = {
+    bbox: diffBbox,
+    diffPixels,
+    ratio: Number(ratio.toFixed(6)),
+    note: `与冻结参照 ${SCREENSHOT_UNIT} 逐像素比对（pixelmatch threshold=${THRESHOLD}，容差 ${MAX_RATIO}）`,
+  };
   if (ratio > MAX_RATIO) {
-    finish(
+    await finish(
       1,
       `违规：C8 对标页差异率 ${(ratio * 100).toFixed(4)}% 超容差（≤ ${(MAX_RATIO * 100).toFixed(2)}%）。`,
     );
   }
-  finish(0, '通过：挂载 6 断言 + 白名单 13 类接线 + C9/C11 外观 + 截图对照全部通过。');
+  await finish(0, '通过：挂载 6 断言 + 白名单 13 类接线 + C9/C11 外观 + 截图对照全部通过。');
 }
 
 /** 页面 API 包装（调试句柄 + 坐标换算）。 */
@@ -1224,6 +1366,11 @@ main()
   .catch(async (error) => {
     notes.push(`未预期失败：${String(error)}`);
     console.error(`未预期失败：${String(error)}`);
-    await release();
-    finish(1, `违规：门禁执行中断（${String(error)}）`);
+    evidence.diff = {
+      bbox: null,
+      diffPixels: null,
+      ratio: null,
+      note: '门禁执行中断：无像素比对结论',
+    };
+    await finish(1, `违规：门禁执行中断（${String(error)}）`);
   });

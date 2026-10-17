@@ -26,14 +26,15 @@ import { worldBoundsOfNode, worldBoundsOfNodes, worldMatrix } from '../geometry/
 import type { Matrix, Point, Rect } from '../geometry/types';
 import type { NodeId, PageId, ScenePage } from '../model/index';
 import { resolveNode } from '../scene/query';
-import type { SnapResult } from '../snap/snap';
+import type { SnapOptions, SnapResult } from '../snap/snap';
 import {
+  computeMeasurements,
   computeSnap,
   NO_SNAP,
   type SnapTarget,
-  snapRectToGrid,
   snapTargetsFromPage,
   snapThresholdWorld,
+  snapValueToGrid,
 } from '../snap/snap';
 
 /** 修饰键（Shift/Alt/⌘）。 */
@@ -324,7 +325,17 @@ function aspectLockedPointer(state: ResizeInteraction, pointer: Point): Point {
   return addPoints(center, rotateVector(subtractPoints(projected, center), state.rotation));
 }
 
-/** 对移动应用吸附（对象对齐 + 网格），返回修正后的位移与参考线数据。 */
+/**
+ * 对移动应用吸附（对象对齐 + 网格），返回修正后的位移与参考线数据。
+ *
+ * 两轴**分别求解**（B4）：网格只定「命中的轴」，另一轴照常求解节点吸附——
+ * 修前「单轴命中即整体 return」会把另一轴的节点对齐、参考线与测量一并丢掉
+ * （实测 delta.x=20 时 y 停在 197，关网格才会到 200）。
+ *
+ * 轴归属：网格命中的轴（含「已落在网格线上」的 0 位移）由网格定值、不产节点参考线；
+ * 未命中的轴回落节点吸附（`computeSnap`），节点吸附的求解基准是网格修正后的矩形，
+ * 使参考线跨度与测量对应当前实际位置。测量在任一轴有修正时按最终矩形计算。
+ */
 export function applySnapToMove(
   context: InteractionContext,
   nodeIds: readonly NodeId[],
@@ -336,21 +347,43 @@ export function applySnapToMove(
   const threshold = snapThresholdWorld(context.zoom);
   const moved = translateRect(bounds, delta.x, delta.y);
 
-  // 网格吸附（C8）：页面开启时优先
-  if (context.grid?.snapToGrid === true && context.grid.size > 0) {
-    const grid = snapRectToGrid(moved, context.grid.size, threshold);
-    if (grid.dx !== 0 || grid.dy !== 0) {
-      return {
-        delta: { x: delta.x + grid.dx, y: delta.y + grid.dy },
-        snap: { dx: grid.dx, dy: grid.dy, guides: [], measurements: [] },
-      };
-    }
-  }
+  // 网格吸附（C8）：逐轴求解，命中轴由网格定值
+  const grid = context.grid ?? null;
+  const gridX = gridSnapOnAxis(moved.x, grid, threshold);
+  const gridY = gridSnapOnAxis(moved.y, grid, threshold);
 
+  // 节点吸附只解网格未命中的轴（两轴都命中则完全跳过，避免把在网格线上的轴拉走）
+  const gridAdjusted = translateRect(moved, gridX?.delta ?? 0, gridY?.delta ?? 0);
+  const nodeAxes: SnapOptions['axes'] | null =
+    gridX !== null && gridY !== null ? null : gridX !== null ? 'y' : gridY !== null ? 'x' : 'both';
   const targets: SnapTarget[] = [...snapTargetsFromPage(context.page, nodeIds)];
   for (const target of context.extraTargets ?? []) targets.push(target);
-  const snap = computeSnap(moved, targets, { threshold });
-  return { delta: { x: delta.x + snap.dx, y: delta.y + snap.dy }, snap };
+  const nodeSnap =
+    nodeAxes === null
+      ? NO_SNAP
+      : computeSnap(gridAdjusted, targets, { threshold, axes: nodeAxes, measurements: false });
+
+  const dx = (gridX?.delta ?? 0) + nodeSnap.dx;
+  const dy = (gridY?.delta ?? 0) + nodeSnap.dy;
+  const snap: SnapResult = {
+    dx,
+    dy,
+    guides: [...nodeSnap.guides],
+    measurements:
+      dx !== 0 || dy !== 0 ? computeMeasurements(translateRect(moved, dx, dy), targets) : [],
+  };
+  return { delta: { x: delta.x + dx, y: delta.y + dy }, snap };
+}
+
+/** 单轴网格吸附：开关关闭、尺寸非法或超阈值一律返回 null（该轴回落节点吸附）。 */
+function gridSnapOnAxis(
+  value: number,
+  grid: InteractionContext['grid'],
+  threshold: number,
+): { value: number; delta: number } | null {
+  if (!grid?.snapToGrid) return null;
+  if (grid.size <= 0) return null;
+  return snapValueToGrid(value, grid.size, threshold);
 }
 
 /** 结束交互并产出命令（松手提交；无变化返回空数组）。 */

@@ -14,6 +14,8 @@ import type {
 } from '@dforge/contracts';
 import { DAEMON_ROUTES } from '@dforge/contracts';
 
+import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+
 /** daemon 请求失败（信封 error 的形状对齐）。 */
 export class DaemonRequestError extends Error {
   readonly code: string;
@@ -35,15 +37,13 @@ export interface McpPort {
   audit(limit?: number): Promise<McpAuditResponse>;
 }
 
-/** 缺省 daemon 地址（本机回环；与路由表的端口起点一致）。 */
-const DEFAULT_BASE_URL = 'http://127.0.0.1:4318';
-
-/** 解析 daemon 基础地址（与 AI/出图端口同口径）。 */
+/**
+ * 解析 daemon 基础地址：显式参数 > 收敛模块（`?daemon=` → `NEXT_PUBLIC_DF_DAEMON_URL` →
+ * 缺省端口窗起点）。顺序与常量见 `@/lib/daemon-endpoint`（ADR-0004 裁决 ①）。
+ */
 export function resolveDaemonBaseUrl(explicit?: string): string {
-  if (explicit !== undefined && explicit.length > 0) return explicit.replace(/\/$/, '');
-  const fromEnv = process.env.NEXT_PUBLIC_DF_DAEMON_URL;
-  if (typeof fromEnv === 'string' && fromEnv.length > 0) return fromEnv.replace(/\/$/, '');
-  return DEFAULT_BASE_URL;
+  if (explicit !== undefined && explicit.length > 0) return explicit.replace(/\/+$/, '');
+  return resolveDaemonEndpointSync();
 }
 
 /** 解包统一信封；失败抛 DaemonRequestError。 */

@@ -79,8 +79,7 @@ export const filterRowStyle: CSSProperties = {
 /** 卡片网格（自适应列宽；minmax 的下限是 8 栅格上的卡片最小可读宽）。 */
 export const gridStyle: CSSProperties = {
   display: 'grid',
-  // guard-tokens:allow 卡片最小列宽：240 为页面几何常量（令牌族未覆盖，见 verify-market 登记）
-  gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', // guard-tokens:allow 卡片最小列宽：240 为页面几何常量（令牌族未覆盖，见 verify-market 登记）
   gap: 'var(--dfg-space-4)',
   alignItems: 'stretch',
 };
@@ -229,8 +228,7 @@ export const kvValueStyle: CSSProperties = {
 /** 详情两栏（左预览 / 右信息）。 */
 export const detailLayoutStyle: CSSProperties = {
   display: 'grid',
-  // guard-tokens:allow 详情预览栏最小宽：320 为页面几何常量（令牌族未覆盖，见 verify-market 登记）
-  gridTemplateColumns: 'minmax(320px, 5fr) minmax(0, 7fr)',
+  gridTemplateColumns: 'minmax(320px, 5fr) minmax(0, 7fr)', // guard-tokens:allow 详情预览栏最小宽：320 为页面几何常量（令牌族未覆盖，见 verify-market 登记）
   gap: 'var(--dfg-space-4)',
   alignItems: 'start',
 };
@@ -314,8 +312,7 @@ export const scoreStyle: CSSProperties = {
 /** 看板统计卡网格。 */
 export const statGridStyle: CSSProperties = {
   display: 'grid',
-  // guard-tokens:allow 统计卡最小列宽：180 为页面几何常量（令牌族未覆盖，见 verify-market 登记）
-  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', // guard-tokens:allow 统计卡最小列宽：180 为页面几何常量（令牌族未覆盖，见 verify-market 登记）
   gap: 'var(--dfg-space-3)',
 };
 

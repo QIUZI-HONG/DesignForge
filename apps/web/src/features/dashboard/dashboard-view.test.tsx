@@ -9,8 +9,11 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { makeAsset, makeQueryResponse } from '@/features/market/__fixtures__/market';
+import { marketFixtures } from '@/features/market';
 import { DashboardView } from './DashboardView';
+
+// 夹具经 market 公开面取（`marketFixtures` 命名空间），不引 `__fixtures__` 深路径
+const { makeAsset, makeQueryResponse } = marketFixtures;
 
 afterEach(() => {
   cleanup();

@@ -12,7 +12,7 @@
  * 退出码：0 通过 / 1 断言失败 / 2 阻塞（无凭据、无网络、样本缺失、依赖产物缺失）。
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { cp, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { collect, score, transform } from '@dforge/ingest';
 import type { MarketCommandOutcome } from './outcome.ts';
@@ -75,6 +75,43 @@ async function odsRunId(paths: DataPaths): Promise<string | null> {
     return null;
   }
   return null;
+}
+
+/** 真实路径（路径不存在时退回原值——比较「同一目录」用，不要求存在）。 */
+async function realPathOf(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return path;
+  }
+}
+
+/**
+ * 把外部 `--replay` 样本同步进数据根 `<data>/replay/<runId>/`。
+ *
+ * 为什么必须同步：ODS 规整（`materializeOds`）从**数据根**的 `<data>/replay/**` 读录制正文
+ * 才能重建 Trees 清单与文件级 sha256；样本若只在数据根外的路径，规整段就是「缺依赖产物」。
+ * 设计取舍 = 拷入数据根（而非让规整直接读外部路径）：
+ *   - 数据根自此自包含——离线复跑的其他段（`--stage ods/dwd` 分开跑）不再依赖外部目录存在；
+ *   - `ods.sources` 里的来源路径仍在数据根内，证据可复核、可再次复跑。
+ * 幂等与只追加：目标已存在即不覆盖（样本按 runId 冻结，同 runId 视为同一份）。
+ */
+async function syncReplaySampleIntoDataRoot(
+  dataRoot: string,
+  replayDir: string,
+  runId: string,
+  log: (line: string) => void,
+): Promise<void> {
+  const target = join(dataRoot, 'replay', runId);
+  if ((await realPathOf(target)) === (await realPathOf(replayDir))) return; // 已在位（数据根内约定路径）
+  if (await exists(join(target, 'responses.jsonl'))) return; // 已同步过：不覆盖（只追加纪律）
+  try {
+    await cp(replayDir, target, { recursive: true });
+    log(`离线样本已同步进数据根：${replayDir} → ${target}（ODS 规整读取录制正文的前提）`);
+  } catch (error) {
+    // 同步失败不直接判死：规整段会以 files-listing-missing 明确阻塞（exit 2），不产出退化 DWD
+    log(`⚠ 离线样本同步失败（${String(error)}）——规整段将按缺依赖产物阻塞`);
+  }
 }
 
 /** 执行采集命令（三段链路；每段产出一个证据 step）。 */
@@ -160,6 +197,10 @@ export async function runCollectCommand(
         blockStep?.assertions[0]?.actual ??
         '采集阻塞（原因见 MK-01 证据 JSON）';
     }
+    // 重放到数据根外的样本 → 同步进数据根（ODS 规整必须能从数据根读到录制正文）
+    if (options.replayDir !== null) {
+      await syncReplaySampleIntoDataRoot(paths.root, options.replayDir, runId, log);
+    }
   } else {
     // 只跑 ods/dwd 段：runId 从既有 ODS 记录推（不用当前时钟，证据名可复现）
     runId = options.runId ?? (await odsRunId(paths)) ?? 'cli-local';
@@ -173,10 +214,18 @@ export async function runCollectCommand(
         issue.rule,
       ),
     );
+    // 阻断性问题 = 依赖产物缺失/被改写（样本缺 Trees 正文、blob 损坏、同 commit 事实冲突）→
+    // 阻塞语义 exit 2，不是「有数据但断言不达标」——退化 DWD 不准落盘、不准冒充 exit 1。
+    if (blockingIssues.length > 0) {
+      blockedReason = `ODS 规整缺依赖产物或事实冲突（${blockingIssues
+        .slice(0, 3)
+        .map((issue) => `${issue.rule}@${issue.path}`)
+        .join('；')}${blockingIssues.length > 3 ? `…共 ${blockingIssues.length} 条` : ''}）——阻塞`;
+    }
     steps.push({
       id: 'ods-normalize',
       name: 'ODS 规整（gzip 事件 / 逐仓 files.json / 内容寻址 blob）',
-      verdict: 'pass',
+      verdict: blockingIssues.length > 0 ? 'blocked' : 'pass',
       assertions: [
         {
           name: '无阻断性问题（解析失败/清单缺失/blob 损坏/快照冲突）',

@@ -309,24 +309,35 @@ export function CanvasStage({
         handleSpaceDown(session);
         return;
       }
-      const result = dispatchKeyDown(
-        session,
-        {
-          key: event.key,
-          meta: event.metaKey,
-          ctrl: event.ctrlKey,
-          shift: event.shiftKey,
-          alt: event.altKey,
-          repeat: event.repeat,
-        },
-        {
-          screenSize: sizeRef.current,
-          screenCenter: { x: sizeRef.current.width / 2, y: sizeRef.current.height / 2 },
-        },
-        coveredRef.current === undefined ? {} : { skipIds: coveredRef.current },
-      );
+      // 快捷键是**种子事件处理器**：会话异常不得从这里逃逸成未捕获异常
+      // （典型：撤销后按方向键，选择集里的幽灵 id 让命令栈抛错）。
+      let handled = false;
+      try {
+        const result = dispatchKeyDown(
+          session,
+          {
+            key: event.key,
+            meta: event.metaKey,
+            ctrl: event.ctrlKey,
+            shift: event.shiftKey,
+            alt: event.altKey,
+            repeat: event.repeat,
+          },
+          {
+            screenSize: sizeRef.current,
+            screenCenter: { x: sizeRef.current.width / 2, y: sizeRef.current.height / 2 },
+          },
+          coveredRef.current === undefined ? {} : { skipIds: coveredRef.current },
+        );
+        handled = result?.handled === true;
+      } catch (error) {
+        // 记录到会话错误态（HUD/门禁/调试句柄可读）并让交互回到一致态，然后消化这次按键
+        session.setError(error instanceof Error ? error.message : String(error));
+        session.cancelActiveInteraction();
+        handled = true;
+      }
       // 让给宿主的组合（handled=false）不 preventDefault：宿主（编辑器壳）的全局派发要接着处理它
-      if (result?.handled === true) {
+      if (handled) {
         event.preventDefault();
         loopRef.current?.request();
       }

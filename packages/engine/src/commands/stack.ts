@@ -15,7 +15,7 @@
 
 import type { DesignDocument } from '../model/index';
 import { DomainError, type DomainErrorCode, isDomainError } from '../scene/errors';
-import { deepFreezeDocument } from '../scene/validate';
+import { deepFreeze, deepFreezeDocument } from '../scene/validate';
 import { applyCommand } from './apply';
 import type { Command, HistoryEntry, Transaction } from './types';
 
@@ -129,7 +129,11 @@ export class CommandStack {
     }
 
     this.#document = this.#freeze ? deepFreezeDocument(next) : next;
-    this.#pushHistory({ label: options.label ?? '编辑', commands: list, inverse });
+    this.#pushHistory({
+      label: options.label ?? '编辑',
+      commands: snapshotCommands(list),
+      inverse,
+    });
     this.#emit();
     return this.#document;
   }
@@ -252,6 +256,31 @@ export class CommandStack {
   #emit(): void {
     for (const listener of this.#listeners) listener(this.#document);
   }
+}
+
+/**
+ * 入栈快照：历史持有**深拷并冻结**的命令，而不是调用方手里的那些对象（B3）。
+ *
+ * 为什么必须快照：调用方常在 dispatch 之后复用/改写自己那份命令对象（拖拽循环里的
+ * 临时对象、UI 层的可变 buffer），若历史按引用持有，redo 会施加出与首次不同的值
+ * （实测 x 从 20 漂到 10010）。载荷都是 JSON 形状的纯数据，故用结构化深拷 + 深冻结
+ * （冻结是为了杜绝历史条目被任何内部路径就地改写）。
+ */
+function snapshotCommands(commands: readonly Command[]): Command[] {
+  return deepFreeze(commands.map((command) => cloneCommand(command)));
+}
+
+/** 结构化深拷（JSON 形状的纯数据；`__proto__` 键直接丢弃，避免原型污染）。 */
+function cloneCommand<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => cloneCommand(item)) as unknown as T;
+  if (value === null || typeof value !== 'object') return value;
+  const source = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(source)) {
+    if (key === '__proto__') continue;
+    out[key] = cloneCommand(item);
+  }
+  return out as unknown as T;
 }
 
 /** 领域错误 → 命令错误（保留错误码，标注失败位置）。 */

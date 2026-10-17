@@ -5,10 +5,19 @@
  * 检查（全部只读）：
  *   1. 单元测试：services/ingest 全量 vitest（识别规则正反例/限速/分页/重放等）；
  *   2. ODS 产物 schema：raw_snapshots 一仓一记录逐行校验（复用采集器同一套校验器，
- *      单一真源，避免校验逻辑双写）；
+ *      单一真源，避免校验逻辑双写）——失败时**逐行列明细**（行号 + 仓名 + 规则 + 细节），
+ *      不只报数量（C4 修复项）；
  *   3. 请求纪律证据：raw_events 逐行校验（method=GET、状态码、预算记账），并从事件
  *      时间区间**离线复算**「串行（并发度=1）」与 304 计数，与证据 JSON 声明互证；
  *   4. 证据 JSON：`df.market.evidence/v1` 结构 + 四步齐备 + exitCode 语义一致。
+ *
+ * C4 现场结论（为何不改 schema 也不回改产物）：`repo.createdAt` / `repo.stars90dAgo` 是
+ * MK-05 阶段 A（commit da1c8f3）随仓落盘的字段（冷启动判定与生态维的输入，
+ * 规格《技能市场规格 v1》§4.4「四层字段（摘要，实现票展开）」），采集器写入与
+ * `validateOdsRepoRecord` 在**同一提交**里对齐（单一真源）；此前红的是 ~/df-evidence/mk-01
+ * 里 6 份**旧 runId**产物（旧形状）。ODS 纪律是「只追加、不回改」（规格 §4.1），
+ * 历史产物保留为历史，门禁只判**最新 runId** 的证据；重跑采集出新 runId 即对齐。
+ * 若最新证据仍是旧形状（例如倒退），本门禁按违规 exit 1 并逐行列出不符项。
  *
  * 退出码（规格《市场首实现》§6.1，禁止假绿）：
  *   0 = 全过；
@@ -86,12 +95,45 @@ function readJsonl(path) {
     .map((l) => JSON.parse(l));
 }
 
+/**
+ * 分节收集检查结果（`[2/4] 证据 JSON` / `[3/4] 请求纪律复算` / `[4/4] ODS 产物`）。
+ * `details` 是失败时的**明细行**：逐行/逐条列出（行号 + 仓名 + 规则 + 细节）——
+ * 门禁日志必须列明细而非只报数量，否则现场定位要人肉重跑校验器。
+ */
+const sections = { 2: [], 3: [], 4: [] };
 const failures = [];
-const notes = [];
-function check(ok, message) {
-  if (ok) notes.push(`  ✓ ${message}`);
-  else failures.push(`  ✗ ${message}`);
+
+/** 记一条断言；失败时并入明细（`details` 逐行打印）。 */
+function check(section, ok, message, details = []) {
+  const entry = { ok, message, details };
+  sections[section].push(entry);
+  if (!ok) failures.push(entry);
   return ok;
+}
+
+/** 打印一节（✓/✗ 行 + 明细缩进行）。 */
+function printSection(section, title, trailing = []) {
+  console.log(title);
+  for (const entry of sections[section]) {
+    console.log(`  ${entry.ok ? '✓' : '✗'} ${entry.message}`);
+    for (const detail of entry.details) console.log(`      ${detail}`);
+  }
+  for (const line of trailing) console.log(line);
+}
+
+/** 行级定位标签：`行 N（owner/repo）`；事件行退化为请求 URL，信息缺失则「未知」。 */
+function rowLabel(record, lineNumber) {
+  const repo = record?.repo;
+  let name = '未知';
+  if (typeof repo?.fullName === 'string') name = repo.fullName;
+  else if (typeof repo?.id === 'number') name = `id=${String(repo.id)}`;
+  else if (typeof record?.request?.url === 'string') name = record.request.url;
+  return `行 ${String(lineNumber)}（${name}）`;
+}
+
+/** 把校验器问题数组压成明细行（复用采集器同一套校验器，问题自带 rule/detail）。 */
+function issuesToDetails(record, lineNumber, issues) {
+  return issues.map((issue) => `${rowLabel(record, lineNumber)} [${issue.rule}] ${issue.detail}`);
 }
 
 async function main() {
@@ -135,26 +177,43 @@ async function main() {
     console.error('exit 2（阻塞：无数据/不可判定——禁止假绿）');
     process.exit(2);
   }
-  console.log(`\n[2/4] 证据 JSON：${evidencePath}`);
   const evidence = JSON.parse(readFileSync(evidencePath, 'utf8'));
   check(
+    2,
     evidence.schema === 'df.market.evidence/v1',
-    `schema = df.market.evidence/v1（实际 ${evidence.schema}）`,
+    `schema = df.market.evidence/v1（实际 ${String(evidence.schema)}）`,
   );
-  check([0, 1, 2].includes(evidence.exitCode), `exitCode ∈ {0,1,2}（实际 ${evidence.exitCode}）`);
   check(
+    2,
+    [0, 1, 2].includes(evidence.exitCode),
+    `exitCode ∈ {0,1,2}（实际 ${String(evidence.exitCode)}）`,
+  );
+  check(
+    2,
     Array.isArray(evidence.steps) && evidence.steps.length >= 4,
-    `steps ≥ 4（实际 ${evidence.steps?.length}）`,
+    `steps ≥ 4（实际 ${String(evidence.steps?.length)}）`,
+    Array.isArray(evidence.steps) ? [] : ['证据 JSON 的 steps 不是数组（无法继续复算产物）'],
   );
   const stepIds = (evidence.steps ?? []).map((s) => s.id);
   for (const id of ['request-discipline', 'asset-identification', 'license-gate', 'ods-output']) {
-    check(stepIds.includes(id), `步骤齐备：${id}`);
+    check(
+      2,
+      stepIds.includes(id),
+      `步骤齐备：${id}`,
+      stepIds.includes(id) ? [] : [`实际步骤：${stepIds.join('、') || '（无）'}`],
+    );
   }
-  check(typeof evidence.offline === 'boolean', `offline 字段为布尔（实际 ${evidence.offline}）`);
   check(
-    typeof evidence.runId === 'string' && evidence.runId.length > 0,
-    `runId 非空（${evidence.runId}）`,
+    2,
+    typeof evidence.offline === 'boolean',
+    `offline 字段为布尔（实际 ${String(evidence.offline)}）`,
   );
+  check(
+    2,
+    typeof evidence.runId === 'string' && evidence.runId.length > 0,
+    `runId 非空（${String(evidence.runId)}）`,
+  );
+  printSection(2, `\n[2/4] 证据 JSON：${evidencePath}`);
 
   // 3) 请求纪律：从 raw_events 离线复算（不信自述，重算一次）
   const { validateOdsRepoRecord, validateRawEvent } = await import(
@@ -163,81 +222,164 @@ async function main() {
   const artifacts = (evidence.steps ?? []).flatMap((s) => s.artifacts ?? []);
   const eventsArtifact = artifacts.find((a) => a.path?.includes('raw_events'));
   const snapshotsArtifact = artifacts.find((a) => a.path?.includes('raw_snapshots'));
-  check(Boolean(eventsArtifact), '证据引用 raw_events 产物');
-  check(Boolean(snapshotsArtifact), '证据引用 raw_snapshots 产物');
+  check(3, Boolean(eventsArtifact), '证据引用 raw_events 产物');
+  check(3, Boolean(snapshotsArtifact), '证据引用 raw_snapshots 产物');
 
   if (eventsArtifact && existsSync(eventsArtifact.path)) {
     const events = readJsonl(eventsArtifact.path);
-    const issues = events.flatMap((e) => validateRawEvent(e));
-    check(issues.length === 0, `raw_events 逐行 schema 全过（问题 ${issues.length} 条）`);
-    const nonGet = events.filter((e) => e.request?.method !== 'GET').length;
-    check(nonGet === 0, `一律 GET（非 GET ${nonGet} 次；gh api -f 变 POST 的坑）`);
+    const eventIssueDetails = [];
+    const nonGetDetails = [];
+    const hits304Rows = [];
+    let counted = 0;
+    events.forEach((event, index) => {
+      for (const issue of issuesToDetails(event, index + 1, validateRawEvent(event))) {
+        eventIssueDetails.push(issue);
+      }
+      if (event.request?.method !== 'GET') {
+        nonGetDetails.push(
+          `${rowLabel(event, index + 1)} method=${String(event.request?.method)} url=${String(event.request?.url)}`,
+        );
+      }
+      if (event.response?.status === 304) hits304Rows.push(index + 1);
+      if (event.response?.countedAgainstBudget === true) counted += 1;
+    });
+    check(
+      3,
+      eventIssueDetails.length === 0,
+      `raw_events 逐行 schema 全过（问题 ${eventIssueDetails.length} 条）`,
+      eventIssueDetails,
+    );
+    check(
+      3,
+      nonGetDetails.length === 0,
+      `一律 GET（非 GET ${nonGetDetails.length} 次；gh api -f 变 POST 的坑）`,
+      nonGetDetails,
+    );
 
-    const sorted = [...events].sort((a, b) => a.startedAtMs - b.startedAtMs);
-    let overlaps = 0;
+    const sorted = events
+      .map((event, index) => ({ event, index }))
+      .sort((a, b) => a.event.startedAtMs - b.event.startedAtMs);
+    const overlapDetails = [];
     for (let i = 1; i < sorted.length; i += 1) {
-      if (sorted[i].startedAtMs < sorted[i - 1].endedAtMs) overlaps += 1;
+      const previous = sorted[i - 1];
+      const current = sorted[i];
+      if (current.event.startedAtMs < previous.event.endedAtMs) {
+        overlapDetails.push(
+          `${rowLabel(current.event, current.index + 1)} 起点 ${String(current.event.startedAtMs)} < ` +
+            `${rowLabel(previous.event, previous.index + 1)} 终点 ${String(previous.event.endedAtMs)}`,
+        );
+      }
     }
-    check(overlaps === 0, `串行（并发度 = 1）：区间重叠 ${overlaps} 处`);
+    check(
+      3,
+      overlapDetails.length === 0,
+      `串行（并发度 = 1）：区间重叠 ${overlapDetails.length} 处`,
+      overlapDetails,
+    );
 
     const declared = evidence.steps.find((s) => s.id === 'request-discipline')?.metrics ?? {};
-    const hits304 = events.filter((e) => e.response?.status === 304).length;
     check(
-      declared.cacheHits304 === undefined || declared.cacheHits304 === hits304,
-      `304 计数与证据互证（声明 ${declared.cacheHits304} / 实算 ${hits304}）`,
+      3,
+      declared.cacheHits304 === undefined || declared.cacheHits304 === hits304Rows.length,
+      `304 计数与证据互证（声明 ${String(declared.cacheHits304)} / 实算 ${hits304Rows.length}）`,
+      declared.cacheHits304 === undefined || declared.cacheHits304 === hits304Rows.length
+        ? []
+        : [
+            `实算 304 行号（前 20）：${hits304Rows.slice(0, 20).map(String).join('、') || '（无）'}`,
+          ],
     );
     check(
+      3,
       events.length === declared.events || declared.events === undefined,
-      `事件总数与证据互证（声明 ${declared.events} / 实算 ${events.length}）`,
+      `事件总数与证据互证（声明 ${String(declared.events)} / 实算 ${events.length}）`,
     );
     check(
+      3,
       typeof declared.coreCalls !== 'number' || declared.coreCalls <= declared.coreLimit,
-      `core 预算未越限（${declared.coreCalls}/${declared.coreLimit}）`,
+      `core 预算未越限（${String(declared.coreCalls)}/${String(declared.coreLimit)}）`,
     );
     check(
+      3,
       typeof declared.searchCalls !== 'number' || declared.searchCalls <= declared.searchLimit,
-      `search 预算未越限（${declared.searchCalls}/${declared.searchLimit}）`,
+      `search 预算未越限（${String(declared.searchCalls)}/${String(declared.searchLimit)}）`,
     );
-
-    const counted = events.filter((e) => e.response?.countedAgainstBudget === true).length;
-    check(counted <= 4000, `计入预算的请求 ${counted} ≤ 4000/时`);
+    check(3, counted <= 4000, `计入预算的请求 ${String(counted)} ≤ 4000/时`);
   } else if (eventsArtifact) {
-    failures.push(`  ✗ raw_events 产物缺失：${eventsArtifact.path}`);
+    check(3, false, `raw_events 产物缺失：${eventsArtifact.path}`);
   }
 
   // 4) ODS 一仓一记录
+  let assetSummary = null;
   if (snapshotsArtifact && existsSync(snapshotsArtifact.path)) {
     const records = readJsonl(snapshotsArtifact.path);
-    const issues = records.flatMap((r) => validateOdsRepoRecord(r));
-    check(issues.length === 0, `raw_snapshots 一仓一记录 schema 全过（问题 ${issues.length} 条）`);
+    const recordIssueDetails = [];
+    let staleShapeRows = 0;
+    records.forEach((record, index) => {
+      const issues = validateOdsRepoRecord(record);
+      if (issues.length === 0) return;
+      recordIssueDetails.push(...issuesToDetails(record, index + 1, issues));
+      const repo = record?.repo;
+      if (
+        repo !== null &&
+        typeof repo === 'object' &&
+        !('createdAt' in repo) &&
+        !('stars90dAgo' in repo)
+      ) {
+        staleShapeRows += 1;
+      }
+    });
+    if (recordIssueDetails.length > 0 && staleShapeRows === records.length) {
+      recordIssueDetails.push(
+        `提示：${String(staleShapeRows)} 条记录都缺 repo.createdAt / repo.stars90dAgo —— 形状与 ` +
+          'MK-05 阶段 A（da1c8f3）之前的采集器一致；ODS 只追加不回改，重跑采集产出新 runId 即对齐' +
+          '（本门禁按最新 runId 判定）',
+      );
+    }
+    check(
+      4,
+      recordIssueDetails.length === 0,
+      `raw_snapshots 一仓一记录 schema 全过（问题 ${recordIssueDetails.length} 条）`,
+      recordIssueDetails,
+    );
+
     const odsMetrics = evidence.steps.find((s) => s.id === 'ods-output')?.metrics ?? {};
     check(
+      4,
       odsMetrics.records === undefined || odsMetrics.records === records.length,
-      `记录数与证据互证（声明 ${odsMetrics.records} / 实算 ${records.length}）`,
+      `记录数与证据互证（声明 ${String(odsMetrics.records)} / 实算 ${records.length}）`,
     );
-    for (const record of records) {
+
+    const fieldDetails = [];
+    records.forEach((record, index) => {
       if (typeof record.digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(record.digest)) {
-        failures.push(`  ✗ ${record.repo?.fullName}：digest 形态非法`);
+        fieldDetails.push(
+          `${rowLabel(record, index + 1)} digest 形态非法（实际 ${String(record.digest)}）`,
+        );
       }
       if (typeof record.fetchedAt !== 'string' || record.fetchedAt === '') {
-        failures.push(`  ✗ ${record.repo?.fullName}：缺 fetchedAt`);
+        fieldDetails.push(`${rowLabel(record, index + 1)} 缺 fetchedAt`);
       }
-    }
+    });
+    check(
+      4,
+      fieldDetails.length === 0,
+      `逐仓 digest / fetchedAt 形态全过（问题 ${fieldDetails.length} 条）`,
+      fieldDetails,
+    );
+
     const assetTotal = records.reduce((sum, r) => sum + (r.assets?.length ?? 0), 0);
-    notes.push(`  · 记录 ${records.length} 仓 / 资产 ${assetTotal} 个`);
+    assetSummary = `  · 记录 ${String(records.length)} 仓 / 资产 ${String(assetTotal)} 个`;
   } else if (snapshotsArtifact) {
-    failures.push(`  ✗ raw_snapshots 产物缺失：${snapshotsArtifact.path}`);
+    check(4, false, `raw_snapshots 产物缺失：${snapshotsArtifact.path}`);
   }
 
-  console.log('\n[3/4] 请求纪律复算：');
-  for (const line of notes.filter((l) => !l.startsWith('  · 记录'))) console.log(line);
-  console.log('\n[4/4] ODS 产物：');
-  for (const line of notes.filter((l) => l.startsWith('  · 记录'))) console.log(line);
+  printSection(3, '\n[3/4] 请求纪律复算：');
+  printSection(4, '\n[4/4] ODS 产物：', assetSummary === null ? [] : [assetSummary]);
 
   if (failures.length > 0) {
-    console.log('\n失败明细：');
-    for (const line of failures) console.log(line);
-    console.log(`\nexit 1（有产物但断言失败：${failures.length} 条）`);
+    console.log(`\n失败明细（${String(failures.length)} 条；逐条明细见上方 ✗ 行）：`);
+    for (const entry of failures) console.log(`  ✗ ${entry.message}`);
+    console.log('\nexit 1（有产物但断言失败）');
     process.exit(1);
   }
   console.log('\nexit 0（MK-01 门禁全过：单测 + 请求纪律 + ODS schema + 证据 JSON）');

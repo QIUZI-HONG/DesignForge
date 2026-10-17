@@ -1,16 +1,22 @@
 /**
  * 采集器本地最小契约类型（MK-01）。
  *
- * 归属说明：市场领域契约的正式归属是 `@dforge/contracts`（INF-01 并行落地）。
- * 本文件先给出采集器自身需要的最小类型替身，**不阻塞**实现；收尾合并后与
- * contracts 的正式类型对接（届时以 contracts 为准，本文件退化为别名或删除）。
+ * 归属说明：市场领域契约的正式归属是 `@dforge/contracts`（INF-01 落地）。本文件保留采集器
+ * 自身需要的结构类型；**词表类（kind / license 档位）已收敛为契约真源的子集别名**
+ * （ADR-0004 ③ 收敛 · 修复批次 3，`@dforge/contracts` 的 `market/vocab.ts`），不再另立字面量。
  *
  * 规格依据：《技能市场规格 v1》§1（ADS 数据模型）/ §2（四类识别）/ §3（采集纪律）/
  * §4.4（四层字段）/ §6.2（证据 JSON 口径，承《前端验收标准 v1》§4）。
  */
 
-/** 四类资产（规格 §2）。 */
-export type AssetKind = 'skill' | 'plugin' | 'design-system' | 'template';
+import type {
+  LicenseGate as ContractLicenseGate,
+  MarketAssetKind,
+  MarketLicenseTier,
+} from '@dforge/contracts';
+
+/** 四类资产（规格 §2；真源 `MARKET_ASSET_KINDS`，本处为别名）。 */
+export type AssetKind = MarketAssetKind;
 
 /**
  * 候选发现阶段的归类：四类资产 + 清单仓。
@@ -18,17 +24,11 @@ export type AssetKind = 'skill' | 'plugin' | 'design-system' | 'template';
  */
 export type DiscoveredKind = AssetKind | 'list';
 
-/** license 三档守门（规格 §7.2）。 */
-export type LicenseGate = 'loadable' | 'view-only' | 'blocked';
+/** license 三档守门（规格 §7.2；真源 `MARKET_LICENSE_GATES`，本处为别名）。 */
+export type LicenseGate = ContractLicenseGate;
 
-/** license 细档（判定依据，gate 由细档 + 附加条件合成）。 */
-export type LicenseTier =
-  | 'permissive'
-  | 'noassertion'
-  | 'none'
-  | 'strong-copyleft'
-  | 'weak-copyleft'
-  | 'custom';
+/** license 细档（判定依据，gate 由细档 + 附加条件合成；真源 `MARKET_LICENSE_TIERS`）。 */
+export type LicenseTier = MarketLicenseTier;
 
 /** license 证据（规格 §1.3：`source.license.evidence = {path, sha256}`）。 */
 export interface LicenseEvidence {

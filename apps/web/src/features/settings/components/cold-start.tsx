@@ -8,8 +8,8 @@
  * 库中已有文件时本页只是分流提示（返回首页），不再重复冷启动动作。
  *
  * daemon 未启动是一等状态：错误态给「重启本地服务」引导 + 重试，不吞错也不假成功。
- * 编辑器地址形状归 FE-02 单点收敛（`features/home/lib/routes.ts` 的 `editorHref`，
- * `?documentId=`）——本页只消费，不另立约定；FE-03 编辑器接管解析。
+ * 编辑器地址形状归 FE-02 单点收敛（`features/home` 公开面导出的 `editorHref`，
+ * `?documentId=`）——本页只经公开面消费，不另立约定也不引深路径；FE-03 编辑器接管解析。
  *
  * 六态挂点：`loading`（查清单中）/ `empty`（空态）/ `error`（daemon 不可达 / 创建失败）。
  */
@@ -17,7 +17,7 @@ import { Button, EmptyState, ErrorState, Spinner } from '@dforge/ui';
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { editorHref } from '@/features/home/lib/routes';
+import { editorHref } from '@/features/home';
 import { t } from '@/i18n';
 
 import { DaemonClientError } from '../api/daemon-client';

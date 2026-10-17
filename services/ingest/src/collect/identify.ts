@@ -9,6 +9,8 @@
  *    **绝不假装通过**（诚实性优先于好看的数字）。
  */
 
+import { MARKET_ASSET_KINDS, type MarketAssetKind } from '@dforge/contracts';
+
 import { sha256Hex } from './http.ts';
 import { assessLicense, detectBrandDerived } from './license.ts';
 import { baseName, parentDir, probeTree } from './probe.ts';
@@ -45,8 +47,24 @@ export interface IdentifyResult {
   rejected: RejectedCandidate[];
 }
 
-/** 同目录多命中的优先级（规格 §2.1.3）。 */
-const KIND_PRIORITY = ['plugin', 'design-system', 'template', 'skill'] as const;
+/**
+ * 同目录多命中的优先级名次（规格 §2.1.3：plugin > design-system > template > skill）。
+ * 键为契约词的联合类型（`Record<MarketAssetKind, …>`）：词表增删即编译报错，不漏不漂。
+ */
+const KIND_PRIORITY_RANK: Readonly<Record<MarketAssetKind, number>> = Object.freeze({
+  plugin: 0,
+  'design-system': 1,
+  template: 2,
+  skill: 3,
+});
+
+/**
+ * 同目录多命中的优先级词表（真源 `MARKET_ASSET_KINDS` 派生——按名次排序，
+ * 不再手写字面量；词表同源由 `guard:vocab` 门禁守护，ADR-0004 ③）。
+ */
+const KIND_PRIORITY: readonly MarketAssetKind[] = [...MARKET_ASSET_KINDS].sort(
+  (a, b) => KIND_PRIORITY_RANK[a] - KIND_PRIORITY_RANK[b],
+);
 
 /** 机器名规范化（slug）：ASCII 安全、保留 `.` `_` `-`。 */
 export function slugify(input: string): string {

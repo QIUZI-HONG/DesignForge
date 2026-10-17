@@ -1,7 +1,8 @@
 name: ci
 
 # 设界 · 主 CI（骨架期口径，见 docs/plan/skeleton-and-package-layout-v1.md §2）
-# 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck → 逐包测试。
+# 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck → 逐包测试
+#      → 脚本单测 → **非浏览器门禁**（守卫 / 引擎 / 参照集阻塞语义；明细见文末挂点说明）。
 on:
   push:
     branches: [main]
@@ -38,15 +39,63 @@ jobs:
       - name: 单元测试（逐包 vitest）
         run: pnpm test
 
+      # --- 非浏览器门禁（C5 接入：离线可判定的一律进 CI） -------------------------------
+
+      - name: 脚本单测（差异包围盒 bbox + 守卫检出强度回归，node --test）
+        run: pnpm test:scripts
+
+      - name: 令牌守卫（禁裸值；规则 R1/R2/R3）
+        run: pnpm guard:tokens
+
+      - name: 词表同源守卫（kind/lane 等规范词表唯一真源在 @dforge/contracts；层内字面量即违规）
+        run: pnpm guard:vocab
+
+      - name: feature 边界守卫（跨 feature 深导入归零；register 接缝为登记例外，ADR-0004 ②）
+        run: pnpm guard:feature-boundaries
+
+      - name: 桌面壳安全基线守卫（窗口选项静态断言；对抗夹具回归在 pnpm test:scripts）
+        run: pnpm guard:electron-baseline
+
+      - name: 引擎门禁（对抗用例 + 快照哈希回归）
+        run: pnpm verify:engine
+
+      # 参照集门禁在 CI 无参照集，**必须** exit 2（阻塞）并点名「参照集未冻结」：
+      #   本步骤断言的是**三态语义契约**（脚本确已执行、不得零校验 exit 0 假绿），
+      #   不是「门禁通过」；参照集冻结（REF-01）且 CI 可达后改为要求 exit 0。
+      - name: 参照集冻结元数据门禁（断言阻塞语义：无参照集 → exit 2）
+        run: |
+          set +e
+          output=$(node scripts/verify-figma-baseline.mjs 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+          if [ "$code" -eq 0 ]; then
+            echo "参照集在 CI 可达：门禁正式判定通过（REF-01 已冻结）；本步骤此后应改为必须 exit 0。"
+            exit 0
+          fi
+          if [ "$code" -ne 2 ] || ! printf '%s' "$output" | grep -q '阻塞：参照集未冻结'; then
+            echo "违规：参照集门禁的退出码/日志不符三态语义（exit=$code；期望 2 + 「阻塞：参照集未冻结」）"
+            exit 1
+          fi
+          echo "OK：无参照集 → exit 2（阻塞，非通过）且日志点名「参照集未冻结」——门禁确已执行。"
+
       # ---------------------------------------------------------------------------------
-      # 浏览器门禁挂点（随对应实现票接入，本票**不接**）：
-      #   - pnpm verify:figma-home / verify:figma-editor / verify:figma-panels /
-      #     verify:figma-inspect / verify:figma-inspector / verify:figma-component
-      #     （逐页/逐组件对照；verify:figma-baseline 先校验参照集冻结元数据 = FE-01 起）
-      #   - pnpm verify:canvas（FE-02 / FE-06 接入：画布挂载 6 断言 + 接线 14 条）
-      #   - pnpm e2e:smoke（FE-02 / FE-06 接入：10 步冒烟，拖画→持久化→导出/导入往返）
-      #   - pnpm verify:shell-parity（FE-12 接入：壳内渲染一致性断言，两段式 0/1/2）
-      # 驱动口径：playwright-core 1.63.0 锁 chromium-1243，生产构建 + headless。
-      # 守卫脚本（pnpm guard:*）与各 verify:mk-* 同样不接 CI：未实现/未冻结时退出码 2 = 阻塞，
-      # 接入时随「四守卫」对应票一并改本文件。
+      # 未接入本 CI 的门禁与原因（**不许注释说接了实际没接**）：
+      #   - 浏览器门禁（挂点，随对应实现票接入）：
+      #       pnpm verify:figma-home / verify:figma-editor / verify:figma-panels /
+      #       verify:figma-inspect / verify:figma-inspector / verify:figma-component
+      #       （逐页/逐组件对照）、pnpm verify:canvas（画布挂载 6 断言）、
+      #       pnpm e2e:smoke（10 步冒烟）、pnpm verify:shell-parity（FE-12 壳内一致性）。
+      #       驱动口径：playwright-core 1.63.0 锁 chromium-1243，生产构建 + headless；
+      #       需 Chromium 与冻结参照集，CI 暂不具备。
+      #   - verify:figma-baseline 的**正式判定**（像素/哈希对照）：参照集按纪律存仓库外
+      #     （~/df-evidence/reference-v1，见 implementation-workflow.md「证据存仓库外」），
+      #     CI 环境不存在 → 只会是 exit 2；本轮只断言其阻塞语义（上一步骤），
+      #     REF-01 冻结且参照集在 CI 可达后改为正式接入。
+      #   - pnpm verify:mk-01：判据来自 ~/df-evidence/mk-01 的采集产物（需真网 + GH_TOKEN
+      #     采集，产物按纪律存仓库外）→ CI 内无产物，只会 exit 2（阻塞），故不接；
+      #     其离线重放路径（--replay 冻结样本）由 services/ingest 单测覆盖（pnpm test）。
+      #   - 未实现守卫 guard:deps / guard:mcp-contract / guard:channel-pairing：当前一律
+      #     exit 2（阻塞，禁止当绿），按 implementation-workflow.md「不接 CI」，
+      #     实现后由接管票一并接入本文件。
       # ---------------------------------------------------------------------------------

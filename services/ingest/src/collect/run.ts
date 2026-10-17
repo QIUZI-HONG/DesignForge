@@ -15,6 +15,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { isLicenseGate } from '@dforge/contracts';
 import { type Candidate, type CandidateSource, discoverCandidates } from './candidates.ts';
 import type { FileCacheStore, GitHubClient } from './client.ts';
 import {
@@ -23,6 +24,7 @@ import {
   createReplayFetch,
   ghAuthTokenRunner,
   loadFileCacheStore,
+  MissingCachedBodyError,
   parseRecordedResponses,
   ReplayMissError,
   resolveGitHubToken,
@@ -31,7 +33,13 @@ import {
 import { buildEvidence } from './evidence.ts';
 import type { FetchLike } from './http.ts';
 import { sha256Hex } from './http.ts';
-import { digestForRoot, findLicensePath, identifyAssets } from './identify.ts';
+import {
+  defaultViewOnlyLicense,
+  digestForRoot,
+  findLicensePath,
+  identifyAssets,
+} from './identify.ts';
+
 import { assessLicense } from './license.ts';
 import type { OdsArtifact } from './ods.ts';
 import { validateOdsRepoRecord, validateRawEvent, writeOds } from './ods.ts';
@@ -50,6 +58,7 @@ import type {
   EvidenceAssertion,
   EvidenceStep,
   ExitCode,
+  LicenseGate,
   OdsRepoRecord,
   RawEvent,
   RepoMeta,
@@ -179,13 +188,16 @@ export interface ContentSelection {
 }
 
 /**
- * 内容取回选择（预算内）。两级策略（阶段 A 对接面修复口径）：
+ * 内容取回选择（预算内）。两级策略（阶段 A 对接面修复口径 + D2 类别保底）：
  *
- * 1. **完整资产根优先**：把「结构件所在目录 = 资产根」下的**全部文本文件**按根一次性取回
- *    （根按文件数升序排，贪心装填预算）。理由：规格 §1.6 的 `digest` 需要资产根内全部文件的
- *    内容 sha256，缺一即 `digest=null`（MK-02 如实标注）→ 卡片契约（§1.2 digest 必填）无从落成。
- *    含二进制/超大文件的根**直接跳过**（合规禁下载二进制，§8.1），不浪费预算。
- * 2. **仓根 README/CHANGELOG**：全仓共用的兜底文本（`text.readme` 回退源，规格 §4.4）。
+ * 1. **仓根 README/CHANGELOG**：全仓共用的兜底文本（`text.readme` 回退源，规格 §4.4）。
+ * 2. **完整资产根优先**：把「结构件所在目录 = 资产根」下的**全部文本文件**按根一次性取回。
+ *    理由：规格 §1.6 的 `digest` 需要资产根内全部文件的内容 sha256，缺一即 `digest=null`
+ *    （MK-02 如实标注）→ 卡片契约（§1.2 digest 必填）无从落成。含二进制/超大文件的根
+ *    **直接跳过**（合规禁下载二进制，§8.1），不浪费预算。
+ *    装填分三步（候选根均**先认定资产根**、再其余结构件根，各自规模升序）：
+ *    **类别保底**（每群一个最小整根）→ **类群份额轮转** → 剩余根规模升序兜底；
+ *    全程受预算硬顶约束（不得越过 `budget`）。
  * 3. 余量（通常为 0）再按优先级表补单文件（SKILL.md 正文 / 清单 / tokens …）。
  *
  * 未选中的进 `deferred`（识别层据此标 `compliance: 'deferred'`，不假装校验过）。
@@ -272,38 +284,88 @@ export function selectContentPaths(tree: TreeEntry[], budget: number): ContentSe
           : 1,
     );
   }
-  // 装填：各群**均分预算份额**，群内按根规模升序尽量装；装不下的根放弃（升序，后面只会更大）；
-  // 用不完的份额顺延给下一群，最后仍有余量则按全群规模升序兜底——预算不会被空群浪费。
+  /** 认定资产的根 → 类别（识别层口径，与 `identifyAssets` 同源：plugin > design-system > template > skill）。 */
+  const assetKindOfRoot = new Map<string, string>();
+  for (const asset of identifyAssets({
+    repoFullName: '',
+    tree,
+    contents: new Map(),
+    deferredPaths: new Set(),
+    license: defaultViewOnlyLicense(),
+  }).assets) {
+    assetKindOfRoot.set(asset.root, asset.kind);
+  }
+  /**
+   * 本群当前待装根（尚未整根取回的）：**先认定资产根**（该类别的卡片前提），再其余结构件根，
+   * 各自保持规模升序。为什么分两层：结构件目录的类群归属是启发式——真批次里
+   * `plugins/_official/design-systems/<名>`（2 文件的元数据壳）与 `data/plugin-previews`（1 文件）
+   * 都落进 design-system 群，若份额只按规模升序吃根，名额会被这些小壳吃光，真正的
+   * `design-systems/<名>`（24–41 文件）一个文件都拿不到（整类卡片依旧 0 张）。
+   */
+  const pendingRootsOf = (group: string): { root: string; files: string[] }[] => {
+    const list = completableByGroup.get(group);
+    if (list === undefined) return [];
+    const pending = list.filter((entry) => entry.files.some((path) => !selectedSet.has(path)));
+    return [
+      ...pending.filter((entry) => assetKindOfRoot.get(entry.root) === group),
+      ...pending.filter((entry) => assetKindOfRoot.get(entry.root) !== group),
+    ];
+  };
+
+  // 2a) **类别保底**（D2 修复）：每群先整根取回它的最小可完整根（预算装得下才取）。
+  //     没有这一步，根规模 > 单群份额上限（budget/2）的类群在有「小根」竞争时会被系统性饿死：
+  //     组内装填一装不下就 break，兜底装填只挑装得下的小根 → 该类 digest 恒 incomplete →
+  //     索引的 digest 硬门槛把整类卡片挡在市场之外（真批次实证：DS 153 条全部被挡、
+  //     `/contents/design-systems/` 请求数 = 0）。
+  //     根的选择 = **该类别认定资产根中最小的完整根**（识别层的资产粒度才是卡片的前提）：
+  //     类群只是结构件目录的启发式归属——仓根的 `manifest.json` 也会落进 design-system 群，
+  //     若只取「类群最小根」，保底可能保在一个 1 文件的非资产目录上（真批次实证：命中了
+  //     `data/plugin-previews`），整类卡片依旧 0 张。无可认定资产时退回类群最小根。
+  //     顺序 = 候选根规模升序（并列按群优先级）：先保便宜的 → 预算内尽可能多保类别；
+  //     装不下的根（如预算 48 遇 42 文件根但只剩 5 格）如实让位，不半取（digest 需整根齐）。
+  const guaranteeCandidates = [...completableByGroup.keys()]
+    .flatMap((group) => {
+      const list = completableByGroup.get(group) ?? [];
+      const candidate = list.find((entry) => assetKindOfRoot.get(entry.root) === group) ?? list[0];
+      return candidate === undefined ? [] : [{ group, root: candidate }];
+    })
+    .sort(
+      (a, b) =>
+        a.root.files.length - b.root.files.length ||
+        groupRank(a.group) - groupRank(b.group) ||
+        (a.root.root < b.root.root ? -1 : 1),
+    );
+  for (const candidate of guaranteeCandidates) {
+    const pending = candidate.root.files.filter((path) => !selectedSet.has(path));
+    if (pending.length === 0) continue;
+    if (selected.length + pending.length > budget) continue;
+    for (const path of pending) take(path);
+  }
+
+  // 2b) 类群份额轮转：各群**均分预算份额**，群内按根规模升序尽量装；装不下的根放弃
+  //     （升序，后面只会更大）；用不完的份额顺延给下一群，最后仍有余量则按全群规模升序兜底。
   const groupOrder = CONTENT_ROOT_GROUPS.map((g) => g.name);
   const perGroupBase = Math.floor(budget / groupOrder.length);
   /** 单群份额上限 = 预算一半（防「一个超大的根吃掉整仓预算」）。 */
   const perGroupCap = Math.max(1, Math.floor(budget / 2));
   let carry = 0;
-  const consumed = new Map<string, number>();
   /** 本群当前第一个待装根的待取文件数（用于份额下限）。 */
   const headSizeOf = (group: string): number => {
-    const list = completableByGroup.get(group);
-    if (list === undefined) return 0;
-    const head = list[consumed.get(group) ?? 0];
-    if (head === undefined) return 0;
-    return head.files.filter((path) => !selectedSet.has(path)).length;
+    const head = pendingRootsOf(group)[0];
+    return head === undefined ? 0 : head.files.filter((path) => !selectedSet.has(path)).length;
   };
   const spendInGroup = (group: string, allowance: number): number => {
-    const list = completableByGroup.get(group);
-    if (list === undefined) return allowance;
-    let left = allowance;
-    let cursor = consumed.get(group) ?? 0;
-    // 升序列表：一旦装不下即停（后面只会更大），剩下的留给兜底装填
-    while (cursor < list.length) {
-      const candidate = list[cursor];
-      if (candidate === undefined) break;
+    if (!completableByGroup.has(group)) return allowance;
+    // 预算硬顶：份额再大也不得越过总预算（此前份额可按群各吃一份，多群相加会超预算取回）
+    let left = Math.min(allowance, budget - selected.length);
+    // 认定资产根优先（见 pendingRootsOf 注释）；层内升序：一旦装不下即停（后面只会更大），
+    // 剩下的留给兜底装填。已整取（保底/前序份额）的根自动略过。
+    for (const candidate of pendingRootsOf(group)) {
       const pending = candidate.files.filter((path) => !selectedSet.has(path));
       if (pending.length > left) break;
-      cursor += 1;
       for (const path of pending) take(path);
       left -= pending.length;
     }
-    consumed.set(group, cursor);
     return left;
   };
   for (const group of groupOrder) {
@@ -392,7 +454,7 @@ export interface CollectResult {
   counts: {
     repos: number;
     byKind: Record<AssetKind, number>;
-    byGate: Record<'loadable' | 'view-only' | 'blocked', number>;
+    byGate: Record<LicenseGate, number>;
     deferredAssets: number;
     brandDerivedAssets: number;
     skippedRepos: { repo: string; reason: string }[];
@@ -834,6 +896,11 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
       } catch (error) {
         if (error instanceof ReplayMissError) {
           blockedReason = `${error.message}——阻塞`;
+        } else if (error instanceof MissingCachedBodyError) {
+          // 304-无正文 = 样本/缓存不完整（D3）：与 ReplayMissError 同口径判阻塞 exit 2，
+          // 不得降级成「单仓跳过」后以 0 记录收场（那会把「缺数据」冒充成「跑完了」）。
+          skippedRepos.push({ repo: target.fullName, reason: String(error) });
+          blockedReason = `${error.message}——阻塞（样本/缓存不完整，不伪造数据）`;
         } else if (error instanceof ConsecutiveRateLimitAbort) {
           blockedReason = `${error.message}——阻塞`;
         } else if (error instanceof UpstreamError && error.status === 404) {
@@ -947,7 +1014,7 @@ function countAssets(
     'design-system': 0,
     template: 0,
   };
-  const byGate: Record<'loadable' | 'view-only' | 'blocked', number> = {
+  const byGate: Record<LicenseGate, number> = {
     loadable: 0,
     'view-only': 0,
     blocked: 0,
@@ -1089,9 +1156,7 @@ function buildLicenseGateStep(input: {
   counts: CollectResult['counts'];
 }): EvidenceStep {
   const { records, counts } = input;
-  const badGate = records.filter(
-    (r) => !['loadable', 'view-only', 'blocked'].includes(r.license.gate),
-  ).length;
+  const badGate = records.filter((r) => !isLicenseGate(r.license.gate)).length;
   const noassertionViolations = records.filter(
     (r) => r.license.spdx === 'NOASSERTION' && r.license.gate === 'loadable',
   ).length;

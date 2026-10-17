@@ -20,6 +20,17 @@
       "preset": "recommended"
     }
   },
+  "overrides": [
+    {
+      "includes": ["scripts/tests/fixtures/**"],
+      "formatter": { "enabled": false },
+      "linter": {
+        "rules": {
+          "complexity": { "useLiteralKeys": "off" }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "single",

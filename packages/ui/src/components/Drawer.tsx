@@ -10,13 +10,14 @@
  * **关闭记忆**——给出 `rememberKey` 后把开合状态持久化（默认 localStorage），
  * 下次挂载（非受控用法）按存储值恢复（AI 面板 / 出图面板的「上次开着就还开着」）。
  * 存储后端可注入（`storage`），便于测试与非浏览器环境。
+ * 嵌套：与 Modal 共用浮层栈（Esc 与遮罩点击只关最内层、焦点在最内层、z 序随栈序）。
  */
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { CloseIcon } from '../icons/index';
 import { cx } from '../utils/class-names';
-import { useOverlayBehavior } from '../utils/use-overlay';
+import { OverlayDepthContext, useOverlayBehavior } from '../utils/use-overlay';
 import { IconButton } from './IconButton';
 
 /** 抽屉宽度分级（对应 `--dfg-size-drawer-*`）。 */
@@ -99,42 +100,47 @@ export function Drawer({
   if (!isOpen || typeof document === 'undefined') return null;
 
   const content = (
-    // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点击只是「点外面关掉」的鼠标便捷路径（键盘等价路径是 Esc 与关闭按钮）；遮罩不是控件，给它 role 反而污染无障碍树。
-    <div
-      className="dfg-drawer-backdrop"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) setOpen(false);
-      }}
-      onKeyDown={behavior.onKeyDown}
-    >
+    // 嵌套深度经 React 树提供（portal 之后 DOM 上不再是父子，深度只能从树上取）
+    <OverlayDepthContext.Provider value={behavior.depth}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点击只是「点外面关掉」的鼠标便捷路径（键盘等价路径是 Esc 与关闭按钮）；遮罩不是控件，给它 role 反而污染无障碍树。 */}
       <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={description === undefined ? undefined : descId}
-        className={cx('dfg-drawer', width !== 'md' && `dfg-drawer--${width}`, className)}
-        tabIndex={-1}
+        className="dfg-drawer-backdrop"
+        style={{ zIndex: behavior.zIndex }}
+        onClick={(event) => {
+          // 外部点击只作用于栈顶：内层浮层开着时，点遮罩不应把外层一并关掉
+          if (behavior.isTop() && event.target === event.currentTarget) setOpen(false);
+        }}
+        onKeyDown={behavior.onKeyDown}
       >
-        <div className="dfg-drawer__header">
-          <div className="dfg-drawer__title" id={titleId}>
-            {title}
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          aria-describedby={description === undefined ? undefined : descId}
+          className={cx('dfg-drawer', width !== 'md' && `dfg-drawer--${width}`, className)}
+          tabIndex={-1}
+        >
+          <div className="dfg-drawer__header">
+            <div className="dfg-drawer__title" id={titleId}>
+              {title}
+            </div>
+            {closeLabel === undefined ? null : (
+              <IconButton label={closeLabel} icon={<CloseIcon />} onClick={() => setOpen(false)} />
+            )}
           </div>
-          {closeLabel === undefined ? null : (
-            <IconButton label={closeLabel} icon={<CloseIcon />} onClick={() => setOpen(false)} />
-          )}
+          <div className="dfg-drawer__body">
+            {description === undefined ? null : (
+              <p className="dfg-modal__desc" id={descId}>
+                {description}
+              </p>
+            )}
+            {children}
+          </div>
+          {footer === undefined ? null : <div className="dfg-drawer__footer">{footer}</div>}
         </div>
-        <div className="dfg-drawer__body">
-          {description === undefined ? null : (
-            <p className="dfg-modal__desc" id={descId}>
-              {description}
-            </p>
-          )}
-          {children}
-        </div>
-        {footer === undefined ? null : <div className="dfg-drawer__footer">{footer}</div>}
       </div>
-    </div>
+    </OverlayDepthContext.Provider>
   );
 
   return createPortal(content, document.body);

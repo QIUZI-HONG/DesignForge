@@ -9,52 +9,64 @@
  */
 
 import { isSha256Digest } from '../ipc/guards.ts';
+import type {
+  LicenseGate,
+  MarketAssetKind,
+  MarketCategory,
+  MarketLane,
+  MarketMode,
+  MarketSecurityLevel,
+} from './vocab.ts';
+import {
+  isLicenseGate,
+  isMarketAssetKind,
+  isMarketLane,
+  isMarketSecurityLevel,
+  MARKET_CATEGORIES,
+  MARKET_MODES,
+} from './vocab.ts';
+
+export type {
+  LicenseGate,
+  MarketAssetKind,
+  MarketCategory,
+  MarketCompliance,
+  MarketLane,
+  MarketLicenseTier,
+  MarketMode,
+  MarketQualityDim,
+  MarketSecurityLevel,
+} from './vocab.ts';
+// 词表真源在 `./vocab.ts`（ADR-0004 ③ 收敛）；本模块只消费与转出，不另立字面量。
+export {
+  isLicenseGate,
+  isMarketAssetKind,
+  isMarketCompliance,
+  isMarketLane,
+  isMarketLicenseTier,
+  isMarketSecurityLevel,
+  MARKET_ASSET_KINDS,
+  MARKET_CATEGORIES,
+  MARKET_COMPLIANCES,
+  MARKET_LANES,
+  MARKET_LICENSE_GATES,
+  MARKET_LICENSE_TIERS,
+  MARKET_MODES,
+  MARKET_QUALITY_DIMENSIONS,
+  MARKET_QUALITY_WEIGHTS,
+  MARKET_SECURITY_LEVELS,
+} from './vocab.ts';
 
 /** 市场索引契约标识。 */
 export const MARKETPLACE_INDEX_SCHEMA = 'df.marketplace.index/v1' as const;
 
-/** 四类资产。 */
-export type MarketAssetKind = 'skill' | 'plugin' | 'design-system' | 'template';
-
-/** 资产品类（9 场景种子 + 兜底；未知枚举归「其他」）。 */
-export const MARKET_CATEGORIES = [
-  '网站设计',
-  '移动端App',
-  '设计系统',
-  'Web App',
-  'PPT设计',
-  '交互原型',
-  '品牌设计',
-  '图标&插画',
-  '视觉海报',
-  '其他',
-] as const;
-
-/** 品类联合类型。 */
-export type MarketCategory = (typeof MARKET_CATEGORIES)[number];
-
-/** 工作泳道。 */
-export type MarketLane = 'create' | 'refine' | 'deliver';
-
-/** 资产形态（未知归 other）。 */
-export const MARKET_MODES = [
-  'template',
-  'design-system',
-  'prototype',
-  'components',
-  'tokens',
-  'utility',
-  'other',
-] as const;
-
-/** 资产形态联合类型。 */
-export type MarketMode = (typeof MARKET_MODES)[number];
-
-/** license 三档守门（§7.2；工程口径，非法务结论）。 */
-export type LicenseGate = 'loadable' | 'view-only' | 'blocked';
-
-/** 装载门模式（blocked 者不进 assets 列表——见 §1.1）。 */
-export type InstallGateMode = 'loadable' | 'view-only' | 'blocked';
+/** 装载门模式（blocked 者不进 assets 列表——见 §1.1）。
+ *
+ * 与 license 三档（`MARKET_LICENSE_GATES`）同词表：由真源**派生别名**，不另立字面量
+ * （code-review：B 半做——此处此前是第二份 `'loadable' | 'view-only' | 'blocked'`，
+ * 已由 `guard:vocab` 登记名 InstallGateMode 覆盖）。
+ */
+export type InstallGateMode = LicenseGate;
 
 /** 双语字段（缺一言回退另一言，皆缺回退 name）。 */
 export interface MarketLocalizedText {
@@ -109,7 +121,8 @@ export interface MarketQuality {
 export interface MarketInstallGate {
   mode: InstallGateMode;
   licenseGate: LicenseGate;
-  security: 'pass' | 'warn' | 'fail';
+  /** 静态安全审计结论：真源 `MARKET_SECURITY_LEVELS` 的派生类型（勿另立字面量联合）。 */
+  security: MarketSecurityLevel;
   reasons: string[];
   /** 需显式授权的能力（D4 确认门禁输入）。 */
   ackRequired: string[];
@@ -165,10 +178,6 @@ export type MarketplaceParseResult =
   | { ok: true; index: MarketplaceIndex; skipped: number }
   | { ok: false; reason: string };
 
-const ASSET_KINDS: readonly string[] = ['skill', 'plugin', 'design-system', 'template'];
-const LANES: readonly string[] = ['create', 'refine', 'deliver'];
-const GATES: readonly string[] = ['loadable', 'view-only', 'blocked'];
-
 function asLocalizedText(value: unknown): MarketLocalizedText {
   if (typeof value !== 'object' || value === null) return {};
   const record = value as Record<string, unknown>;
@@ -206,7 +215,7 @@ function normalizeMode(value: unknown): MarketMode | null {
 }
 
 function normalizeGate(value: unknown): LicenseGate {
-  return typeof value === 'string' && GATES.includes(value) ? (value as LicenseGate) : 'view-only';
+  return isLicenseGate(value) ? value : 'view-only';
 }
 
 function parseAsset(value: unknown): MarketAsset | null {
@@ -252,14 +261,8 @@ function parseAsset(value: unknown): MarketAsset | null {
       ? (rawMetrics as Record<string, unknown>)
       : null;
 
-  const kind: MarketAssetKind =
-    typeof raw.kind === 'string' && ASSET_KINDS.includes(raw.kind)
-      ? (raw.kind as MarketAssetKind)
-      : 'skill';
-  const lane: MarketLane =
-    typeof facetsRecord.lane === 'string' && LANES.includes(facetsRecord.lane)
-      ? (facetsRecord.lane as MarketLane)
-      : 'create';
+  const kind: MarketAssetKind = isMarketAssetKind(raw.kind) ? raw.kind : 'skill';
+  const lane: MarketLane = isMarketLane(facetsRecord.lane) ? facetsRecord.lane : 'create';
 
   const quality: MarketQuality = {
     score: asNumber(qualityRecord.score),
@@ -312,14 +315,9 @@ function parseAsset(value: unknown): MarketAsset | null {
     },
     quality,
     installGate: {
-      mode: normalizeGate(gateRecord.mode) as InstallGateMode,
+      mode: normalizeGate(gateRecord.mode),
       licenseGate: normalizeGate(gateRecord.licenseGate),
-      security:
-        gateRecord.security === 'pass' ||
-        gateRecord.security === 'warn' ||
-        gateRecord.security === 'fail'
-          ? gateRecord.security
-          : 'pass',
+      security: isMarketSecurityLevel(gateRecord.security) ? gateRecord.security : 'pass',
       reasons: asStringArray(gateRecord.reasons),
       ackRequired: asStringArray(gateRecord.ackRequired),
     },

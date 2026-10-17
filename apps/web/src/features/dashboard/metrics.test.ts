@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { makeAsset, makeQueryResponse } from '@/features/market/__fixtures__/market';
+import { marketFixtures } from '@/features/market';
 import {
   computeCompleteness,
   computeConsistency,
@@ -15,6 +15,9 @@ import {
   readCollectionProgress,
   readLayerStatuses,
 } from './metrics';
+
+// 夹具经 market 公开面取（`marketFixtures` 命名空间），不引 `__fixtures__` 深路径
+const { makeAsset, makeQueryResponse } = marketFixtures;
 
 describe('dashboard · 采集进度', () => {
   it('从查询响应读生成时刻/总数/可装载/受限；子集分布按加载卡片实测', () => {
