@@ -6,9 +6,13 @@
  * Chromium 二进制、跑不起来；DEF-01（POST 体误入 headers）曾让门禁假红并逃过 CI。
  * 这里用本地 `node:http` 桩（`127.0.0.1` + 端口 0）直接断言**请求契约**：
  *   - POST 体原样到达上游且能 JSON 解码（不是塞进 header）；
- *   - 上游 404 / 非 JSON 响应 → 受控 502 + JSON 错误信封（不原样透传、不抛未捕获异常）；
+ *   - **业务 404**（合法 JSON 且带 `error.code`）→ 原状态码 404 透传（`documents-client`
+ *     依赖它显示「文档不存在」）；
+ *   - **路由级 404**（无 code 的 JSON）/ 非 JSON 响应 → 受控 502 + JSON 错误信封；
  *   - GET / HEAD 不带 body（空字符串 body 也不行），上游收到的请求体长度为 0；
- *   - 合法 JSON 响应仍按原状态码透传（转发不是判定层）。
+ *   - 合法 JSON 响应仍按原状态码透传（转发不是判定层）；
+ *   - Playwright 适配层（`page.route` 注册 + `fulfill` 形状）用假 page/route 钉死，
+ *     不启动浏览器。
  *
  * 用法：`node scripts/tests/browser-toolchain.test.mjs`（`pnpm test:scripts` 收录）。
  */
@@ -16,7 +20,11 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
 
-import { DAEMON_ROUTE_PREFIX, forwardDaemonRequest } from '../lib/browser-toolchain.mjs';
+import {
+  DAEMON_ROUTE_PREFIX,
+  forwardDaemonRequest,
+  forwardDaemonRequests,
+} from '../lib/browser-toolchain.mjs';
 
 /** 上游收到的请求快照（每个用例读最后一条；桩按 URL 分路）。 */
 const seen = [];
@@ -46,6 +54,12 @@ before(async () => {
     if (request.url === '/api/missing') {
       response.writeHead(404, { 'content-type': 'application/json' });
       response.end('{"ok":false,"message":"not found"}');
+      return;
+    }
+    if (request.url === '/api/doc-missing') {
+      // 业务 404：daemon 的合法 JSON 信封（文档不存在），必须原样透传给页面。
+      response.writeHead(404, { 'content-type': 'application/json' });
+      response.end('{"ok":false,"error":{"code":"doc_not_found","message":"文档不存在"}}');
       return;
     }
     if (request.url === '/api/legacy') {
@@ -110,6 +124,17 @@ test('上游 404：返回受控 502 + JSON 错误信封（不原样透传）', a
   assert.match(envelope.message, /404/);
 });
 
+test('业务 404（合法 JSON + error.code）：原状态码与信封透传，供页面显示「文档不存在」', async () => {
+  const result = await forwardDaemonRequest(makeRequest('/api/doc-missing', 'GET'), daemonUrl);
+
+  assert.equal(result.status, 404);
+  assert.match(result.headers['content-type'], /application\/json/);
+  const envelope = JSON.parse(result.body);
+  assert.equal(envelope.ok, false);
+  assert.equal(envelope.error.code, 'doc_not_found');
+  assert.equal(envelope.error.message, '文档不存在');
+});
+
 test('上游非 JSON：返回受控 502 + JSON 错误信封（不抛未捕获异常）', async () => {
   const result = await forwardDaemonRequest(makeRequest('/api/legacy', 'GET'), daemonUrl);
 
@@ -161,4 +186,47 @@ test('GET / HEAD：不发送 body（空字符串也不行），上游收到的�
     );
     if (method === 'HEAD') assert.equal(result.body, '');
   }
+});
+
+test('适配层：注册 **/df-daemon/** 路由，并把转发结果按 { status, contentType, body } fulfill', async () => {
+  let captured;
+  /** 假 page：只收集 route 注册（不启动浏览器）。 */
+  const fakePage = {
+    route: async (pattern, handler) => {
+      captured = { pattern, handler };
+    },
+  };
+  await forwardDaemonRequests(fakePage, daemonUrl);
+  assert.equal(captured?.pattern, '**/df-daemon/**');
+
+  const calls = [];
+  /** 假 route：`request()` 给 Playwright Request 的最小形状（url/method 是方法），`fulfill` 收集参数。 */
+  const makeRoute = (pathname, method, postData = () => null) => ({
+    request: () => ({
+      url: () => `http://page.test${DAEMON_ROUTE_PREFIX}${pathname}`,
+      method: () => method,
+      postData,
+    }),
+    fulfill: async (options) => {
+      calls.push(options);
+    },
+  });
+
+  const payload = { name: '适配层文档' };
+  await captured.handler(
+    makeRoute('/api/documents?draft=1', 'POST', () => JSON.stringify(payload)),
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].status, 200);
+  assert.match(calls[0].contentType, /application\/json/);
+  assert.deepEqual(JSON.parse(calls[0].body), {
+    ok: true,
+    echo: JSON.stringify(payload),
+  });
+  assert.equal(seen.at(-1).body, JSON.stringify(payload), 'POST 体经适配层原样到达上游');
+
+  await captured.handler(makeRoute('/api/conflict', 'GET'));
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].status, 409);
+  assert.deepEqual(JSON.parse(calls[1].body), { ok: false, message: 'name-taken' });
 });
