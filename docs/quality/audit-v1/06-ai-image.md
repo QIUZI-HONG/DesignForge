@@ -2,7 +2,7 @@
 
 - **状态**：已完成（审计阶段；**未改产品代码**，只跑既有门禁 + 仓库外探针与本文档）
 - **日期**：2026-10-17（UTC+8 21:05–21:25）
-- **代码基线**：`integration/audit-v1` @ `8c21da6`（已含审计 01–04；本票分支收尾前并入）
+- **代码基线**：`integration/audit-v1` @ `58720f7`（已含审计 01–05；本票分支收尾前并入）
 - **本票分支 / 工作树**：`audit/06-ai-image` / `/home/QIU/df-wt/aud-06`
 - **范围**：AI 无 key 降级、有 key mock 流式、BYOK/脱敏/哨兵、prompt injection、受控 AI 写入（B-09）；出图未启动/缺模型/mock 正常态/OOM/取消、任务持久化（B-08）、mock↔真 ComfyUI 契约漂移。
 - **证据根**：`~/df-evidence/audit-50/aud-06/`（下称 `$EV`；**全部证据在仓库外**）
@@ -31,8 +31,8 @@
 |---|---|---|---|
 | AI 两态 | `pnpm verify:ai-two-state` | **16/16，exit 0**；真浏览器 UI 4/4；`cloudCalls=0` | `$EV/logs/verify-ai-two-state.log`；`$EV/fe-10/verify-ai-two-state.json`；截图 `$EV/fe-10/ui-ai-drawer.png` |
 | 出图两态 | `pnpm verify:image-two-state` | **12/12，exit 0**；真浏览器 UI 4/4 | `$EV/logs/verify-image-two-state.log`；`$EV/fe-10/verify-image-two-state.json`；截图 `$EV/fe-10/ui-image-panel.png` |
-| 全量门禁 | `pnpm verify` | **exit 0**；9 包 292 文件 / 2765 例 | `$EV/logs/pnpm-verify.log`；合并审计 04 后复跑 `$EV/logs/pnpm-verify-final2.log`（exit 0） |
-| 脚本门禁自测 | `pnpm test:scripts` | **exit 0**（fail 0） | `$EV/logs/test-scripts-final.log` |
+| 全量门禁 | `pnpm verify` | **exit 0**；9 包 292 文件 / 2765 例 | `$EV/logs/pnpm-verify.log`；合并 04/05 后复跑 `$EV/logs/pnpm-verify-post05.log`（exit 0） |
+| 脚本门禁自测 | `pnpm test:scripts` | **exit 0**；73 例全过（含 #55 新增 MCP 契约守卫用例） | `$EV/logs/test-scripts-post05.log` |
 | 前置（blocked） | `curl --max-time 2 127.0.0.1:8188/system_stats`；`DF_DEEPSEEK_API_KEY` 未设置 | exit 7；unset | `$EV/logs/blocked-prerequisites.log` |
 
 复跑口径与注意：
@@ -40,7 +40,7 @@
 - 两门禁默认把临时数据根放 `mkdtemp(tmpdir())`（即 `/tmp`，见 `scripts/verify-ai-two-state.mjs:247`、`scripts/verify-image-two-state.mjs:322`）。本轮按审计纪律显式 `TMPDIR=$EV/tmp` 运行，未写 `/tmp`；这本身登记为 F-06-10。
 - 门禁 daemon 因 4318 被常驻实例占用，自动落到 4319；**未触碰 4318/3000 与 `~/.dforge`**。UI 段用 4420，跑完已确认无 44xx 监听。
 - 两门禁的 UI 段是**真浏览器**（playwright-core + Chromium 1243，真点击、真 daemon 代理），不是 SSR HTML 探测；无 key 降级提示与出图未启动动作均在真实抽屉/面板中断言。
-- 合并审计 04 后首次复跑遇到 `node_modules/.vitest-cache` 的 `ENOTEMPTY`（并行包测试共用 vitest 缓存竞态，`$EV/logs/pnpm-verify-final.log`）；清缓存重跑即 exit 0（`pnpm-verify-final2.log`），不是产品失败。该 flake 归 #58 的 flake 观测。
+- 合并审计 04 后首次复跑遇到 `node_modules/.vitest-cache` 的 `ENOTEMPTY`（并行包测试共用 vitest 缓存竞态，`$EV/logs/pnpm-verify-final.log`）；清缓存重跑即 exit 0（`pnpm-verify-final2.log`、`pnpm-verify-post05.log`），不是产品失败。该 flake 归 #58 的 flake 观测。
 - 门禁 mock 标注成立：AI `stateB.mockUpstream` 明确本机回环、`cloudCalls: 0`；出图 `stateB.mockBaseUrl`、`mockCalls` 可见。出图证据缺显式 `cloudCalls` 字段（C 级，归 F-06-10）。
 - 既有单测/对抗套件覆盖良好：daemon 118 例含凭据哨兵全链路、AI 流式断连、出图状态机；但存在两处**断言盲区**：AI「零 data 帧」用例只覆盖 keep-alive（`ai.test.ts:385`），出图取消用例不校验 `/interrupt`/`/queue` 语义（`image.test.ts:317`）。
 
@@ -291,7 +291,7 @@
 | AI 探针 | `$EV/probes/ai-probes.json`；`$EV/logs/ai-probes.log` | 无 key、BYOK 哨兵/权限/重启/清除、错误映射、断连、超时、注入、B-09 |
 | 出图探针 | `$EV/probes/image-probes.json`；`$EV/logs/image-probes.log` | 缺模型、object_info 超时、探测缓存、产物失败、取消漂移、任务失联、重启、8188 |
 | AI 参数/半包探针 | `$EV/probes/ai-param-probe.json`；`$EV/logs/ai-param-probe.log` | 流式丢参数；SSE 半包拼回 |
-| 全量门禁 | `$EV/logs/pnpm-verify.log`；`$EV/logs/pnpm-verify-final2.log`；`$EV/logs/test-scripts-final.log` | 292 文件 / 2765 例，exit 0；合并 04 后复跑 exit 0；脚本自测 exit 0 |
+| 全量门禁 | `$EV/logs/pnpm-verify.log`；`$EV/logs/pnpm-verify-post05.log`；`$EV/logs/test-scripts-post05.log` | 292 文件 / 2765 例，exit 0；合并 04/05 后复跑 exit 0；脚本自测 73 例 exit 0 |
 | 探针脚本 | `$EV/probes/probe-lib.mjs`、`ai-probes.mjs`、`image-probes.mjs`、`ai-param-probe.mjs` | 仓库外探针；临时根已删除（含假哨兵密文），结果 JSON 不含 key |
 
 ## 10. 未做 / 边界
