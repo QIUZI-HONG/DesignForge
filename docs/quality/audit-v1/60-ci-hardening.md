@@ -17,7 +17,7 @@
 | `.github/workflows/ci.yml` | `verify` job 新增 `test:coverage`（#107 提供；脚本缺失时显式 `exit 2` 阻塞，不跳过）、`pnpm --filter @dforge/web build`（生产构建，prebuild 就位 CanvasKit 资产）、覆盖率产物上传（artifact `coverage`，14 天）；job 超时 30 → 45 分钟；`guard:mcp-contract` 步骤已核对在位；known-red 注释更新（e2e 6 场景 114 步 / 4 红；resilience 47 步 / 9 红） | 已实现 |
 | `.github/dependabot.yml` | npm（根 pnpm workspace）+ GitHub Actions，weekly；minor/patch 分组、major 独立 PR；limits=5 | 已实现（仓库设置项见 §4.2） |
 | `.github/workflows/codeql.yml` | JS/TS（`javascript-typescript`）；push/PR 到 `main` + 每周一 03:17 UTC；advanced setup | 已实现（启用方式见 §4.3） |
-| `.github/workflows/dependency-review.yml` | PR 依赖图评审；`fail-on-severity: high`；只读权限、不评论 PR | 已实现 |
+| `.github/workflows/dependency-review.yml` | PR 依赖图评审；`fail-on-severity: high`；只读权限、不评论 PR | 已实现；**本仓依赖图未启用，workflow 暂改 `workflow_dispatch`**（见 §4.7） |
 | `.github/workflows/dependency-audit.yml` | 每周一 02:23 UTC + `workflow_dispatch`；`pnpm audit --prod --audit-level=high`；仅网络错误重试 3 次；漏洞 `exit 1`、连续网络失败 `exit 2`（阻塞） | 已实现（凭据见 §4.6） |
 | `AGENTS.md` / `docs/agents/implementation-workflow.md` | 门禁实况两处同源：coverage/build 已接 CI；mutation/a11y 仅本地；e2e 4 红 / resilience 9 红为 known-red；`guard:mcp-contract` 已接 CI；`guard:deps` / `guard:channel-pairing` 仍为桩；新增「CI 与供应链」小节 | 已实现 |
 
@@ -243,6 +243,12 @@ gh run list -R QIUZI-HONG/DesignForge --workflow dependency-audit.yml --limit 3
 若 Settings → Code security 中显示关闭，需在网页设置开启（REST 无公开开关）。仓库转私有后该 action
 需要 GitHub Advanced Security。
 
+**首轮 CI 实测（2026-10-17，run 39041450955）**：`verify` 与 CodeQL 通过，`dependency-review` 6 秒失败，
+日志明确 `Dependency review is not supported on this repository. Please ensure that Dependency graph is enabled`；
+只读探测 `GET /repos/.../dependency-graph/sbom` 也返回 404。按「不假绿」纪律，workflow 已改为仅
+`workflow_dispatch`（保留完整 action 配置），在管理员启用 dependency graph 后恢复
+`pull_request: [main]` 并纳入必过检查。在此之前 PR 不跑该检查；**不得把「没跑」当作通过**。
+
 ## 5. 验证与证据
 
 本地执行（证据根 `~/df-evidence/audit-50/aud-60b/`）：
@@ -268,6 +274,17 @@ gh run list -R QIUZI-HONG/DesignForge --workflow dependency-audit.yml --limit 3
 - e2e / resilience / a11y / mutation：known-red 或仅本地，本票不跑、不接门禁（§3）。
 
 完整哈希清单：`~/df-evidence/audit-50/aud-60b/sha256sums.txt`。
+
+### 首轮 CI 实测（PR #61，2026-10-17）
+
+| 检查 | 结果 | 说明 |
+|---|---|---|
+| `verify` | **pass**（3m52s） | 含 `test:coverage`、web 生产构建、MCP 契约守卫；覆盖率阈值通过 |
+| CodeQL | **pass**（2m11s） | advanced workflow 正常上传分析 |
+| dependency-review | **fail（6s）→ 已改手动** | 仓库 Dependency graph 未启用；见 §4.7，按阻塞登记，不伪造通过 |
+
+结论：「覆盖率与生产构建进 CI」已实测成立；CodeQL 已实测成立；dependency-review 阻塞于仓库设置，
+workflow 暂仅手动触发。PR 首轮红不是代码失败，也不是假绿。
 
 ## 6. 未完成 / 风险
 
@@ -296,4 +313,4 @@ gh run list -R QIUZI-HONG/DesignForge --workflow dependency-audit.yml --limit 3
 | 4 | Windows 冒烟试跑 / macOS 发布前人工 | 负责人 | §4.4 | 待决策 |
 | 5 | e2e 必过（先修 #69/#79） | 修复票 + 管理员 | §4.5 | 阻塞于缺陷修复 |
 | 6 | `pnpm audit` 定时结果巡检（私有 registry 才需凭据） | 维护者 | §4.6 | 已定时，待首轮结果 |
-| 7 | 依赖图 / dependency review 可用性 | 管理员 | §4.7 | 公开仓库默认可用，待确认 |
+| 7 | 依赖图 / dependency review 可用性 | 管理员 | §4.7 | **阻塞：当前 dependency graph 未启用（首轮 CI 实测 not supported）；workflow 暂手动触发** |

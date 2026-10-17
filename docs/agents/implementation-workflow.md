@@ -141,7 +141,8 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   （workflow 文件）；与仓库设置的 **CodeQL default setup 互斥**，管理员只能启用一种
   （两者同时开启会导致 analysis 上传失败）。
 - `workflows/dependency-review.yml`：PR 上对比依赖图，high/critical 阻断。公开仓库免费；
-  仓库转私有后需 GitHub Advanced Security。
+  仓库转私有后需 GitHub Advanced Security。**本仓 dependency graph 未启用（首轮 CI 实测 not supported）**，
+  workflow 暂仅 `workflow_dispatch`；管理员启用后恢复 PR 触发并纳入必过检查。
 - `workflows/dependency-audit.yml`：每周一 02:23 UTC + 手动；`pnpm audit --prod --audit-level=high`；
   **只对网络类错误重试**（3 次），发现漏洞 `exit 1`、连续网络失败 `exit 2`（阻塞）。
   该 job **不进 PR 必过门禁**——registry flake 不得随机阻塞合并；红/阻塞均需人工读结果，不得当绿。
