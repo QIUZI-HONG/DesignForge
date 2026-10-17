@@ -16,6 +16,11 @@
  * 证据落 `<DF_EVIDENCE_DIR>/mutation/<stamp>/`（缺省 `~/df-evidence/audit-50/aud-60a`）：
  *   mutation.json / mutation.html / mutation-summary.json / stryker.log。
  *
+ * 工具选择：配置用 Stryker **command runner**（`stryker.engine.config.json` 的 `testRunner`），
+ * 不使用 `@stryker-mutator/vitest-runner`——后者在本仓 vitest 5.0.5 下 mutant 阶段执行
+ * 0 个测试（139 个全 survived/NoCoverage，见 60a）；因此该 runner 依赖已从根
+ * `package.json` / catalog / lockfile 移除。
+ *
  * 命令的可移植性：Stryker command runner 用 `packages/engine/node_modules/.bin/vitest`，
  * 不能用根 `node_modules/.bin/vitest`——根 package.json 未声明 vitest，全新
  * `pnpm install --frozen-lockfile` 下根 bin 不存在（merger 复现的 exit 1）。
@@ -125,7 +130,7 @@ const summary = summarize();
 const summaryDoc = {
   ticket: '#107',
   issue: '审计 10a · mutation 选择性工装',
-  tool: '@stryker-mutator/core + @stryker-mutator/vitest-runner',
+  tool: '@stryker-mutator/core（command runner）',
   scope: ['packages/engine/src/serialize/serialize.ts'],
   defaultInCi: false,
   note: 'break=null：本次只建基线，不因低分失败；分数用于第二批计划（见交接说明）。',

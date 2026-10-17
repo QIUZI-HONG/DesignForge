@@ -54,7 +54,6 @@
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@stryker-mutator/core": "catalog:",
-    "@stryker-mutator/vitest-runner": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "axe-core": "catalog:",
     "pixelmatch": "catalog:",
