@@ -1351,7 +1351,7 @@ async function runCorsCase() {
         nullGet.headers.get('access-control-allow-origin') !== 'null' ||
           !(nullPreflight.headers.get('access-control-allow-methods') ?? '').includes('DELETE'),
         'cors.origin-null',
-        `Origin: null → GET allow-origin=${nullGet.headers.get('access-control-allow-origin')}；预检 ${nullPreflight.status} methods=${nullPreflight.headers.get('access-control-allow-methods')}（沙箱 iframe/本地 file:// 页面可读可写；浏览器实证见证据 probe5）`,
+        `Origin: null → GET allow-origin=${nullGet.headers.get('access-control-allow-origin')}；预检 ${nullPreflight.status} methods=${nullPreflight.headers.get('access-control-allow-methods')}（沙箱 iframe 的不透明源可读可写；file:// 直连未单独验证；浏览器实证见证据 probe5）`,
       ),
     );
     const evil = await call(daemon.url, 'GET', '/documents', undefined, {

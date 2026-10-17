@@ -36,7 +36,7 @@
 | engine 导入导出边界 | `pnpm verify:engine` | **312/312 通过，exit 0**（含序列化深度上限/非有限数/`__proto__` 丢弃） | `$EV/logs/verify-engine.log` |
 | 脚本门禁自测 | `pnpm test:scripts` | **66/66 通过**（含本票新增 10 例） | `$EV/logs/test-scripts.log` |
 | 脚本 lint | `pnpm lint:scripts` | exit 0（1 条既有 warning，与本票无关） | `$EV/logs/lint-scripts.log` |
-| **韧性接缝** | `node scripts/verify-resilience.mjs` | **47 步：31 pass / 9 fail / 0 blocked / 7 observe，exit 1** | `$EV/verify-resilience.evidence.json`、`$EV/logs/verify-resilience.run2.log` |
+| **韧性接缝** | `node scripts/verify-resilience.mjs` | **47 步：31 pass / 9 fail / 0 blocked / 7 observe，exit 1** | `$EV/verify-resilience.evidence.json`、`$EV/logs/verify-resilience.final.log`（合并 #52 后最终复跑） |
 
 既有套件已覆盖（本票复跑确认）：`documents.security.test.ts` 的 Q1 路径穿越/软链/删除守卫/NFC-NFD/并发建页，`adversarial.test.ts` 的并发原子写/深嵌套 4xx/凭据哨兵/CORS/导出魔数。**未被覆盖的风险面**：跨进程并发、崩溃/磁盘/权限故障、根内软链、CORS `null` 的浏览器可利用性、深层页读取。
 
@@ -243,8 +243,8 @@
 | probe4（SIGKILL/重启/损坏配置） | `$EV/probes/probe4.results.json` | `2508ca8f0b7e2f01` |
 | probe5（CORS `null` 浏览器实证） | `$EV/probes/probe5.results.json` | `3b1310d4aae72307` |
 | probe6（根内软链跨文档写） | `$EV/probes/probe6.results.json` | `933ffe441862b4bf` |
-| 韧性接缝证据（47 步） | `$EV/verify-resilience.evidence.json` | `11d5a49f5d22fd9d` |
-| 韧性接缝运行日志（含 pass/fail/observe 明细） | `$EV/logs/verify-resilience.run2.log` | — |
+| 韧性接缝证据（47 步） | `$EV/verify-resilience.evidence.json` | `12e40cea0dab12ad` |
+| 韧性接缝运行日志（含 pass/fail/observe 明细） | `$EV/logs/verify-resilience.final.log` | — |
 | 各 daemon 子进程日志 | `$EV/logs/resilience-*.log` | — |
 | 失败现场（临时数据根，便于复核） | `$EV/tmp/*` | — |
 | 故障注入 shim（仓内） | `scripts/fixtures/fs-fault-shim.c` | 编译产物 sha256 见证据 JSON |
