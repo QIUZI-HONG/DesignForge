@@ -13,8 +13,7 @@
  *
  * 夹具自足：索引由场景播种到独立数据根（不依赖真实采集线 / 开发机产物）。
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { writeMarketIndex } from '../../lib/market-fixture.mjs';
 
 export const id = 'market-pagination';
 export const title = '市场过滤×分页边界（F-05-01 · 首屏 0 命中时加载更多不得消失）';
@@ -28,8 +27,6 @@ const LATER_BATCH = 70;
 const TOTAL = FIRST_BATCH + LATER_BATCH;
 const FIRST_REPO = 'first/batch';
 const LATER_REPO = 'later/repo';
-
-const MARKET_INDEX_FILENAME = 'df.marketplace.index.v1.json';
 
 /** 造一条合法市场资产（字段形状沿用 nav 场景的最小夹具）。 */
 function fixtureAsset(index) {
@@ -68,35 +65,25 @@ function fixtureAsset(index) {
   };
 }
 
-/** 播种索引（daemon 按请求现读索引，落盘即生效）。 */
+/** 播种索引（daemon 按请求现读索引，落盘即生效；落盘口径与审计夹具共用 lib）。 */
 function seedMarketIndex(dataRoot) {
   const assets = Array.from({ length: TOTAL }, (_, index) => fixtureAsset(index));
-  const marketDir = join(dataRoot, 'market');
-  mkdirSync(marketDir, { recursive: true });
-  writeFileSync(
-    join(marketDir, MARKET_INDEX_FILENAME),
-    `${JSON.stringify(
-      {
-        schema: 'df.marketplace.index/v1',
-        generatedAt: '2026-10-16T00:00:00.000Z',
-        collector: {
-          name: 'e2e-market-pagination',
-          version: '0.0.0',
-          runId: 'market-pagination',
-          odsWatermark: '',
-        },
-        counts: {
-          total: TOTAL,
-          byKind: { skill: TOTAL, plugin: 0, 'design-system': 0, template: 0 },
-          loadable: 0,
-        },
-        assets,
-      },
-      null,
-      2,
-    )}\n`,
-    'utf8',
-  );
+  writeMarketIndex(dataRoot, {
+    schema: 'df.marketplace.index/v1',
+    generatedAt: '2026-10-16T00:00:00.000Z',
+    collector: {
+      name: 'e2e-market-pagination',
+      version: '0.0.0',
+      runId: 'market-pagination',
+      odsWatermark: '',
+    },
+    counts: {
+      total: TOTAL,
+      byKind: { skill: TOTAL, plugin: 0, 'design-system': 0, template: 0 },
+      loadable: 0,
+    },
+    assets,
+  });
 }
 
 /** 等卡片数量达到预期（避免把渲染时差当结论）。 */
