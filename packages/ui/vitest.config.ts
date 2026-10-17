@@ -20,6 +20,9 @@ export default defineConfig({
       reporter: ['text-summary', 'json-summary'],
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/**/*.test.{ts,tsx}', 'src/test-setup.ts'],
+      // 阈值取 2026-10-17 实测值下留 2–4pp 余量（实测 statements 90.92 / branches 84.82 /
+      // functions 99.09 / lines 92.94），只降不升；提升阈值需单独评审。
+      thresholds: { statements: 87, branches: 81, functions: 96, lines: 89 },
     },
   },
 });

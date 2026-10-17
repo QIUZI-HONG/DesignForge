@@ -7,6 +7,7 @@
 - **基线**：`integration/audit-v1` @ `a17034e`（审计 09 收口）
 - **本票提交**：`ef48282`（workflow）、`b535bd1`（门禁文档）、`d59a7d9`（本文件与人工项）、证据哈希更新提交（收尾）
 - **依赖**：#107（审计 10a）提供 `test:coverage` / `test:mutation` / `audit:a11y`；合并顺序 **#60a → #60b**。收尾时 #107 已在 `audit/10a-test-tooling` 产生提交 `76b3b19`（`test:coverage` = `pnpm -r test --coverage`，各包默认 `coverage/`），但**尚未合并进 `integration/audit-v1`**；本分支 HEAD 仍无该脚本（CI 步骤会显式阻塞，见 §5）。
+- **收口复核（审计 #50 · code-review 修复）**：本文件按 `integration/audit-v1` @ `66f0f91`（#107/#108 均已合并）的实况更新——CI 删除重复的 `pnpm test`、加顶层 `permissions: contents: read`；覆盖率 9 包阈值补齐；阻塞语义与 known-red 计数校正。原始提交历史不改写。
 - **证据根**：`~/df-evidence/audit-50/aud-60b/`（日志与哈希见 §5）
 - **事实基线（只读复核，`repo-settings-readonly.log`）**：`main` 无 branch protection（404）；Dependabot alerts 关闭（404）；automated security fixes `enabled=false`；CodeQL default setup `state=not-configured`。
 
@@ -30,24 +31,27 @@
 1. `pnpm install --frozen-lockfile`
 2. `pnpm lint`（含 `lint:scripts`）
 3. `pnpm typecheck`
-4. `pnpm test`（9 包 / 2765 例）
-5. **`pnpm test:coverage`**（新；#107 提供。根脚本不存在时本步骤打印「阻塞」并 `exit 2`）
-6. **覆盖率产物上传**（新；`coverage/` 与各包 `coverage/`，`if-no-files-found: warn`）
-7. **`pnpm --filter @dforge/web build`**（新；生产构建，13 路由）
-8. `pnpm test:scripts`
-9. `guard:tokens` / `guard:vocab` / `guard:feature-boundaries` / `guard:electron-baseline` / **`guard:mcp-contract`（核对：已在位）** / `verify:engine`
-10. 参照集阻塞语义断言（无参照集 → 必须 `exit 2`）
+4. **`pnpm test:coverage`**（#107 提供；= `pnpm -r test --coverage`，**测试在覆盖率步骤内执行，不再另跑 `pnpm test`**。根脚本不存在时本步骤打印「阻塞」并 `exit 2`）
+5. **覆盖率产物上传**（`coverage/` 与各包 `coverage/`，`if-no-files-found: warn`）
+6. **`pnpm --filter @dforge/web build`**（生产构建，13 路由）
+7. `pnpm test:scripts`
+8. `guard:tokens` / `guard:vocab` / `guard:feature-boundaries` / `guard:electron-baseline` / **`guard:mcp-contract`（核对：已在位）** / `verify:engine`
+9. 参照集阻塞语义断言（无参照集 → 必须 `exit 2`）
 
-覆盖率阈值与 `coverage.reportsDirectory` 由 #107 的 vitest 配置决定；本票不设阈值、不复制数字。#107 未设置 `reportsDirectory`（Vitest 默认各包 `coverage/`，reporter 为 `text-summary` + `json-summary`），本票上传路径已覆盖根目录与 `apps/*`、`packages/*`、`services/*`、`tools/*` 的 `coverage/`；首次 CI run 的 artifact 应包含各包 `coverage-summary.json`。若后续 #107 调整目录，需同步本文件与 `ci.yml`。
+workflow 顶层声明 `permissions: contents: read`（CI 只读仓库内容；artifact 上传由 Actions 运行时提供，不需要写 `contents`）。branch protection 的目标检查仍是 job id/name `verify`，删除重复测试步骤不改变 context。
+
+覆盖率阈值与 `coverage.reportsDirectory` 由 #107 的 vitest 配置决定；本票不设阈值、不复制数字。收口复核时 **9 包均已设阈值**（engine/daemon/contracts 原有，web/ui/ingest/cli/desktop/comfy 本次补齐；一律实测下留 2–5pp，明细见 `60a-test-tooling.md`）。#107 未设置 `reportsDirectory`（Vitest 默认各包 `coverage/`，reporter 为 `text-summary` + `json-summary`），本票上传路径已覆盖根目录与 `apps/*`、`packages/*`、`services/*`、`tools/*` 的 `coverage/`；首次 CI run 的 artifact 应包含各包 `coverage-summary.json`。若后续 #107 调整目录，需同步本文件与 `ci.yml`。
+
+**Biome 排除 `scripts/snapshots`**：该目录是门禁快照的**生成物**（如 `mcp-contract.v1.json`，由 `--update` 重写），格式由生成器决定；纳入格式化会让每次 `--update` 和 CI lint 互相拉扯（格式 churn 掩盖真实 diff）。排除不改变校验——快照内容仍由 `guard:mcp-contract` 逐字段比对，更新一律经 `--update` 并审阅 diff。
 
 ## 3. Known-red 登记（不写成通过）
 
 | 门禁 | 当前结果 | 红项 | 处置 |
 |---|---|---|---|
 | `pnpm e2e:smoke` | 6 场景 **114 步 = 110 pass / 4 fail**（审计 08） | F-07-01×3（[#69](https://github.com/QIUZI-HONG/DesignForge/issues/69) 导出 PNG/SVG/PDF 空白）；F-05-01×1（[#79](https://github.com/QIUZI-HONG/DesignForge/issues/79) 过滤×分页死路） | **仅本地，未接 CI**；修复 #69/#79 且 `e2e:smoke` exit 0 后才评估接必过（§4.5）。不得静默 skip、不得只留完成文案断言 |
-| `pnpm verify:resilience` | 47 步 = 31 pass / **9 fail**，exit 1 | 跨进程丢页、根内软链跨文档写、半提交、深嵌套页读取 500、CORS null 等（#67 等 A/B 缺陷） | **仅本地，未接 CI**；修复转绿前不得当通过；缺 C 编译器时故障注入段按 `exit 2` 阻塞点名 |
-| `pnpm audit:a11y` | 审计期 2 critical / 5 serious（#74–#77） | axe 自动检查 | 仅本地；critical 修复后先断言 critical=0，再评估进 CI；serious 清零前不设 serious=0 门禁 |
-| `pnpm test:mutation` | 选择性工装（#107） | — | 仅本地，默认不进 CI；首批结果由 #107 记录 |
+| `pnpm verify:resilience` | 47 步 = 31 pass / **9 fail**，exit 1 | 跨进程丢页、根内软链跨文档写、半提交、深嵌套页读取 500、CORS null 等（#67 等 A/B 缺陷） | **仅本地，未接 CI**；修复转绿前不得当通过。缺 C 编译器时故障注入段按阻塞 `exit 2` 点名；**存在其它断言失败时按违规 `exit 1` 优先**（实测 9 条 A/B 失败并存时即为 exit 1，不是 exit 2） |
+| `pnpm audit:a11y` | 审计期 2 critical / 5 serious（#74–#77；首页须先建文档卡，否则漏 1 条 `label-content-name-mismatch`） | axe 自动检查 | 仅本地；critical 修复后先断言 critical=0，再评估进 CI；serious 清零前不设 serious=0 门禁 |
+| `pnpm test:mutation` | 选择性工装（#107；command runner，`@stryker-mutator/vitest-runner` 依赖已移除） | — | 仅本地，默认不进 CI；首批结果由 #107 记录 |
 
 ## 4. 人工项（需管理员 / 负责人；本票**未执行**）
 
@@ -263,12 +267,11 @@ gh run list -R QIUZI-HONG/DesignForge --workflow dependency-audit.yml --limit 3
 | CI 覆盖率步骤的「脚本缺失」分支（本地执行同一段 shell） | `exit 2` + 打印「阻塞：…依赖 #107」，证明不会静默跳过 | `coverage-step-blocking-check.log`（sha256 `f5dd8dec…`） |
 | 仓库设置只读复核 | main 无保护；alerts/security updates 关闭；CodeQL default setup `not-configured` | `repo-settings-readonly.log`（sha256 `77945a7a…`） |
 
-未执行（如实登记）：
+未执行（10b 当时如实登记，收口复核时状态已更新）：
 
-- `pnpm test:coverage`：本分支 HEAD 尚无根脚本（#107 未合并进集成分支）。#107 的
-  `audit/10a-test-tooling` @ `76b3b19` 已提供 `test:coverage`（`pnpm -r test --coverage`，
-  各包 `coverage/`），合并顺序 #60a → #60b 后本步骤即可运行。CI 步骤已做成「脚本缺失 →
-  `exit 2` 阻塞」，不会出现「没跑却绿」。
+- `pnpm test:coverage`：10b 分支 HEAD 尚无根脚本（#107 未合并进集成分支）。#107 合并后，
+  收口复核已执行（9 包采集 + 9 包阈值，见下节）。CI 步骤仍保留「脚本缺失 → `exit 2` 阻塞」，
+  不会出现「没跑却绿」。
 - CodeQL / dependency-review / dependency-audit：需在 GitHub Actions 上运行，本地不可复现；合并到
   `main` 后读首轮结果（`gh run list`）。
 - e2e / resilience / a11y / mutation：known-red 或仅本地，本票不跑、不接门禁（§3）。
@@ -279,20 +282,46 @@ gh run list -R QIUZI-HONG/DesignForge --workflow dependency-audit.yml --limit 3
 
 | 检查 | 结果 | 说明 |
 |---|---|---|
-| `verify` | **pass**（3m52s） | 含 `test:coverage`、web 生产构建、MCP 契约守卫；覆盖率阈值通过 |
+| `verify` | **pass**（3m52s） | 含 `test:coverage`、web 生产构建、MCP 契约守卫；首轮时仅 engine/daemon/contracts 设阈值且通过 |
 | CodeQL | **pass**（2m11s） | advanced workflow 正常上传分析 |
 | dependency-review | **fail（6s）→ 已改手动** | 仓库 Dependency graph 未启用；见 §4.7，按阻塞登记，不伪造通过 |
 
 结论：「覆盖率与生产构建进 CI」已实测成立；CodeQL 已实测成立；dependency-review 阻塞于仓库设置，
 workflow 暂仅手动触发。PR 首轮红不是代码失败，也不是假绿。
 
+### 收口复核（审计 #50 · code-review 修复后）
+
+- `pnpm test:coverage`：**9 包全部采集且全部通过阈值**（web/ui/ingest/cli/desktop/comfy 本次补齐）；
+  该命令同时执行全部测试，CI 已删除重复的 `pnpm test` 步骤。
+- `ci.yml` 顶层 `permissions: contents: read`；`verify` job id/name 不变。
+- a11y 计数与 04 对齐：**2 critical / 5 serious**（首页文档卡夹具已补）。
+- `pnpm test:mutation`：command runner，exit 0；`@stryker-mutator/vitest-runner` 已从依赖树移除。
+- 本地证据：`~/df-evidence/audit-50/aud-review-fix/`（命令日志与摘要）。
+
+### 过程教训：改门禁必须同票同步两处实况
+
+`guard:mcp-contract` 的实现与 CI 接入在 `d54b6e6`（审计 05）已经落地，但 `AGENTS.md` 与
+`docs/agents/implementation-workflow.md` 的实况行直到后来的 `3cdf173` / `b535bd1` 才同步；中间窗口里
+文档仍称「未接 CI」，与 `ci.yml` 事实相反。**此后任何新增 / 接入 / 退役 / 桩转真的门禁改动，必须在
+同一票内同步两处实况**（`AGENTS.md`「工程命令 · 门禁实况」+ `implementation-workflow.md`「守卫与 CI
+实况」），写清三态语义与是否接 CI；不同步 = 门禁实况表停留旧口径。历史提交不改写，本段作为过程记录。
+
+### 一次性审计脚本的范围（不进 CI）
+
+`scripts/audit/editor-review-audit.mjs`（约 1531 行）与 `scripts/audit/io-settings-audit.mjs`（约 2358 行）
+是审计 04 / 07 的**一次性取证脚本**，不是门禁：它们依赖仓外证据、特定页面路径与人工裁决，跑一次产出
+证据 JSON 即完成使命。保留在仓库是为了**可复现性**（复跑同一批取证），**不接 CI、不设阈值**；后续新增
+门禁应走 `scripts/lib/**` 复用与独立门禁脚本，不在这两个文件上继续加功能（scope creep）。
+
 ## 6. 未完成 / 风险
 
-1. **#107 依赖**：合并顺序必须 #60a → #60b；若 #107 未合并就合并本票，`ci.yml` 的覆盖率步骤会以
-   `exit 2` 阻塞（这是有意的诚实失败，不是 flake）。#107 合并后需复核根脚本名确为 `test:coverage`。
+1. **#107 依赖（已解除）**：合并顺序已按 #60a → #60b 执行，`integration/audit-v1` @ `66f0f91` 含
+   `test:coverage`；收口复核确认根脚本名确为 `test:coverage` 且 9 包阈值全部通过。CI 仍保留
+   「脚本缺失 → `exit 2` 阻塞」分支，防止未来被误删时静默跳过。
 2. **CI 时长**：新增覆盖率与生产构建；本机 `next build` 在 10 秒量级，runner 可能 3–4×。job 超时已提到 45 分钟；
    若仍逼近上限，应拆 job（build/coverage 独立）并保留 `verify` 作为必需检查，而不是放宽断言。
-3. **覆盖率阈值**：由 #107 设定；首次进 CI 若阈值导致红，按「先修测试/补覆盖面」处理，不得为转绿无证据降阈值。
+3. **覆盖率阈值**：9 包均已设阈值（实测下留 2–5pp）；若阈值导致红，按「先修测试/补覆盖面」处理，
+   不得为转绿无证据降阈值。
 4. **CodeQL 双配置冲突**：advanced workflow 与 default setup 互斥（§4.3）。合并后若 default setup 被开启，
    CodeQL job 会红；按 §4.3 二选一。
 5. **Dependabot 与 `catalog:`**：支持程度需首轮观察；「没有 PR」不等于「无更新」（§4.2）。

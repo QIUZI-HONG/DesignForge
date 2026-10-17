@@ -7,10 +7,30 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** 在数据根下写 `market/df.marketplace.index.v1.json`。 */
-export function seedMarketIndex(dataRoot) {
+/** 市场索引文件名（daemon 候选路径 `<数据根>/market/df.marketplace.index.v1.json`）。 */
+export const MARKET_INDEX_FILENAME = 'df.marketplace.index.v1.json';
+
+/**
+ * 把任意市场索引写到数据根（e2e 大索引与审计单条夹具共用落盘口径）。
+ *
+ * 抽出的原因：`market-pagination` 场景与审计夹具此前各写一份 `seedMarketIndex`，
+ * 目录、文件名、JSON 缩进任一处漂移都会让「daemon 读不到索引」在两处分别现形。
+ *
+ * @param {string} dataRoot 数据根
+ * @param {unknown} index 合法市场索引（`df.marketplace.index/v1`）
+ */
+export function writeMarketIndex(dataRoot, index) {
   const marketDir = join(dataRoot, 'market');
   mkdirSync(marketDir, { recursive: true });
+  writeFileSync(
+    join(marketDir, MARKET_INDEX_FILENAME),
+    `${JSON.stringify(index, null, 2)}\n`,
+    'utf8',
+  );
+}
+
+/** 在数据根下写 `market/df.marketplace.index.v1.json`（单条 view-only 审计夹具）。 */
+export function seedMarketIndex(dataRoot) {
   const fixture = {
     schema: 'df.marketplace.index/v1',
     generatedAt: '2026-10-16T00:00:00.000Z',
@@ -53,9 +73,5 @@ export function seedMarketIndex(dataRoot) {
       },
     ],
   };
-  writeFileSync(
-    join(marketDir, 'df.marketplace.index.v1.json'),
-    `${JSON.stringify(fixture, null, 2)}\n`,
-    'utf8',
-  );
+  writeMarketIndex(dataRoot, fixture);
 }

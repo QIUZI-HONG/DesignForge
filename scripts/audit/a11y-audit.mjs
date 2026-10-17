@@ -40,6 +40,8 @@ const RUN_ID = new Date().toISOString().replaceAll(':', '-').replace(/\..+$/, ''
 const RUN_DIR = join(EVIDENCE_ROOT, 'a11y', RUN_ID);
 const AXE_DIR = join(RUN_DIR, 'axe');
 const DATA_ROOT = join(RUN_DIR, 'data');
+/** 首页文档卡夹具名（卡片链接 `aria-label="打开「…」"` 与可见标题/元信息不一致，是 F-04-05 的取证目标）。 */
+const HOME_DOCUMENT_NAME = '无障碍审计文档';
 
 const args = process.argv.slice(2);
 const flagValue = (name) => {
@@ -210,6 +212,29 @@ function daemonQuery(gatewayUrl) {
   return `daemon=${encodeURIComponent(`${gatewayUrl}/df`)}`;
 }
 
+/**
+ * 经 daemon API 建一份文档，让首页渲染文档卡。
+ *
+ * 为什么必须先建文档：空数据根的首页只有空态，不含文档卡链接（`aria-label` 排除
+ * 可见标题/元信息），axe 的 `label-content-name-mismatch` 在首页就无从命中——审计 04
+ * 的 5 serious 里有首页这一条，早期 `audit:a11y` 漏掉它正是夹具缺文档所致。
+ * 建文档失败按阻塞处理：否则首页扫描口径又退回「空首页」，计数不可比。
+ */
+async function seedHomeDocument(daemonUrl) {
+  const response = await fetch(`${daemonUrl}/documents`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: HOME_DOCUMENT_NAME }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(
+      `首页文档夹具创建失败（HTTP ${String(response.status)}）：${JSON.stringify(body).slice(0, 200)}`,
+    );
+  }
+  log(`首页文档夹具：${body?.result?.document?.id ?? HOME_DOCUMENT_NAME}`);
+}
+
 async function waitCanvasReady(page) {
   await page.waitForSelector('canvas[data-df-canvas]', { timeout: 60_000 });
   await page.waitForFunction(
@@ -313,6 +338,9 @@ try {
   evidence.urls.daemon = daemon.url;
   log(`daemon 就绪：${daemon.url}（数据根 ${DATA_ROOT}）`);
 
+  // 首页扫描前先建文档卡（见 seedHomeDocument 注释）。
+  await seedHomeDocument(daemon.url);
+
   const webUrl = process.env.DF_WEB_URL ?? (await startWebSite());
   evidence.urls.web = webUrl;
   log(`站点就绪：${webUrl}`);
@@ -329,7 +357,8 @@ try {
 
   const query = daemonQuery(gateway.url);
   const targets = [
-    { name: 'home', url: `${gateway.url}/?${query}`, waitFor: '.dfg-home__sidebar' },
+    // 等文档卡出现：卡片链接是首页 `label-content-name-mismatch` 的取证目标。
+    { name: 'home', url: `${gateway.url}/?${query}`, waitFor: '.dfg-home__card' },
     {
       name: 'editor',
       url: `${gateway.url}/editor?${query}`,

@@ -1,8 +1,9 @@
 name: ci
 
 # 设界 · 主 CI（骨架期口径，见 docs/plan/skeleton-and-package-layout-v1.md §2）
-# 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck → 逐包测试
-#      → 覆盖率（#107）→ 生产构建（web）→ 脚本单测 → **非浏览器门禁**
+# 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck
+#      → 覆盖率（逐包测试 + v8 覆盖；#107，**不再重复跑 `pnpm test`**）
+#      → 生产构建（web）→ 脚本单测 → **非浏览器门禁**
 #      （守卫 / 引擎 / 参照集阻塞语义；明细见文末挂点说明）。
 # 供应链：见 dependabot.yml / codeql.yml / dependency-review.yml / dependency-audit.yml。
 # 已知红（e2e 4 条、resilience 9 条）**不在本文件执行**；修复前不得接成必过步骤。
@@ -11,6 +12,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+
+# 最小权限：CI 只读仓库内容（上传 artifact 由 Actions 运行时提供，不需要写 contents）。
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -39,12 +44,11 @@ jobs:
       - name: 类型检查（逐包 tsc --noEmit）
         run: pnpm typecheck
 
-      - name: 单元测试（逐包 vitest）
-        run: pnpm test
-
       # 覆盖率脚本由 #107（审计 10a）提供。脚本尚未合并时必须**显式阻塞**（exit 2），
       # 不得「缺脚本就跳过」——跳过会被误读为通过（禁止假绿）。
-      - name: 覆盖率（逐包采集；脚本缺失 → 阻塞）
+      # `pnpm test:coverage` = `pnpm -r test --coverage`：**测试本身已在其中执行**，
+      # 因此不再另跑 `pnpm test`（重复执行整套测试，且让失败来源不唯一）。
+      - name: 单元测试 + 覆盖率（逐包 vitest --coverage；脚本缺失 → 阻塞）
         run: |
           set +e
           node -e "process.exit(JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts['test:coverage'] ? 0 : 2)"
