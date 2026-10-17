@@ -40,6 +40,8 @@
 | **一次性审计** | `node scripts/audit/io-settings-audit.mjs` | 0 | **148 = 122 pass / 6 fail / 19 observe / 1 blocked**；6 个 fail 全部对应 §6 的缺陷（导出空白 ×4 断言、深嵌套 500、遥测自由文本） | `io-settings-audit.evidence.json`；`logs/audit-final.log` |
 
 > 脚本退出码 0 表示「审计完成」，不表示产品全绿；1 blocked 是 WSL2 `/proc` 环境限制（§9），不计为产品结论。
+>
+> **合并后复核**：并入 `integration/audit-v1` @ `7c0dec0`（审计 05/06）后复跑：`pnpm verify` = 0、`pnpm test:scripts` = **73/73**（审计 05 新增 MCP 契约自测）、`verify:engine` = 0、`verify:daemon` = 37/37、审计脚本计数不变（148 = 122/6/19/1）。日志：`logs/verify-postmerge.log`、`logs/test-scripts-postmerge.log`、`logs/verify-engine-postmerge.log`、`logs/verify-daemon-postmerge.log`、`logs/audit-postmerge.log`。合并只改了设置页一条测试等待，未改产品代码。
 
 ## 3. 导出：产物、保真与外部可用性
 
@@ -255,7 +257,7 @@
 
 | 内容 | 路径 |
 |---|---|
-| 机器可读汇总（148 条，含 staticFacts/daemons/artifacts） | `$EV/io-settings-audit.evidence.json`（sha256 `7bad905b…`） |
+| 机器可读汇总（148 条，含 staticFacts/daemons/artifacts） | `$EV/io-settings-audit.evidence.json`（sha256 `e9b06072…`） |
 | 最终运行日志 | `$EV/logs/audit-final.log` |
 | 导出产物（PNG/SVG/PDF/PPM） | `$EV/artifacts/`（真实信封 PNG `405d2cf6…`、SVG `a7643e21…`、PDF `68f44784…`） |
 | 引擎版本探查原始结果 | `$EV/probes/engine-version-probe.json` |
@@ -263,7 +265,7 @@
 | 本地 fixture 请求记录（含 Authorization 头） | `$EV/probes/fixture-requests.json` |
 | daemon 日志（主/损坏主密钥/损坏 JSON/env/ulimit） | `$EV/logs/daemon-{main,corrupt,corrupt-json,env,ulimit}.log` |
 | 门禁日志 | `$EV/logs/{verify,test-scripts,verify-engine,verify-daemon,web-settings-targeted}.log` |
-| daemon 侧导出物 | `$EV/runtime/2026-10-17T13-24-57/data/exports/` |
+| daemon 侧导出物 | `$EV/runtime/2026-10-17T13-28-11/data/exports/` |
 | 审计脚本（仓内） | `scripts/audit/io-settings-audit.mjs` |
 
 ## 11. 对后续票的输入
