@@ -138,7 +138,7 @@
 6. **合并入口没有强制力**：`main` 无 branch protection；PR #49 因 base 是 `integration/batch5` 而零检查。CI 仍是「约定」而非「门禁」。证据：§3.3。
 7. **文档/旧报告数字已漂移**：
    - 旧报告：2756 例（web 1335 / desktop 121）；本轮：**2765 例**（web 1343 / desktop 122）。
-   - 旧报告 canvas「挂载 6/6」；本轮实际 **7 条挂载/行为断言**（A1–A7，新增 A7 深色主题）+ 15 条接线。
+   - 旧报告 canvas「挂载 6/6」；本轮实际 **7 条挂载/行为断言**（A1–A7，含 A7 深色主题）+ 15 条接线。
    - ci.yml 注释与工作流文档仍写 e2e「10 步冒烟」；实际场景为 **63 步 + 编辑器 7 步**。
    - `docs/agents/implementation-workflow.md` 要求浏览器门禁用生产构建、不要用 `next dev`；本轮 `verify-canvas`、`verify-ai-two-state`、`verify-image-two-state` 仍自起 `next dev`（三者在本次环境均通过，但口径与文档不一致，属门禁工装债）。
 8. **依赖审计是手工快照**：`pnpm audit --prod` 本次 exit 0、0 已知漏洞，但耗时 78s 且出现两次 `ETIMEDOUT` 重试；CI 无 audit/CodeQL/Dependabot，结论不可在合并时复现。证据：`logs/audit-prod.log`。
