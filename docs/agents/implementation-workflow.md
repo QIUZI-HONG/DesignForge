@@ -87,7 +87,10 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   回归 `scripts/tests/guard-feature-boundaries.test.mjs`；批次 3 · 工作包 E）
   **已实现并接入 CI**；`verify:engine` / `test:scripts` 同批入 CI；`verify:figma-baseline` 以
   「CI 无参照集 → 断言 `exit 2` 且日志点名『阻塞：参照集未冻结』」的**阻塞语义断言**入 CI（不是当绿）。
-  仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:mcp-contract` / `guard:channel-pairing`。
+  仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:channel-pairing`。
+  `scripts/guard-mcp-contract.mjs`（MCP 工具集 + 跨端路由/信封快照；快照
+  `scripts/snapshots/mcp-contract.v1.json`；回归 `scripts/tests/guard-mcp-contract.test.mjs`；
+  审计 05 实现）**已实现并接入 CI**。
 - **守卫输出口径（批次 3 收口 · code-review）**：`guard-vocab` 与 `guard-feature-boundaries` 的
   退出码优先级为「**违规 exit 1 优先于未判定 exit 2**」，但两类问题必须**同屏列出**
   （`✗` 违规明细 + `?` 未判定明细，结论行点名未判定计数）——阻塞信息不得被违规结论吞掉；
