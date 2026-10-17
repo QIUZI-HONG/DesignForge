@@ -145,7 +145,11 @@ describe('/market · 空态与错误态（验收 §5）', () => {
     );
     render(<MarketHomePage />);
     await waitFor(() => {
-      expect(screen.getByRole('status').textContent).toContain('部分来源加载失败');
+      expect(
+        screen
+          .getAllByRole('status')
+          .some((node) => node.textContent?.includes('部分来源加载失败')),
+      ).toBe(true);
     });
   });
 
@@ -162,7 +166,9 @@ describe('/market · 空态与错误态（验收 §5）', () => {
     );
     render(<MarketHomePage />);
     await waitFor(() => {
-      expect(screen.getByRole('status').textContent).toContain('按字面匹配');
+      expect(
+        screen.getAllByRole('status').some((node) => node.textContent?.includes('按字面匹配')),
+      ).toBe(true);
     });
     expect(screen.queryAllByRole('heading', { name: 'PDF 导出' }).length).toBeGreaterThan(0);
   });
@@ -351,6 +357,180 @@ describe('/market · 加载态与坏响应出口（§5 补齐）', () => {
     expect(await screen.findByText(/形状不符合契约/)).toBeTruthy();
     expect(screen.getByText('DAEMON_BAD_RESPONSE')).toBeTruthy();
     expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+  });
+});
+
+describe('/market · 页内空态与终点空态（DEF-01）', () => {
+  const counts = (total: number) => ({
+    total,
+    byKind: { skill: total, plugin: 0, 'design-system': 0, template: 0 },
+    loadable: total,
+  });
+  const assetWithRepo = (repo: string, id: string) =>
+    makeAsset({ id, source: { ...makeAsset().source, repo } });
+
+  it('客户端过滤当前页无命中但还有未加载页 → 页内空态 + 单个「加载更多」，加载后结果出现', async () => {
+    const user = userEvent.setup();
+    const pageOne = makeQueryResponse({
+      items: [assetWithRepo('acme/skills', 'a'), assetWithRepo('acme/skills', 'b')],
+      total: 3,
+      counts: counts(3),
+    });
+    const pageTwo = makeQueryResponse({
+      items: [assetWithRepo('later/repo', 'c')],
+      total: 3,
+      counts: counts(3),
+    });
+    fetchMock.mockImplementation(async (url: string) => {
+      const result = String(url).includes('offset=2') ? pageTwo : pageOne;
+      return new Response(JSON.stringify({ ok: true, result }), { status: 200 });
+    });
+
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(2);
+    });
+
+    await user.type(screen.getByRole('textbox', { name: '来源仓库' }), 'later');
+    await waitFor(() => {
+      expect(container.querySelector('[data-df-empty="no-result-page"]')).not.toBeNull();
+    });
+    expect(screen.getByText('当前已加载的 2 条中没有匹配')).toBeTruthy();
+    expect(screen.getByText(/还有 1 条未检查/)).toBeTruthy();
+    // 不是终点空态：不得出现「没有匹配的资源」误导文案
+    expect(screen.queryByText('没有匹配的资源')).toBeNull();
+    // 页内空态已含分页进度与加载更多，底部不得再渲染一份（避免双按钮）
+    expect(container.querySelectorAll('[data-df-market="pagination"]').length).toBe(1);
+    expect(screen.getAllByRole('button', { name: '加载更多' }).length).toBe(1);
+
+    await user.click(screen.getByRole('button', { name: '加载更多' }));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(1);
+    });
+    expect(container.querySelector('[data-df-empty="no-result-page"]')).toBeNull();
+    expect(String((fetchMock.mock.calls.at(-1) as unknown[])[0])).toContain('offset=2');
+  });
+
+  it('筛选终点 → 既有「没有匹配的资源」+「已检查全部 N 条」说明', async () => {
+    const user = userEvent.setup();
+    respondWith(makeQueryResponse({ items: [makeAsset()], total: 1 }));
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(1);
+    });
+    await user.type(screen.getByRole('textbox', { name: '来源仓库' }), 'nomatch');
+    await waitFor(() => {
+      expect(screen.getByText('没有匹配的资源')).toBeTruthy();
+    });
+    expect(container.querySelector('[data-df-market="empty-note"]')?.textContent).toContain(
+      '已检查全部 1 条。',
+    );
+    expect(container.querySelector('[data-df-empty="no-result-page"]')).toBeNull();
+  });
+
+  it('精选终点 → 精选空态给「取消精选」，取消后回到筛选终点空态', async () => {
+    const user = userEvent.setup();
+    respondWith(makeQueryResponse({ items: [makeAsset()], total: 1 }));
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(1);
+    });
+    await user.click(screen.getByRole('button', { name: '精选' }));
+    await user.type(screen.getByRole('textbox', { name: '来源仓库' }), 'nomatch');
+    await waitFor(() => {
+      expect(screen.getByText('当前没有精选资源')).toBeTruthy();
+    });
+    expect(screen.getByText(/已检查全部 1 条/)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '取消精选' }));
+    await waitFor(() => {
+      expect(screen.getByText('没有匹配的资源')).toBeTruthy();
+    });
+  });
+
+  it('已装载终点（本地有记录但都不在当前筛选内）→ 说明 +「去市场」', async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      'dfg.market.loaded.v1',
+      JSON.stringify([
+        {
+          assetId: 'gh:other/repo#skills/elsewhere',
+          name: 'elsewhere',
+          kind: 'skill',
+          digest: 'sha256:old',
+          ref: 'a1b2c3d',
+          targetPath: '.dfg/market/skill/elsewhere/',
+          capabilities: [],
+          approvedAt: '2026-10-15T23:00:00Z',
+          caller: 'user',
+        },
+      ]),
+    );
+    respondWith(makeQueryResponse({ items: [makeAsset()], total: 1 }));
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(1);
+    });
+    await user.click(screen.getByRole('radio', { name: '已装载' }));
+    await waitFor(() => {
+      expect(screen.getByText('没有匹配的资源')).toBeTruthy();
+    });
+    expect(container.querySelector('[data-df-market="empty-note"]')?.textContent).toContain(
+      '已装载资源不在当前筛选内',
+    );
+    await user.click(screen.getByRole('button', { name: '去市场' }));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(1);
+    });
+    expect(screen.queryByText('没有匹配的资源')).toBeNull();
+  });
+
+  it('加载更多失败 → role=alert + 显式「重试」，重试成功后终点文案落地', async () => {
+    const user = userEvent.setup();
+    let failedOnce = false;
+    const urls: string[] = [];
+    const pageOne = makeQueryResponse({
+      items: [makeAsset({ id: 'a' }), makeAsset({ id: 'b' })],
+      total: 4,
+      counts: counts(4),
+    });
+    const pageTwo = makeQueryResponse({
+      items: [makeAsset({ id: 'c' }), makeAsset({ id: 'd' })],
+      total: 4,
+      counts: counts(4),
+    });
+    fetchMock.mockImplementation(async (url: string) => {
+      urls.push(String(url));
+      if (!String(url).includes('offset=2')) {
+        return new Response(JSON.stringify({ ok: true, result: pageOne }), { status: 200 });
+      }
+      if (!failedOnce) {
+        failedOnce = true;
+        return new Response(JSON.stringify({ ok: false, error: { code: 'x', message: 'boom' } }), {
+          status: 500,
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, result: pageTwo }), { status: 200 });
+    });
+
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(2);
+    });
+    await user.click(screen.getByRole('button', { name: '加载更多' }));
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('加载更多失败');
+    });
+    expect(screen.getByRole('alert').textContent).toContain('boom');
+    await user.click(screen.getByRole('button', { name: '重试' }));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(4);
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText('已全部加载（4）')).toBeTruthy();
+    const offsets = urls
+      .map((url) => /[?&]offset=(\d+)/.exec(url)?.[1])
+      .filter((offset): offset is string => offset !== undefined);
+    expect(offsets.filter((offset) => offset === '2')).toHaveLength(2);
   });
 });
 

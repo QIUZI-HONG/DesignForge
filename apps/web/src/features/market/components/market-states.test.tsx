@@ -11,7 +11,12 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MARKET_COLLECT_COMMAND } from '../api';
-import { MarketEmptyState, MarketErrorState, MarketWarningBanner } from './MarketStates';
+import {
+  MarketEmptyState,
+  MarketErrorState,
+  MarketPageEmptyState,
+  MarketWarningBanner,
+} from './MarketStates';
 
 afterEach(() => {
   cleanup();
@@ -45,6 +50,101 @@ describe('MarketEmptyState · 空态四类', () => {
     const user = userEvent.setup();
     const onGoMarket = vi.fn();
     render(<MarketEmptyState kind="installed-empty" onGoMarket={onGoMarket} />);
+    await user.click(screen.getByRole('button', { name: '去市场' }));
+    expect(onGoMarket).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MarketPageEmptyState · 页内空态（DEF-01）', () => {
+  function renderPageEmpty(
+    mode: 'filters' | 'featured' | 'installed',
+    overrides: Partial<Parameters<typeof MarketPageEmptyState>[0]> = {},
+  ) {
+    const props = {
+      mode,
+      loaded: 60,
+      total: 284,
+      remaining: 224,
+      loadMoreState: 'idle' as const,
+      loadMoreError: null,
+      onLoadMore: vi.fn(),
+      onClearFilters: vi.fn(),
+      onCancelFeatured: vi.fn(),
+      onGoMarket: vi.fn(),
+      ...overrides,
+    };
+    return { ...render(<MarketPageEmptyState {...props} />), props };
+  }
+
+  it('filters：说明已检查范围与剩余条数，主「加载更多」+ 次「清空筛选」', async () => {
+    const user = userEvent.setup();
+    const { props, container } = renderPageEmpty('filters');
+    expect(container.querySelector('[data-df-empty="no-result-page"]')).toBeTruthy();
+    expect(container.querySelector('[data-df-state="empty"]')).toBeTruthy();
+    expect(screen.getByText('当前已加载的 60 条中没有匹配')).toBeTruthy();
+    expect(screen.getByText(/还有 224 条未检查/)).toBeTruthy();
+    const pagination = container.querySelector('[data-df-market="pagination"]');
+    expect(pagination?.getAttribute('role')).toBe('status');
+    expect(pagination?.getAttribute('aria-live')).toBe('polite');
+    expect(pagination?.textContent).toContain('已加载 60 / 284');
+    await user.click(screen.getByRole('button', { name: '加载更多' }));
+    expect(props.onLoadMore).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', { name: '清空筛选' }));
+    expect(props.onClearFilters).toHaveBeenCalledTimes(1);
+  });
+
+  it('featured：主「加载更多」+ 次「取消精选」', async () => {
+    const user = userEvent.setup();
+    const { props } = renderPageEmpty('featured');
+    expect(screen.getByText('当前已加载的 60 条中没有精选')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '取消精选' }));
+    expect(props.onCancelFeatured).toHaveBeenCalledTimes(1);
+  });
+
+  it('installed：主「加载更多」+ 次「去市场」', async () => {
+    const user = userEvent.setup();
+    const { props } = renderPageEmpty('installed');
+    expect(screen.getByText('当前已加载的 60 条中没有已装载资源')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '去市场' }));
+    expect(props.onGoMarket).toHaveBeenCalledTimes(1);
+  });
+
+  it('加载更多中：主按钮 loading（aria-busy + loadingLabel）', () => {
+    renderPageEmpty('filters', { loadMoreState: 'loading' });
+    const button = screen.getByRole('button', { name: '正在加载…' });
+    expect(button.getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('加载更多失败：role=alert 给失败文案与「重试」（同一 offset 重试）', async () => {
+    const user = userEvent.setup();
+    const { props, container } = renderPageEmpty('filters', {
+      loadMoreState: 'error',
+      loadMoreError: 'boom',
+    });
+    const alert = container.querySelector('[data-df-market="pagination"]');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.textContent).toContain('加载更多失败');
+    expect(alert?.textContent).toContain('boom');
+    await user.click(screen.getByRole('button', { name: '重试' }));
+    expect(props.onLoadMore).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MarketEmptyState · 终点空态（DEF-01）', () => {
+  it('精选终点：说明已检查全部并给「取消精选」', async () => {
+    const user = userEvent.setup();
+    const onCancelFeatured = vi.fn();
+    render(<MarketEmptyState kind="featured-empty" onCancelFeatured={onCancelFeatured} />);
+    expect(screen.getByText('当前没有精选资源')).toBeTruthy();
+    expect(screen.getByText(/已检查全部/)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '取消精选' }));
+    expect(onCancelFeatured).toHaveBeenCalledTimes(1);
+  });
+
+  it('无结果可用「去市场」出口（已装载终点）', async () => {
+    const user = userEvent.setup();
+    const onGoMarket = vi.fn();
+    render(<MarketEmptyState kind="no-result" note="已检查全部 3 条。" onGoMarket={onGoMarket} />);
     await user.click(screen.getByRole('button', { name: '去市场' }));
     expect(onGoMarket).toHaveBeenCalledTimes(1);
   });

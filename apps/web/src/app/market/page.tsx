@@ -24,7 +24,6 @@ import {
   clientFilterOf,
   collectScenes,
   FilterBar,
-  hasMorePages,
   headerStyle,
   hintStyle,
   INITIAL_MARKET_FILTERS,
@@ -34,6 +33,7 @@ import {
   MarketEmptyState,
   MarketErrorState,
   type MarketFilters,
+  MarketPageEmptyState,
   MarketSkeletonGrid,
   MarketWarningBanner,
   paginationErrorStyle,
@@ -69,6 +69,7 @@ export default function MarketHomePage() {
     loadMore,
     loadMoreState,
     loadMoreError,
+    hasMore: paginationHasMore,
   } = useMarketPagination(params);
   const { records, loadedIds, save, remove } = useLoadRecords();
   const loadPlan = useLoadPlan(pendingAsset?.id ?? null);
@@ -85,6 +86,16 @@ export default function MarketHomePage() {
       : applyClientFilters(allItems, clientFilterOf(effectiveFilters, loadedIds));
   const visible = featuredOnly ? selectFeatured(clientFiltered) : clientFiltered;
   const scenes = collectScenes(allItems);
+
+  // DEF-01 三态推导：页内空态（还有未加载页）≠ 终点空态（已检查全部）
+  const loaded = allItems.length;
+  const total = response?.total ?? 0;
+  const hasMore = response !== null && loadMoreState !== 'done' && paginationHasMore;
+  const installedEmpty = installedView && records.length === 0;
+  const emptyMode = installedView ? 'installed' : featuredOnly ? 'featured' : 'filters';
+  const pageScopedEmpty = visible.length === 0 && !installedEmpty && hasMore;
+  const terminalEmpty = visible.length === 0 && !installedEmpty && !hasMore;
+  const remaining = Math.max(total - loaded, 0);
 
   const updateFilters = (patch: Partial<MarketFilters>): void => {
     setFilters((previous) => ({ ...previous, ...patch }));
@@ -137,23 +148,17 @@ export default function MarketHomePage() {
     if (outcome === 'index-invalid') {
       return <MarketEmptyState kind="index-invalid" />;
     }
-    if (visible.length === 0) {
-      return installedView ? (
+    if (installedEmpty) {
+      return (
         <MarketEmptyState
           kind="installed-empty"
           onGoMarket={() => {
             setInstalledView(false);
           }}
         />
-      ) : (
-        <MarketEmptyState
-          kind="no-result"
-          {...(searchDegraded ? { note: t('market.empty.noResult.literalNote') } : {})}
-          onClearFilters={clearFilters}
-        />
       );
     }
-    return (
+    const grid = (
       <CardGrid
         assets={visible}
         loadedIds={loadedIds}
@@ -169,36 +174,109 @@ export default function MarketHomePage() {
         }}
       />
     );
+    if (visible.length > 0) {
+      return grid;
+    }
+    // 页内空态：当前页无命中但服务端仍有未加载页——保留「继续加载」，不误报「没有匹配」
+    if (pageScopedEmpty) {
+      return (
+        <MarketPageEmptyState
+          mode={emptyMode}
+          loaded={loaded}
+          total={total}
+          remaining={remaining}
+          loadMoreState={loadMoreState}
+          loadMoreError={loadMoreError}
+          onLoadMore={loadMore}
+          onClearFilters={clearFilters}
+          onCancelFeatured={() => {
+            setFeaturedOnly(false);
+          }}
+          onGoMarket={() => {
+            setInstalledView(false);
+          }}
+        />
+      );
+    }
+    // 终点空态：已检查全部条目仍无命中（按模式给出口）
+    if (terminalEmpty) {
+      if (emptyMode === 'featured') {
+        return (
+          <MarketEmptyState
+            kind="featured-empty"
+            total={total}
+            onCancelFeatured={() => {
+              setFeaturedOnly(false);
+            }}
+          />
+        );
+      }
+      if (emptyMode === 'installed') {
+        return (
+          <MarketEmptyState
+            kind="no-result"
+            note={t('market.empty.noResult.installedCheckedAll', { total })}
+            onGoMarket={() => {
+              setInstalledView(false);
+            }}
+          />
+        );
+      }
+      const notes = [t('market.empty.noResult.checkedAll', { total })];
+      if (searchDegraded) notes.push(t('market.empty.noResult.literalNote'));
+      return (
+        <MarketEmptyState kind="no-result" note={notes.join(' ')} onClearFilters={clearFilters} />
+      );
+    }
+    // 防御式出口：visible=0 且非已装载空态时，页内空态/终点空态必居其一（理论上不可达）
+    return grid;
   };
 
-  /** 分页行（DEF-R1）：已加载计数 +「加载更多」；终点给「已全部加载」。 */
+  /** 分页行（DEF-R1/DEF-02）：已加载计数 +「加载更多」；终点给「已全部加载」。
+   *  页内空态时返回 null（空态组件已含进度与加载入口，避免双按钮）。 */
   const renderPagination = (): ReactElement | null => {
-    if (status !== 'ready' || response === null || featuredOnly || visible.length === 0) {
+    if (
+      status !== 'ready' ||
+      response === null ||
+      featuredOnly ||
+      installedEmpty ||
+      visible.length === 0
+    ) {
       return null;
     }
     const shown = allItems.length;
-    const total = response.total;
     if (total <= 0) return null;
     return (
       <div data-df-market="pagination" style={paginationStyle}>
-        <span style={hintStyle}>{t('market.list.progress', { shown, total })}</span>
-        {hasMorePages(shown, total) ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={loadMoreState === 'loading'}
-            onClick={loadMore}
-          >
-            {loadMoreState === 'loading' ? t('market.list.loadingMore') : t('market.list.loadMore')}
-          </Button>
-        ) : (
-          <span style={hintStyle}>{t('market.list.allShown', { total })}</span>
-        )}
         {loadMoreState === 'error' ? (
-          <span style={paginationErrorStyle}>
-            {t('market.list.loadMoreFailed', { message: loadMoreError ?? '' })}
-          </span>
-        ) : null}
+          <>
+            <span role="alert" style={paginationErrorStyle}>
+              {t('market.list.loadMoreFailed', { message: loadMoreError ?? '' })}
+            </span>
+            <Button size="sm" variant="secondary" onClick={loadMore}>
+              {t('market.error.retry')}
+            </Button>
+          </>
+        ) : (
+          <>
+            <span role="status" aria-live="polite" style={hintStyle}>
+              {t('market.list.progress', { shown, total })}
+            </span>
+            {paginationHasMore ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={loadMoreState === 'loading'}
+                loadingLabel={t('market.list.loadingMore')}
+                onClick={loadMore}
+              >
+                {t('market.list.loadMore')}
+              </Button>
+            ) : (
+              <span style={hintStyle}>{t('market.list.allShown', { total })}</span>
+            )}
+          </>
+        )}
       </div>
     );
   };
