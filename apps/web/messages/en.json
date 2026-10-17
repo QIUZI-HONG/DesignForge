@@ -889,7 +889,7 @@
   "review.comments.replyCount": "{count} replies",
   "review.comments.resolved.badge": "Resolved",
   "review.comments.resolved.section": "Resolved ({count})",
-  "review.comments.resolved.toggleLabel": "Resolved comment group ({count})",
+  "review.comments.resolved.toggleLabel": "Resolved comment group: Resolved ({count})",
   "review.comments.resolved.expand": "Expand resolved comments",
   "review.comments.resolved.collapse": "Collapse resolved comments",
   "review.comments.resolve": "Resolve",
