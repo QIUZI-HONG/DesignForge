@@ -12,8 +12,7 @@
  * 自足性：市场索引是**场景自己播种的夹具**（不依赖真实采集线数据、不依赖开发机已有产物），
  * 文档也由场景经 daemon API 创建——CI 与开发机同一条链。场景协议见 `scripts/e2e-smoke.mjs` 头注释。
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { seedMarketIndex } from '../fixtures/market-index.mjs';
 
 export const id = 'nav';
 export const title = '导航携带 daemon 端点（同源网关形态 · D-3/UX-01）';
@@ -26,9 +25,6 @@ const FIXTURE_ASSET_ID = 'gh:nav-fixture/skills#skills/slide-deck';
 
 /** 夹具资产主文案（zh-CN）（详情页渲染断言用）。 */
 const FIXTURE_ASSET_TITLE = '幻灯片演示技能';
-
-/** 市场索引文件名（daemon 候选路径 `<数据根>/market/df.marketplace.index.v1.json`）。 */
-const MARKET_INDEX_FILENAME = 'df.marketplace.index.v1.json';
 
 /** 最小市场索引（单条 view-only 资产；字段形状按 `parseMarketplaceIndex` 的契约子集）。 */
 function marketIndexFixture() {
@@ -74,17 +70,6 @@ function marketIndexFixture() {
       },
     ],
   };
-}
-
-/** 播种市场索引夹具（daemon 按请求现读索引，落盘即生效）。 */
-function seedMarketIndex(dataRoot) {
-  const marketDir = join(dataRoot, 'market');
-  mkdirSync(marketDir, { recursive: true });
-  writeFileSync(
-    join(marketDir, MARKET_INDEX_FILENAME),
-    `${JSON.stringify(marketIndexFixture(), null, 2)}\n`,
-    'utf8',
-  );
 }
 
 /** 轮询到 URL 满足谓词（避免依赖 playwright 版本相关的 waitForURL 形态）。 */
@@ -137,7 +122,7 @@ export async function run(page, ctx) {
   if (health === null || !health.ok) return { steps: [] };
 
   // --- 1) 播种市场索引 + 建一份文档（数据面就位；UI 全链路已由 home 场景覆盖） ---
-  seedMarketIndex(ctx.dataRoot);
+  seedMarketIndex(ctx.dataRoot, marketIndexFixture());
   const created = await fetch(`${ctx.daemonUrl}/documents`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

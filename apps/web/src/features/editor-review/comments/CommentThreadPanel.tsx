@@ -65,6 +65,9 @@ export function CommentThreadPanel({ className }: CommentThreadPanelProps) {
             type="button"
             data-df-comment-resolved-toggle=""
             aria-expanded={resolvedExpanded}
+            aria-label={t('review.comments.resolved.toggleLabel', {
+              count: groups.resolved.length,
+            })}
             style={commentStyles.sectionToggle}
             onClick={() => {
               session.comments.getState().setResolvedExpanded(!resolvedExpanded);
