@@ -2,7 +2,8 @@
 
 - **状态**：已完成（本票证据根 `~/df-evidence/audit-50/aud-05/`；机器可读结果见 §12）
 - **日期**：2026-10-17（UTC 12:5x–13:1x；本地 UTC+8）
-- **代码基线**：`main` @ `c6b1654`（= 审计 01 基线）；本票基于 `integration/audit-v1` @ `433b520`（#52 合并后 tip）
+- **代码基线**：`main` @ `c6b1654`（= 审计 01 基线）；本票基于 `integration/audit-v1` @ `433b520`（#52 合并后 tip），
+  收尾 merge `8c21da6`（#53/#54 合并后 tip）
 - **本票分支/工作树**：`audit/05-market-shell-mcp` / `/home/QIU/df-wt/aud-05`
 - **上游**：审计 01 `01-baseline.md`、审计 02 `02-capability.md`（重点 C-05 / C-08 / C-10 / C-11 / C-13）
 - **范围**：市场增量分页/过滤×分页/索引缺失与损坏/部分失败/不可信内容/装载 token/真实写入缺口；
@@ -53,6 +54,11 @@
 汇总：**17 次执行 = 退出码 0 共 13 次 / 1 共 0 次 / 2 共 4 次**（shell 段内部三段各为 2，stage 级共 6 个阻塞）。
 4 个 `exit 2` 全部门禁级点名前置（Electron、REF-01、索引缺失、索引损坏、检索索引损坏）；
 其中「索引部分损坏」反而 exit 0，是本节唯一的假绿。
+
+收尾 merge 后复跑：`pnpm verify` 首次因 `pnpm -r test` 并行共享
+`node_modules/.vitest-cache` 触发 `ENOTEMPTY` 启动错误（engine 包，非用例失败）；单包重跑 312/312
+通过、二次 `pnpm verify` exit 0。属测试工装 flake（共享缓存竞争），记入观察并交 #59（flake 观测/隔离），
+证据 `logs/verify-after-merge.log`（失败）与 `logs/verify-after-merge-2.log`（通过）。
 
 ## 3. Findings
 
