@@ -50,6 +50,22 @@ export const hintStyle: CSSProperties = {
   fontSize: 'var(--dfg-font-size-11)',
 };
 
+/** 分页行（「加载更多」+ 已加载计数；DEF-R1）。 */
+export const paginationStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 'var(--dfg-space-3)',
+  paddingBlock: 'var(--dfg-space-2)',
+};
+
+/** 分页失败提示（行内，保留已载内容可重试）。 */
+export const paginationErrorStyle: CSSProperties = {
+  color: 'var(--dfg-color-danger)',
+  fontSize: 'var(--dfg-font-size-11)',
+};
+
 /** 工具栏行（搜索 + 一级标签 + 排序等横向排布）。 */
 export const toolbarStyle: CSSProperties = {
   display: 'flex',

@@ -353,3 +353,44 @@ describe('/market · 加载态与坏响应出口（§5 补齐）', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
   });
 });
+
+describe('/market · 增量分页（DEF-R1）', () => {
+  it('「加载更多」按 offset 追加卡片，进度与终点文案可见', async () => {
+    const user = userEvent.setup();
+    const counts = {
+      total: 4,
+      byKind: { skill: 4, plugin: 0, 'design-system': 0, template: 0 },
+      loadable: 4,
+    };
+    const pageOne = makeQueryResponse({
+      items: [makeAsset(), makeAsset({ id: 'gh:acme/skills#skills/extra-one' })],
+      total: 4,
+      counts,
+    });
+    const pageTwo = makeQueryResponse({
+      items: [
+        makeAsset({ id: 'gh:acme/skills#skills/extra-two' }),
+        makeAsset({ id: 'gh:acme/skills#skills/extra-three' }),
+      ],
+      total: 4,
+      counts,
+    });
+    fetchMock.mockImplementation(async (url: string) => {
+      const result = String(url).includes('offset=2') ? pageTwo : pageOne;
+      return new Response(JSON.stringify({ ok: true, result }), { status: 200 });
+    });
+
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(2);
+    });
+    expect(screen.getByText('已加载 2 / 4')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '加载更多' }));
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-df-market="card"]').length).toBe(4);
+    });
+    expect(screen.getByText('已全部加载（4）')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull();
+  });
+});

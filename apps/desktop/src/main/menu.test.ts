@@ -28,6 +28,8 @@ describe('最小菜单（多标签等 15 项体验项缓归 P6，不得混入）
       'zoomIn',
       'zoomOut',
       'togglefullscreen',
+      'minimize',
+      'close',
     ]);
 
     for (const item of items) {
@@ -51,5 +53,10 @@ describe('最小菜单（多标签等 15 项体验项缓归 P6，不得混入）
   it('含退出与开发者工具（最小可运维集）', () => {
     expect(roles).toContain('quit');
     expect(roles).toContain('toggleDevTools');
+  });
+
+  it('含标准窗口控制（最小化/关闭，桌面端 UX 补全）', () => {
+    expect(roles).toContain('minimize');
+    expect(roles).toContain('close');
   });
 });
