@@ -32,6 +32,8 @@
 
 环境：Linux（WSL2），Node 24.9.0，pnpm 10.33.2，Chromium 1243（playwright-core 1.63.0），`pdfinfo`/`pdftoppm`/`file` 可用。全部场景使用独立临时数据根、空闲端口与同源网关；**未触碰 3000/4318 与 `~/.dforge`**，未使用 `/tmp` 作工作树/缓存，未使用 `pkill -f`。
 
+> **合并后复核**：收尾把 `integration/audit-v1`（仍为 `dd36aef`，已是最新，`Already up to date`）并入本分支后复跑 `pnpm verify` = **0**：9 包 / 292 文件 / 2765 例全绿；`test:scripts` = 79/79；`lint:scripts` = 0（123 文件，仅 `nav.mjs` 既有 warning）。日志 `logs/verify-postmerge.log`。合并未改产品代码，§3–§7 结论沿用。
+
 ## 2. 回归资产（本票核心）
 
 | 资产 | 接缝 | 断言口径 | 当前 |
