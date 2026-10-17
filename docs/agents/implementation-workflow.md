@@ -45,6 +45,10 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 4. 保现场：`git add -A && git commit -m "wip: 接管前任半成品"`；落后就把集成分支并入。
 5. 从半成品续做——**绿的部分不推倒**，继续 TDD 循环。
 
+**无完成通知的静默停止也是失败形态**（批次 4：三个实施代理在会话预算耗尽后停止且无任何
+通知）：长时间无产出时**先按上述流程对齐现场**（`git log` / `git status` / 工作树近 10 分钟
+文件活动），不要等通知；「每完成即提交」纪律保证此时成果都在分支上，可从断点续做。
+
 ## 合并卫生
 
 - 收尾前：`git status` 干净、全量门禁绿（见下）、工作树随后移除。
@@ -54,6 +58,10 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   `git status --short` 并 `git add -A` 再提交，否则提交会静默丢新文件（legacy 丢过 6 个 web 文件）。
 - 杀进程时让 pattern 不要匹配自己的命令行（`pkill -f "http[.]server 81[2]3"`），
   否则会连正在跑 `pkill` 的 shell 一起杀掉。
+- **禁止按模式杀进程**：不得用 `pkill -f` / 按命令行模式清进程——批次 4 曾两次误杀本机
+  **常驻实例**（一次 `pkill -f "main[.]ts"` 命中用户正在跑的 daemon；一次成因未明的 SIGTERM）。
+  只按**精确 PID** 或**自建独立进程组**（负 pid）回收自己起的进程；测试一律显式独立端口
+  （远离 3000/4318）与仓外数据根，收工前核对端口确已释放。
 - 合并/收尾提交必须过钩子；只有保现场的 wip 提交允许 `git commit --no-verify`。
 - **Mimosa git 门（本机现状，如实记录）**：本机 Mimosa 插件的 git 门会拦 `git commit` /
   `git push`，且对**跨文件**改动存在误报会把提交打回。**不得用环境变量（`MIMOSA_NO_GIT_GATE`
@@ -93,7 +101,10 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 - **浏览器门禁（挂点，随票接入）**：`verify-figma-page|component|states|baseline`（逐页/逐组件对照）、
   `verify-canvas`（画布挂载 6 断言）、`e2e:smoke`（10 步冒烟：拖画→持久化→导出/导入往返）、
   壳内渲染一致性断言（FE-12）。
-- **驱动口径**：`playwright-core 1.63.0` 锁 `chromium-1243`，headless + 生产构建。
+- **驱动口径**：`playwright-core 1.63.0` 锁 `chromium-1243`，headless + **生产构建**。
+  **不要用 `next dev` 跑 live 浏览器门禁/取证**：Next 16 Turbopack dev 源在本机不加载
+  客户端引导件（槽位/评审面挂不上，整树停在 SSR 空槽），断言会以「看不见入口」假红；
+  一律 `next build` + `next start`（批次 4 实测，C 包偏离登记）。
   Node 级测试看不见浏览器专属故障（被遮挡的下拉、`window.setTimeout` 的 Illegal invocation、
   React 版本门禁）——浏览器门禁就是逮住它们的地方。
 - 对抗性门禁（如「字体已加载、禁止静默回退」）必须真断言，不能只断言「页面能打开」。
