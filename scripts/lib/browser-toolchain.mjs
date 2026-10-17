@@ -10,7 +10,7 @@
  * `verify-figma-*.mjs` 与 `verify-shell-parity.mjs` 的 Chromium 解析副本回抽到本模块
  * （O-07 销账，ADR-0004 债二补记），全仓不再有第 N 份实现。
  *
- * 转发路径另提供可测试的转发函数 {@link forwardDaemonRequest}（`page.route` 回调只做适配），
+ * 转发路径另提供可测试的转发函数 {@link forwardSingleDaemonRequest}（`page.route` 回调只做适配），
  * 让「POST 体到达上游 / **业务 404 透传、路由级 404 与非 JSON 转受控 502**」在 **CI 无 Chromium**
  * 时也能回归（`scripts/tests/browser-toolchain.test.mjs`，DEF-01 的常绿防线）。
  */
@@ -66,9 +66,11 @@ function businessErrorCode(text) {
 /**
  * 转发单次请求到真实 daemon（Node 侧 fetch），返回可直接 fulfill 的 `{ status, headers, body }`。
  *
- * 为什么从 `page.route` 回调里抽出来：浏览器门禁在 CI 没有 Chromium 二进制，转发语义
- * （尤其 DEF-01：POST 体误入 headers）过去只能靠人工或一次性机器人发现。本函数只依赖
- * `{ url, method, postData() }` 形状与 fetch，可被 `node:test` 用本地 HTTP 桩直接钉死。
+ * 这是**可测试的转发函数（fetch 可注入）**，不是纯函数：默认走全局 fetch，测试可传
+ * `fetchImpl` 或对本地 HTTP 桩发真实请求。为什么从 `page.route` 回调里抽出来：浏览器门禁
+ * 在 CI 没有 Chromium 二进制，转发语义（尤其 DEF-01：POST 体误入 headers）过去只能靠人工
+ * 或一次性机器人发现。本函数只依赖 `{ url, method, postData() }` 形状与 fetch，可被
+ * `node:test` 直接钉死。
  *
  * 语义：
  * - 路径前缀替换为目标 daemon 的同一路径 + 原查询串；
@@ -92,7 +94,7 @@ function businessErrorCode(text) {
  * @param {typeof fetch} [fetchImpl] 测试注入（默认全局 fetch）
  * @returns {Promise<{ status: number, headers: Record<string, string>, body: string }>}
  */
-export async function forwardDaemonRequest(
+export async function forwardSingleDaemonRequest(
   request,
   daemonUrl,
   prefix = DAEMON_ROUTE_PREFIX,
@@ -145,7 +147,7 @@ export async function forwardDaemonRequest(
  * 把页面里 `**\/<prefix>/**` 的请求转发给真实 daemon（Node 侧 fetch）。
  *
  * 本函数只做 Playwright 侧的适配与 `page.route` 注册，单次转发语义在
- * {@link forwardDaemonRequest}（可测试转发函数；业务 404 透传、路由级 404 / 非 JSON → 受控 502）。
+ * {@link forwardSingleDaemonRequest}（可测试转发函数；业务 404 透传、路由级 404 / 非 JSON → 受控 502）。
  *
  * @param {import('playwright-core').Page} page
  * @param {string} daemonUrl 真 daemon 基址（如 http://127.0.0.1:4318）
@@ -154,7 +156,7 @@ export async function forwardDaemonRequest(
 export async function forwardDaemonRequests(page, daemonUrl, prefix = DAEMON_ROUTE_PREFIX) {
   await page.route(`**${prefix}/**`, async (route) => {
     const request = route.request();
-    const result = await forwardDaemonRequest(
+    const result = await forwardSingleDaemonRequest(
       {
         url: request.url(),
         method: request.method(),

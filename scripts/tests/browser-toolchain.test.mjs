@@ -22,8 +22,8 @@ import { after, before, test } from 'node:test';
 
 import {
   DAEMON_ROUTE_PREFIX,
-  forwardDaemonRequest,
   forwardDaemonRequests,
+  forwardSingleDaemonRequest,
 } from '../lib/browser-toolchain.mjs';
 
 /** 上游收到的请求快照（每个用例读最后一条；桩按 URL 分路）。 */
@@ -94,7 +94,7 @@ function makeRequest(pathname, method, postData = () => null) {
 
 test('POST：请求体到达上游且能 JSON 解码（DEF-01：不是塞进 header）', async () => {
   const payload = { name: '样例文档' };
-  const result = await forwardDaemonRequest(
+  const result = await forwardSingleDaemonRequest(
     makeRequest('/api/documents?draft=1', 'POST', () => JSON.stringify(payload)),
     daemonUrl,
   );
@@ -115,7 +115,7 @@ test('POST：请求体到达上游且能 JSON 解码（DEF-01：不是塞进 hea
 });
 
 test('上游 404：返回受控 502 + JSON 错误信封（不原样透传）', async () => {
-  const result = await forwardDaemonRequest(makeRequest('/api/missing', 'GET'), daemonUrl);
+  const result = await forwardSingleDaemonRequest(makeRequest('/api/missing', 'GET'), daemonUrl);
 
   assert.equal(result.status, 502);
   assert.match(result.headers['content-type'], /application\/json/);
@@ -125,7 +125,10 @@ test('上游 404：返回受控 502 + JSON 错误信封（不原样透传）', a
 });
 
 test('业务 404（合法 JSON + error.code）：原状态码与信封透传，供页面显示「文档不存在」', async () => {
-  const result = await forwardDaemonRequest(makeRequest('/api/doc-missing', 'GET'), daemonUrl);
+  const result = await forwardSingleDaemonRequest(
+    makeRequest('/api/doc-missing', 'GET'),
+    daemonUrl,
+  );
 
   assert.equal(result.status, 404);
   assert.match(result.headers['content-type'], /application\/json/);
@@ -136,7 +139,7 @@ test('业务 404（合法 JSON + error.code）：原状态码与信封透传，�
 });
 
 test('上游非 JSON：返回受控 502 + JSON 错误信封（不抛未捕获异常）', async () => {
-  const result = await forwardDaemonRequest(makeRequest('/api/legacy', 'GET'), daemonUrl);
+  const result = await forwardSingleDaemonRequest(makeRequest('/api/legacy', 'GET'), daemonUrl);
 
   assert.equal(result.status, 502);
   const envelope = JSON.parse(result.body);
@@ -145,7 +148,7 @@ test('上游非 JSON：返回受控 502 + JSON 错误信封（不抛未捕获异
 });
 
 test('合法 JSON 响应：原状态码与响应体透传（转发不是判定层）', async () => {
-  const result = await forwardDaemonRequest(makeRequest('/api/conflict', 'GET'), daemonUrl);
+  const result = await forwardSingleDaemonRequest(makeRequest('/api/conflict', 'GET'), daemonUrl);
 
   assert.equal(result.status, 409);
   assert.deepEqual(JSON.parse(result.body), { ok: false, message: 'name-taken' });
@@ -162,7 +165,7 @@ test('GET / HEAD：不发送 body（空字符串也不行），上游收到的�
         headers: { 'content-type': 'application/json' },
       });
     };
-    const result = await forwardDaemonRequest(
+    const result = await forwardSingleDaemonRequest(
       makeRequest('/api/ping', method, () => ''),
       daemonUrl,
       DAEMON_ROUTE_PREFIX,
@@ -172,7 +175,7 @@ test('GET / HEAD：不发送 body（空字符串也不行），上游收到的�
     assert.equal('body' in calls[0], false, `${method} 不得带 body（即使空字符串）`);
     assert.equal(result.status, 200);
 
-    await forwardDaemonRequest(
+    await forwardSingleDaemonRequest(
       makeRequest('/api/ping', method, () => ''),
       daemonUrl,
     );
