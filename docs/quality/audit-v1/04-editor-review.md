@@ -113,6 +113,10 @@ W1 的框选会连同两个画板一起选中（画板在世界坐标范围内�
 | 设置 `/settings` | 0 | **1** | `color-contrast`(1) |
 | **合计** | **2** | **5 条规则** | 违规节点合计 27 |
 
+口径复用：`scripts/lib/axe.mjs`（axe-core + WCAG tag 集合）由 #107 的 `audit:a11y` 共用；
+`audit:a11y` 扫描首页前必须经 daemon API 建文档卡，否则空态首页会漏掉 `label-content-name-mismatch`
+（早期脚本即因此报 4 serious，已修复；与本表 5 条规则对齐）。
+
 要点：
 
 - **首页搜索框**：`role="searchbox"` 上带 `aria-expanded`（`HomeTopbar.tsx:104-105`），searchbox 不允许该属性；combobox 语义不完整。

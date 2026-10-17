@@ -2,7 +2,8 @@
 
 - **状态**：已完成（审计 #50 收口；不修产品代码）
 - **日期**：2026-10-17
-- **代码基线**：`main` @ `c6b1654`；集成分支 `integration/audit-v1` @ `f559cb4`
+- **代码基线**：`main` @ `c6b1654`；集成分支 `integration/audit-v1` @ `f559cb4`（09 收口时）
+- **收口复核基线**：`integration/audit-v1` @ `66f0f91`（#107 测试工装与 #108 CI 硬化合并后；本报告 §1.2/§4.5/§9 按此更新）
 - **本票分支 / 工作树**：`audit/09-final-report` / `/home/QIU/df-wt/aud-09`
 - **上游**：审计 01–08 报告 `docs/quality/audit-v1/01-baseline.md` … `08-cross-domain.md`
 - **证据根**：`~/df-evidence/audit-50/aud-09/`（`register.json`、`register.md`、`created.json`、`create-issues.log`）
@@ -58,25 +59,30 @@
 
 ### 1.2 CI 覆盖矩阵
 
-`.github/workflows/ci.yml` 是仓库唯一 workflow；触发仅 `push`/`pull_request` 到 `main`；单 job `verify`（ubuntu-latest、Node 22、30 分钟）。
+`.github/workflows/ci.yml` 是主 workflow；触发 `push`/`pull_request` 到 `main`；单 job `verify`（ubuntu-latest、Node 22、45 分钟；顶层 `permissions: contents: read`）。下表按 `integration/audit-v1` @ `66f0f91`（#107/#108 合并后）更新；09 当时的「30 分钟 / 无覆盖率 / 无供应链配置」矩阵已过时。
 
 | 门禁 | 在 CI？ | 形式 |
 |---|---|---|
-| lint / typecheck / test / test:scripts | 是 | 必过步骤 |
+| lint / typecheck / test:coverage / test:scripts | 是 | 必过；`test:coverage` = 逐包测试 + v8 覆盖率（**不重复跑 `pnpm test`**） |
+| 覆盖率阈值（9 包） | 是 | 必过；9 包均设保守阈值（实测下留 2–5pp），artifact `coverage` 保留 14 天 |
+| 生产构建 web | 是 | 必过（`next build`，13 路由） |
 | guard:tokens / vocab / feature-boundaries / electron-baseline | 是 | 必过步骤 |
-| guard:mcp-contract | 是 | 审计 05 新增必过步骤 |
+| guard:mcp-contract | 是 | 审计 05 实现并接入的必过步骤 |
 | verify:engine | 是 | 必过步骤 |
 | verify:figma-baseline | 部分 | 只断言「无参照集 → exit 2 + 点名」的阻塞语义，不是通过 |
+| CodeQL | 是 | advanced workflow；首轮 CI **pass**（2m11s） |
+| dependency-audit | 定时（非 PR 必过） | weekly + 手动 `pnpm audit --prod`；网络失败按阻塞退出 |
+| Dependabot | 配置（仓库设置待启用） | `.github/dependabot.yml` 已提交；alerts/security updates 属人工项 |
+| dependency-review | 否（手动） | 依赖图未启用（首轮 CI `not supported`），workflow 仅 `workflow_dispatch`，按阻塞登记 |
 | guard:deps / guard:channel-pairing | 否 | 未实现桩（exit 2），不接 CI |
 | verify:daemon / mcp-stub / ai-two-state / image-two-state | 否 | 仅本地 |
 | verify:market | 否 | 仅本地，且需播种索引 |
-| verify:canvas / e2e:smoke | 否 | 仅本地 |
+| verify:canvas / e2e:smoke | 否 | 仅本地；e2e 114 步 / 4 known-red |
 | verify:self-designed / verify:shell-parity | 否 | 仅本地；shell 需 Electron 与显示环境 |
 | verify:mk-01…05 | 否 | 需仓外采集/评测产物 |
-| 生产构建 web / desktop | 否 | 仅本地手工 |
-| `pnpm audit --prod` | 否 | 手工快照 |
+| 生产构建 desktop | 否 | 仅本地（CI 不拉 Electron 二进制） |
+| `test:mutation` / `audit:a11y` | 否 | 仅本地；a11y 2 critical / 5 serious known-red |
 | 逐页/逐组件 Figma 门禁 | 否 | 浏览器挂点 |
-| CodeQL / Dependabot / dependency review | 否 | 仓库无配置 |
 
 ### 1.3 仓库与 PR 事实
 
@@ -254,7 +260,7 @@
 
 ### 4.2 韧性：31 pass / 9 fail / 0 blocked / 7 observe
 
-`node scripts/verify-resilience.mjs` = **47 步，exit 1**；9 个 fail 全部对应 A/B 缺陷（跨进程丢页、根内软链、半提交、深嵌套页读取、CORS `null` 等），不是环境阻塞。缺 C 编译器时故障注入段按 `exit 2` 点名。该门禁**仅本地、未接 CI**；自测 10 例已随 `test:scripts` 进 CI。
+`node scripts/verify-resilience.mjs` = **47 步，exit 1**；9 个 fail 全部对应 A/B 缺陷（跨进程丢页、根内软链、半提交、深嵌套页读取、CORS `null` 等），不是环境阻塞。缺 C 编译器时故障注入段按 `exit 2` 点名；**存在其它断言失败时按违规 `exit 1` 优先**（违规优先于阻塞）。该门禁**仅本地、未接 CI**；自测 10 例已随 `test:scripts` 进 CI。
 
 ### 4.3 MCP 契约：已实现并接 CI
 
@@ -265,10 +271,23 @@
 - 空根 → exit 2（`index-missing`）；索引损坏 → exit 2（`index-invalid`）；检索索引损坏 → exit 2（`search-index-invalid`）：三态语义正确。
 - **部分损坏**（1/344 缺 `source.repo`）→ `total=343`、`counts.total=344`、`warnings=[]`、`verify:market` **exit 0**：静默丢卡 + 计数不一致 + 门禁假绿（#80）。
 
-### 4.5 仍未进 CI 的能力
+### 4.5 CI 现状（#107/#108 合并后）
 
-- 覆盖率阈值、mutation/PBT、axe、flake/JUnit 统计、生产构建、e2e、浏览器门禁、canvas、daemon、market、mcp-stub、两态、self-designed、shell、mk 线、依赖审计、CodeQL/Dependabot/dependency-review。
-- `main` 无 branch protection；`#49` 因 base 非 main 零 CI 检查。
+**已进 CI（必过或定时）**：lint / typecheck / `test:coverage`（9 包采集 + 9 包阈值，测试在覆盖率步骤内执行，不重复跑 `pnpm test`）/ web 生产构建 / `test:scripts` / 五个守卫 / `verify:engine` / 参照集阻塞语义断言；CodeQL advanced workflow 首轮 pass；`dependency-audit` weekly（不进 PR 必过）；Dependabot 配置已提交（仓库设置待管理员）。CI 顶层 `permissions: contents: read`，`verify` job id/name 不变（branch protection context 仍是 `verify`）。
+
+**仍未进 CI（不得当绿）**：
+
+- `test:mutation` 与 `audit:a11y`：选择性 / 需生产构建 + Chromium，仅本地；axe 审计期 2 critical / 5 serious（#74–#77）为 known-red。
+- `e2e:smoke`：6 场景 114 步 = 110 pass / 4 known-red（F-07-01×3 #69 + F-05-01×1 #79）；修复前不接必过。
+- `verify:resilience`：47 步 / 9 known-red（#67 等 A/B 缺陷），仅本地。
+- 浏览器门禁（`verify:figma-*` / `verify:canvas` / `verify:shell-parity`）：仍为挂点（REF-01 / Electron block）。
+- `guard:deps` / `guard:channel-pairing`：未实现桩（exit 2），不接 CI。
+- dependency-review：仓库依赖图未启用，workflow 仅手动触发（阻塞登记）。
+- `main` 无 branch protection（人工项）；`#49` 因 base 非 main 零 CI 检查。
+
+### 4.6 一次性审计脚本（保留可复现性，不进 CI）
+
+`scripts/audit/editor-review-audit.mjs`（约 1531 行）与 `scripts/audit/io-settings-audit.mjs`（约 2358 行）是审计 04 / 07 的**一次性取证脚本**，不是门禁：依赖仓外证据与人工裁决，跑一次产出证据 JSON 即完成使命。保留在仓库是为了可复现性，**不接 CI、不设阈值、不继续扩功能**；新增门禁走 `scripts/lib/**` 复用与独立门禁脚本。
 
 ## 5. #60 CI/门禁改造清单（按优先级）
 
@@ -293,7 +312,7 @@
 | 8 | 契约快照 | MCP 已有；daemon↔web↔CLI、market schema 无 | 补契约快照；有意变更 `--update` + 同 PR 审阅 diff |
 | 9 | 剩余守卫 | `guard:deps` / `guard:channel-pairing` 仍是 exit 2 桩 | 实现并接 CI；实现前保持阻塞语义，不得当绿 |
 | 10 | `verify:market` 部分损坏 | 1/344 坏卡静默 + exit 0 | daemon 返回 `index-partial` + counts 对账；门禁断言 `currentTotal == counts.total` 或显式 warning；CI 用冻结夹具索引播种 |
-| 11 | `verify:resilience` 接 CI | 仅本地、exit 1 | A/B 修复后转 0；缺 C 编译器时按 exit 2 点名；评估 CI 安装 shim 工具链 |
+| 11 | `verify:resilience` 接 CI | 仅本地、exit 1 | A/B 修复后转 0；缺 C 编译器且无其它断言失败时按 exit 2 点名，有断言失败时 exit 1 优先；评估 CI 安装 shim 工具链 |
 | 12 | 桌面壳门禁 | Electron/REF-01 blocked | 保持显式 exit 2；环境允许时跑 smoke/alive/parity；不得用静态结论冒充运行态 |
 | 13 | 文档漂移 | e2e 10 vs 114、canvas 6 vs 7+15、`next dev` vs 生产构建 | #60 同步 `AGENTS.md` 与 `docs/agents/implementation-workflow.md`；门禁实况两处同源 |
 
@@ -360,5 +379,5 @@
 - **B 级 23 条**（18 缺陷 + 5 planned）默认阻断但可书面豁免；其中 a11y 4 条、评审持久化、导出保真、市场过滤/索引、AI 出图契约是主要风险面。
 - **C 级 14 条**（13 观察 + 1 planned）进 backlog；同类已合并，避免碎片化。
 - **blocked 6 项**（REF-01、术语、Electron、真 DeepSeek、真 ComfyUI、digest）保持阻塞记账，不写成通过。
-- **CI 仍不是完整门禁**：覆盖率/mutation/axe/flake/构建/e2e/供应链/branch protection 未进 CI；#60 按 §5 优先级改造，修复已知红之前不得把 e2e/resilience 接成必过。
+- **CI 已覆盖常规链路、覆盖率（9 包阈值）、web 生产构建、非浏览器守卫与 CodeQL**；仍不是完整门禁：mutation / axe / e2e（4 known-red）/ resilience（9 known-red）/ 浏览器门禁未进 CI，dependency-review 因依赖图未启用改手动，branch protection 仍是人工项。修复已知红之前不得把 e2e/resilience 接成必过。
 - 本报告不作发布放行结论；审计阶段未修产品代码，修复按 issue 逐项确认。

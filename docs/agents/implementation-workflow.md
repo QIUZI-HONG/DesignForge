@@ -91,17 +91,19 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   ENOSPC/EIO/fsync/rename 失败、真 SIGKILL；自测 `scripts/tests/verify-resilience.test.mjs`）
   **已实现、仅本地、未接 CI**——审计复跑 47 步 = 31 pass / **9 fail（known-red）**，9 红对应
   #67 等 A/B 缺陷（跨进程丢页、根内软链跨文档写、半提交、深嵌套页读取 500、CORS null），
-  修复前不得当通过；缺 C 编译器时故障注入段按阻塞 `exit 2` 点名。
+  修复前不得当通过。缺 C 编译器时故障注入段按阻塞 `exit 2` 点名；**存在其它断言失败时按违规
+  `exit 1` 优先**（违规优先于阻塞，两类问题同屏列出）。
   `scripts/guard-mcp-contract.mjs`（MCP 工具集 + 跨端路由/信封快照；快照
   `scripts/snapshots/mcp-contract.v1.json`；回归 `scripts/tests/guard-mcp-contract.test.mjs`；
   审计 05 实现）**已实现并接入 CI**。
   `pnpm --filter @dforge/web build`（生产构建，`next build`，prebuild 就位 CanvasKit 资产）与
-  根 `test:coverage`（#107 / 审计 10a 提供；engine/daemon/contracts 保守阈值，覆盖率产物随 CI run
-  上传，保留 14 天）**已接入 CI**；`test:coverage` 脚本缺失时 CI 步骤显式 `exit 2`（阻塞），
-  **不得**「缺脚本就跳过」。`test:mutation` / `audit:a11y`（#107 提供，随 #60a → #60b 合并生效）
-  **已实现、仅本地**：
-  mutation 选择性执行、默认不进 CI；axe 审计期仍有 2 critical / 5 serious（#74–#77），
-  修复前不接必过门禁。`e2e:smoke`（审计 08 扩为 6 场景 **114 步 = 110 pass / 4 fail**；
+  根 `test:coverage`（#107 / 审计 10a 提供；**9 包均设保守阈值，实测下留 2–5pp**；覆盖率产物随
+  CI run 上传，保留 14 天）**已接入 CI**；`test:coverage` = `pnpm -r test --coverage`，测试在
+  覆盖率步骤内执行，CI **不再重复跑** `pnpm test`；`test:coverage` 脚本缺失时 CI 步骤显式
+  `exit 2`（阻塞），**不得**「缺脚本就跳过」。`test:mutation` / `audit:a11y`（#107 提供，
+  随 #60a → #60b 合并生效）**已实现、仅本地**：
+  mutation 选择性执行（command runner；`@stryker-mutator/vitest-runner` 依赖已移除）、默认不进 CI；
+  axe 审计期仍有 2 critical / 5 serious（#74–#77），修复前不接必过门禁。`e2e:smoke`（审计 08 扩为 6 场景 **114 步 = 110 pass / 4 fail**；
   known-red = F-07-01×3（#69 导出空白）+ F-05-01×1（#79 过滤×分页死路））**仅本地、未接 CI**——
   修复前不得当绿，也不得接成必过步骤（接法：生产构建 + Chromium + fixture daemon + 证据上传）。
   仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:channel-pairing`。
@@ -114,9 +116,10 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 ## 门禁清单（本段）
 
 - 常规链路（CI 与本地同一条）：`pnpm install --frozen-lockfile` → `pnpm lint` →
-  `pnpm typecheck` → `pnpm test`；本地等价命令 `pnpm verify`。CI 在此之上还跑
-  `pnpm test:coverage`（#107）→ `pnpm --filter @dforge/web build`（生产构建）→ `test:scripts`
-  与非浏览器守卫（见 `ci.yml`）；覆盖率产物作为 `coverage` artifact 上传。
+  `pnpm typecheck` → `pnpm test`；本地等价命令 `pnpm verify`。CI 用 `pnpm test:coverage`
+  （#107；`pnpm -r test --coverage`，测试在覆盖率步骤内执行，**不重复跑 `pnpm test`**）
+  → `pnpm --filter @dforge/web build`（生产构建）→ `test:scripts` 与非浏览器守卫
+  （见 `ci.yml`）；覆盖率产物作为 `coverage` artifact 上传。
 - **浏览器门禁（挂点，随票接入）**：`verify-figma-page|component|states|baseline`（逐页/逐组件对照）、
   `verify-canvas`（功能 7 断言 + 接线 15；视觉段 REF-01 blocked）、
   `e2e:smoke`（6 场景 114 步 = 110 pass / 4 known-red：F-07-01×3 #69 + F-05-01 #79）、
@@ -135,8 +138,9 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 `.github/` 现有主 CI 与四个供应链配置；改动门禁的票必须同步本段与 `AGENTS.md`：
 
 - `workflows/ci.yml`：主 `verify` job（branch protection 的目标检查，job id/name 均为 `verify`）——
-  安装 → lint → typecheck → test → `test:coverage` → web 生产构建 → `test:scripts` → 守卫 /
-  引擎 / 参照集阻塞语义；覆盖率产物（artifact 名 `coverage`）保留 14 天。
+  安装 → lint → typecheck → `test:coverage`（逐包测试 + 覆盖率，不重复跑 `pnpm test`）→
+  web 生产构建 → `test:scripts` → 守卫 / 引擎 / 参照集阻塞语义；顶层
+  `permissions: contents: read`；覆盖率产物（artifact 名 `coverage`）保留 14 天。
 - `workflows/codeql.yml`：JS/TS；push/PR 到 `main` + 每周一 03:17 UTC。使用 **advanced setup**
   （workflow 文件）；与仓库设置的 **CodeQL default setup 互斥**，管理员只能启用一种
   （两者同时开启会导致 analysis 上传失败）。
