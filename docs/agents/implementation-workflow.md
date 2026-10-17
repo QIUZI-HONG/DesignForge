@@ -98,7 +98,8 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   `pnpm --filter @dforge/web build`（生产构建，`next build`，prebuild 就位 CanvasKit 资产）与
   根 `test:coverage`（#107 / 审计 10a 提供；engine/daemon/contracts 保守阈值，覆盖率产物随 CI run
   上传，保留 14 天）**已接入 CI**；`test:coverage` 脚本缺失时 CI 步骤显式 `exit 2`（阻塞），
-  **不得**「缺脚本就跳过」。`test:mutation` / `audit:a11y`（均 #107 提供）**已实现、仅本地**：
+  **不得**「缺脚本就跳过」。`test:mutation` / `audit:a11y`（#107 提供，随 #60a → #60b 合并生效）
+  **已实现、仅本地**：
   mutation 选择性执行、默认不进 CI；axe 审计期仍有 2 critical / 5 serious（#74–#77），
   修复前不接必过门禁。`e2e:smoke`（审计 08 扩为 6 场景 **114 步 = 110 pass / 4 fail**；
   known-red = F-07-01×3（#69 导出空白）+ F-05-01×1（#79 过滤×分页死路））**仅本地、未接 CI**——
