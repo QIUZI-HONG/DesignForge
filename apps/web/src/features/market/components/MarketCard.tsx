@@ -28,6 +28,7 @@ import {
   cardSubNameStyle,
   cardSummaryStyle,
   cardTitleStyle,
+  thumbLabelStyle,
   thumbStyle,
 } from '../styles';
 import {
@@ -87,8 +88,9 @@ export function MarketCard({
         setHovered(false);
       }}
     >
-      <div style={thumbStyle} aria-hidden>
-        {kindIcon(asset.kind, 32)}
+      <div style={thumbStyle} aria-hidden data-df-market="card-thumb">
+        {kindIcon(asset.kind, 24)}
+        <span style={thumbLabelStyle}>{t('market.card.noPreview')}</span>
       </div>
 
       <div style={cardTitleStyle}>
@@ -150,6 +152,7 @@ export function MarketCard({
           {...(install.disabledReasonKey === null
             ? {}
             : { disabledReason: t(install.disabledReasonKey) })}
+          {...(install.disabled ? { style: { color: 'var(--dfg-color-text-secondary)' } } : {})}
           data-df-state={install.disabled ? 'disabled' : 'enabled'}
           onClick={() => {
             onInstall(asset);
@@ -157,6 +160,19 @@ export function MarketCard({
         >
           {t(install.labelKey)}
         </Button>
+
+        {install.disabled ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            data-df-market="card-open-secondary"
+            onClick={() => {
+              onOpen(asset.id);
+            }}
+          >
+            {t('market.card.open')}
+          </Button>
+        ) : null}
 
         <DropdownMenu
           label={t('market.card.moreActions', { name: assetPrimaryName(asset) })}

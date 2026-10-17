@@ -50,14 +50,35 @@ export const hintStyle: CSSProperties = {
   fontSize: 'var(--dfg-font-size-11)',
 };
 
-/** 分页行（「加载更多」+ 已加载计数；DEF-R1）。 */
+/** 分页行（「加载更多」+ 已加载计数；DEF-R1/DEF-02）。顶部 hairline 与结果区分隔。 */
 export const paginationStyle: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'center',
   justifyContent: 'center',
   gap: 'var(--dfg-space-3)',
-  paddingBlock: 'var(--dfg-space-2)',
+  paddingBlock: 'var(--dfg-space-3)',
+  borderTop: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
+};
+
+/** 空态动作区（主/次按钮与进度行居中排布；DEF-01）。 */
+export const emptyActionsStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 'var(--dfg-space-2)',
+};
+
+/** 空态内的分页进度行（页内空态也保留加载入口；DEF-01）。 */
+export const emptyPaginationStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 'var(--dfg-space-2)',
+  fontSize: 'var(--dfg-font-size-11)',
+  color: 'var(--dfg-color-text-secondary)',
 };
 
 /** 分页失败提示（行内，保留已载内容可重试）。 */
@@ -122,14 +143,24 @@ export const cardHoverExtraStyle: CSSProperties = {
   cursor: 'pointer',
 };
 
-/** 卡片缩略图占位区。 */
+/** 卡片缩略图占位区（固定 64 高：kind 图标 + 「暂无预览」，不再用 16:9 大灰块）。 */
 export const thumbStyle: CSSProperties = {
-  display: 'grid',
-  placeItems: 'center',
-  aspectRatio: '16 / 9',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 'var(--dfg-space-1)',
+  height: 'var(--dfg-space-16)',
   background: 'var(--dfg-color-surface-subtle)',
+  border: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
   borderRadius: 'var(--dfg-radius-md)',
   color: 'var(--dfg-color-icon-secondary)',
+};
+
+/** 缩略图占位的说明文字（11px 次级文本）。 */
+export const thumbLabelStyle: CSSProperties = {
+  fontSize: 'var(--dfg-font-size-11)',
+  color: 'var(--dfg-color-text-secondary)',
 };
 
 /** 卡片标题行。 */

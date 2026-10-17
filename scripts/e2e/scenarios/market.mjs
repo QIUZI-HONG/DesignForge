@@ -10,7 +10,10 @@
  * ③ **total > 首屏数时分页控件必须存在**（`[data-df-market="pagination"]` +「加载更多」
  *    按钮）——这是「可达性」的判据：分页被删/被藏时本步必须 fail；
  * ④ 点「加载更多」→ 卡片按 offset 累加到 70、进度文案更新；
- * ⑤ 到达终点给「已全部加载（70）」且「加载更多」按钮消失。
+ * ⑤ 到达终点给「已全部加载（70）」且「加载更多」按钮消失；
+ * ⑥ 回到首屏（仍是 60 条）后按「来源仓库」过滤到**只在后 10 条里出现**的 repo：
+ *    不得误报「没有匹配的资源」——页内空态（`data-df-empty="no-result-page"`）给
+ *    「加载更多」；点击后 10 张卡出现、空态消失（DEF-01 回归）。
  *
  * 自足性：索引是**场景自己播种的夹具**（`<ctx.dataRoot>/market/` 下 daemon 的候选路径），
  * 不依赖真实采集线产物、不依赖开发机已有数据——CI 与开发机同一条链。
@@ -27,6 +30,9 @@ const TOTAL_ASSETS = 70;
 /** 首屏页大小（与 `apps/web/src/features/market/filters.ts` 的 `toQueryParams` 缺省值一致）。 */
 const FIRST_PAGE_SIZE = 60;
 
+/** 后 10 条（不在首屏）专属来源仓库：用于验证「页内空态 + 继续加载」不会误报终点。 */
+const LATER_REPO = 'market-e2e/later';
+
 /**
  * 构造第 `index` 张夹具资产。
  *
@@ -35,6 +41,8 @@ const FIRST_PAGE_SIZE = 60;
  */
 function makeAsset(index) {
   const ordinal = String(index).padStart(2, '0');
+  // 前 60 条与后 10 条分属不同 repo：客户端按 repo 过滤时首屏必然无命中
+  const repo = index <= FIRST_PAGE_SIZE ? 'market-e2e/fixtures' : LATER_REPO;
   return {
     id: `gh:market-e2e/fixtures#asset-${ordinal}`,
     kind: 'skill',
@@ -46,7 +54,7 @@ function makeAsset(index) {
     },
     description: '夹具资产：只用于市场列表分页/可达性回归。',
     source: {
-      repo: 'market-e2e/fixtures',
+      repo,
       repoId: 1,
       path: `assets/asset-${ordinal}`,
       ref: 'a'.repeat(40),
@@ -222,6 +230,59 @@ export async function run(page, ctx) {
     doneReady && buttonAfterDone === 0,
     `终点给「已全部加载（${String(TOTAL_ASSETS)}）」且「加载更多」按钮消失`,
     `text=${finalText.replaceAll('\n', ' / ')}；loadMore=${String(buttonAfterDone)}`,
+  );
+
+  // --- 9) DEF-01：回到首屏（60 条），按后 10 条专属 repo 过滤 → 页内空态而非终点空态 ---
+  await page.goto(`${gateway}/market?daemon=${encodeURIComponent(daemonParam)}`, {
+    waitUntil: 'networkidle',
+  });
+  const backToFirstScreen = await waitForCondition(
+    async () => (await cards.count()) === FIRST_PAGE_SIZE,
+    30_000,
+  );
+  ctx.assert(
+    backToFirstScreen,
+    `重新打开市场回到首屏 ${String(FIRST_PAGE_SIZE)} 条`,
+    `cards=${String(await cards.count())}`,
+  );
+
+  const sourceInput = page.getByRole('textbox', { name: '来源仓库' });
+  await sourceInput.fill(LATER_REPO);
+  const pageEmpty = page.locator('[data-df-empty="no-result-page"]');
+  const pageEmptyVisible = await pageEmpty
+    .first()
+    .waitFor({ timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  const pageEmptyPagination = await pageEmpty
+    .locator('[data-df-market="pagination"]')
+    .count()
+    .catch(() => 0);
+  ctx.assert(
+    pageEmptyVisible && pageEmptyPagination > 0,
+    '客户端过滤首屏无命中但仍有未加载页 → 页内空态 + 分页进度/加载入口',
+    `empty=${String(pageEmptyVisible)} pagination=${String(pageEmptyPagination)}`,
+  );
+
+  const misleading = await page
+    .getByText('没有匹配的资源', { exact: true })
+    .count()
+    .catch(() => 0);
+  ctx.assert(
+    misleading === 0,
+    '页内空态不误报「没有匹配的资源」（终点文案只给已检查全部时）',
+    `misleadingText=${String(misleading)}`,
+  );
+
+  const pageEmptyLoadMore = pageEmpty.getByRole('button', { name: '加载更多' });
+  await pageEmptyLoadMore.click();
+  const laterLoaded = await waitForCondition(async () => (await cards.count()) === 10, 20_000);
+  const laterCards = await cards.count();
+  const pageEmptyGone = (await pageEmpty.count()) === 0;
+  ctx.assert(
+    laterLoaded && pageEmptyGone,
+    '页内空态点「加载更多」→ 出现后 10 条命中卡片、空态消失',
+    `cards=${String(laterCards)} emptyGone=${String(pageEmptyGone)}`,
   );
 
   return { steps: [] };

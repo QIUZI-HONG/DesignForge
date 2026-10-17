@@ -76,6 +76,31 @@ describe('线程面板 · 列表与空态', () => {
 });
 
 describe('线程面板 · 回复与解决', () => {
+  it('回复为空或纯空白时「回复」按钮禁用，输入后启用，点击后线程出现回复', () => {
+    const session = renderPanel();
+    act(() => {
+      seedThread(session, '空回复检查');
+    });
+    const id = session.comments.getState().threads[0]?.id as string;
+    act(() => {
+      session.comments.getState().setActive(id);
+    });
+
+    const input = screen.getByPlaceholderText('回复…');
+    const submit = screen.getByRole<HTMLButtonElement>('button', { name: '回复' });
+    expect(submit.disabled).toBe(true);
+
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(submit.disabled).toBe(true);
+
+    fireEvent.change(input, { target: { value: '开始修改' } });
+    expect(submit.disabled).toBe(false);
+
+    fireEvent.click(submit);
+    expect(screen.getByText('开始修改')).toBeDefined();
+    expect(session.comments.getState().threads[0]?.replies).toHaveLength(1);
+  });
+
   it('提交回复进入线程并渲染', () => {
     const session = renderPanel();
     act(() => {
@@ -137,6 +162,18 @@ describe('线程面板 · 回复与解决', () => {
     });
     expect(screen.getByRole('button', { name: '已解决评论分组：已解决（1）' })).toBeDefined();
     expect(session.comments.getState().threads).toHaveLength(1);
+  });
+});
+
+describe('线程面板 · 深色基准下的条目可读性（DEF-03）', () => {
+  it('线程条目按钮声明主文本色令牌并继承字体，正文不再落到浏览器默认黑字', () => {
+    const session = renderPanel();
+    act(() => {
+      seedThread(session, '颜色检查');
+    });
+    const item = screen.getByRole<HTMLButtonElement>('button', { name: '面板线程：颜色检查' });
+    expect(item.style.color).toBe('var(--dfg-color-text-primary)');
+    expect(item.style.font).toBe('inherit');
   });
 });
 

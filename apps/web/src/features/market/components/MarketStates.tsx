@@ -15,18 +15,34 @@ import { Button, EmptyState, ErrorState, InfoIcon } from '@dforge/ui';
 import { t } from '@/i18n';
 
 import { MARKET_COLLECT_COMMAND } from '../api';
-import { badgeRowStyle, badgeStyle, codeStyle } from '../styles';
+import {
+  badgeRowStyle,
+  badgeStyle,
+  codeStyle,
+  emptyActionsStyle,
+  emptyPaginationStyle,
+  paginationErrorStyle,
+} from '../styles';
 
 /** 空态种类。 */
-export type MarketEmptyKind = 'no-result' | 'index-missing' | 'index-invalid' | 'installed-empty';
+export type MarketEmptyKind =
+  | 'no-result'
+  | 'index-missing'
+  | 'index-invalid'
+  | 'installed-empty'
+  | 'featured-empty';
 
 /** 空态 props。 */
 export interface MarketEmptyStateProps {
   kind: MarketEmptyKind;
   /** 无结果：清空筛选。 */
   onClearFilters?: () => void;
-  /** 已装载空态：回市场列表。 */
+  /** 已装载空态 / 已装载终点：回市场列表。 */
   onGoMarket?: () => void;
+  /** 精选终点：取消精选（回到全部资源）。 */
+  onCancelFeatured?: () => void;
+  /** 精选终点：服务端 total（说明「已检查全部 N 条」）。 */
+  total?: number;
   /** 无结果附加说明（检索索引降级时「暂按字面匹配」；不改变空态种类与出口）。 */
   note?: string;
 }
@@ -36,6 +52,8 @@ export function MarketEmptyState({
   kind,
   onClearFilters,
   onGoMarket,
+  onCancelFeatured,
+  total = 0,
   note,
 }: MarketEmptyStateProps) {
   if (kind === 'index-missing' || kind === 'index-invalid') {
@@ -78,6 +96,23 @@ export function MarketEmptyState({
       </div>
     );
   }
+  if (kind === 'featured-empty') {
+    return (
+      <div data-df-state="empty" data-df-empty={kind}>
+        <EmptyState
+          title={t('market.empty.featuredEmpty.title')}
+          description={t('market.empty.featuredEmpty.desc', { total })}
+          action={
+            onCancelFeatured === undefined ? undefined : (
+              <Button variant="secondary" onClick={onCancelFeatured}>
+                {t('market.featured.cancel')}
+              </Button>
+            )
+          }
+        />
+      </div>
+    );
+  }
   // 检索索引降级时明确说明当前是字面匹配（UX-08/E1），不误导用户；不改变空态种类与出口
   const noResultDescription =
     note === undefined ? (
@@ -87,17 +122,131 @@ export function MarketEmptyState({
         {t('market.empty.noResult.desc')} <span data-df-market="empty-note">{note}</span>
       </>
     );
+  const noResultActions = (
+    <div style={emptyActionsStyle}>
+      {onClearFilters === undefined ? null : (
+        <Button variant="secondary" onClick={onClearFilters}>
+          {t('market.empty.noResult.action')}
+        </Button>
+      )}
+      {onGoMarket === undefined ? null : (
+        <Button
+          variant={onClearFilters === undefined ? 'primary' : 'secondary'}
+          onClick={onGoMarket}
+        >
+          {t('market.empty.installed.action')}
+        </Button>
+      )}
+    </div>
+  );
   return (
     <div data-df-state="empty" data-df-empty="no-result">
       <EmptyState
         title={t('market.empty.noResult.title')}
         description={noResultDescription}
         action={
-          onClearFilters === undefined ? undefined : (
-            <Button variant="secondary" onClick={onClearFilters}>
-              {t('market.empty.noResult.action')}
+          onClearFilters === undefined && onGoMarket === undefined ? undefined : noResultActions
+        }
+      />
+    </div>
+  );
+}
+
+/** 页内空态模式（DEF-01）：筛选 / 精选 / 已装载。 */
+export type MarketPageEmptyMode = 'filters' | 'featured' | 'installed';
+
+/** 页内空态 props（当前页无命中但仍有未加载页：保留继续加载入口）。 */
+export interface MarketPageEmptyStateProps {
+  mode: MarketPageEmptyMode;
+  /** 已加载条数（含客户端过滤前）。 */
+  loaded: number;
+  /** 服务端 total（当前查询口径）。 */
+  total: number;
+  /** 尚未检查的条数（total - loaded，不小于 0）。 */
+  remaining: number;
+  loadMoreState: 'idle' | 'loading' | 'error' | 'done';
+  loadMoreError: string | null;
+  onLoadMore: () => void;
+  onClearFilters: () => void;
+  onCancelFeatured: () => void;
+  onGoMarket: () => void;
+}
+
+const PAGE_EMPTY_TITLE_KEYS: Record<MarketPageEmptyMode, string> = {
+  filters: 'market.empty.noResultPage.filtersTitle',
+  featured: 'market.empty.noResultPage.featuredTitle',
+  installed: 'market.empty.noResultPage.installedTitle',
+};
+
+const PAGE_EMPTY_DESC_KEYS: Record<MarketPageEmptyMode, string> = {
+  filters: 'market.empty.noResultPage.filtersDesc',
+  featured: 'market.empty.noResultPage.featuredDesc',
+  installed: 'market.empty.noResultPage.installedDesc',
+};
+
+/**
+ * 页内空态（DEF-01）：当前已加载页被客户端过滤（许可/来源/已装载/精选）后无命中，
+ * 但服务端仍有未加载页——**不是终点**：给「加载更多」继续查找，并按模式给次按钮。
+ *
+ * 与 `MarketEmptyState` 的分工：终点无结果才用「没有匹配的资源」；本组件避免误导，
+ * 并要求页面在此时**不渲染底部分页行**（这里已含进度与加载入口）。
+ */
+export function MarketPageEmptyState({
+  mode,
+  loaded,
+  total,
+  remaining,
+  loadMoreState,
+  loadMoreError,
+  onLoadMore,
+  onClearFilters,
+  onCancelFeatured,
+  onGoMarket,
+}: MarketPageEmptyStateProps) {
+  const secondary =
+    mode === 'filters'
+      ? { label: t('market.empty.noResult.action'), onClick: onClearFilters }
+      : mode === 'featured'
+        ? { label: t('market.featured.cancel'), onClick: onCancelFeatured }
+        : { label: t('market.empty.installed.action'), onClick: onGoMarket };
+  return (
+    <div data-df-state="empty" data-df-empty="no-result-page" data-df-empty-mode={mode}>
+      <EmptyState
+        title={t(PAGE_EMPTY_TITLE_KEYS[mode], { loaded })}
+        description={t(PAGE_EMPTY_DESC_KEYS[mode], { remaining })}
+        action={
+          <div style={emptyActionsStyle}>
+            <Button
+              variant="primary"
+              loading={loadMoreState === 'loading'}
+              loadingLabel={t('market.list.loadingMore')}
+              onClick={onLoadMore}
+            >
+              {t('market.list.loadMore')}
             </Button>
-          )
+            <Button variant="secondary" onClick={secondary.onClick}>
+              {secondary.label}
+            </Button>
+            <div
+              data-df-market="pagination"
+              role={loadMoreState === 'error' ? 'alert' : 'status'}
+              aria-live="polite"
+              style={emptyPaginationStyle}
+            >
+              {loadMoreState === 'error' ? (
+                <>
+                  <span style={paginationErrorStyle}>
+                    {t('market.list.loadMoreFailed', { message: loadMoreError ?? '' })}
+                  </span>
+                  <Button size="sm" variant="secondary" onClick={onLoadMore}>
+                    {t('market.error.retry')}
+                  </Button>
+                </>
+              ) : (
+                <span>{t('market.list.progress', { shown: loaded, total })}</span>
+              )}
+            </div>
+          </div>
         }
       />
     </div>

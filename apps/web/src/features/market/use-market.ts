@@ -233,18 +233,22 @@ export function useLoadRecords(): {
 /** 增量分页的状态（内部；按参数序列化键隔离）。 */
 interface PagedExtra {
   key: string;
+  /** 下一页的**服务端 offset**（= 已请求页的原始条数之和；不是去重后的卡片数）。 */
+  cursor: number;
   items: MarketAsset[];
   done: boolean;
   loading: boolean;
   error: string | null;
 }
 
-/** 列表分页 hook（DEF-R1）：首屏取数 +「加载更多」增量累加。
+/** 列表分页 hook（DEF-R1 / DEF-02）：首屏取数 +「加载更多」增量累加。
  *
  * 口径：
  * - 过滤/检索/排序参数变化 → 累积按序列化键**自动失效**（旧响应晚到也按 key 丢弃）；
+ * - 游标 `cursor` 按服务端**原始页长**推进（`offset + result.items.length`），
+ *   不拿去重后的卡片数当 offset——否则重复项会让后续页跳过真实条目（DEF-02）；
  * - 追加按 id 去重；终点以服务端 `total` 为准（空页亦视为终点）；
- * - 失败不抛异常：保留已载内容，`loadMoreState='error'` + 可重试文案。
+ * - 失败不抛异常：保留已载内容与游标，`loadMoreState='error'` + 可重试（同一 offset）。
  */
 export function useMarketPagination(
   params: MarketQueryParams,
@@ -255,6 +259,8 @@ export function useMarketPagination(
   loadMore: () => void;
   loadMoreState: 'idle' | 'loading' | 'error' | 'done';
   loadMoreError: string | null;
+  /** 是否还有下一页（游标未到服务端 total 且未判定终点）。 */
+  hasMore: boolean;
 } {
   const query = useMarketQuery(params, options);
   const key = JSON.stringify(params);
@@ -262,6 +268,7 @@ export function useMarketPagination(
   const total = query.response?.total ?? 0;
   const [extra, setExtra] = useState<PagedExtra>({
     key,
+    cursor: firstPage.length,
     items: [],
     done: false,
     loading: false,
@@ -269,22 +276,35 @@ export function useMarketPagination(
   });
   const busy = useRef(false);
 
-  // 参数变化后旧累积自动失效（读时比对 key，无需 effect 清空）；顺带解除在飞锁。
-  const active: PagedExtra =
-    extra.key === key ? extra : { key, items: [], done: false, loading: false, error: null };
+  // 参数变化或重取首屏后旧累积自动失效；游标从首屏页长起步（读时比对 key 兜底）。
   useEffect(() => {
     busy.current = false;
-  }, [key]);
+    setExtra({
+      key,
+      cursor: firstPage.length,
+      items: [],
+      done: false,
+      loading: false,
+      error: null,
+    });
+  }, [key, query.response, firstPage.length]);
+
+  const active: PagedExtra =
+    extra.key === key
+      ? extra
+      : { key, cursor: firstPage.length, items: [], done: false, loading: false, error: null };
 
   const items = appendMarketPage(firstPage, active.items);
   const loadMoreState: 'idle' | 'loading' | 'error' | 'done' =
     active.error !== null ? 'error' : active.loading ? 'loading' : active.done ? 'done' : 'idle';
+  const hasMore = hasMorePages(active.cursor, total) && !active.done;
 
   const loadMore = useCallback(() => {
-    if (busy.current || active.loading || active.done || !hasMorePages(items.length, total)) return;
+    if (busy.current || active.loading || active.done || !hasMorePages(active.cursor, total))
+      return;
     busy.current = true;
-    const offset = items.length;
-    setExtra({ key, items: active.items, done: false, loading: true, error: null });
+    const offset = active.cursor;
+    setExtra({ key, cursor: offset, items: active.items, done: false, loading: true, error: null });
     void fetchMarketQuery(
       { ...params, offset },
       { ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }) },
@@ -296,15 +316,17 @@ export function useMarketPagination(
           if (!result.ok) {
             return { ...previous, loading: false, error: result.error.message };
           }
+          const nextCursor = offset + result.result.items.length;
           const merged = appendMarketPage(
             firstPage,
             appendMarketPage(previous.items, result.result.items),
           );
           return {
             key,
+            cursor: nextCursor,
             items: merged.slice(firstPage.length),
             done:
-              result.result.items.length === 0 || !hasMorePages(merged.length, result.result.total),
+              result.result.items.length === 0 || !hasMorePages(nextCursor, result.result.total),
             loading: false,
             error: null,
           };
@@ -323,18 +345,18 @@ export function useMarketPagination(
         );
       });
   }, [
+    active.cursor,
     active.done,
     active.items,
     active.loading,
     firstPage,
-    items.length,
     key,
     options.baseUrl,
     params,
     total,
   ]);
 
-  return { ...query, items, loadMore, loadMoreState, loadMoreError: active.error };
+  return { ...query, items, loadMore, loadMoreState, loadMoreError: active.error, hasMore };
 }
 
 /** 存储键透出（测试与调试用；写入形状见 `load-store`）。 */

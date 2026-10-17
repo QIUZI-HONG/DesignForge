@@ -62,6 +62,14 @@ describe('MarketCard · 双语卡片与信息行（§6.1/§6.3）', () => {
     expect(screen.getByText('需连接器')).toBeTruthy();
   });
 
+  it('无预览占位：固定缩略区显示 kind 图标 +「暂无预览」，不是 16:9 大灰块', () => {
+    const { container } = renderCard();
+    const thumb = container.querySelector('[data-df-market="card-thumb"]');
+    expect(thumb).not.toBeNull();
+    expect(thumb?.textContent).toContain('暂无预览');
+    expect(thumb?.querySelector('svg')).not.toBeNull();
+  });
+
   it('无回流数据时指标行给出「本地回流待授权」而非编造采纳数', () => {
     renderCard();
     expect(screen.getByText('本地回流待授权')).toBeTruthy();
@@ -135,6 +143,50 @@ describe('MarketCard · 安装三态按钮（可装载 / 已装载 / 仅看）',
     expect(button.getAttribute('data-df-state')).toBe('disabled');
     await user.click(button);
     expect(onInstall).not.toHaveBeenCalled();
+  });
+
+  it('禁用主按钮文字色提升为次级文本色（仍保留 disabled 与 data-df-state）', () => {
+    renderCard({
+      asset: makeAsset({
+        installGate: {
+          mode: 'view-only',
+          licenseGate: 'view-only',
+          security: 'pass',
+          reasons: ['NOASSERTION'],
+          ackRequired: [],
+        },
+      }),
+    });
+    const button = screen.getByRole('button', { name: '仅看' });
+    expect(button.getAttribute('data-df-state')).toBe('disabled');
+    expect(button.hasAttribute('disabled')).toBe(true);
+    expect(button.style.color).toBe('var(--dfg-color-text-secondary)');
+  });
+
+  it('禁用装载时同卡给次级「查看详情」入口（键盘可达详情）', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    renderCard({
+      asset: makeAsset({
+        installGate: {
+          mode: 'view-only',
+          licenseGate: 'view-only',
+          security: 'pass',
+          reasons: ['NOASSERTION'],
+          ackRequired: [],
+        },
+      }),
+      onOpen,
+    });
+    const secondary = screen.getByRole('button', { name: '查看详情' });
+    expect(secondary.getAttribute('data-df-market')).toBe('card-open-secondary');
+    await user.click(secondary);
+    expect(onOpen).toHaveBeenCalledWith('gh:acme/skills#skills/pdf-export');
+  });
+
+  it('可装载时不额外渲染次级「查看详情」（避免重复动作）', () => {
+    renderCard();
+    expect(screen.queryByRole('button', { name: '查看详情' })).toBeNull();
   });
 
   it('下架资产显示下架说明（yanked 非空）', () => {

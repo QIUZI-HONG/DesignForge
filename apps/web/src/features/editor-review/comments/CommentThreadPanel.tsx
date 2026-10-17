@@ -97,6 +97,8 @@ function ThreadItem({ thread, active }: { thread: CommentThread; active: boolean
   const session = useReviewSession();
   const [replyBody, setReplyBody] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** 空内容（含纯空白）不可回复：与草稿「发布」同一口径（store 侧另有一道拒绝）。 */
+  const canSubmitReply = replyBody.trim().length > 0;
 
   const submitReply = (): void => {
     const result = session.comments.getState().reply(thread.id, replyBody);
@@ -201,6 +203,7 @@ function ThreadItem({ thread, active }: { thread: CommentThread; active: boolean
                 <button
                   type="button"
                   className="dfg-btn dfg-btn--primary dfg-btn--sm"
+                  disabled={!canSubmitReply}
                   onClick={submitReply}
                 >
                   {t('review.comments.reply.submit')}
