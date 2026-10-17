@@ -53,7 +53,7 @@
 | `data-df-canvas-action={actionId}` | `features/canvas/ui/floating-toolbar.tsx` | 浮动工具条动作 |
 | `data-df-canvas-context-menu` | `features/canvas/ui/canvas-stage.tsx`、`context-menu.tsx` | 画布右键菜单 |
 | `data-df-canvas-hud` | `features/canvas/ui/canvas-hud.tsx` | 画布 HUD（`role="status"`） |
-| `data-df-canvaskit={状态}` | `features/canvas/runtime/canvaskit-loader.ts` | CanvasKit 加载状态（调试读点） |
+| `script[data-df-canvaskit={src}]` | `features/canvas/runtime/canvaskit-loader.ts` | CanvasKit 加载脚本标签（按源去重；不是运行时状态） |
 | `data-df-studio-tool={tool}` | `features/canvas/studio/canvas-studio.tsx` | 工作室工具按钮（`/_canvas`） |
 | `data-df-studio-action="save" \| "reload" \| "export" \| "import"` | `features/canvas/studio/canvas-studio.tsx` | 工作室动作 |
 | `data-df-save-control` / `data-df-save-action="save"` / `data-df-save-state={status}` | `features/canvas/workspace/save-control.tsx` | 保存入口与保存态（确定性读点） |
