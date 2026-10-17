@@ -15,6 +15,10 @@
  *
  * 证据落 `<DF_EVIDENCE_DIR>/mutation/<stamp>/`（缺省 `~/df-evidence/audit-50/aud-60a`）：
  *   mutation.json / mutation.html / mutation-summary.json / stryker.log。
+ *
+ * 命令的可移植性：Stryker command runner 用 `packages/engine/node_modules/.bin/vitest`，
+ * 不能用根 `node_modules/.bin/vitest`——根 package.json 未声明 vitest，全新
+ * `pnpm install --frozen-lockfile` 下根 bin 不存在（merger 复现的 exit 1）。
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -41,6 +45,12 @@ if (!existsSync(configPath)) {
 const strykerBin = join(repoRoot, 'node_modules', '@stryker-mutator', 'core', 'bin', 'stryker.js');
 if (!existsSync(strykerBin)) {
   console.error(`阻塞：未安装 @stryker-mutator/core（${strykerBin}）——先 pnpm install。`);
+  process.exit(2);
+}
+// 前置检查：command runner 依赖包内 vitest bin；根 bin 在 frozen install 下不存在。
+const engineVitestBin = join(repoRoot, 'packages', 'engine', 'node_modules', '.bin', 'vitest');
+if (!existsSync(engineVitestBin)) {
+  console.error(`阻塞：未找到 packages/engine 的 vitest（${engineVitestBin}）——先 pnpm install。`);
   process.exit(2);
 }
 

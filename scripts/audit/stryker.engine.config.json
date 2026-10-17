@@ -2,7 +2,7 @@
   "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "testRunner": "command",
   "commandRunner": {
-    "command": "node_modules/.bin/vitest run --root packages/engine src/serialize/serialize.test.ts src/__verify__/serialize-edges.test.ts"
+    "command": "packages/engine/node_modules/.bin/vitest run --root packages/engine src/serialize/serialize.test.ts src/__verify__/serialize-edges.test.ts"
   },
   "mutate": ["packages/engine/src/serialize/serialize.ts"],
   "reporters": ["clear-text", "json", "html"],
