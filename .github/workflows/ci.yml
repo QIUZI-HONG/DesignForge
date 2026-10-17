@@ -56,6 +56,9 @@ jobs:
       - name: 桌面壳安全基线守卫（窗口选项静态断言；对抗夹具回归在 pnpm test:scripts）
         run: pnpm guard:electron-baseline
 
+      - name: MCP 契约快照守卫（工具集/路由/跨进程信封形状；漂移 → exit 1，快照缺失 → exit 2）
+        run: pnpm guard:mcp-contract
+
       - name: 引擎门禁（对抗用例 + 快照哈希回归）
         run: pnpm verify:engine
 
@@ -95,7 +98,7 @@ jobs:
       #   - pnpm verify:mk-01：判据来自 ~/df-evidence/mk-01 的采集产物（需真网 + GH_TOKEN
       #     采集，产物按纪律存仓库外）→ CI 内无产物，只会 exit 2（阻塞），故不接；
       #     其离线重放路径（--replay 冻结样本）由 services/ingest 单测覆盖（pnpm test）。
-      #   - 未实现守卫 guard:deps / guard:mcp-contract / guard:channel-pairing：当前一律
-      #     exit 2（阻塞，禁止当绿），按 implementation-workflow.md「不接 CI」，
-      #     实现后由接管票一并接入本文件。
+      #   - 未实现守卫 guard:deps / guard:channel-pairing：当前一律 exit 2（阻塞，禁止当绿），
+      #     按 implementation-workflow.md「不接 CI」，实现后由接管票一并接入本文件。
+      #     （guard:mcp-contract 已由 aud-05 实现并接入上方步骤；快照见 scripts/snapshots/。）
       # ---------------------------------------------------------------------------------
