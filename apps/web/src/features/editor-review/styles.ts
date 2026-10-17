@@ -213,12 +213,18 @@ export const commentStyles = {
   } as CSSProperties,
   /** 列表重置（ul/li 不显标记与缩进）。 */
   listReset: { listStyle: 'none', margin: 0, padding: 0 } as CSSProperties,
-  /** 线程条目的整行按钮（内容由条目自身排版，这里只做重置）。 */
+  /** 线程条目的整行按钮（内容由条目自身排版，这里只做重置）。
+   *
+   * 原生 `<button>` 不吃父级文本样式：不显式声明 `color` / `font` 时浏览器用默认黑字，
+   * 叠在深色面板上只剩时间可见（DEF-03）。作者/正文跟随按钮前景色，时间仍走 meta 次级色。
+   */
   threadToggle: {
     width: '100%',
     textAlign: 'left',
     border: 'none',
     background: 'transparent',
+    color: cssVar('color.text.primary'),
+    font: 'inherit',
   } as CSSProperties,
   /** 回复条目（作者行 + 正文纵向排列）。 */
   replyItem: { display: 'flex', flexDirection: 'column' } as CSSProperties,
