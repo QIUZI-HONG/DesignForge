@@ -27,6 +27,9 @@ catalogs:
     '@types/react-dom':
       specifier: ^18.3.7
       version: 18.3.7
+    axe-core:
+      specifier: 4.14.0
+      version: 4.14.0
     canvaskit-wasm:
       specifier: 0.42.0
       version: 0.42.0
@@ -77,6 +80,9 @@ importers:
       '@biomejs/biome':
         specifier: 'catalog:'
         version: 2.5.15
+      axe-core:
+        specifier: 'catalog:'
+        version: 4.14.0
       pixelmatch:
         specifier: 'catalog:'
         version: 8.0.0
@@ -912,6 +918,10 @@ packages:
 
   avvio@9.3.1:
     resolution: {integrity: sha512-QyTKW61/qlba+cUQBm/sT9X8lri4UdomqSDwCnrnj1IvLVDRRiXRkz4CgBRWB+/cmfC7SK5WQc8T1vSdGvaUcQ==}
+
+  axe-core@4.14.0:
+    resolution: {integrity: sha512-9WTZxEjsZ7b13TH8JPmbV2z8CHbl80/2hm3XPEG4JgNdQLK81IBRXmSxHfMAOkSqQeRxT/0dwNDz2GOm3zzpcQ==}
+    engines: {node: '>=4'}
 
   baseline-browser-mapping@2.11.28:
     resolution: {integrity: sha512-br0LOmjJqr6Rt4AEkadbcNf67Zpo7EPwKsWbjnRrJIa1QYFHQBqM4C7F2WTbV8ahTEcg1Eo+Y0aWjjORInYFyA==}
@@ -1998,6 +2008,8 @@ snapshots:
     dependencies:
       '@fastify/error': 4.2.1
       fastq: 1.20.3
+
+  axe-core@4.14.0: {}
 
   baseline-browser-mapping@2.11.28: {}
 
