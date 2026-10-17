@@ -1,0 +1,25 @@
+# 依赖变更评审（审计 10b · #108 / #60 P0-6）
+#
+# 在 PR 上对比 base/head 的依赖图，阻断引入 high/critical 已知漏洞的依赖。
+# 公开仓库免费可用；仓库若转私有，需 GitHub Advanced Security 才能运行。
+# 本 workflow 只读（不评论 PR），避免 fork PR 的只读 token 造成假红。
+name: dependency-review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 依赖变更评审（high/critical 阻断）
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
