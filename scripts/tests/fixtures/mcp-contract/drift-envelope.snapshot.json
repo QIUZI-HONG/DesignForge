@@ -1,0 +1,228 @@
+{
+  "schema": "df.mcp-contract.snapshot/v1",
+  "mcp": {
+    "writeTools": [
+      "df_apply_patch",
+      "df_create_component",
+      "df_swap_instance",
+      "df_run_skill",
+      "df_sync_tokens",
+      "df_comment_add",
+      "df_version_restore"
+    ],
+    "callers": [
+      "user",
+      "local-ai",
+      "mcp:zcode",
+      "mcp:workbuddy",
+      "importer"
+    ],
+    "ackTtlMs": 120000,
+    "auditDecisions": [
+      "pending",
+      "approved",
+      "rejected",
+      "expired"
+    ],
+    "proposalRequestFields": [
+      "tool",
+      "args",
+      "caller",
+      "documentId"
+    ],
+    "proposalResponseFields": [
+      "proposalId",
+      "tool",
+      "caller",
+      "dryRun",
+      "diff",
+      "ackToken",
+      "expiresAt",
+      "auditId",
+      "stub"
+    ],
+    "ackRequestFields": [
+      "ackToken",
+      "approve"
+    ],
+    "ackResponseFields": [
+      "proposalId",
+      "applied",
+      "decision",
+      "auditId",
+      "note"
+    ],
+    "auditRecordFields": [
+      "auditId",
+      "at",
+      "caller",
+      "tool",
+      "proposalId",
+      "argsDigest",
+      "decision",
+      "applied",
+      "note"
+    ],
+    "auditResponseFields": [
+      "records"
+    ]
+  },
+  "routes": {
+    "health": {
+      "method": "GET",
+      "path": "/health"
+    },
+    "config": {
+      "method": "GET",
+      "path": "/config"
+    },
+    "configUpdate": {
+      "method": "PUT",
+      "path": "/config"
+    },
+    "configCredentialsSet": {
+      "method": "PUT",
+      "path": "/config/credentials"
+    },
+    "configCredentialsClear": {
+      "method": "DELETE",
+      "path": "/config/credentials"
+    },
+    "configConnectivity": {
+      "method": "POST",
+      "path": "/config/connectivity"
+    },
+    "documents": {
+      "method": "GET",
+      "path": "/documents"
+    },
+    "documentCreate": {
+      "method": "POST",
+      "path": "/documents"
+    },
+    "documentGet": {
+      "method": "GET",
+      "path": "/documents/:documentId"
+    },
+    "documentRename": {
+      "method": "PATCH",
+      "path": "/documents/:documentId"
+    },
+    "documentDelete": {
+      "method": "DELETE",
+      "path": "/documents/:documentId"
+    },
+    "documentPageCreate": {
+      "method": "POST",
+      "path": "/documents/:documentId/pages"
+    },
+    "documentPageGet": {
+      "method": "GET",
+      "path": "/documents/:documentId/pages/:pageId"
+    },
+    "documentPageSave": {
+      "method": "PUT",
+      "path": "/documents/:documentId/pages/:pageId"
+    },
+    "documentPageDelete": {
+      "method": "DELETE",
+      "path": "/documents/:documentId/pages/:pageId"
+    },
+    "exportDocument": {
+      "method": "POST",
+      "path": "/export"
+    },
+    "aiStatus": {
+      "method": "GET",
+      "path": "/ai/status"
+    },
+    "aiChat": {
+      "method": "POST",
+      "path": "/ai/chat"
+    },
+    "imageProbe": {
+      "method": "GET",
+      "path": "/image/probe"
+    },
+    "imageTemplates": {
+      "method": "GET",
+      "path": "/image/templates"
+    },
+    "imageRunsCreate": {
+      "method": "POST",
+      "path": "/image/runs"
+    },
+    "imageRunsList": {
+      "method": "GET",
+      "path": "/image/runs"
+    },
+    "imageRunGet": {
+      "method": "GET",
+      "path": "/image/runs/:runId"
+    },
+    "imageRunCancel": {
+      "method": "POST",
+      "path": "/image/runs/:runId/cancel"
+    },
+    "marketQuery": {
+      "method": "GET",
+      "path": "/market/query"
+    },
+    "marketAsset": {
+      "method": "GET",
+      "path": "/market/assets/:assetId"
+    },
+    "marketLoadPlan": {
+      "method": "POST",
+      "path": "/market/load-plan"
+    },
+    "mcpPropose": {
+      "method": "POST",
+      "path": "/mcp/proposals"
+    },
+    "mcpAck": {
+      "method": "POST",
+      "path": "/mcp/ack"
+    },
+    "mcpAudit": {
+      "method": "GET",
+      "path": "/mcp/audit"
+    },
+    "telemetryAppend": {
+      "method": "POST",
+      "path": "/telemetry/events"
+    },
+    "telemetryQuery": {
+      "method": "GET",
+      "path": "/telemetry/events"
+    },
+    "telemetryClear": {
+      "method": "DELETE",
+      "path": "/telemetry/events"
+    }
+  },
+  "envelopes": {
+    "httpSuccessFields": [
+      "ok",
+      "result"
+    ],
+    "httpFailureFields": [
+      "ok",
+      "error"
+    ],
+    "ipcRequestFields": [
+      "id",
+      "method"
+    ],
+    "ipcSuccessFields": [
+      "id",
+      "ok",
+      "result"
+    ],
+    "ipcFailureFields": [
+      "id",
+      "ok",
+      "error"
+    ]
+  }
+}

@@ -91,7 +91,10 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   ENOSPC/EIO/fsync/rename 失败、真 SIGKILL；自测 `scripts/tests/verify-resilience.test.mjs`）
   **已实现、仅本地、未接 CI**——审计期按 5 类 A/B 缺陷 `exit 1`（跨进程丢页、根内软链跨文档写、
   半提交、深嵌套页读取 500、CORS null），修复前不得当通过；缺 C 编译器时故障注入段按阻塞 `exit 2` 点名。
-  仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:mcp-contract` / `guard:channel-pairing`。
+  `scripts/guard-mcp-contract.mjs`（MCP 工具集 + 跨端路由/信封快照；快照
+  `scripts/snapshots/mcp-contract.v1.json`；回归 `scripts/tests/guard-mcp-contract.test.mjs`；
+  审计 05 实现）**已实现并接入 CI**。
+  仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:channel-pairing`。
 - **守卫输出口径（批次 3 收口 · code-review）**：`guard-vocab` 与 `guard-feature-boundaries` 的
   退出码优先级为「**违规 exit 1 优先于未判定 exit 2**」，但两类问题必须**同屏列出**
   （`✗` 违规明细 + `?` 未判定明细，结论行点名未判定计数）——阻塞信息不得被违规结论吞掉；
