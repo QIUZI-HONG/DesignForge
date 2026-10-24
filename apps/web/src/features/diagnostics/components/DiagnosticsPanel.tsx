@@ -24,8 +24,9 @@ import {
   uptimeParts,
 } from '../environment';
 import { logTail } from '../logs';
-import { diagnosticsStyles } from './styles';
 import { useDiagnostics } from './use-diagnostics';
+
+import './diagnostics.css';
 
 /** 环境注入（测试/门禁可给；缺省读 window/navigator）。 */
 export type DiagnosticsEnv = Omit<EnvironmentInput, 'health'>;
@@ -125,21 +126,21 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
       rememberKey="dfg-drawer-diagnostics"
       width="lg"
     >
-      <div data-df-panel="diagnostics" style={diagnosticsStyles.body}>
+      <div data-df-panel="diagnostics" className="dfg-diagnostics__body">
         {error !== null ? (
           <div
-            style={diagnosticsStyles.errorBanner}
+            className="dfg-diagnostics__error-banner"
             role="alert"
             data-df-diagnostics-error="daemon"
           >
-            <span style={diagnosticsStyles.errorHeader}>
+            <span className="dfg-diagnostics__error-header">
               <AlertTriangleIcon size={14} />
               {t('diagnostics.error.title')}
             </span>
-            <span style={diagnosticsStyles.errorDesc}>
+            <span className="dfg-diagnostics__error-desc">
               {t('diagnostics.error.desc')}（{error}）
             </span>
-            <div style={diagnosticsStyles.actions}>
+            <div className="dfg-diagnostics__actions">
               <Button
                 size="sm"
                 onClick={reload}
@@ -154,14 +155,16 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
 
         <section
           aria-label={t('diagnostics.section.environment')}
-          style={diagnosticsStyles.section}
+          className="dfg-diagnostics__section"
         >
-          <span style={diagnosticsStyles.sectionTitle}>{t('diagnostics.section.environment')}</span>
-          <ul style={diagnosticsStyles.rowList}>
+          <span className="dfg-diagnostics__section-title">
+            {t('diagnostics.section.environment')}
+          </span>
+          <ul className="dfg-diagnostics__row-list">
             {ENVIRONMENT_ROW_IDS.map((id) => (
-              <li key={id} style={diagnosticsStyles.row} data-df-env-row={id}>
-                <span style={diagnosticsStyles.rowLabel}>{t(`diagnostics.env.${id}`)}</span>
-                <span style={diagnosticsStyles.rowValue}>{envValue(id)}</span>
+              <li key={id} className="dfg-diagnostics__row" data-df-env-row={id}>
+                <span className="dfg-diagnostics__row-label">{t(`diagnostics.env.${id}`)}</span>
+                <span className="dfg-diagnostics__row-value">{envValue(id)}</span>
               </li>
             ))}
           </ul>
@@ -169,15 +172,15 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
 
         <section
           aria-label={t('diagnostics.section.connectivity')}
-          style={diagnosticsStyles.section}
+          className="dfg-diagnostics__section"
         >
-          <div style={diagnosticsStyles.sectionHeader}>
-            <span style={diagnosticsStyles.sectionTitle}>
+          <div className="dfg-diagnostics__section-header">
+            <span className="dfg-diagnostics__section-title">
               {t('diagnostics.section.connectivity')}
             </span>
-            <span style={diagnosticsStyles.spacer} />
+            <span className="dfg-diagnostics__spacer" />
             {loading ? (
-              <span style={diagnosticsStyles.muted} role="status">
+              <span className="dfg-diagnostics__muted" role="status">
                 {t('diagnostics.connectivity.checking')}
               </span>
             ) : null}
@@ -191,22 +194,22 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
             </Button>
           </div>
           {connectivity === null ? (
-            <span style={diagnosticsStyles.muted}>{t('diagnostics.env.disconnected')}</span>
+            <span className="dfg-diagnostics__muted">{t('diagnostics.env.disconnected')}</span>
           ) : (
-            <ul style={diagnosticsStyles.rowList}>
+            <ul className="dfg-diagnostics__row-list">
               {connectivity.items.map((item) => (
                 <li
                   key={item.id}
-                  style={diagnosticsStyles.item}
+                  className="dfg-diagnostics__item"
                   data-df-connectivity-item={item.id}
                   data-df-connectivity-status={item.status}
                 >
-                  <span style={diagnosticsStyles.itemHeader}>
-                    <span style={diagnosticsStyles.itemLabel}>{item.label}</span>
-                    <span style={diagnosticsStyles.statusChip}>
+                  <span className="dfg-diagnostics__item-header">
+                    <span className="dfg-diagnostics__item-label">{item.label}</span>
+                    <span className="dfg-diagnostics__status-chip">
                       {t(`diagnostics.status.${item.status}`)}
                     </span>
-                    <span style={diagnosticsStyles.spacer} />
+                    <span className="dfg-diagnostics__spacer" />
                     <Button
                       size="sm"
                       variant="ghost"
@@ -218,12 +221,12 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
                     </Button>
                   </span>
                   {item.detail === null ? null : (
-                    <span style={diagnosticsStyles.itemDetail}>{item.detail}</span>
+                    <span className="dfg-diagnostics__item-detail">{item.detail}</span>
                   )}
                   {item.actions.length > 0 ? (
-                    <span style={diagnosticsStyles.chipRow}>
+                    <span className="dfg-diagnostics__chip-row">
                       {item.actions.map((action) => (
-                        <span key={action} style={diagnosticsStyles.chip}>
+                        <span key={action} className="dfg-diagnostics__chip">
                           {actionLabel(action)}
                         </span>
                       ))}
@@ -234,7 +237,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
             </ul>
           )}
           {connectivity !== null ? (
-            <span style={diagnosticsStyles.muted}>
+            <span className="dfg-diagnostics__muted">
               {t('diagnostics.connectivity.checkedAt', {
                 at: connectivity.checkedAt.slice(0, 19).replace('T', ' '),
               })}
@@ -242,26 +245,26 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
           ) : null}
         </section>
 
-        <section aria-label={t('diagnostics.section.logs')} style={diagnosticsStyles.section}>
-          <div style={diagnosticsStyles.sectionHeader}>
-            <span style={diagnosticsStyles.sectionTitle}>{t('diagnostics.section.logs')}</span>
-            <span style={diagnosticsStyles.spacer} />
+        <section aria-label={t('diagnostics.section.logs')} className="dfg-diagnostics__section">
+          <div className="dfg-diagnostics__section-header">
+            <span className="dfg-diagnostics__section-title">{t('diagnostics.section.logs')}</span>
+            <span className="dfg-diagnostics__spacer" />
             <Button size="sm" onClick={reload} disabled={loading}>
               {t('diagnostics.logs.refresh')}
             </Button>
           </div>
           {lines.length === 0 ? (
-            <span style={diagnosticsStyles.muted}>{t('diagnostics.logs.empty')}</span>
+            <span className="dfg-diagnostics__muted">{t('diagnostics.logs.empty')}</span>
           ) : (
-            <ul style={diagnosticsStyles.logList}>
+            <ul className="dfg-diagnostics__log-list">
               {lines.map((line) => (
-                <li key={line} style={diagnosticsStyles.logLine}>
+                <li key={line} className="dfg-diagnostics__log-line">
                   {line}
                 </li>
               ))}
             </ul>
           )}
-          <span style={diagnosticsStyles.muted}>{t('diagnostics.logs.source')}</span>
+          <span className="dfg-diagnostics__muted">{t('diagnostics.logs.source')}</span>
         </section>
       </div>
     </Drawer>
