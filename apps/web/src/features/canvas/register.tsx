@@ -1,25 +1,30 @@
 'use client';
 
 /**
- * 编辑器工作区挂载入口（FE-06 作为 `/editor` 宿主的**注册模块**）。
+ * 编辑器工作区**接线模块**（FE-06 作为 `/editor` 宿主；工单 02 引导收口后的形状）。
  *
- * 由 `app/editor/page.tsx` 顶部 `import '@/features/canvas/register';` 引入（FE-03 约定：
- * 各票在自己目录里注册，不改壳层代码）。本模块负责三件事：
+ * 由编辑器唯一客户端引导件 `app/editor/editor-bootstrap.tsx` import（其声明式注册表
+ * 声明 `mountEditorWorkspace` 为 FE-06 登记项，渲染引导件即把本模块拉进客户端图）。
+ * 本模块负责：
  *
- * 1. **插槽挂载**：`canvas` / `left-panel` / `right-panel` / `toolbar`（AI 入口）/
- *    `overlays`（FE-06 画布 · FE-04 面板 · FE-05 Inspector · FE-08 检查导出 · FE-10 AI/MCP）；
- * 2. **命令注册**：接管 FE-03 预留的 `view.zoomFit` / `edit.undo` / `edit.redo` /
+ * 1. **命令注册**：接管 FE-03 预留的 `view.zoomFit` / `edit.undo` / `edit.redo` /
  *    `file.new` / `file.export`（修复批次 4 · D-7：死入口注册实现），注册 `view.ai`
  *    （D-6：AI 抽屉唯一入口命令），并覆盖 `view.zoomIn|zoomOut|zoom100`（让 ⌘±/⌘0
  *    直接驱动**引擎视口**，外壳缩放菜单跟随）；
- * 3. **门禁挂点**：FE-05 的 `window.__dfInspectorProbe`（历史 + 节点属性读点）。
+ * 2. **显示态同步与门禁挂点**：视口/工具/文档名 → 外壳的单向投影、FE-05 的
+ *    `window.__dfInspectorProbe`（历史 + 节点属性读点）、`window.__dfWorkspaceProbe`；
+ * 3. **插槽渲染件**：声明表按 id/order 引用 `./workspace/slots` 的槽组件（挂载声明
+ *    不再在本模块——插槽挂载统一声明在引导注册表，工单 02）。
+ *
+ * 为什么注册在挂载后（引导 effect）执行而不是模块顶层：`'use client'` 模块在服务端
+ * 渲染时只产出 client reference，顶层注册会造成「服务端空槽 / 客户端有槽」的
+ * hydration 不匹配（整棵树停在空槽形态）；引导统一在 effect 里注册，服务端/客户端
+ * 首帧一致（服务端空槽形态 = 客户端首帧形态）。
  */
 
-import { useEffect } from 'react';
 import {
   RESERVED_COMMAND_IDS,
   registerCommand,
-  registerEditorSlotItem,
   useEditorUi,
   useEditorView,
 } from '@/features/editor-shell';
@@ -27,14 +32,6 @@ import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 import { SAVE_DOCUMENT_COMMAND_ID } from './workspace/document-bridge';
-import { DocumentSaveControl } from './workspace/save-control';
-import {
-  AiEntryButton,
-  CanvasSlot,
-  LeftPanelSlot,
-  OverlaysSlot,
-  RightPanelSlot,
-} from './workspace/slots';
 import { connectToolSync, registerWorkspaceToolCommands } from './workspace/tool-bridge';
 import { useWorkspaceUi } from './workspace/ui-state';
 
@@ -310,60 +307,26 @@ function installInspectorProbe(): () => void {
   };
 }
 
-/** 注册插槽（幂等：同槽同 id 覆盖）。 */
-export function registerWorkspaceSlots(): void {
-  registerEditorSlotItem('topbar-center', {
-    id: 'fe-06-document-save',
-    order: 0,
-    render: () => <DocumentSaveControl />,
-  });
-  registerEditorSlotItem('canvas', { id: 'fe-06-canvas', order: 0, render: () => <CanvasSlot /> });
-  registerEditorSlotItem('left-panel', {
-    id: 'fe-04-panels',
-    order: 0,
-    render: () => <LeftPanelSlot />,
-  });
-  registerEditorSlotItem('right-panel', {
-    id: 'fe-06-right',
-    order: 0,
-    render: () => <RightPanelSlot />,
-  });
-  // AI 抽屉入口（D1）：工具栏按钮（命令面板走 `view.ai`，两处同一命令）
-  registerEditorSlotItem('toolbar', {
-    id: 'fe-10-ai-entry',
-    order: 0,
-    render: () => <AiEntryButton />,
-  });
-  registerEditorSlotItem('overlays', {
-    id: 'fe-10-overlays',
-    order: 10,
-    render: () => <OverlaysSlot />,
-  });
-}
-
 /**
- * 工作区引导组件（`app/editor/page.tsx` 渲染它即完成挂载）。
+ * 工作区登记项（编辑器引导注册表声明执行；声明见 `app/editor/editor-bootstrap.tsx`）。
  *
- * 为什么必须是**客户端组件 + 挂载后注册**，而不是「页面顶层 import 即注册」：
- * `'use client'` 模块在服务端渲染时只产出 client reference，**顶层代码不会在服务端执行**；
- * 顶层注册会造成「服务端空槽 / 客户端有槽」的 hydration 不匹配，结果是整棵树停在空槽形态
- * （插槽永远不出现）。放在 effect 里则服务端与客户端首帧一致，挂载后经注册表订阅填充。
+ * 序列 = 原 `WorkspaceBootstrap` effect 体去掉插槽挂载（插槽挂载已收口到引导注册表）：
+ * 命令注册 → 显示态同步 → 门禁探针 → 工作区一次性引导 → 文档桥 / 查询串入口。
+ * 幂等：重复执行无副作用（注册表同 id 覆盖、探针重复赋同一形状、锁按工作区实例去重）。
  */
-export function WorkspaceBootstrap(): null {
-  useEffect(() => {
-    registerWorkspaceSlots();
-    registerWorkspaceCommands();
-    connectWorkspaceSync();
-    installInspectorProbe();
-    installWorkspaceProbe();
-    ensureWorkspaceBootstrapped();
-    connectDocumentBridge();
-    connectQueryEntryPoints();
-  }, []);
-  return null;
+export function mountEditorWorkspace(): void {
+  registerWorkspaceCommands();
+  connectWorkspaceSync();
+  installInspectorProbe();
+  installWorkspaceProbe();
+  ensureWorkspaceBootstrapped();
+  connectDocumentBridge();
+  connectQueryEntryPoints();
 }
 
 // 引导实现注入（`ensureWorkspaceBootstrapped` 由槽组件在挂载后调用）：命令/视口同步/门禁探针
+// 生产路径上编辑器引导注册表已先行执行 `mountEditorWorkspace`，这里是「槽组件先于页面
+// 引导挂载」时的兜底重挂（测试里直接渲染槽组件的路径也走这里）。
 setWorkspaceBootstrap(() => {
   // 幂等：重复调用无副作用（注册表同 id 覆盖、探针重复赋值同一形状）
   registerWorkspaceCommands();

@@ -1,19 +1,18 @@
 'use client';
 
-import {
-  RESERVED_COMMAND_IDS,
-  registerCommand,
-  registerEditorSlotItem,
-} from '@/features/editor-shell';
+import { RESERVED_COMMAND_IDS, registerCommand } from '@/features/editor-shell';
 /**
- * FE-07 的**路由侧挂载模块**（FE-03 约定的接头）：
- * 在编辑器路由上把评论 / Present / 版本接进壳层——命令入口 + 插槽挂载。
+ * FE-07 的**路由侧接线模块**（命令登记 + 插槽渲染件；工单 02 引导收口后的形状）。
  *
- * 为什么是「注册命令」而不是自己画按钮：壳层顶栏（C1）**已经渲染**三个预留入口
- * （`review.comment.toggle` / `review.present.start` / `review.versions.open`），
- * 未注册时禁用 + 原因提示；本模块用同 id 注册后入口自动点亮（注册表 last wins）。
+ * 挂载时机统一收口到编辑器唯一客户端引导件（`app/editor/editor-bootstrap.tsx` 的
+ * 声明式注册表）：本模块提供两样东西，由引导在挂载后执行/渲染——
+ * 1. `registerEditorReview()`：**命令登记**（浏览器侧；幂等——同 id 覆盖）。壳层顶栏
+ *    （C1）已渲染三个预留入口（`review.comment.toggle` / `review.present.start` /
+ *    `review.versions.open`），未注册时禁用 + 原因提示，用同 id 注册后自动点亮
+ *    （注册表 last wins）；
+ * 2. `Review*Slot` 四个**插槽渲染件**：声明表按 id/order 引用（落点与含义见各组件注释）。
  *
- * 插槽落点：
+ * 插槽落点（声明在 `app/editor/editor-bootstrap.tsx` 的 `EDITOR_SLOT_DECLARATIONS`）：
  * - `canvas`：评论钉点覆盖层（铺满画布区域；壳层的画布列是 `position: relative`）；
  * - `right-panel`：评论线程面板（**只在评论模式显示**——非评论模式不该占右栏）；
  * - `overlays`：Present 全屏浮层 + 版本抽屉/并排对比（盖住整壳的层）。
@@ -27,11 +26,10 @@ import {
  *
  * 纪律：本模块不产生 UI 文案（文案在组件内走 `t()`）；注册幂等（同 id 覆盖）。
  *
- * 为什么还要 `ReviewBootstrap`（而不是只写一行 `import`）：Next App Router 里**仅被 import、
- * 未被渲染**的客户端模块不会进入首屏客户端图（实测：裸 import 时入口仍是禁用态）。
- * 路由侧渲染一个 `return null` 的客户端组件即可把本模块拉进客户端图；
- * 注册函数带 `typeof window` 守卫——SSR 期不注册（服务端模块单例是跨请求共享的，
- * 在服务端注册会污染其他请求）。
+ * 为什么命令登记必须带 `typeof window` 守卫（而不是模块顶层裸调用）：本模块会被 SSR
+ * 求值（客户端组件也会），而注册表是**模块单例**；服务端注册会跨请求共享。
+ * 工单 02 起模块求值**不再注册**——唯一执行点是编辑器引导件挂载后的 effect（浏览器侧），
+ * 服务端/客户端首帧一致由此保证（hydration 时序脆弱性消除）。
  */
 import { t } from '@/i18n';
 
@@ -87,10 +85,11 @@ function CommentsRightPanel() {
 }
 
 /**
- * 注册命令与插槽（浏览器侧；幂等——同 id 覆盖、同槽同 id 覆盖）。
+ * 登记 FE-07 命令（浏览器侧；幂等——同 id 覆盖）。
  *
- * 为什么不是模块顶层裸调用：本模块会被 SSR 求值一次（客户端组件也会），
- * 而注册表是**模块单例**；服务端注册会跨请求共享。因此显式函数 + 浏览器守卫。
+ * 由编辑器引导注册表声明执行（`app/editor/editor-bootstrap.tsx`），测试里也可显式调用。
+ * 为什么不是模块顶层裸调用：本模块会被 SSR 求值一次（客户端组件也会），而注册表是
+ * **模块单例**；服务端注册会跨请求共享。因此显式函数 + 浏览器守卫。
  */
 export function registerEditorReview(): void {
   if (typeof window === 'undefined') return;
@@ -138,54 +137,38 @@ export function registerEditorReview(): void {
       versions.setOpen(!versions.open);
     },
   });
-
-  // —— 插槽挂载 ——
-  registerEditorSlotItem('canvas', {
-    id: 'fe-07-comment-layer',
-    order: 10,
-    render: () => (
-      <WithSession>
-        <CommentLayer />
-      </WithSession>
-    ),
-  });
-
-  registerEditorSlotItem('right-panel', {
-    id: 'fe-07-comments-panel',
-    order: 10,
-    render: () => <CommentsRightPanel />,
-  });
-
-  registerEditorSlotItem('overlays', {
-    id: 'fe-07-presenter',
-    order: 10,
-    render: () => (
-      <WithSession>
-        <Presenter />
-      </WithSession>
-    ),
-  });
-
-  registerEditorSlotItem('overlays', {
-    id: 'fe-07-versions',
-    order: 11,
-    render: () => (
-      <WithSession>
-        <VersionsDrawer />
-      </WithSession>
-    ),
-  });
 }
 
-// —— 路由侧引导件 ——
-/**
- * 路由侧引导件：`return null`，唯一职责是把本模块拉进客户端图并触发注册。
- * 路由（`app/editor/page.tsx`）渲染它一次即可（见本模块头注释的说明）。
- */
-export function ReviewBootstrap(): null {
-  return null;
+// —— 插槽渲染件（声明表引用；包会话 Provider，见文件头注释）——
+
+/** 评论钉点覆盖层（`canvas` 槽声明引用）：铺满画布区域。 */
+export function ReviewCommentLayerSlot() {
+  return (
+    <WithSession>
+      <CommentLayer />
+    </WithSession>
+  );
 }
 
-// 模块求值即注册（浏览器侧）：路由渲染本模块后立即可用；
-// 若宿主先于本模块挂载，注册表的通知会让插槽/入口重新取快照（useSyncExternalStore）。
-registerEditorReview();
+/** 评论线程面板（`right-panel` 槽声明引用）：只在评论模式显示。 */
+export function ReviewCommentsPanelSlot() {
+  return <CommentsRightPanel />;
+}
+
+/** Present 全屏浮层（`overlays` 槽声明引用）。 */
+export function ReviewPresenterSlot() {
+  return (
+    <WithSession>
+      <Presenter />
+    </WithSession>
+  );
+}
+
+/** 版本抽屉/并排对比（`overlays` 槽声明引用）。 */
+export function ReviewVersionsDrawerSlot() {
+  return (
+    <WithSession>
+      <VersionsDrawer />
+    </WithSession>
+  );
+}

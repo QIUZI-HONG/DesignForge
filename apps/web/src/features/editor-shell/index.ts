@@ -26,8 +26,10 @@
  * ```
  * 槽位：`topbar-left` | `topbar-center` | `topbar-right` | `toolbar` | `left-panel`
  * | `canvas` | `right-panel` | `overlays`。
- * 约定：各票在自己的 feature 目录里写挂载模块，并在 `app/editor/page.tsx` 顶部
- * 加一行 `import '@/features/<id>/register';`（纯增量）。
+ * 约定（工单 02 起收口）：插槽挂载统一声明在 `app/editor/editor-bootstrap.tsx` 的
+ * `EDITOR_SLOT_DECLARATIONS`（声明式注册表），由**唯一客户端引导件**在挂载后经
+ * `mountEditorSlotDeclarations` 批量注册；各域 register 模块只提供登记函数与渲染件，
+ * 不再自带 `return null` 引导组件（hydration 首帧一致性由引导统一保证）。
  *
  * 四、预留命令 id（入口已渲染为「未注册 = 禁用 + 原因提示」，注册后自动点亮）
  * `view.zoomFit`（FE-06）· `edit.undo` / `edit.redo`（FE-06）· `review.comment.toggle` /
@@ -83,6 +85,14 @@ export {
   resetEditorSlots,
   subscribeEditorSlots,
 } from './slots/registry';
+// 引导族（工单 02：唯一客户端引导 + 声明式注册表的**机制层**；声明与执行点在
+// `app/editor/editor-bootstrap.tsx`，本包不反向依赖 feature 域）
+export {
+  type EditorBootstrapEntry,
+  type EditorSlotDeclaration,
+  mountEditorSlotDeclarations,
+  runEditorBootstrapEntries,
+} from './bootstrap/registry';
 export { type EditorUiState, isEditorOverlayOpen, useEditorUi } from './state/ui';
 // UI 态
 export {
