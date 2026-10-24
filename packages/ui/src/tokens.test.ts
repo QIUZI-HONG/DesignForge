@@ -120,6 +120,70 @@ describe('令牌 · 规格硬值（浅色首页族 / 深色编辑器族）', () 
   });
 });
 
+describe('令牌 · 单位合法性（F-1 缺陷回归守卫）', () => {
+  // 病灶（总纲 §1 F-1）：序列化器对数字默认补 px，时长档落盘成 `150px`，
+  // components.css 引用它的 transition/animation 整条非法被浏览器静默丢弃。
+  // 一致性测试两边一致地错拦不住它——单位必须对独立预期源（规格硬值字面量）断言。
+
+  it('时长档序列化为 ms（历史缺陷现场：150px → 必须为 150ms）', () => {
+    const shared = flattenPrimitives();
+    expect(shared['--dfg-duration-fast']).toBe('150ms');
+    expect(shared['--dfg-duration-base']).toBe('200ms');
+    expect(shared['--dfg-duration-slow']).toBe('300ms');
+  });
+
+  it('tokens.css 时长变量落盘为 ms（落盘件与序列化分支同步修正）', () => {
+    const shared = parseBlock(tokensCss, /:root\s*\{([^}]*)\}/);
+    expect(shared['--dfg-duration-fast']).toBe('150ms');
+    expect(shared['--dfg-duration-base']).toBe('200ms');
+    expect(shared['--dfg-duration-slow']).toBe('300ms');
+  });
+
+  it('序列化分支各归各位：长度族 px、字重/行高/层级无单位（修 ms 不得伤及他族）', () => {
+    const shared = flattenPrimitives();
+    expect(shared['--dfg-space-4']).toBe('16px');
+    expect(shared['--dfg-radius-md']).toBe('6px');
+    expect(shared['--dfg-font-size-13']).toBe('13px');
+    expect(shared['--dfg-font-weight-regular']).toBe('400');
+    expect(shared['--dfg-line-height-base']).toBe('1.4');
+    expect(shared['--dfg-z-modal']).toBe('1200');
+    expect(shared['--dfg-letter-spacing-wide']).toBe('0.04em');
+  });
+
+  it('全部数值令牌单位合法：时长 ms / 长度 px / 无单位族裸数字 / 字距 em（两套主题含密度几何）', () => {
+    // 分类表是测试侧对规格口径的独立表达（不 import 实现），防「按实现的写法复述实现」。
+    const familyUnits: Array<[prefix: string, unit: 'ms' | 'px' | 'em' | 'none'>] = [
+      ['--dfg-duration-', 'ms'],
+      ['--dfg-font-weight-', 'none'],
+      ['--dfg-line-height-', 'none'],
+      ['--dfg-z-', 'none'],
+      ['--dfg-letter-spacing-', 'em'],
+      ['--dfg-radius-', 'px'],
+      ['--dfg-space-', 'px'],
+      ['--dfg-font-size-', 'px'],
+      ['--dfg-icon-size-', 'px'],
+      ['--dfg-icon-gap', 'px'],
+      ['--dfg-size-', 'px'],
+      ['--dfg-border-width-', 'px'],
+      ['--dfg-control-height-', 'px'],
+      ['--dfg-control-padding-x-', 'px'],
+      ['--dfg-row-height-', 'px'],
+    ];
+    const all: TokenVars = {
+      ...flattenPrimitives(),
+      ...flattenTheme(light),
+      ...flattenTheme(dark),
+    };
+    for (const [name, value] of Object.entries(all)) {
+      const family = familyUnits.find(([prefix]) => name.startsWith(prefix));
+      if (family === undefined) continue; // 非数值令牌（色/影/缓动/字体栈）不参与单位断言
+      const suffix = { ms: 'ms', px: 'px', em: 'em', none: '' }[family[1]];
+      const pattern = suffix === '' ? /^\d+(?:\.\d+)?$/ : new RegExp(`${suffix}$`);
+      expect(`${name}=${value}`).toMatch(pattern);
+    }
+  });
+});
+
 describe('令牌 · 结构不变量', () => {
   it('两套主题键集完全一致（颜色/阴影结构可互换）', () => {
     expect(collectPaths(light.colors).sort()).toEqual(collectPaths(dark.colors).sort());

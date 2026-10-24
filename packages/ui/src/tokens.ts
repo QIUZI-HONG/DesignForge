@@ -455,10 +455,21 @@ function isUnitless(name: string): boolean {
   );
 }
 
-/** 令牌值 → CSS 声明值（数字默认补 px）。 */
+/**
+ * 时长令牌（补 ms 后缀）：CSS `<time>` 必须带时间单位——落成 px 会让引用它的
+ * `transition` / `animation` 整条声明非法、被浏览器静默丢弃（总纲 §1 F-1 病灶，
+ * 全部组件动效因此从未生效）。数字默认补 px 的规则只属于长度类。
+ */
+function isDuration(name: string): boolean {
+  return name.startsWith('--dfg-duration-');
+}
+
+/** 令牌值 → CSS 声明值（时长补 ms、无单位类裸数字、其余数字默认补 px）。 */
 function toCssValue(name: string, value: string | number): string {
   if (typeof value === 'string') return value;
-  return isUnitless(name) ? String(value) : `${value}px`;
+  if (isUnitless(name)) return String(value);
+  if (isDuration(name)) return `${value}ms`;
+  return `${value}px`;
 }
 
 /** 递归展平：数字/字符串成叶子，对象成变量名前缀。 */
