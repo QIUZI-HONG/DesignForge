@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { copyNodes, duplicateCommands, pasteCommands } from './clipboard/index';
 import { CommandError, CommandStack, groupNodesCommands } from './commands/index';
+import { autoLayoutCommands } from './layout/index';
 import { createIdFactory } from './model/ids';
 import {
   createComponent,
@@ -18,11 +19,12 @@ import {
   createRect,
   createText,
   type DesignDocument,
+  defaultAutoLayout,
 } from './model/index';
-import { getPage, insertNode, insertNodes, validateDocument } from './scene/index';
+import { getPage, insertNode, insertNodes, requireNode, validateDocument } from './scene/index';
 import { deepFreezeDocument } from './scene/validate';
 import { alignCommands, distributeCommands } from './selection/index';
-import { parseDocument, serializeDocument } from './serialize/index';
+import { DESIGN_IR_VERSION, parseDocument, serializeDocument } from './serialize/index';
 
 /** 一份能覆盖多数写法路径的文档。 */
 function baseDoc(): DesignDocument {
@@ -244,5 +246,110 @@ describe('不变式 · 微任务结算不破坏事务语义', () => {
     expect(getPage(stack.document, 'p1').nodes.r1?.x).toBe(17); // 失败事务未生效
     expect(stack.history().undo).toHaveLength(1);
     expect(JSON.parse(JSON.stringify(stack.document))).not.toEqual(before);
+  });
+});
+
+/**
+ * 不变式扩展（工单 11：自动布局主轴 fill）——新能力同样受四大骨架约束：
+ * 写操作唯一入口 / 撤销重做往返 / 事务失败回滚 / 序列化往返恒等（且 `$version` 不变）。
+ *
+ * ⚠ 代码完成，测试待 dev 机执行（本机 Windows/WSL 无 node/pnpm）。
+ */
+describe('不变式 · 自动布局主轴 fill（工单 11）', () => {
+  /** 水平固定容器 f1 + 自身声明 fill 的子画板 cf（fill 的文档承载 = 子画板自身 sizing）。 */
+  function fillDoc(): DesignDocument {
+    let doc = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+    doc = insertNode(
+      doc,
+      'p1',
+      createFrame({
+        id: 'f1',
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 100,
+        autoLayout: {
+          ...defaultAutoLayout('horizontal'),
+          spacing: 0,
+          padding: { top: 8, right: 8, bottom: 8, left: 8 },
+          widthSizing: 'fixed',
+          heightSizing: 'fixed',
+        },
+      }),
+      null,
+    );
+    doc = insertNode(
+      doc,
+      'p1',
+      createFrame({
+        id: 'cf',
+        x: 8,
+        y: 8,
+        width: 100,
+        height: 50,
+        autoLayout: {
+          ...defaultAutoLayout('horizontal'),
+          spacing: 0,
+          padding: { top: 8, right: 8, bottom: 8, left: 8 },
+          widthSizing: 'fill',
+          heightSizing: 'fixed',
+        },
+      }),
+      'f1',
+    );
+    return doc;
+  }
+
+  it('写操作唯一入口：fill 求解是纯函数，伸缩结果只经命令栈写入', () => {
+    const doc = fillDoc();
+    const snapshot = JSON.parse(JSON.stringify(doc));
+    const commands = autoLayoutCommands(getPage(doc, 'p1'), 'p1', 'f1');
+    expect(commands).not.toHaveLength(0);
+    expect(JSON.parse(JSON.stringify(doc))).toEqual(snapshot); // 求解不改文档
+    const stack = new CommandStack(doc);
+    stack.dispatch(commands);
+    expect(requireNode(getPage(stack.document, 'p1'), 'cf')).toMatchObject({ width: 284 });
+  });
+
+  it('撤销/重做往返：fill 伸缩写入后逐字段回退与重放', () => {
+    const stack = new CommandStack(fillDoc());
+    const initial = JSON.parse(JSON.stringify(stack.document));
+    stack.dispatch(autoLayoutCommands(getPage(stack.document, 'p1'), 'p1', 'f1'));
+    const applied = JSON.parse(JSON.stringify(stack.document));
+    expect(applied).not.toEqual(initial);
+    expect(requireNode(getPage(stack.document, 'p1'), 'cf')).toMatchObject({ width: 284 });
+    expect(stack.undo()).toBe(true);
+    expect(JSON.parse(JSON.stringify(stack.document))).toEqual(initial);
+    expect(stack.redo()).toBe(true);
+    expect(JSON.parse(JSON.stringify(stack.document))).toEqual(applied);
+  });
+
+  it('事务失败回滚：fill 命令批中夹失败命令 → 文档逐字段不变、历史不增长', () => {
+    const stack = new CommandStack(fillDoc());
+    const before = JSON.parse(JSON.stringify(stack.document));
+    let caught: unknown = null;
+    try {
+      stack.dispatch([
+        ...autoLayoutCommands(getPage(stack.document, 'p1'), 'p1', 'f1'),
+        { type: 'node.update', pageId: 'p1', nodeId: 'ghost', patch: { x: 1 } },
+      ]);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(CommandError);
+    expect(JSON.parse(JSON.stringify(stack.document))).toEqual(before);
+    expect(stack.canUndo).toBe(false);
+  });
+
+  it('序列化往返恒等：fill 配置文档幂等往返，$version 不变（纯行为能力，无格式变更）', () => {
+    const stack = new CommandStack(fillDoc());
+    stack.dispatch(autoLayoutCommands(getPage(stack.document, 'p1'), 'p1', 'f1'));
+    const once = serializeDocument(stack.document);
+    const parsed = parseDocument(once);
+    expect(parsed.enveloped).toBe(true);
+    expect(parsed.version).toBe(DESIGN_IR_VERSION);
+    expect(DESIGN_IR_VERSION).toBe(1); // 版本不可变：本工单不引入格式变更
+    expect(parsed.document).toEqual(stack.document);
+    expect(serializeDocument(parsed.document)).toBe(once);
   });
 });
