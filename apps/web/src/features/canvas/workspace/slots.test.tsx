@@ -58,7 +58,8 @@ describe('右栏页签 · 出图（D1）', () => {
 
 describe('工具栏 AI 入口（D1）', () => {
   it('点入口按钮 → AI 抽屉打开（data-df-panel=ai）且按钮 aria-pressed；再点 → 关闭', async () => {
-    // 入口按钮执行 `view.ai` 命令（生产由 WorkspaceBootstrap 注册；这里按同一装配注册）
+    // 入口按钮执行 `view.ai` 命令（生产由编辑器引导注册表执行 `mountEditorWorkspace`
+    // 注册，见 app/editor/editor-bootstrap.tsx；这里按同一装配直接登记）
     registerWorkspaceCommands();
     render(
       <>

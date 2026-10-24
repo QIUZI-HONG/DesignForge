@@ -7,8 +7,9 @@
  * `registerEditorSlotItem('<槽名>', …)` 挂载（或在自身模块顶层注册）。
  *
  * 挂载点：`app/editor/page.tsx` 组合 `<EditorShell>` 时已为每个槽留了宿主
- * （`<EditorSlotHost slot="…" />`）；若某票的插槽模块需要在路由侧被 import，
- * 在 `app/editor/page.tsx` 顶部加一行 `import '<自身目录>/register'` 即可（纯增量）。
+ * （`<EditorSlotHost slot="…" />`）；插槽条目统一声明在 `app/editor/editor-bootstrap.tsx`
+ * 的 `EDITOR_SLOT_DECLARATIONS`（工单 02 起的声明式注册表），由唯一客户端引导件在
+ * 挂载后经 `mountEditorSlotDeclarations` 批量注册——新增插槽 = 声明表加一条（纯增量）。
  *
  * 语义（与命令注册表一致，便于同一套心智）：
  * - 同槽同 id **后注册者覆盖前者，位置停在首次注册处**（热重载友好）；
