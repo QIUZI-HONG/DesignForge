@@ -44,9 +44,9 @@
   --dfg-line-height-relaxed: 1.6;
   --dfg-letter-spacing-tight: -0.01em;
   --dfg-letter-spacing-wide: 0.04em;
-  --dfg-duration-fast: 150px;
-  --dfg-duration-base: 200px;
-  --dfg-duration-slow: 300px;
+  --dfg-duration-fast: 150ms;
+  --dfg-duration-base: 200ms;
+  --dfg-duration-slow: 300ms;
   --dfg-easing-standard: cubic-bezier(0.2, 0, 0, 1);
   --dfg-easing-emphasized: cubic-bezier(0.4, 0, 0.2, 1);
   --dfg-easing-exit: cubic-bezier(0.4, 0, 1, 1);

@@ -142,11 +142,108 @@ describe('guard-tokens · 规则', () => {
   });
 
   it('规则表可列举（CLI 输出用）', () => {
-    expect(RULES.map((rule) => rule.id)).toEqual(['R1', 'R2', 'R3']);
+    expect(RULES.map((rule) => rule.id)).toEqual(['R1', 'R2', 'R3', 'R4']);
     for (const rule of RULES) {
       expect(rule.title.length).toBeGreaterThan(0);
       expect(rule.hint.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('guard-tokens · 单位合法性（R4，F-1 缺陷回归守卫）', () => {
+  // 病灶（总纲 §1 F-1）：时长令牌落盘 `150px`，一致性测试两边一致地错。
+  // R4 让「单位」本身成为被守卫对象：时长必须 ms、长度必须 px、字重/行高/层级必须无单位。
+  // 白名单对 R1-R3 豁免令牌定义文件（px/色值在那里是合法居民），但 R4 对 tokens.css 照查。
+
+  it('R4 抓时长令牌落 px（既有误用现场：--dfg-duration-fast: 150px 必须被抓）', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      ':root {\n  --dfg-duration-fast: 150px;\n}\n',
+    );
+    expect(violations.map((item) => `${item.rule}:${item.line}:${item.text}`)).toEqual([
+      'R4:2:--dfg-duration-fast: 150px',
+    ]);
+  });
+
+  it('R4 双向抓错：长度缺单位 / 无单位族带单位 / 时长非 ms / 未登记数值族', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      [
+        ':root {',
+        '  --dfg-space-2: 8;',
+        '  --dfg-font-weight-bold: 700px;',
+        '  --dfg-duration-base: 200;',
+        '  --dfg-duration-slow: 0.3s;',
+        '  --dfg-z-toast: 1300px;',
+        '  --dfg-opacity-ghost: 0.4;',
+        '}',
+      ].join('\n'),
+    );
+    expect(violations.map((item) => item.rule)).toEqual(['R4', 'R4', 'R4', 'R4', 'R4', 'R4']);
+  });
+
+  it('R4 放行单位正确写法：时长 ms / 长度 px / 无单位族裸数字 / 字距 em / 非数值令牌', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      [
+        ':root {',
+        '  --dfg-duration-fast: 150ms;',
+        '  --dfg-space-0: 0px;',
+        '  --dfg-space-2: 8px;',
+        '  --dfg-font-weight-regular: 400;',
+        '  --dfg-line-height-base: 1.4;',
+        '  --dfg-z-modal: 1200;',
+        '  --dfg-letter-spacing-tight: -0.01em;',
+        '  --dfg-font-sans: "Noto Sans SC", ui-sans-serif, sans-serif;',
+        '  --dfg-color-primary: #0d99ff;',
+        '  --dfg-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);',
+        '  --dfg-easing-standard: cubic-bezier(0.2, 0, 0, 1);',
+        '}',
+      ].join('\n'),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it('R1-R3 对令牌定义文件仍豁免（px/色值在落盘件合法），R4 照查', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      ':root {\n  --dfg-color-primary: #0d99ff;\n  --dfg-duration-fast: 150px;\n}\n',
+    );
+    // 只有 R4 报时长单位：R1 不因 #0d99ff 报、R2 不因落盘 px 报
+    expect(violations.map((item) => item.rule)).toEqual(['R4']);
+  });
+
+  it('R4 对任意扫描文件里重新声明的 --dfg-* 生效；注释与示例文本不误报', () => {
+    const declared = scanText(
+      'apps/web/src/app/globals.css',
+      ':root {\n  --dfg-duration-fast: 0.2s;\n}\n',
+    );
+    expect(declared.map((item) => `${item.rule}:${item.text}`)).toEqual([
+      'R4:--dfg-duration-fast: 0.2s',
+    ]);
+
+    const documented = scanText(
+      'apps/web/src/a.ts',
+      '// 示例：var(--dfg-duration-fast) 或 { --dfg-duration-fast: 150px } 均为说明文本\n',
+    );
+    expect(documented).toEqual([]);
+  });
+
+  it('scanRoots：tokens.css 仍记入白名单跳过（R1-R3 豁免），但 R4 违规照报', () => {
+    const root = join(process.cwd(), 'node_modules', '.cache', 'guard-tokens-units-fixture');
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(join(root, 'packages/ui/src'), { recursive: true });
+    writeFileSync(
+      join(root, 'packages/ui/src/tokens.css'),
+      ':root {\n  --dfg-duration-fast: 150px;\n}\n',
+    );
+
+    const result = scanRoots(root, ['packages/ui/src']);
+    expect(result.violations.map((item) => `${item.file}:${item.rule}`)).toEqual([
+      'packages/ui/src/tokens.css:R4',
+    ]);
+    expect(result.skipped.map((item) => item.file)).toEqual(['packages/ui/src/tokens.css']);
+    expect(result.skipped[0]?.reason).toContain('R4');
   });
 });
 

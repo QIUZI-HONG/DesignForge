@@ -11,6 +11,12 @@
  *   `0`、`0px` 等零值放行）；
  * - R3 样式对象裸数字：`marginTop: 8` 这类**间距/尺寸族属性**赋裸数字（应为 `var(--dfg-space-*)`）；
  *   `lineHeight`（无单位值是乘数，不是尺寸）与 `inset`（定位几何，规格豁免「几何计算」）不在其列。
+ * - R4 令牌单位非法（F-1 缺陷回归守卫）：`--dfg-*` 自定义属性的**数值**值按族校验单位——
+ *   时长必须 `ms`、长度必须 `px`、字重/行高/层级必须无单位、字距必须 `em`（族表见
+ *   `TOKEN_UNIT_RULES`）；未登记的数值族一律违规（登记制）。病灶：时长档数字默认补 px
+ *   落盘 `150px`，引用它的 transition/animation 整条非法被浏览器静默丢弃，而一致性测试
+ *   两边一致地错拦不住——单位必须独立断言。R4 **不设行内豁免**（`guard-tokens:allow`
+ *   只作用于 R1-R3）：单位合法性是词汇表契约，例外走 TOKEN_UNIT_RULES 登记，不开行内后门。
  *
  * 「样式语法上下文才判」的统一口径（注释与字符串都按此执行）：
  * - 代码文本（非注释、非字符串）一律判；
@@ -21,7 +27,8 @@
  *   （本仓 zh-CN 唯一暴露：界面文案必含中日韩文字，是文案/数据而非样式取值）。
  *
  * 白名单（文件级 + 行内级）：
- * - 令牌定义文件（tokens.ts / tokens.css）——颜色与间距的唯一定义处；
+ * - 令牌定义文件（tokens.ts / tokens.css）——颜色与间距的唯一定义处；**豁免只及 R1-R3**：
+ *   tokens.css 是 `--dfg-*` 数值的落盘地（px/色值在那里合法），但 R4 对它照查（150px 病灶就在此）；
  * - 测试文件——断言期望值本就需要写出具体色值/尺寸，且不进产物；
  * - 守卫自测夹具——需要构造违规样例；
  * - 行内豁免：注释里写 `guard-tokens:allow <理由>`（理由必填），**只豁免本行**
@@ -53,7 +60,7 @@ export const ALLOWLIST = [
   },
   {
     pattern: /^packages\/ui\/src\/tokens\.css$/,
-    reason: '令牌定义文件：CSS 变量落盘（与 tokens.ts 逐项一致，由 tokens.test.ts 断言）',
+    reason: '令牌定义文件：CSS 变量落盘（R1-R3 豁免；R4 单位合法性照查——时长 px 病灶在此检出）',
   },
   {
     pattern: /\.test\.[cm]?[jt]sx?$/,
@@ -81,7 +88,46 @@ export const RULES = [
     hint: '长度一律取 --dfg-space-* / --dfg-radius-* / --dfg-font-size-* 等令牌',
   },
   { id: 'R3', title: '样式对象裸数字', hint: '间距族属性一律 var(--dfg-*) 字符串，不写裸数字' },
+  {
+    id: 'R4',
+    title: '令牌单位非法',
+    hint: '时长必须 ms、长度必须 px、字重/行高/层级必须无单位（族表见 TOKEN_UNIT_RULES）',
+  },
 ];
+
+/**
+ * R4 令牌族 → 合法单位表（`unit: null` = 必须无单位）。
+ *
+ * 顺序即优先级（前缀首中即判）：新增数值令牌族必须先在此登记合法单位（登记制），
+ * 未登记数值族一律违规——词汇表的单位契约只有一处。
+ * 非数值令牌（色/影/缓动/字体栈，值非「数字+可选单位」形态）不参与本表。
+ */
+export const TOKEN_UNIT_RULES = [
+  { prefix: '--dfg-duration-', unit: 'ms' },
+  { prefix: '--dfg-font-weight-', unit: null },
+  { prefix: '--dfg-line-height-', unit: null },
+  { prefix: '--dfg-z-', unit: null },
+  { prefix: '--dfg-letter-spacing-', unit: 'em' },
+  { prefix: '--dfg-radius-', unit: 'px' },
+  { prefix: '--dfg-space-', unit: 'px' },
+  { prefix: '--dfg-font-size-', unit: 'px' },
+  { prefix: '--dfg-icon-size-', unit: 'px' },
+  { prefix: '--dfg-icon-gap', unit: 'px' },
+  { prefix: '--dfg-size-', unit: 'px' },
+  { prefix: '--dfg-border-width-', unit: 'px' },
+  { prefix: '--dfg-control-height-', unit: 'px' },
+  { prefix: '--dfg-control-padding-x-', unit: 'px' },
+  { prefix: '--dfg-row-height-', unit: 'px' },
+];
+
+/** 令牌定义文件（R1-R3 白名单豁免、R4 照查）——路径用 `/` 分隔后比对。 */
+const TOKEN_DEFINITION_PATTERN = /^packages\/ui\/src\/tokens\.css$/;
+
+/** 数值令牌值：整数/小数（可负）+ 可选单位；整体匹配，多段值（阴影/缓动/字体栈）不命中。 */
+const NUMERIC_TOKEN_VALUE = /^(-?(?:\d+(?:\.\d+)?|\.\d+))(ms|s|px|rem|em|%|vh|vw|deg|fr|ch|ex)?$/i;
+
+/** `--dfg-*` 自定义属性声明（行级；容忍 TS 对象键形态的引号，值取到 `;`/`}` 前）。 */
+const CUSTOM_PROPERTY_PATTERN = /(--dfg-[a-z0-9-]+)\s*:\s*([^;{}]+)/g;
 
 /**
  * R3 关注的间距/尺寸族属性名。
@@ -262,19 +308,14 @@ function maskNonCodeText(lines) {
 }
 
 /**
- * 扫描单文件文本。
+ * R1-R3 禁裸值判定（原 scanText 主体；行内豁免标记按原文判断，只豁免本行）。
  *
- * @param {string} file 相对仓库根路径（用于报告与白名单判定）
- * @param {string} text 文件内容
+ * @param {string} file 相对仓库根路径
+ * @param {string[]} lines 原文行
+ * @param {string[]} scanned 屏蔽说明注释/示例文案后的行
  * @returns {Array<{file: string, line: number, column: number, rule: string, ruleTitle: string, text: string, hint: string}>}
  */
-export function scanText(file, text) {
-  const allowed = allowlistFor(file);
-  if (allowed.allowed) return [];
-
-  const lines = text.split('\n');
-  // 规则在「屏蔽掉说明注释与示例/文案字符串」的文本上跑；行内豁免标记仍按原文判断
-  const scanned = maskNonCodeText(lines);
+function bareValueViolations(file, lines, scanned) {
   /** @type {Array<{file: string, line: number, column: number, rule: string, ruleTitle: string, text: string, hint: string}>} */
   const violations = [];
   const push = (ruleId, lineIndex, column, snippet) => {
@@ -309,6 +350,108 @@ export function scanText(file, text) {
     }
   });
 
+  return violations;
+}
+
+/**
+ * R4 令牌单位合法性判定（F-1 缺陷回归守卫）。
+ *
+ * 对屏蔽后的文本逐行找 `--dfg-*` 自定义属性声明，值呈「数字+可选单位」形态者按族校验：
+ * - 族表命中：单位必须与 `TOKEN_UNIT_RULES` 登记一致（时长 ms / 长度 px / 字距 em /
+ *   字重行高层级无单位）；长度/字距族的**裸 0** 放行（零值与单位无关），时长族不放——
+ *   无单位 `<time>` 正是 F-1 病灶形态；
+ * - 族表未命中：一律违规（登记制——新数值族须先在 TOKEN_UNIT_RULES 登记合法单位）。
+ *
+ * 不设行内豁免（`guard-tokens:allow` 只作用于 R1-R3）：单位契约的例外走族表登记，
+ * 不开行内后门。
+ *
+ * @param {string} file 相对仓库根路径
+ * @param {string[]} scanned 屏蔽说明注释/示例文案后的行
+ * @returns {Array<{file: string, line: number, column: number, rule: string, ruleTitle: string, text: string, hint: string}>}
+ */
+function unitViolations(file, scanned) {
+  const rule = RULES.find((entry) => entry.id === 'R4');
+  const ruleTitle = rule?.title ?? '令牌单位非法';
+  const ruleHint = rule?.hint ?? '';
+  /** @type {Array<{file: string, line: number, column: number, rule: string, ruleTitle: string, text: string, hint: string}>} */
+  const violations = [];
+
+  scanned.forEach((line, index) => {
+    for (const match of line.matchAll(CUSTOM_PROPERTY_PATTERN)) {
+      const name = match[1] ?? '';
+      // 容忍 TS 声明形态的引号与 `!important`：先剥离再判数值形态
+      const value = (match[2] ?? '')
+        .trim()
+        .replace(/!important$/i, '')
+        .trim()
+        .replace(/^(['"])([\s\S]*)\1$/, '$2')
+        .trim();
+      const numeric = NUMERIC_TOKEN_VALUE.exec(value);
+      if (numeric === null) continue; // 非数值令牌（色/影/缓动/字体栈）不参与单位断言
+      const text = `${name}: ${value}`;
+      const column = (match.index ?? 0) + 1;
+      const family = TOKEN_UNIT_RULES.find((entry) => name.startsWith(entry.prefix));
+      if (family === undefined) {
+        violations.push({
+          file,
+          line: index + 1,
+          column,
+          rule: 'R4',
+          ruleTitle,
+          text,
+          hint: '未登记的数值令牌族：先在 TOKEN_UNIT_RULES 登记合法单位（登记制）',
+        });
+        continue;
+      }
+      const numberText = numeric[1] ?? '';
+      const unit = numeric[2];
+      let unitOk;
+      if (family.unit === null) {
+        // 无单位族：任何单位后缀都违规
+        unitOk = unit === undefined;
+      } else if (unit !== undefined && unit.toLowerCase() === family.unit) {
+        unitOk = true;
+      } else {
+        // 长度/字距族的裸 0 放行（零值与单位无关）；时长族不放——无单位 <time> 正是病灶形态
+        unitOk = family.unit !== 'ms' && Number(numberText) === 0 && unit === undefined;
+      }
+      if (!unitOk) {
+        violations.push({
+          file,
+          line: index + 1,
+          column,
+          rule: 'R4',
+          ruleTitle,
+          text,
+          hint: ruleHint,
+        });
+      }
+    }
+  });
+
+  return violations;
+}
+
+/**
+ * 扫描单文件文本。
+ *
+ * 白名单豁免只及 R1-R3（令牌定义文件里 px/色值是合法居民）；R4 单位合法性对
+ * `packages/ui/src/tokens.css` 照查（时长 px 病灶就在该文件），对其余扫描文件照查。
+ *
+ * @param {string} file 相对仓库根路径（用于报告与白名单判定）
+ * @param {string} text 文件内容
+ * @returns {Array<{file: string, line: number, column: number, rule: string, ruleTitle: string, text: string, hint: string}>}
+ */
+export function scanText(file, text) {
+  const allowed = allowlistFor(file);
+  const isTokenDefinition = TOKEN_DEFINITION_PATTERN.test(file.split(sep).join('/'));
+  if (allowed.allowed && !isTokenDefinition) return [];
+
+  const lines = text.split('\n');
+  // 规则在「屏蔽掉说明注释与示例/文案字符串」的文本上跑；行内豁免标记仍按原文判断
+  const scanned = maskNonCodeText(lines);
+  const violations = allowed.allowed ? [] : bareValueViolations(file, lines, scanned);
+  violations.push(...unitViolations(file, scanned));
   return violations;
 }
 

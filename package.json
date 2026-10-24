@@ -24,6 +24,7 @@
     "verify:market": "node scripts/verify-market.mjs",
     "verify:self-designed": "node scripts/verify-self-designed.mjs",
     "verify:shell-parity": "node scripts/verify-shell-parity.mjs",
+    "verify:motion": "node scripts/verify-motion.mjs",
     "verify:figma-baseline": "node scripts/verify-figma-baseline.mjs",
     "verify:figma-component": "node scripts/verify-figma-component.mjs",
     "verify:figma-editor": "node scripts/verify-figma-editor.mjs",
