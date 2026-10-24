@@ -26,7 +26,8 @@ import {
   settleAckError,
   tick,
 } from '../confirm';
-import { mcpStyles } from './styles';
+
+import './mcp.css';
 
 /** McpConfirmBar props。 */
 export interface McpConfirmBarProps {
@@ -116,27 +117,27 @@ export function McpConfirmBar(props: McpConfirmBarProps) {
   const diffCount = proposal.diff.ops.length;
 
   return (
-    <section aria-label={t('mcp.title')} style={mcpStyles.bar} data-df-mcp-confirm={view.phase}>
-      <div style={mcpStyles.header}>
-        <span style={mcpStyles.title}>
+    <section aria-label={t('mcp.title')} className="dfg-mcp__bar" data-df-mcp-confirm={view.phase}>
+      <div className="dfg-mcp__header">
+        <span className="dfg-mcp__title">
           {t('mcp.proposal', { id: proposal.proposalId })}·{t('mcp.tool')}{' '}
-          <span style={mcpStyles.tool}>{proposal.tool}</span>
+          <span className="dfg-mcp__tool">{proposal.tool}</span>
         </span>
-        <span style={mcpStyles.spacer} />
+        <span className="dfg-mcp__spacer" />
         {/* 桩的显式标注（角标 + 悬停说明）：门禁断言 data-df-stub 挂点 */}
         <Tooltip content={t('mcp.stub.desc')}>
-          <span data-df-stub="true" title={t('mcp.stub.desc')} style={mcpStyles.stubBadge}>
+          <span data-df-stub="true" title={t('mcp.stub.desc')} className="dfg-mcp__stub-badge">
             {t('mcp.stub')}
           </span>
         </Tooltip>
       </div>
 
-      <div style={mcpStyles.meta}>
-        <span style={mcpStyles.metaItem}>
+      <div className="dfg-mcp__meta">
+        <span className="dfg-mcp__meta-item">
           <span>{t('mcp.caller')}：</span>
           <span>{t(`mcp.caller.${proposal.caller}`)}</span>
         </span>
-        <span style={mcpStyles.metaItem}>{t('mcp.audit', { id: proposal.auditId })}</span>
+        <span className="dfg-mcp__meta-item">{t('mcp.audit', { id: proposal.auditId })}</span>
       </div>
 
       <div>
@@ -149,16 +150,16 @@ export function McpConfirmBar(props: McpConfirmBarProps) {
           {expanded ? t('mcp.diff.collapse') : t('mcp.diff.expand', { count: diffCount })}
         </Button>
         {expanded ? (
-          <ul style={mcpStyles.diffList} aria-label={t('mcp.title')}>
+          <ul className="dfg-mcp__diff-list" aria-label={t('mcp.title')}>
             {proposal.diff.ops.map((op, index) => (
-              <li key={`${op.op}-${String(index)}`} style={mcpStyles.diffRow}>
-                <span style={mcpStyles.diffHead}>
-                  <span style={mcpStyles.diffOp}>{op.op}</span>
-                  <span style={mcpStyles.diffTarget}>
+              <li key={`${op.op}-${String(index)}`} className="dfg-mcp__diff-row">
+                <span className="dfg-mcp__diff-head">
+                  <span className="dfg-mcp__diff-op">{op.op}</span>
+                  <span className="dfg-mcp__diff-target">
                     {t('mcp.diff.target', { target: op.target })}
                   </span>
                 </span>
-                <span style={mcpStyles.diffSummary}>{op.summary}</span>
+                <span className="dfg-mcp__diff-summary">{op.summary}</span>
               </li>
             ))}
           </ul>
@@ -166,30 +167,34 @@ export function McpConfirmBar(props: McpConfirmBarProps) {
       </div>
 
       {view.phase === 'expired' ? (
-        <div style={mcpStyles.expired} role="status">
+        <div className="dfg-mcp__expired" role="status">
           <strong>{t('mcp.expiry.expired')}</strong>
-          <span style={mcpStyles.stubNote}>{t('mcp.error.reissue')}</span>
+          <span className="dfg-mcp__stub-note">{t('mcp.error.reissue')}</span>
         </div>
       ) : null}
 
       {view.phase === 'failed' && view.error !== null ? (
-        <div style={mcpStyles.failure} role="alert">
+        <div className="dfg-mcp__failure" role="alert">
           <strong>{view.error.message}</strong>
-          <span style={mcpStyles.stubNote}>{t('mcp.error.reissue')}</span>
+          <span className="dfg-mcp__stub-note">{t('mcp.error.reissue')}</span>
         </div>
       ) : null}
 
       {view.phase === 'approved' || view.phase === 'rejected' ? (
-        <div style={mcpStyles.result} role="status" data-df-mcp-decision={view.decision ?? ''}>
+        <div
+          className="dfg-mcp__result"
+          role="status"
+          data-df-mcp-decision={view.decision ?? ''}
+        >
           <strong>
             {view.decision === 'approved' ? t('mcp.result.approved') : t('mcp.result.rejected')}
           </strong>
-          <span style={mcpStyles.stubNote}>{t('mcp.result.stubNote')}</span>
+          <span className="dfg-mcp__stub-note">{t('mcp.result.stubNote')}</span>
         </div>
       ) : null}
 
       {canAct || view.phase === 'submitting' ? (
-        <div style={mcpStyles.actions}>
+        <div className="dfg-mcp__actions">
           <Button
             size="sm"
             variant="primary"
@@ -203,11 +208,11 @@ export function McpConfirmBar(props: McpConfirmBarProps) {
           <Button size="sm" disabled={!canAct} onClick={() => ack(false)}>
             {t('mcp.action.reject')}
           </Button>
-          <span style={mcpStyles.spacer} />
+          <span className="dfg-mcp__spacer" />
           {view.phase === 'submitting' ? (
             <Spinner size="sm" />
           ) : (
-            <span style={mcpStyles.countdown}>
+            <span className="dfg-mcp__countdown">
               {t('mcp.expiry.remaining', { time: formatRemaining(remaining) })}
             </span>
           )}
