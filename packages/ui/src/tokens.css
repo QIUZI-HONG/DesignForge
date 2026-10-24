@@ -10,6 +10,11 @@
  *
  * 纪律：本文件是 `scripts/guard-tokens.mjs` 的白名单文件（颜色/间距/圆角/字号的唯一定义处）；
  * 组件与页面一律 `var(--dfg-…)` 引用，禁写裸值。改令牌须同步 tokens.ts（测试逐项比对）。
+ *
+ * 令牌 v2（R-5）：`--dfg-motion-*`（动效语义：进入/退出/强调，落 `:root`）与
+ * `--dfg-elevation-*`（海拔语义：页面/浮层/弹层）、`--dfg-focus-ring-*`（焦点环组合）
+ * 是既有刻度上的**别名层**——值只能是 `none` 或 `var(--dfg-…)` 引用，不重造值；
+ * 语义名由 guard-tokens-core.mjs 的 SEMANTIC_TOKEN_FAMILIES 登记（R5，未登记即违规）。
  */
 /* 生成源见 packages/ui/src/tokens.ts（改令牌必须同步本文件，测试 tokens.test.ts 会逐项比对）。 */
 :root {
@@ -50,6 +55,12 @@
   --dfg-easing-standard: cubic-bezier(0.2, 0, 0, 1);
   --dfg-easing-emphasized: cubic-bezier(0.4, 0, 0.2, 1);
   --dfg-easing-exit: cubic-bezier(0.4, 0, 1, 1);
+  --dfg-motion-enter-duration: var(--dfg-duration-base);
+  --dfg-motion-enter-easing: var(--dfg-easing-standard);
+  --dfg-motion-exit-duration: var(--dfg-duration-fast);
+  --dfg-motion-exit-easing: var(--dfg-easing-exit);
+  --dfg-motion-emphasized-duration: var(--dfg-duration-slow);
+  --dfg-motion-emphasized-easing: var(--dfg-easing-emphasized);
   --dfg-icon-size-sm: 12px;
   --dfg-icon-size-md: 16px;
   --dfg-icon-size-lg: 24px;
@@ -122,6 +133,12 @@
   --dfg-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
   --dfg-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16);
   --dfg-shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.14);
+  --dfg-elevation-page: none;
+  --dfg-elevation-overlay: var(--dfg-shadow-popover);
+  --dfg-elevation-modal: var(--dfg-shadow-lg);
+  --dfg-focus-ring-color: var(--dfg-color-focus-ring);
+  --dfg-focus-ring-width: var(--dfg-border-width-focus);
+  --dfg-focus-ring-offset: var(--dfg-border-width-focus);
   --dfg-control-height-sm: 24px;
   --dfg-control-height-md: 32px;
   --dfg-control-height-lg: 40px;
@@ -178,6 +195,12 @@
   --dfg-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --dfg-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.48);
   --dfg-shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.44);
+  --dfg-elevation-page: none;
+  --dfg-elevation-overlay: var(--dfg-shadow-popover);
+  --dfg-elevation-modal: var(--dfg-shadow-lg);
+  --dfg-focus-ring-color: var(--dfg-color-focus-ring);
+  --dfg-focus-ring-width: var(--dfg-border-width-focus);
+  --dfg-focus-ring-offset: var(--dfg-border-width-focus);
   --dfg-control-height-sm: 20px;
   --dfg-control-height-md: 28px;
   --dfg-control-height-lg: 36px;
