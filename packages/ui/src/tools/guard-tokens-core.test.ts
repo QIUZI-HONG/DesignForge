@@ -142,7 +142,7 @@ describe('guard-tokens · 规则', () => {
   });
 
   it('规则表可列举（CLI 输出用）', () => {
-    expect(RULES.map((rule) => rule.id)).toEqual(['R1', 'R2', 'R3', 'R4']);
+    expect(RULES.map((rule) => rule.id)).toEqual(['R1', 'R2', 'R3', 'R4', 'R5']);
     for (const rule of RULES) {
       expect(rule.title.length).toBeGreaterThan(0);
       expect(rule.hint.length).toBeGreaterThan(0);
@@ -244,6 +244,103 @@ describe('guard-tokens · 单位合法性（R4，F-1 缺陷回归守卫）', () 
     ]);
     expect(result.skipped.map((item) => item.file)).toEqual(['packages/ui/src/tokens.css']);
     expect(result.skipped[0]?.reason).toContain('R4');
+  });
+});
+
+describe('guard-tokens · 语义档登记（R5，令牌 v2：海拔/动效/焦点环）', () => {
+  // 令牌 v2 语义档是既有物理刻度上的**别名层**：语义名 → 实际令牌引用，不重造值。
+  // 登记制（沿用 R4 思路）：SEMANTIC_TOKEN_FAMILIES 登记语义名 + 允许引用源前缀 +
+  // 是否允许 none；未登记语义名 / 重造值 / 引用源未登记一律违规。
+  // 与 R4 同口径：无行内豁免，例外走登记表。
+
+  it('R5 抓未登记语义名', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      ':root[data-theme="light"] {\n  --dfg-elevation-drawer: var(--dfg-shadow-md);\n}\n',
+    );
+    expect(violations.map((item) => `${item.rule}:${item.text}`)).toEqual([
+      'R5:--dfg-elevation-drawer: var(--dfg-shadow-md)',
+    ]);
+  });
+
+  it('R5 抓重造值：语义档值硬编码阴影/颜色一律违规（语义层只做映射）', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      [
+        ':root[data-theme="light"] {',
+        '  --dfg-elevation-modal: 0 8px 24px rgba(0, 0, 0, 0.16);',
+        '  --dfg-focus-ring-color: #0d99ff;',
+        '}',
+      ].join('\n'),
+    );
+    // tokens.css 对 R1-R3 豁免（rgba/#hex 在落盘件合法），此处只有 R5 报值形非法
+    expect(violations.map((item) => item.rule)).toEqual(['R5', 'R5']);
+  });
+
+  it('R5 抓引用源未登记：动效时长档不得引用时长刻度以外的令牌族', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      ':root {\n  --dfg-motion-enter-duration: var(--dfg-space-2);\n}\n',
+    );
+    expect(violations.map((item) => item.rule)).toEqual(['R5']);
+  });
+
+  it('R5 抓 none 越权：只有登记 allowNone 的档位（海拔 page）可为 none', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      ':root[data-theme="dark"] {\n  --dfg-elevation-overlay: none;\n}\n',
+    );
+    expect(violations.map((item) => `${item.rule}:${item.text}`)).toEqual([
+      'R5:--dfg-elevation-overlay: none',
+    ]);
+  });
+
+  it('R5 放行登记语义名的正确别名写法（九个语义变量全过）', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      [
+        ':root {',
+        '  --dfg-motion-enter-duration: var(--dfg-duration-base);',
+        '  --dfg-motion-enter-easing: var(--dfg-easing-standard);',
+        '  --dfg-motion-exit-duration: var(--dfg-duration-fast);',
+        '  --dfg-motion-exit-easing: var(--dfg-easing-exit);',
+        '  --dfg-motion-emphasized-duration: var(--dfg-duration-slow);',
+        '  --dfg-motion-emphasized-easing: var(--dfg-easing-emphasized);',
+        '}',
+        ':root[data-theme="light"] {',
+        '  --dfg-elevation-page: none;',
+        '  --dfg-elevation-overlay: var(--dfg-shadow-popover);',
+        '  --dfg-elevation-modal: var(--dfg-shadow-lg);',
+        '  --dfg-focus-ring-color: var(--dfg-color-focus-ring);',
+        '  --dfg-focus-ring-width: var(--dfg-border-width-focus);',
+        '  --dfg-focus-ring-offset: var(--dfg-border-width-focus);',
+        '}',
+      ].join('\n'),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it('R5 对非令牌文件里重新声明的语义档照查（与 R4 同口径）；形近名不误伤', () => {
+    const redeclared = scanText(
+      'apps/web/src/app/globals.css',
+      ':root {\n  --dfg-motion-bounce-easing: var(--dfg-easing-standard);\n}\n',
+    );
+    expect(redeclared.map((item) => item.rule)).toEqual(['R5']);
+
+    // --dfg-color-focus-ring 是既有颜色令牌（物理刻度），不属语义档家族，R5 不管它
+    const physical = scanText(
+      'packages/ui/src/tokens.css',
+      ':root[data-theme="light"] {\n  --dfg-color-focus-ring: #0d99ff;\n}\n',
+    );
+    expect(physical).toEqual([]);
+  });
+
+  it('R4 与 R5 并行各司其职：动效时长子令牌落 px 时 R4 报单位、R5 报别名形态', () => {
+    const violations = scanText(
+      'packages/ui/src/tokens.css',
+      ':root {\n  --dfg-motion-exit-duration: 150px;\n}\n',
+    );
+    expect(violations.map((item) => item.rule)).toEqual(['R4', 'R5']);
   });
 });
 

@@ -17,6 +17,11 @@
  *   落盘 `150px`，引用它的 transition/animation 整条非法被浏览器静默丢弃，而一致性测试
  *   两边一致地错拦不住——单位必须独立断言。R4 **不设行内豁免**（`guard-tokens:allow`
  *   只作用于 R1-R3）：单位合法性是词汇表契约，例外走 TOKEN_UNIT_RULES 登记，不开行内后门。
+ * - R5 语义档未登记（令牌 v2 登记制）：海拔（`--dfg-elevation-*`）/ 动效（`--dfg-motion-*`）/
+ *   焦点环（`--dfg-focus-ring-*`）是既有物理刻度之上的**别名层**，每个语义名必须在
+ *   `SEMANTIC_TOKEN_FAMILIES` 登记（含允许引用的刻度前缀与是否允许 `none`）；
+ *   未登记语义名、重造值（硬编码阴影/颜色/时长）、引用源未登记、`none` 越权一律违规。
+ *   与 R4 同口径：不设行内豁免，例外走登记表——语义词汇表只有一处。
  *
  * 「样式语法上下文才判」的统一口径（注释与字符串都按此执行）：
  * - 代码文本（非注释、非字符串）一律判；
@@ -60,7 +65,7 @@ export const ALLOWLIST = [
   },
   {
     pattern: /^packages\/ui\/src\/tokens\.css$/,
-    reason: '令牌定义文件：CSS 变量落盘（R1-R3 豁免；R4 单位合法性照查——时长 px 病灶在此检出）',
+    reason: '令牌定义文件：CSS 变量落盘（R1-R3 豁免；R4 单位合法性、R5 语义档登记照查——时长 px 病灶在此检出）',
   },
   {
     pattern: /\.test\.[cm]?[jt]sx?$/,
@@ -93,6 +98,11 @@ export const RULES = [
     title: '令牌单位非法',
     hint: '时长必须 ms、长度必须 px、字重/行高/层级必须无单位（族表见 TOKEN_UNIT_RULES）',
   },
+  {
+    id: 'R5',
+    title: '语义档未登记',
+    hint: '语义档（海拔/动效/焦点环）只用 SEMANTIC_TOKEN_FAMILIES 登记的语义名，值是 none 或指向登记刻度的 var(--dfg-…) 别名（登记制，无行内豁免）',
+  },
 ];
 
 /**
@@ -118,6 +128,53 @@ export const TOKEN_UNIT_RULES = [
   { prefix: '--dfg-control-height-', unit: 'px' },
   { prefix: '--dfg-control-padding-x-', unit: 'px' },
   { prefix: '--dfg-row-height-', unit: 'px' },
+  // 令牌 v2 动效语义档的时长子令牌：值当前是别名引用（形态归 R5 管），此处登记
+  // ms 单位契约——别名一旦被改成裸数字，R4 以正确的单位提示接住（而非「未登记族」）。
+  { prefix: '--dfg-motion-enter-duration', unit: 'ms' },
+  { prefix: '--dfg-motion-exit-duration', unit: 'ms' },
+  { prefix: '--dfg-motion-emphasized-duration', unit: 'ms' },
+];
+
+/**
+ * R5 语义档登记表（令牌 v2：海拔/动效/焦点环）。
+ *
+ * 语义档 = 既有物理刻度之上的别名层：语义名 → 实际令牌引用（不重造值）。每条登记：
+ * - `name`：语义名（与家族前缀拼出完整变量名，如 `--dfg-elevation-overlay`）；
+ * - `sources`：允许引用的刻度前缀（别名只能指向这些族，防「时长档引到间距刻度」）；
+ * - `allowNone`：该档位是否允许 `none`（仅海拔 page 档——页面基面无阴影）。
+ *
+ * 新增语义名 / 放宽引用源 / 开放 none 必须先在此登记（登记制）：
+ * 未登记语义名、重造值、引用源未登记、none 越权一律 R5 违规；不设行内豁免。
+ * 与 TOKEN_UNIT_RULES 的关系：R5 管语义名与别名形态，R4 管数值单位——两表各司其职。
+ */
+export const SEMANTIC_TOKEN_FAMILIES = [
+  {
+    prefix: '--dfg-elevation-',
+    names: [
+      { name: 'page', sources: [], allowNone: true },
+      { name: 'overlay', sources: ['--dfg-shadow-'], allowNone: false },
+      { name: 'modal', sources: ['--dfg-shadow-'], allowNone: false },
+    ],
+  },
+  {
+    prefix: '--dfg-motion-',
+    names: [
+      { name: 'enter-duration', sources: ['--dfg-duration-'], allowNone: false },
+      { name: 'enter-easing', sources: ['--dfg-easing-'], allowNone: false },
+      { name: 'exit-duration', sources: ['--dfg-duration-'], allowNone: false },
+      { name: 'exit-easing', sources: ['--dfg-easing-'], allowNone: false },
+      { name: 'emphasized-duration', sources: ['--dfg-duration-'], allowNone: false },
+      { name: 'emphasized-easing', sources: ['--dfg-easing-'], allowNone: false },
+    ],
+  },
+  {
+    prefix: '--dfg-focus-ring-',
+    names: [
+      { name: 'color', sources: ['--dfg-color-'], allowNone: false },
+      { name: 'width', sources: ['--dfg-border-width-'], allowNone: false },
+      { name: 'offset', sources: ['--dfg-border-width-'], allowNone: false },
+    ],
+  },
 ];
 
 /** 令牌定义文件（R1-R3 白名单豁免、R4 照查）——路径用 `/` 分隔后比对。 */
@@ -125,6 +182,14 @@ const TOKEN_DEFINITION_PATTERN = /^packages\/ui\/src\/tokens\.css$/;
 
 /** 数值令牌值：整数/小数（可负）+ 可选单位；整体匹配，多段值（阴影/缓动/字体栈）不命中。 */
 const NUMERIC_TOKEN_VALUE = /^(-?(?:\d+(?:\.\d+)?|\.\d+))(ms|s|px|rem|em|%|vh|vw|deg|fr|ch|ex)?$/i;
+
+/**
+ * R5 语义档值的两种合法形态：
+ * - `none`（仅登记 allowNone 的档位，当前只有海拔 page 档）；
+ * - 单个 `var(--dfg-…)` 别名引用（组合值/多段值须先放宽登记——语义层只做映射，不重造值）。
+ */
+const SEMANTIC_NONE_VALUE = /^none$/;
+const SEMANTIC_ALIAS_VALUE = /^var\((--dfg-[a-z0-9-]+)\)$/;
 
 /** `--dfg-*` 自定义属性声明（行级；容忍 TS 对象键形态的引号，值取到 `;`/`}` 前）。 */
 const CUSTOM_PROPERTY_PATTERN = /(--dfg-[a-z0-9-]+)\s*:\s*([^;{}]+)/g;
@@ -354,6 +419,21 @@ function bareValueViolations(file, lines, scanned) {
 }
 
 /**
+ * 剥离声明值的装饰再判：容忍 TS 声明形态的引号与 `!important`（R4/R5 共用）。
+ *
+ * @param {string} raw CUSTOM_PROPERTY_PATTERN 捕获的原始值
+ * @returns {string}
+ */
+function declarationValue(raw) {
+  return raw
+    .trim()
+    .replace(/!important$/i, '')
+    .trim()
+    .replace(/^(['"])([\s\S]*)\1$/, '$2')
+    .trim();
+}
+
+/**
  * R4 令牌单位合法性判定（F-1 缺陷回归守卫）。
  *
  * 对屏蔽后的文本逐行找 `--dfg-*` 自定义属性声明，值呈「数字+可选单位」形态者按族校验：
@@ -379,13 +459,7 @@ function unitViolations(file, scanned) {
   scanned.forEach((line, index) => {
     for (const match of line.matchAll(CUSTOM_PROPERTY_PATTERN)) {
       const name = match[1] ?? '';
-      // 容忍 TS 声明形态的引号与 `!important`：先剥离再判数值形态
-      const value = (match[2] ?? '')
-        .trim()
-        .replace(/!important$/i, '')
-        .trim()
-        .replace(/^(['"])([\s\S]*)\1$/, '$2')
-        .trim();
+      const value = declarationValue(match[2] ?? '');
       const numeric = NUMERIC_TOKEN_VALUE.exec(value);
       if (numeric === null) continue; // 非数值令牌（色/影/缓动/字体栈）不参与单位断言
       const text = `${name}: ${value}`;
@@ -433,10 +507,73 @@ function unitViolations(file, scanned) {
 }
 
 /**
+ * R5 语义档登记判定（令牌 v2：海拔/动效/焦点环的登记制）。
+ *
+ * 对屏蔽后的文本逐行找 `--dfg-*` 自定义属性声明，命中语义档家族（SEMANTIC_TOKEN_FAMILIES
+ * 前缀）者按登记表校验：
+ * - 语义名未登记 → 违规（新语义名先登记再使用）；
+ * - 值为 `none` → 仅登记 `allowNone` 的档位放行（当前只有海拔 page 档）；
+ * - 值为单个 `var(--dfg-…)` 别名 → 被引用变量必须落在该档登记的刻度前缀内；
+ * - 其余值形（硬编码阴影/颜色/时长、多段组合值）→ 违规（语义层只做映射，不重造值；
+ *   组合值须先放宽登记）。
+ *
+ * 与 R4 同口径：不设行内豁免（`guard-tokens:allow` 只作用于 R1-R3），例外走登记表；
+ * 对任意扫描文件里重新声明的语义档同样生效。
+ *
+ * @param {string} file 相对仓库根路径
+ * @param {string[]} scanned 屏蔽说明注释/示例文案后的行
+ * @returns {Array<{file: string, line: number, column: number, rule: string, ruleTitle: string, text: string, hint: string}>}
+ */
+function semanticViolations(file, scanned) {
+  const rule = RULES.find((entry) => entry.id === 'R5');
+  const ruleTitle = rule?.title ?? '语义档未登记';
+  /** @type {Array<{file: string, line: number, column: number, rule: string, ruleTitle: string, text: string, hint: string}>} */
+  const violations = [];
+
+  scanned.forEach((line, index) => {
+    for (const match of line.matchAll(CUSTOM_PROPERTY_PATTERN)) {
+      const name = match[1] ?? '';
+      const family = SEMANTIC_TOKEN_FAMILIES.find((entry) => name.startsWith(entry.prefix));
+      if (family === undefined) continue; // 非语义档令牌归 R1-R4 管
+      const value = declarationValue(match[2] ?? '');
+      const text = `${name}: ${value}`;
+      const column = (match.index ?? 0) + 1;
+      const fail = (hint) => {
+        violations.push({ file, line: index + 1, column, rule: 'R5', ruleTitle, text, hint });
+      };
+      const registered = family.names.find((entry) => name === `${family.prefix}${entry.name}`);
+      if (registered === undefined) {
+        fail('未登记的语义档名：先在 guard-tokens-core.mjs SEMANTIC_TOKEN_FAMILIES 登记语义名与引用源（登记制）');
+        continue;
+      }
+      if (SEMANTIC_NONE_VALUE.test(value)) {
+        if (!registered.allowNone) {
+          fail(`语义档 ${registered.name} 不允许 none（仅登记 allowNone 的档位可空，例外走登记表）`);
+        }
+        continue;
+      }
+      const ref = SEMANTIC_ALIAS_VALUE.exec(value)?.[1];
+      if (ref === undefined) {
+        fail('语义档值必须是 none 或单个 var(--dfg-…) 别名引用（语义层只做映射，不重造值；组合值须先放宽登记）');
+        continue;
+      }
+      if (!registered.sources.some((prefix) => ref.startsWith(prefix))) {
+        fail(
+          `语义档 ${registered.name} 只能引用 ${registered.sources.join(' / ') || '（无）'} 刻度（引用源登记制，见 SEMANTIC_TOKEN_FAMILIES）`,
+        );
+      }
+    }
+  });
+
+  return violations;
+}
+
+/**
  * 扫描单文件文本。
  *
- * 白名单豁免只及 R1-R3（令牌定义文件里 px/色值是合法居民）；R4 单位合法性对
- * `packages/ui/src/tokens.css` 照查（时长 px 病灶就在该文件），对其余扫描文件照查。
+ * 白名单豁免只及 R1-R3（令牌定义文件里 px/色值是合法居民）；R4 单位合法性与
+ * R5 语义档登记对 `packages/ui/src/tokens.css` 照查（时长 px 病灶在该文件），
+ * 对其余扫描文件照查。
  *
  * @param {string} file 相对仓库根路径（用于报告与白名单判定）
  * @param {string} text 文件内容
@@ -452,6 +589,7 @@ export function scanText(file, text) {
   const scanned = maskNonCodeText(lines);
   const violations = allowed.allowed ? [] : bareValueViolations(file, lines, scanned);
   violations.push(...unitViolations(file, scanned));
+  violations.push(...semanticViolations(file, scanned));
   return violations;
 }
 
@@ -498,8 +636,10 @@ export function scanRoots(repoRoot, roots) {
       const allowed = allowlistFor(relPath);
       if (allowed.allowed) {
         skipped.push({ file: relPath, reason: allowed.reason ?? '' });
-        continue;
       }
+      // 白名单豁免只及 R1-R3（scanText 内部按白名单分轨）：R4/R5 对令牌落盘件照查——
+      // tokens.css 的时长 px 病灶正是在真扫描里被 R4/R5 检出的，白名单文件不能整文件跳过不扫
+      // （其余白名单文件 scanText 直接早退，行为不变）。
       violations.push(...scanText(relPath, readFileSync(absFile, 'utf8')));
     }
   }
