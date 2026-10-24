@@ -17,8 +17,9 @@ import { t } from '@/i18n';
 
 import { createImagePort, type ImagePort } from '../client';
 import { type ComfyFailureView, canDowngrade } from '../failure';
-import { imageStyles } from './styles';
 import { useImageRun } from './use-image-run';
+
+import './image.css';
 
 /** ImagePanel props。 */
 export interface ImagePanelProps {
@@ -53,9 +54,9 @@ function ActionChips({ actions }: { actions: readonly string[] }) {
   const rest = actions.filter((action) => action !== 'retry-probe');
   if (rest.length === 0) return null;
   return (
-    <div style={imageStyles.chipRow}>
+    <div className="dfg-image__chip-row">
       {rest.map((action) => (
-        <span key={action} style={imageStyles.chip}>
+        <span key={action} className="dfg-image__chip">
           {actionLabel(action)}
         </span>
       ))}
@@ -76,15 +77,15 @@ function FailureView({
   onRetryProbe: () => void;
 }) {
   return (
-    <div style={imageStyles.failureBox} data-df-image-failure={failure.code}>
-      <div style={imageStyles.bannerHeader}>
+    <div className="dfg-image__failure-box" data-df-image-failure={failure.code}>
+      <div className="dfg-image__banner-header">
         <AlertTriangleIcon size={14} />
         <span>{t('image.state.failed')}</span>
       </div>
-      <p style={imageStyles.failureMessage}>{failure.message}</p>
-      {failure.isOom ? <p style={imageStyles.bannerDetail}>{t('image.oom.hint')}</p> : null}
+      <p className="dfg-image__failure-message">{failure.message}</p>
+      {failure.isOom ? <p className="dfg-image__banner-detail">{t('image.oom.hint')}</p> : null}
       {failure.missing.length > 0 ? (
-        <div style={imageStyles.modelLists}>
+        <div className="dfg-image__model-lists">
           <span>
             {t('image.models.missing')}：{failure.missing.join('、')}
           </span>
@@ -95,7 +96,7 @@ function FailureView({
           ) : null}
         </div>
       ) : null}
-      <div style={imageStyles.chipRow}>
+      <div className="dfg-image__chip-row">
         {failure.actions.includes('retry-probe') || failure.code === 'comfy_unreachable' ? (
           <Button size="sm" onClick={onRetryProbe}>
             {t('image.probe.retry')}
@@ -170,7 +171,7 @@ export function ImagePanel(props: ImagePanelProps) {
   });
 
   const footer = (
-    <div style={imageStyles.actions}>
+    <div className="dfg-image__actions">
       <Button
         variant="primary"
         onClick={() => run.submit(inputs())}
@@ -181,7 +182,7 @@ export function ImagePanel(props: ImagePanelProps) {
         {t('image.action.submit')}
       </Button>
       {activeRun ? <Button onClick={run.cancel}>{t('image.action.cancel')}</Button> : null}
-      <span style={imageStyles.spacer} />
+      <span className="dfg-image__spacer" />
     </div>
   );
 
@@ -197,21 +198,21 @@ export function ImagePanel(props: ImagePanelProps) {
       width="md"
       footer={footer}
     >
-      <div data-df-panel="image" style={imageStyles.body}>
+      <div data-df-panel="image" className="dfg-image__body">
         {run.probing && run.probe === null ? (
-          <p style={imageStyles.bannerDetail} role="status">
+          <p className="dfg-image__banner-detail" role="status">
             {t('image.probe.checking')}
           </p>
         ) : null}
 
         {run.probe !== null && !run.probe.reachable && run.probe.failure !== null ? (
-          <div style={imageStyles.banner} data-df-image-probe="unreachable">
-            <div style={imageStyles.bannerHeader}>
+          <div className="dfg-image__banner" data-df-image-probe="unreachable">
+            <div className="dfg-image__banner-header">
               <AlertTriangleIcon size={14} />
               <span>{t('image.probe.unreachable.title')}</span>
             </div>
-            <span style={imageStyles.bannerDetail}>{run.probe.failure.message}</span>
-            <div style={imageStyles.chipRow}>
+            <span className="dfg-image__banner-detail">{run.probe.failure.message}</span>
+            <div className="dfg-image__chip-row">
               <Button size="sm" onClick={run.recheckProbe}>
                 {t('image.probe.retry')}
               </Button>
@@ -220,8 +221,8 @@ export function ImagePanel(props: ImagePanelProps) {
           </div>
         ) : null}
 
-        <div style={imageStyles.field}>
-          <label style={imageStyles.fieldLabel} htmlFor="dfg-image-positive">
+        <div className="dfg-image__field">
+          <label className="dfg-image__field-label" htmlFor="dfg-image-positive">
             {t('image.form.positive')}
           </label>
           <textarea
@@ -229,56 +230,56 @@ export function ImagePanel(props: ImagePanelProps) {
             value={positive}
             onChange={(event) => setPositive(event.target.value)}
             placeholder={t('image.form.positive.placeholder')}
-            style={imageStyles.textarea}
+            className="dfg-image__textarea"
           />
         </div>
 
-        <div style={imageStyles.field}>
-          <label style={imageStyles.fieldLabel} htmlFor="dfg-image-negative">
+        <div className="dfg-image__field">
+          <label className="dfg-image__field-label" htmlFor="dfg-image-negative">
             {t('image.form.negative')}
           </label>
           <input
             id="dfg-image-negative"
             value={negative}
             onChange={(event) => setNegative(event.target.value)}
-            style={imageStyles.paramInput}
+            className="dfg-image__param-input"
           />
         </div>
 
-        <div style={imageStyles.paramRow}>
-          <label style={imageStyles.paramLabel}>
+        <div className="dfg-image__param-row">
+          <label className="dfg-image__param-label">
             {t('image.form.width')}
             <input
               type="number"
               value={width}
               onChange={(event) => setWidth(Number(event.target.value))}
-              style={imageStyles.paramInput}
+              className="dfg-image__param-input"
             />
           </label>
-          <label style={imageStyles.paramLabel}>
+          <label className="dfg-image__param-label">
             {t('image.form.height')}
             <input
               type="number"
               value={height}
               onChange={(event) => setHeight(Number(event.target.value))}
-              style={imageStyles.paramInput}
+              className="dfg-image__param-input"
             />
           </label>
-          <label style={imageStyles.paramLabel}>
+          <label className="dfg-image__param-label">
             {t('image.form.steps')}
             <input
               type="number"
               value={steps}
               onChange={(event) => setSteps(Number(event.target.value))}
-              style={imageStyles.paramInput}
+              className="dfg-image__param-input"
             />
           </label>
         </div>
 
         {run.status !== null ? (
-          <div style={imageStyles.progressArea} data-df-image-run={run.status.state}>
-            <div style={imageStyles.progressHeader}>
-              <span style={imageStyles.statusText}>{statusText(run.status)}</span>
+          <div className="dfg-image__progress-area" data-df-image-run={run.status.state}>
+            <div className="dfg-image__progress-header">
+              <span className="dfg-image__status-text">{statusText(run.status)}</span>
             </div>
             {activeRun ? (
               run.status.progress === null ? (
@@ -304,21 +305,21 @@ export function ImagePanel(props: ImagePanelProps) {
         ) : null}
 
         {run.status !== null && run.status.state === 'succeeded' ? (
-          <div style={imageStyles.field}>
-            <span style={imageStyles.sectionTitle}>{t('image.result.title')}</span>
+          <div className="dfg-image__field">
+            <span className="dfg-image__section-title">{t('image.result.title')}</span>
             {run.status.artifacts.length > 0 ? (
-              <ul style={imageStyles.artifactList}>
+              <ul className="dfg-image__artifact-list">
                 {run.status.artifacts.map((artifact) => (
-                  <li key={artifact.sha256} style={imageStyles.artifactRow}>
-                    <span style={imageStyles.artifactName}>{artifact.fileName}</span>
-                    <span style={imageStyles.artifactSize}>
+                  <li key={artifact.sha256} className="dfg-image__artifact-row">
+                    <span className="dfg-image__artifact-name">{artifact.fileName}</span>
+                    <span className="dfg-image__artifact-size">
                       {t('image.result.size', { size: Math.round(artifact.sizeBytes / 1024) })}
                     </span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <span style={imageStyles.emptyText}>{t('image.result.empty')}</span>
+              <span className="dfg-image__empty-text">{t('image.result.empty')}</span>
             )}
           </div>
         ) : null}
