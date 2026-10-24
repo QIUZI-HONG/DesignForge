@@ -44,6 +44,7 @@
     "guard:channel-pairing": "node scripts/guard-channel-pairing.mjs",
     "guard:electron-baseline": "node scripts/guard-electron-baseline.mjs",
     "guard:mcp-contract": "node scripts/guard-mcp-contract.mjs",
+    "verify:perf": "node scripts/verify-perf.mjs",
     "e2e:smoke": "node scripts/e2e-smoke.mjs"
   },
   "devDependencies": {

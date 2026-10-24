@@ -5,10 +5,15 @@
  * （帧计数、视口、选择、节点几何、Skia/字体就绪、持久化往返），
  * 而不是靠 DOM 结构猜语义。句柄只读多、写少（写只给「门禁需要确定性状态」的场景），
  * 且**不绕过引擎**：所有写操作仍走会话方法（命令栈）。
+ *
+ * 渲染观测 seam（规格 §渲染观测 seam，工单 04）：绘制计数经既有 `stats()` 读点，
+ * 帧时长经新增只读 `perf()` 读点（`render/frame-perf.ts` 的环形窗口快照）——
+ * 同源只读、按需查询，不新造协议、不逐帧上行、无独立上报链路（daemon 遥测仅收汇总）。
  */
 
 import { resolveNode, serializeDocument } from '@dforge/engine';
 
+import type { FramePerfSnapshot } from '../render/frame-perf';
 import type { SceneRenderStats } from '../render/renderer';
 import type { CanvasSession } from '../state/session';
 import type { CanvasRuntimeStatus } from '../ui/canvas-stage';
@@ -39,8 +44,13 @@ export interface CanvasDebugHandle {
   version: 1;
   /** 运行时状态（Skia/字体/首帧/帧计数/DPR）。 */
   runtime: () => CanvasRuntimeStatus;
-  /** 最近一帧的渲染统计（画了什么）。 */
+  /** 最近一帧的渲染统计（画了什么；绘制计数 nodesDrawn/clipped/textRuns 在此，M7 据此算剔除率）。 */
   stats: () => SceneRenderStats | null;
+  /**
+   * 帧性能只读快照（渲染观测 seam：帧耗时 + rAF 间隔的环形窗口汇总，见 render/frame-perf.ts）。
+   * verify:perf 的同源数据源；未接帧计时的宿主返回 null（门禁据此阻塞，禁把「没接」当 0 帧）。
+   */
+  perf: () => FramePerfSnapshot | null;
   viewport: () => { zoom: number; panX: number; panY: number };
   zoomPercent: () => number;
   selection: () => string[];
@@ -94,6 +104,8 @@ export function sessionDebugHandle(options: {
   session: CanvasSession;
   runtime: () => CanvasRuntimeStatus;
   stats: () => SceneRenderStats | null;
+  /** 帧性能快照读点（宿主从 FramePerfRecorder 取；不传 → null = 通道未接的显式信号）。 */
+  perf?: () => FramePerfSnapshot | null;
   documentId?: () => string | null;
   extras?: Partial<Pick<CanvasDebugHandle, 'save' | 'reload' | 'exportIr' | 'importIr'>>;
 }): CanvasDebugHandle {
@@ -102,6 +114,7 @@ export function sessionDebugHandle(options: {
     version: 1,
     runtime,
     stats,
+    perf: options.perf ?? (() => null),
     viewport: () => session.viewport(),
     zoomPercent: () => Math.round(session.viewport().zoom * 100),
     selection: () => [...session.selection().ids],

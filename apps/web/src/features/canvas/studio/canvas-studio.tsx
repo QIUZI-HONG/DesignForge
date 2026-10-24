@@ -49,6 +49,7 @@ import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 import { type CanvasDebugHandle, installCanvasDebugHandle } from '../debug/canvas-debug';
 import { createDocumentsClient, type DocumentsClient } from '../persistence/documents-client';
+import { type FramePerfRecorder, createFramePerfRecorder } from '../render/frame-perf';
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasSession, type CanvasTool, createCanvasSession } from '../state/session';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
@@ -189,6 +190,9 @@ export function CanvasStudio({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const statsRef = useRef<SceneRenderStats | null>(null);
+  // 帧性能记录器（渲染观测 seam）：帧闭包喂样本，门禁经 __dforgeCanvas.perf() 按需读快照
+  const perfRef = useRef<FramePerfRecorder | null>(null);
+  if (perfRef.current === null) perfRef.current = createFramePerfRecorder();
   /** 会话单元：桥的 host 接缝（订阅随换代迁移）；初值为首版会话。 */
   const sessionCell = useMemo(() => createSessionCell(session), []);
 
@@ -337,6 +341,7 @@ export function CanvasStudio({
           error: null,
         },
       stats: () => statsRef.current,
+      perf: () => perfRef.current?.snapshot() ?? null,
       viewport: () => session.viewport(),
       zoomPercent: () => Math.round(session.viewport().zoom * 100),
       selection: () => [...session.selection().ids],
@@ -483,8 +488,9 @@ export function CanvasStudio({
         session={session}
         theme={theme}
         onStatus={setRuntimeStatus}
-        onFrame={(stats) => {
+        onFrame={(stats, timing) => {
           statsRef.current = stats;
+          perfRef.current?.record(timing);
         }}
       />
       {chrome ? (
