@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * 编辑器壳层根组件（FE-03 交付物）：顶栏（C1）+ 工具栏（C2）+ 三栏主体（插槽）+ 浮层（E7/E8）。
+ * 编辑器壳层根组件（FE-03 交付物）：顶栏（C1）+ 工具栏（C2）+ 三栏主体（插槽）+ 浮层。
  *
  * 结构（挂载点即跨票契约，改动会波及其他票）：
  * ```
@@ -9,12 +9,13 @@
  *   <EditorTopbar/>                    顶栏三区（topbar-left/center/right 插槽）
  *   <EditorToolbar/>                   工具组 + toolbar 插槽 + 缩放菜单 + 帮助
  *   <body> 左面板列(left-panel 插槽) | 画布列(canvas 插槽 + HUD 宿主 + 覆盖层) | 右面板列(right-panel 插槽)
- *   overlays 插槽（FE-07 Present 全屏层）
- *   <CommandPalette/> <ShortcutsDialog/>
+ *   overlays 插槽（FE-07 Present / 工单 08 命令面板与速查卡——经 editor-bootstrap 声明挂载）
+ *   <ShortcutsDialog/>
  * ```
  *
  * 内置命令在挂载期注册、卸载时反注册（`registerBuiltinCommands`）；后续票用同 id 覆盖时
- * 反注册不会误删它们的实现（见 `commands/registry.ts` 的语义）。
+ * 反注册不会误删它们的实现（见 `commands/registry.ts` 的语义）。命令面板（工单 08）已
+ * 迁至 `features/command-palette` 域（⌘/），经 `app/editor/editor-bootstrap.tsx` 挂载。
  */
 import { useEffect } from 'react';
 
@@ -24,7 +25,6 @@ import { registerBuiltinCommands } from '../commands/builtins';
 import { CanvasHud } from '../hud/context';
 import { useGlobalShortcuts } from '../shortcuts/use-global-shortcuts';
 import { EditorSlotHost } from '../slots/host';
-import { CommandPalette } from './command-palette';
 import { ShortcutsDialog } from './shortcuts-dialog';
 import { EditorToolbar } from './toolbar';
 import { EditorTopbar } from './topbar';
@@ -79,7 +79,13 @@ export function EditorShell() {
           <EditorSlotHost slot="left-panel" fallback={<PanelPlaceholder slot="left-panel" />} />
         </aside>
 
-        <main className="dfg-editor__canvas" data-df-slot="canvas" data-df-preview="editor/canvas">
+        {/* tabIndex=-1：命令面板关闭后焦点回落画布的程序化焦点落点（不进 Tab 序） */}
+        <main
+          className="dfg-editor__canvas"
+          data-df-slot="canvas"
+          data-df-preview="editor/canvas"
+          tabIndex={-1}
+        >
           <EditorSlotHost slot="canvas" fallback={<CanvasPlaceholder />} />
           <div className="dfg-editor__hud-host">
             <CanvasHud />
@@ -96,7 +102,6 @@ export function EditorShell() {
       </div>
 
       <EditorSlotHost slot="overlays" />
-      <CommandPalette />
       <ShortcutsDialog />
     </div>
   );

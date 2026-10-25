@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 /**
  * 编辑器壳层集成测试（briefs/fe-03.md §4 的 vitest 清单）：
- * 顶栏插槽渲染 · 工具栏工具与 active · 缩放菜单（C16）· 命令面板（E7：打开/搜索/分组/键盘/
- * 回车执行/最近使用持久化）· 快捷键说明派生（E8）· HUD show/hide（冻结接口 ② 的接入面）。
+ * 顶栏插槽渲染 · 工具栏工具与 active · 缩放菜单（C16）· 快捷键说明派生（E8）·
+ * HUD show/hide（冻结接口 ② 的接入面）。
  *
- * 断言走**可观测行为**（角色、文案、aria 状态、localStorage、store 结果），不碰内部结构。
+ * 命令面板（工单 08 起归 `features/command-palette` 域，⌘/ 呼出）的行为断言随域迁移，
+ * 本文件只保留壳层自身的结构与派生断言。
+ *
+ * 断言走**可观测行为**（角色、文案、aria 状态、store 结果），不碰内部结构。
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -13,7 +16,6 @@ import { getCommand, registerCommand, resetCommandRegistry } from '../commands/r
 import { CanvasHudProvider, useCanvasHud } from '../hud/context';
 import { canvasHud, getCanvasHudSnapshot } from '../hud/controller';
 import { registerEditorSlotItem, resetEditorSlots } from '../slots/registry';
-import { clearRecentCommandIds, readRecentCommandIds } from '../state/recent-commands';
 import { useEditorUi } from '../state/ui';
 import { useEditorView } from '../state/view';
 import { RESERVED_COMMAND_IDS } from '../tools';
@@ -41,15 +43,9 @@ function renderShell() {
   );
 }
 
-/** 在 window 上按一次键。 */
-function press(key: string, options: KeyboardEventInit = {}): void {
-  fireEvent.keyDown(window, { key, ...options });
-}
-
 beforeEach(() => {
   resetCommandRegistry();
   resetEditorSlots();
-  clearRecentCommandIds();
   canvasHud.hide();
   useEditorView.setState({ zoom: 1, activeTool: 'move' });
   useEditorUi.setState({ commandPaletteOpen: false, shortcutsOpen: false });
@@ -60,7 +56,6 @@ afterEach(() => {
   cleanup();
   resetCommandRegistry();
   resetEditorSlots();
-  clearRecentCommandIds();
   useEditorView.setState({ zoom: 1, activeTool: 'move' });
   useEditorUi.setState({ commandPaletteOpen: false, shortcutsOpen: false });
 });
@@ -81,7 +76,8 @@ describe('壳层骨架（C1 / C2 / C16）', () => {
     expect(getCommand('view.zoomIn')).toBeUndefined();
     renderShell();
     expect(getCommand('view.zoomIn')?.shortcut).toBe('⌘+');
-    expect(getCommand('help.shortcuts')?.shortcut).toBe('⌘/');
+    // 工单 08：说明表不再占 ⌘/（该键归命令面板，见 features/command-palette/register）
+    expect(getCommand('help.shortcuts')?.shortcut).toBeUndefined();
   });
 
   it('工具按钮点击切换当前工具（active 底随 aria-pressed 表达）', () => {
@@ -123,8 +119,8 @@ describe('壳层骨架（C1 / C2 / C16）', () => {
     const enabled = screen.getByRole('button', { name: '演示' });
     expect(enabled.hasAttribute('disabled')).toBe(false);
 
-    // 注册的命令同时进入快捷键说明表（同一真源）
-    press('/', { metaKey: true });
+    // 注册的命令同时进入快捷键说明表（同一真源；经工具条「?」入口打开）
+    fireEvent.click(screen.getByRole('button', { name: '键盘快捷键' }));
     const table = screen.getByRole('table');
     expect(within(table).getByText('⌥⌘P')).toBeDefined();
   });
@@ -184,105 +180,30 @@ describe('缩放菜单（C16）', () => {
   });
 });
 
-describe('命令面板（E7）', () => {
-  it('⌘K 打开，搜索过滤、分组标题可见，Esc 关闭', async () => {
+describe('命令面板（工单 08 迁移说明）', () => {
+  it('壳层不再自带面板：面板组件与行为断言归 features/command-palette 域', () => {
     renderShell();
-    press('k', { metaKey: true });
-    const dialog = await screen.findByRole('dialog');
-
-    // 空查询：可见分组标题（工具/视图/帮助）
-    expect(within(dialog).getByText('工具')).toBeDefined();
-    expect(within(dialog).getByText('视图')).toBeDefined();
-
-    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: '放大' } });
-    expect(within(dialog).getByText('放大')).toBeDefined();
-    expect(within(dialog).queryByText('矩形工具')).toBeNull();
-
-    fireEvent.keyDown(dialog, { key: 'Escape' });
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).toBeNull();
-    });
-  });
-
-  it('无命中显示空态', async () => {
-    renderShell();
-    press('k', { metaKey: true });
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: '绝不存在' } });
-    expect(within(dialog).getByText('没有匹配的命令')).toBeDefined();
-  });
-
-  it('键盘上下移动高亮（跳过置灰项）', async () => {
-    renderShell();
-    press('k', { metaKey: true });
-    const dialog = await screen.findByRole('dialog');
-    const input = within(dialog).getByRole('combobox');
-
-    // 面板内首项是「命令面板」自身（置灰？否）——用 aria-activedescendant 观测高亮
-    const first = input.getAttribute('aria-activedescendant');
-    expect(first).not.toBeNull();
-
-    fireEvent.keyDown(dialog, { key: 'ArrowDown' });
-    expect(input.getAttribute('aria-activedescendant')).not.toBe(first);
-
-    const second = input.getAttribute('aria-activedescendant');
-    fireEvent.keyDown(dialog, { key: 'ArrowUp' });
-    expect(input.getAttribute('aria-activedescendant')).toBe(first);
-    expect(second).not.toBe(first);
-  });
-
-  it('回车执行高亮命令（切工具）并记入最近使用（localStorage 持久化）', async () => {
-    renderShell();
-    press('k', { metaKey: true });
-    const dialog = await screen.findByRole('dialog');
-    const input = within(dialog).getByRole('combobox');
-
-    fireEvent.change(input, { target: { value: '矩形工具' } });
-    fireEvent.keyDown(dialog, { key: 'Enter' });
-
-    await waitFor(() => {
-      expect(useEditorView.getState().activeTool).toBe('rect');
-    });
-    expect(readRecentCommandIds()).toEqual(['tool.rect']);
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).toBeNull();
-    });
-
-    // 再开面板：最近使用分组出现
-    press('k', { metaKey: true });
-    const reopened = await screen.findByRole('dialog');
-    expect(within(reopened).getByText('最近使用')).toBeDefined();
-    expect(within(reopened).getAllByText('矩形工具').length).toBeGreaterThan(0);
-  });
-
-  it('点击条目执行命令；置灰条目点击不执行', async () => {
-    renderShell();
-    press('k', { metaKey: true });
-    const dialog = await screen.findByRole('dialog');
-
-    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: '文本工具' } });
-    fireEvent.click(within(dialog).getByRole('option', { name: /文本工具/ }));
-    await waitFor(() => {
-      expect(useEditorView.getState().activeTool).toBe('text');
-    });
+    // ⌘K 是壳层内置的默认实现（键位会被面板域的 ⌘/ 接管）；此处只断言命令已注册
+    expect(getCommand('view.commandPalette')).toBeDefined();
+    // 面板 UI 不在壳层里挂（editor-bootstrap 经 overlays 插槽挂新域组件）
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 
 describe('快捷键说明（E8）', () => {
-  it('⌘/ 打开两栏对照表，内容由命令表派生', async () => {
+  it('两栏对照表内容由命令表派生（经工具条「?」入口打开；⌘/ 已归命令面板）', async () => {
     renderShell();
-    press('/', { metaKey: true });
+    fireEvent.click(screen.getByRole('button', { name: '键盘快捷键' }));
     const dialog = await screen.findByRole('dialog');
 
     expect(within(dialog).getByRole('columnheader', { name: '命令' })).toBeDefined();
     expect(within(dialog).getByRole('columnheader', { name: '快捷键' })).toBeDefined();
 
     const table = within(dialog).getByRole('table');
-    // 工具行：移动工具 ↔ V；视图行：命令面板 ↔ ⌘K
+    // 工具行：移动工具 ↔ V；视图行：命令面板（内置默认实现仍标 ⌘K，被面板域 ⌘/ 接管后随注册表更新）
     expect(within(table).getByText('移动工具')).toBeDefined();
     expect(within(table).getByText('V')).toBeDefined();
     expect(within(table).getByText('命令面板')).toBeDefined();
-    expect(within(table).getByText('⌘K')).toBeDefined();
   });
 
   it('工具条「?」入口也能打开（入口与命令同一实现）', async () => {

@@ -1,0 +1,213 @@
+/*
+ * 命令面板域样式（工单 08；样式单轨：域内 css + 类名，无内联样式——工单 06 纪律）。
+ *
+ * 令牌口径：
+ * - 海拔：面板卡与速查卡都是**浮层**（非模态弹窗语义之外的全屏浮层卡）→ 统一
+ *   `--dfg-elevation-overlay`（浮层档，工单 05 海拔语义档；不再直接引用 shadow-popover）；
+ * - 焦点环：搜索框 `:focus-visible` 用焦点环令牌组合（全组件可见焦点态，验收 d）；
+ * - z 序：速查卡用 `--dfg-z-modal` 档（与命令面板同层，但它 pointer-events: none 且
+ *   无焦点，压不住任何交互；命令面板容器 z 序由 Overlay 浮层栈内联注入，不在此写死）。
+ */
+
+/* ---------- 命令面板（⌘/） ---------- */
+
+.dfg-cmdk {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: var(--dfg-space-16);
+  background-color: var(--dfg-color-backdrop);
+}
+
+.dfg-cmdk__card {
+  display: flex;
+  flex-direction: column;
+  width: var(--dfg-size-modal-md);
+  max-height: var(--dfg-size-modal-lg);
+  overflow: hidden;
+  background-color: var(--dfg-color-surface-raised);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-xl);
+  box-shadow: var(--dfg-elevation-overlay);
+}
+
+.dfg-cmdk__search {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+  color: var(--dfg-color-icon-secondary);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-cmdk__input {
+  flex: 1;
+  min-width: 0;
+  color: var(--dfg-color-text-primary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-13);
+  background: none;
+  border: 0;
+  outline: none;
+}
+
+.dfg-cmdk__input::placeholder {
+  color: var(--dfg-color-text-disabled);
+}
+
+/* 焦点环（验收 d）：搜索框是面板内唯一常驻焦点位，键盘呼出后焦点在此可见 */
+.dfg-cmdk__input:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+  outline-offset: var(--dfg-focus-ring-offset);
+  border-radius: var(--dfg-radius-sm);
+}
+
+.dfg-cmdk__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--dfg-space-1);
+}
+
+.dfg-cmdk__group-label {
+  margin: 0;
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-cmdk__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+  width: 100%;
+  min-height: var(--dfg-row-height-md);
+  padding-inline: var(--dfg-space-2);
+  color: var(--dfg-color-text-primary);
+  font-size: var(--dfg-font-size-13);
+  border-radius: var(--dfg-radius-sm);
+  cursor: pointer;
+}
+
+.dfg-cmdk__item--active,
+.dfg-cmdk__item:hover {
+  background-color: var(--dfg-color-hover);
+}
+
+.dfg-cmdk__item--disabled {
+  color: var(--dfg-color-text-disabled);
+  cursor: default;
+}
+
+.dfg-cmdk__item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 中文模糊搜索的命中高亮（工单 08）：主题强调色 + 中黑（与选中底色可区分） */
+.dfg-cmdk__hit {
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-selection-text);
+}
+
+.dfg-cmdk__item-shortcut {
+  flex-shrink: 0;
+  color: var(--dfg-color-text-secondary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-cmdk__item--disabled .dfg-cmdk__item-shortcut {
+  color: var(--dfg-color-text-disabled);
+}
+
+.dfg-cmdk__empty {
+  margin: 0;
+  padding: var(--dfg-space-6) var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+  text-align: center;
+}
+
+.dfg-cmdk__error {
+  margin: 0;
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  color: var(--dfg-color-danger);
+  font-size: var(--dfg-font-size-12);
+  background-color: var(--dfg-color-danger-subtle);
+  border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-cmdk__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  margin: 0;
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  color: var(--dfg-color-text-disabled);
+  font-size: var(--dfg-font-size-11);
+  border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+/* ---------- 快捷键速查卡（长按 ⌘/Ctrl） ---------- */
+
+.dfg-cmdk-cheat {
+  position: fixed;
+  top: calc(var(--dfg-size-topbar) + var(--dfg-space-4));
+  left: 50%;
+  translate: -50% 0;
+  z-index: var(--dfg-z-modal);
+  /* 瞬态预览卡：纯展示，不吃指针、不抢焦点（验收 b「与面板互不抢焦点」的样式半边） */
+  pointer-events: none;
+  min-width: var(--dfg-size-modal-sm);
+  padding: var(--dfg-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  background-color: var(--dfg-color-surface-raised);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+  box-shadow: var(--dfg-elevation-overlay);
+}
+
+.dfg-cmdk-cheat__context {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-cmdk-cheat__group-label {
+  margin: 0 0 var(--dfg-space-1);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-cmdk-cheat__rows {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  list-style: none;
+}
+
+.dfg-cmdk-cheat__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-4);
+  color: var(--dfg-color-text-primary);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-cmdk-cheat__keys {
+  padding-inline: var(--dfg-space-1);
+  color: var(--dfg-color-text-secondary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-11);
+  background-color: var(--dfg-color-hover);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+}
