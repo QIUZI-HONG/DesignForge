@@ -12,72 +12,14 @@
  */
 import type { ConnectivityItem, ConnectivityStatus, CredentialSummary } from '@dforge/contracts';
 import { Button, Input, SegmentedControl, useToast } from '@dforge/ui';
-import type { CSSProperties } from 'react';
 
 import { t } from '@/i18n';
 
 import { copyTextToClipboard } from './clipboard';
 
-/* ---------- 版式（全令牌） ---------- */
-
-const styles = {
-  form: { display: 'grid', gap: 'var(--dfg-space-4)' },
-  body: {
-    margin: 0,
-    color: 'var(--dfg-color-text-secondary)',
-    fontSize: 'var(--dfg-font-size-12)',
-  },
-  actions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-2)',
-    flexWrap: 'wrap',
-  },
-  statusRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-2)',
-    flexWrap: 'wrap',
-    color: 'var(--dfg-color-text-secondary)',
-    fontSize: 'var(--dfg-font-size-12)',
-  },
-  chip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    paddingInline: 'var(--dfg-space-2)',
-    paddingBlock: 'var(--dfg-space-1)',
-    borderRadius: 'var(--dfg-radius-sm)',
-    fontSize: 'var(--dfg-font-size-11)',
-  },
-  chipOk: { background: 'var(--dfg-color-success-subtle)', color: 'var(--dfg-color-success)' },
-  chipWarn: {
-    background: 'var(--dfg-color-warning-subtle)',
-    color: 'var(--dfg-color-text-primary)',
-  },
-  chipDanger: { background: 'var(--dfg-color-danger-subtle)', color: 'var(--dfg-color-danger)' },
-  chipNeutral: {
-    background: 'var(--dfg-color-surface-subtle)',
-    color: 'var(--dfg-color-text-secondary)',
-  },
-  path: {
-    paddingInline: 'var(--dfg-space-2)',
-    paddingBlock: 'var(--dfg-space-1)',
-    background: 'var(--dfg-color-surface-subtle)',
-    borderRadius: 'var(--dfg-radius-sm)',
-    fontSize: 'var(--dfg-font-size-12)',
-    wordBreak: 'break-all',
-  },
-  error: { color: 'var(--dfg-color-danger)', fontSize: 'var(--dfg-font-size-12)' },
-} satisfies Record<string, CSSProperties>;
+import './settings.css';
 
 /* ---------- 连通性状态片 ---------- */
-
-const CHIP_TONE: Record<ConnectivityStatus, CSSProperties> = {
-  ok: styles.chipOk,
-  degraded: styles.chipWarn,
-  unavailable: styles.chipDanger,
-  'not-configured': styles.chipNeutral,
-};
 
 const CHIP_LABEL_KEY: Record<ConnectivityStatus, string> = {
   ok: 'settings.connectivity.status.ok',
@@ -86,9 +28,13 @@ const CHIP_LABEL_KEY: Record<ConnectivityStatus, string> = {
   'not-configured': 'settings.connectivity.status.notConfigured',
 };
 
-/** 状态片（正常 / 降级 / 不可用 / 未配置）。 */
+/** 状态片（正常 / 降级 / 不可用 / 未配置；色调由 data-df-connectivity 在 CSS 承接）。 */
 function StatusChip({ status }: { status: ConnectivityStatus }) {
-  return <span style={{ ...styles.chip, ...CHIP_TONE[status] }}>{t(CHIP_LABEL_KEY[status])}</span>;
+  return (
+    <span className="dfg-settings__chip" data-df-connectivity={status}>
+      {t(CHIP_LABEL_KEY[status])}
+    </span>
+  );
 }
 
 /** daemon 建议动作 → 中文（未知动作原样透出：契约扩展时前端不静默吞掉）。 */
@@ -104,11 +50,11 @@ function connectivityActionLabel(action: string): string {
 /** 连通性条目展示（状态片 + daemon 原文 + 建议动作）。 */
 function ConnectivityLine({ item }: { item: ConnectivityItem }) {
   return (
-    <div style={styles.statusRow}>
+    <div className="dfg-settings__status-row">
       <StatusChip status={item.status} />
       {item.detail === null ? null : <span>{item.detail}</span>}
       {item.actions.map((action) => (
-        <span key={action} style={styles.chipNeutral}>
+        <span key={action} className="dfg-settings__chip dfg-settings__chip--neutral">
           {connectivityActionLabel(action)}
         </span>
       ))}
@@ -129,7 +75,7 @@ export interface WorkspaceSectionProps {
 /** 工作目录分区（文本输入；可写性由 daemon 保存时校验）。 */
 export function WorkspaceSection({ value, onChange, error, disabled }: WorkspaceSectionProps) {
   return (
-    <div style={styles.form}>
+    <div className="dfg-settings__form">
       <Input
         fieldLabel={t('settings.field.workspaceDir')}
         placeholder={t('settings.field.workspaceDir.placeholder')}
@@ -182,8 +128,8 @@ export function AiSection({
   const configured = summary.hasKey && summary.maskedKey !== null;
   const fromEnv = summary.source === 'env';
   return (
-    <div style={styles.form}>
-      <p style={styles.body}>
+    <div className="dfg-settings__form">
+      <p className="dfg-settings__hint">
         {configured
           ? t(fromEnv ? 'settings.credential.configuredEnv' : 'settings.credential.configured', {
               masked: summary.maskedKey ?? '',
@@ -204,7 +150,7 @@ export function AiSection({
         errorMessage={error ?? undefined}
         disabled={disabled}
       />
-      <div style={styles.actions}>
+      <div className="dfg-settings__actions">
         {configured && !fromEnv ? (
           <Button onClick={onClearKey} loading={clearing}>
             {t('settings.action.clearKey')}
@@ -214,9 +160,9 @@ export function AiSection({
           {t('settings.action.testConnectivity')}
         </Button>
       </div>
-      {clearError === null ? null : <p style={styles.error}>{clearError}</p>}
+      {clearError === null ? null : <p className="dfg-settings__error">{clearError}</p>}
       {probeError === null ? null : (
-        <p style={styles.error}>
+        <p className="dfg-settings__error">
           {t('settings.connectivity.probeFailed', { message: probeError })}
         </p>
       )}
@@ -252,7 +198,7 @@ export function ComfySection({
   probeError,
 }: ComfySectionProps) {
   return (
-    <div style={styles.form}>
+    <div className="dfg-settings__form">
       <Input
         fieldLabel={t('settings.field.comfyUrl')}
         placeholder={t('settings.field.comfyUrl.placeholder')}
@@ -264,19 +210,19 @@ export function ComfySection({
         errorMessage={error ?? undefined}
         disabled={disabled}
       />
-      <div style={styles.actions}>
+      <div className="dfg-settings__actions">
         <Button onClick={onProbe} loading={checking}>
           {t('settings.action.reprobe')}
         </Button>
       </div>
       {probeError === null ? null : (
-        <p style={styles.error}>
+        <p className="dfg-settings__error">
           {t('settings.connectivity.probeFailed', { message: probeError })}
         </p>
       )}
       {comfyItem === null ? (
         probeError === null ? (
-          <p style={styles.body}>{t('settings.comfy.unprobed')}</p>
+          <p className="dfg-settings__hint">{t('settings.comfy.unprobed')}</p>
         ) : null
       ) : (
         <ConnectivityLine item={comfyItem} />
@@ -300,7 +246,7 @@ export interface TelemetrySectionProps {
 export function TelemetrySection({ enabled, onChange, disabled, dataRoot }: TelemetrySectionProps) {
   const toast = useToast();
   return (
-    <div style={styles.form}>
+    <div className="dfg-settings__form">
       <SegmentedControl
         label={t('settings.telemetry.label')}
         value={enabled ? 'local' : 'off'}
@@ -312,10 +258,10 @@ export function TelemetrySection({ enabled, onChange, disabled, dataRoot }: Tele
           { value: 'off', label: t('settings.telemetry.off'), disabled },
         ]}
       />
-      <p style={styles.body}>{t('settings.telemetry.hint')}</p>
-      <div style={styles.statusRow}>
+      <p className="dfg-settings__hint">{t('settings.telemetry.hint')}</p>
+      <div className="dfg-settings__status-row">
         <span>{t('settings.dataDir.label')}</span>
-        <span style={styles.path}>{dataRoot}</span>
+        <span className="dfg-settings__path">{dataRoot}</span>
         <Button
           size="sm"
           onClick={() => {
@@ -330,7 +276,7 @@ export function TelemetrySection({ enabled, onChange, disabled, dataRoot }: Tele
           {t('settings.action.copyPath')}
         </Button>
       </div>
-      <p style={styles.body}>{t('settings.dataDir.hint')}</p>
+      <p className="dfg-settings__hint">{t('settings.dataDir.hint')}</p>
     </div>
   );
 }

@@ -1,0 +1,280 @@
+/*
+ * 编辑器面板共享样式（工单 06 · 样式单轨；深色编辑器族）。
+ *
+ * 纪律（_shared §3）：**禁裸值**——颜色/间距/圆角/字号一律 `var(--dfg-…)` 令牌引用
+ * （`scripts/guard-tokens.mjs` 会扫本文件）；几何适配用 calc/百分比，不算裸值。
+ * 行交互态（悬停/选中/焦点环/拖拽落点/拖拽中/隐藏变暗/激活加粗）全部由组件投射的
+ * `data-df-*` / `aria-*` 事实承接（状态可见性是 DOM 事实，样式只是投影）；
+ * 行深缩进由行内注入的 `--dfg-layer-depth` 自定义变量喂 calc 算式
+ * （动态值豁免，登记在工单 06）。
+ */
+
+/* ---------- 面板骨架（资产/图层等左右栏面板共用） ---------- */
+
+.dfg-panels__panel {
+  display: flex;
+  flex-direction: column;
+  width: var(--dfg-size-sidebar);
+  height: 100%;
+  min-height: 0;
+  background-color: var(--dfg-color-surface);
+  border-inline: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfg-panels__header {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-panels__header-title {
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-panels__header-spacer {
+  flex: 1 1 auto;
+}
+
+.dfg-panels__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* ---------- 图层行（C3） ---------- */
+
+.dfg-panels__layer-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  height: var(--dfg-row-height-md);
+  padding-right: var(--dfg-space-1);
+  /* 缩进 12/级 + 基准 4（清单 C3）；--dfg-layer-depth 由行内注入（动态值豁免） */
+  padding-left: calc(var(--dfg-space-1) + var(--dfg-space-3) * var(--dfg-layer-depth));
+  border-radius: var(--dfg-radius-sm);
+  cursor: default;
+  user-select: none;
+  /* 长列表（>200 节点）用 content-visibility 跳过屏外行的渲染（不引重依赖） */
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--dfg-row-height-md);
+  position: relative;
+}
+
+/* 悬停底色（选中态规则在其后，选中优先） */
+.dfg-panels__layer-row[data-df-state='hover'] {
+  background-color: var(--dfg-color-hover);
+}
+
+.dfg-panels__layer-row[data-df-state='selected'] {
+  background-color: var(--dfg-color-selection);
+  color: var(--dfg-color-selection-text);
+}
+
+/* 键盘焦点环（鼠标点击不出环：只有 data-df-focus-ring 为 true 才画） */
+.dfg-panels__layer-row[data-df-focus-ring='true'] {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+  outline-offset: 0;
+}
+
+/* 拖拽落点「放入容器」：主色内描边 */
+.dfg-panels__layer-row[data-df-drop-indicator='inside'] {
+  outline: var(--dfg-border-width-thick) solid var(--dfg-color-primary);
+  outline-offset: calc(var(--dfg-border-width-thick) * -1);
+}
+
+/* 拖拽中的源行降透明 */
+.dfg-panels__layer-row[data-df-dragging='true'] {
+  opacity: 0.5;
+}
+
+.dfg-panels__layer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 行不可见（自身或被祖先隐藏）时行名变暗 */
+.dfg-panels__layer-row[data-df-dimmed='true'] .dfg-panels__layer-name {
+  opacity: 0.5;
+}
+
+/* 激活层行名加粗 */
+.dfg-panels__layer-row[data-df-active='true'] .dfg-panels__layer-name {
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+/* 叶子行占位：与容器行的展开箭头等宽，保证名称列对齐 */
+.dfg-panels__layer-icon-spacer {
+  width: var(--dfg-icon-size-sm);
+}
+
+/* 类型图标着色：组件族（component/component_set/instance）用组件紫，其余次级前景 */
+.dfg-panels__layer-type-icon {
+  display: inline-flex;
+  color: var(--dfg-color-icon-secondary);
+}
+
+.dfg-panels__layer-type-icon[data-df-layer-type='component'],
+.dfg-panels__layer-type-icon[data-df-layer-type='component_set'],
+.dfg-panels__layer-type-icon[data-df-layer-type='instance'] {
+  color: var(--dfg-color-component);
+}
+
+/* 覆盖记号（实例属性被覆盖的「•」） */
+.dfg-panels__layer-overridden {
+  margin-left: var(--dfg-space-1);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-panels__layer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* 内联重命名输入框（复用 @dforge/ui 的 dfg-input 基座，只补行内几何口径） */
+.dfg-panels__layer-rename-input {
+  width: 100%;
+  min-width: 0;
+  height: var(--dfg-control-height-sm);
+  padding-inline: var(--dfg-space-1);
+  font: inherit;
+  color: var(--dfg-color-text-primary);
+  background-color: var(--dfg-color-surface-raised);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+}
+
+/* 拖拽落点指示线：行上缘/下缘画主色线 */
+.dfg-panels__drop-indicator-top {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: var(--dfg-border-width-thick);
+  background-color: var(--dfg-color-primary);
+}
+
+.dfg-panels__drop-indicator-bottom {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--dfg-border-width-thick);
+  background-color: var(--dfg-color-primary);
+}
+
+/* 图层树容器：列表上下留半档呼吸 */
+.dfg-panels__layer-list {
+  padding-block: var(--dfg-space-1);
+}
+
+/* 骨架行（加载态） */
+.dfg-panels__skeleton-row {
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+}
+
+/* ---------- 资产面板（C4） ---------- */
+
+.dfg-panels__asset-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-panels__asset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+}
+
+.dfg-panels__asset-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-1);
+  text-align: left;
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  cursor: pointer;
+}
+
+.dfg-panels__asset-card[aria-pressed='true'] {
+  border-color: var(--dfg-color-primary);
+}
+
+.dfg-panels__asset-thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3 / 2;
+  background-color: var(--dfg-color-surface-raised);
+  border-radius: var(--dfg-radius-sm);
+  color: var(--dfg-color-component);
+}
+
+.dfg-panels__asset-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-panels__asset-card-meta {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* ---------- 令牌清单 ---------- */
+
+.dfg-panels__token-group {
+  padding: var(--dfg-space-2) var(--dfg-space-3) 0;
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+  text-transform: none;
+}
+
+.dfg-panels__token-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  min-height: var(--dfg-row-height-md);
+  padding-inline: var(--dfg-space-3);
+}
+
+/* 色块底色缺省取骨架灰；颜色令牌的解析值由行内注入（文档数据，动态值豁免） */
+.dfg-panels__token-swatch {
+  flex: 0 0 auto;
+  width: var(--dfg-icon-size-md);
+  height: var(--dfg-icon-size-md);
+  border-radius: var(--dfg-radius-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  background-color: var(--dfg-color-skeleton);
+}
+
+.dfg-panels__token-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-panels__token-value {
+  flex: 0 0 auto;
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}

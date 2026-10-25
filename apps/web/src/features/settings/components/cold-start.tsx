@@ -14,7 +14,6 @@
  * 六态挂点：`loading`（查清单中）/ `empty`（空态）/ `error`（daemon 不可达 / 创建失败）。
  */
 import { Button, EmptyState, ErrorState, Spinner } from '@dforge/ui';
-import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { editorHref } from '@/features/home';
@@ -25,6 +24,8 @@ import { useDaemonEndpointHref } from '@/lib/daemon-href';
 import { DaemonClientError } from '../api/daemon-client';
 import { createSettingsApi, type SettingsApi } from '../api/settings-api';
 import { saveErrorMessage } from '../model/save-state';
+
+import './settings.css';
 
 /** 页面相。 */
 type ColdStartPhase = 'loading' | 'empty' | 'exists' | 'error';
@@ -44,56 +45,6 @@ function defaultEnterEditor(documentId: string): void {
   }
 }
 
-const styles = {
-  page: {
-    display: 'grid',
-    // alignContent: start —— 行按内容高度排布，避免 minHeight:100vh 把页头行撑开
-    alignContent: 'start',
-    gap: 'var(--dfg-space-6)',
-    padding: 'var(--dfg-space-8)',
-    minHeight: '100vh',
-    background: 'var(--dfg-color-surface)',
-    color: 'var(--dfg-color-text-primary)',
-    fontFamily: 'var(--dfg-font-sans)',
-    fontSize: 'var(--dfg-font-size-13)',
-  },
-  header: { display: 'grid', gap: 'var(--dfg-space-2)' },
-  title: {
-    margin: 0,
-    fontSize: 'var(--dfg-font-size-24)',
-    fontWeight: 'var(--dfg-font-weight-bold)',
-  },
-  subtitle: {
-    margin: 0,
-    color: 'var(--dfg-color-text-secondary)',
-    lineHeight: 'var(--dfg-line-height-relaxed)',
-  },
-  stage: {
-    display: 'grid',
-    gap: 'var(--dfg-space-4)',
-    placeItems: 'center',
-    padding: 'var(--dfg-space-8)',
-    border: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
-    borderRadius: 'var(--dfg-radius-lg)',
-  },
-  loading: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-2)',
-    color: 'var(--dfg-color-text-secondary)',
-  },
-  errorLine: { margin: 0, color: 'var(--dfg-color-danger)', fontSize: 'var(--dfg-font-size-12)' },
-  link: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    height: 'var(--dfg-control-height-md)',
-    paddingInline: 'var(--dfg-control-padding-x-md)',
-    background: 'var(--dfg-color-primary)',
-    color: 'var(--dfg-color-on-primary)',
-    borderRadius: 'var(--dfg-radius-md)',
-    textDecoration: 'none',
-  },
-} satisfies Record<string, CSSProperties>;
 
 /** 空库冷启动页。 */
 export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
@@ -151,22 +102,22 @@ export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
   };
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <h1 style={styles.title}>{t('coldstart.title')}</h1>
-        <p style={styles.subtitle}>{t('coldstart.subtitle')}</p>
+    <div className="dfg-settings__page">
+      <header className="dfg-settings__header">
+        <h1 className="dfg-settings__title">{t('coldstart.title')}</h1>
+        <p className="dfg-settings__subtitle">{t('coldstart.subtitle')}</p>
       </header>
 
-      <div style={styles.stage}>
+      <div className="dfg-settings__stage">
         {phase === 'loading' ? (
-          <div style={styles.loading} data-df-state="loading">
+          <div className="dfg-settings__loading" data-df-state="loading">
             <Spinner label={t('coldstart.loading')} />
             <span>{t('coldstart.loading')}</span>
           </div>
         ) : null}
 
         {phase === 'error' ? (
-          <div data-df-state="error" style={{ display: 'grid', gap: 'var(--dfg-space-2)' }}>
+          <div data-df-state="error" className="dfg-settings__stack">
             <ErrorState
               title={t('coldstart.unreachable.title')}
               description={t('coldstart.unreachable.desc')}
@@ -175,12 +126,14 @@ export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
                 void load();
               }}
             />
-            {loadError === null ? null : <p style={styles.errorLine}>{loadError}</p>}
+            {loadError === null ? null : (
+              <p className="dfg-settings__error-line">{loadError}</p>
+            )}
           </div>
         ) : null}
 
         {phase === 'empty' ? (
-          <div data-df-state="empty" style={{ display: 'grid', gap: 'var(--dfg-space-3)' }}>
+          <div data-df-state="empty" className="dfg-settings__stack dfg-settings__stack--gap-3">
             <EmptyState
               title={t('coldstart.empty.title')}
               description={t('coldstart.empty.desc')}
@@ -198,7 +151,7 @@ export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
               }
             />
             {createError === null ? null : (
-              <p style={styles.errorLine} role="alert">
+              <p className="dfg-settings__error-line" role="alert">
                 {t('coldstart.createFailed', { message: createError })}
               </p>
             )}
@@ -210,7 +163,7 @@ export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
             title={t('coldstart.exists.title', { count: documentCount })}
             description={t('coldstart.exists.desc')}
             action={
-              <a href={homeHref} style={styles.link}>
+              <a href={homeHref} className="dfg-settings__link">
                 {t('coldstart.exists.action')}
               </a>
             }

@@ -1,0 +1,201 @@
+/**
+ * AI 抽屉特性样式（工单 06 · 样式单轨）。
+ *
+ * 口径（`_shared.md` §3 禁裸值 + canvas.css/editor-shell.css 既有惯例）：
+ * 颜色/间距/圆角/字号一律 `var(--dfg-*)` 令牌引用（`scripts/guard-tokens.mjs` 扫本文件，
+ * R1-R4 与组件同轨约束）；本域无几何算式场景，不存在内联 style（豁免登记表在工单 06）。
+ * 步骤强调色：由步骤行已有的 `data-df-step-status` 状态挂点驱动（状态可见性是 DOM 事实，
+ * 颜色只是它的视觉投影——不再由 JS 按状态算色内联注入）。
+ */
+
+.dfg-ai__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-3);
+}
+
+/* 降级提示条（role="status"） */
+.dfg-ai__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  background-color: var(--dfg-color-warning-subtle);
+  color: var(--dfg-color-text-primary);
+  border-radius: var(--dfg-radius-md);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfg-ai__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-ai__field-label {
+  font-size: var(--dfg-font-size-12);
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-ai__textarea {
+  width: 100%;
+  min-height: var(--dfg-size-textarea-min-height);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  background-color: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-primary);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+  resize: vertical;
+}
+
+.dfg-ai__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-ai__spacer {
+  flex: 1 1 auto;
+}
+
+.dfg-ai__section-title {
+  font-size: var(--dfg-font-size-12);
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* ---------- 步骤流（queued → llm → validate → compile） ---------- */
+
+.dfg-ai__step-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfg-ai__step-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  min-height: var(--dfg-control-height-md);
+  padding: 0 var(--dfg-space-2);
+  border-radius: var(--dfg-radius-sm);
+}
+
+/* 步骤文案强调色（原 stepAccent 的 CSS 化）：缺省 = 禁用色，按状态挂点覆盖 */
+.dfg-ai__step-label {
+  flex: 1 1 auto;
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-disabled);
+}
+
+.dfg-ai__step-row[data-df-step-status='active'] .dfg-ai__step-label {
+  color: var(--dfg-color-primary);
+}
+
+.dfg-ai__step-row[data-df-step-status='done'] .dfg-ai__step-label {
+  color: var(--dfg-color-success);
+}
+
+.dfg-ai__step-row[data-df-step-status='failed'] .dfg-ai__step-label {
+  color: var(--dfg-color-danger);
+}
+
+.dfg-ai__step-status {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* 等待态的空心圆点（活动/完成/失败由 Spinner/图标承担） */
+.dfg-ai__step-dot {
+  width: var(--dfg-icon-size-sm);
+  height: var(--dfg-icon-size-sm);
+  border-radius: var(--dfg-radius-pill);
+  border: var(--dfg-border-width-thick) solid var(--dfg-color-border-strong);
+  box-sizing: border-box;
+}
+
+/* ---------- 结果区 ---------- */
+
+.dfg-ai__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+  background-color: var(--dfg-color-surface-subtle);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+}
+
+.dfg-ai__result-header {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-ai__content {
+  margin: 0;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+  color: var(--dfg-color-text-primary);
+}
+
+/* 降级角标「本地模板」：AI 紫语义色（与组件紫同源） */
+.dfg-ai__badge {
+  display: inline-flex;
+  align-items: center;
+  height: var(--dfg-control-height-sm);
+  padding: 0 var(--dfg-space-2);
+  background-color: var(--dfg-color-component);
+  color: var(--dfg-color-on-primary);
+  border-radius: var(--dfg-radius-pill);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+}
+
+.dfg-ai__error-text {
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-danger);
+}
+
+/* ---------- 建议清单 ---------- */
+
+.dfg-ai__suggestion-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfg-ai__suggestion-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-ai__suggestion-text {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-ai__suggestion-detail {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}

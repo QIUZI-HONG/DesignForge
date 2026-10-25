@@ -22,9 +22,10 @@ import { t } from '@/i18n';
 import { useReviewDocument, useReviewSession } from '../review-context';
 import { keyboardActionOf } from './controller';
 import { usePresentUi } from './present-hooks';
-import { presentStyles } from './present-styles';
 import { SlidePreview } from './SlidePreview';
 import { buildSlides, frameOf, slideLabel } from './sequence';
+
+import '../review.css';
 
 /** 控制条自动隐藏的时间推进间隔（毫秒；比阈值细一档，误差不超过一格）。 */
 const TICK_INTERVAL_MS = 500;
@@ -111,7 +112,7 @@ export function Presenter() {
         data-df-slide-index={String(index)}
         data-df-state={barVisible ? 'controls-visible' : 'controls-hidden'}
         aria-label={t('review.present.title')}
-        style={presentStyles.stage}
+        className="dfg-review__present-stage"
         onPointerMove={() => {
           session.present.getState().markActivity();
         }}
@@ -120,15 +121,19 @@ export function Presenter() {
           data-df-present-stage=""
           data-df-state={slide === undefined ? 'empty' : 'slide'}
           aria-label={t('review.present.stage.label')}
-          style={presentStyles.canvas}
+          className="dfg-review__present-canvas"
         >
           {slide === undefined ? (
-            <div data-df-sample="present/empty" style={presentStyles.empty}>
-              <span style={presentStyles.emptyTitle}>{t('review.present.empty.title')}</span>
-              <span style={presentStyles.emptyDesc}>{t('review.present.empty.desc')}</span>
+            <div data-df-sample="present/empty" className="dfg-review__present-empty">
+              <span className="dfg-review__present-empty-title">
+                {t('review.present.empty.title')}
+              </span>
+              <span className="dfg-review__present-empty-desc">
+                {t('review.present.empty.desc')}
+              </span>
             </div>
           ) : frame === null ? (
-            <span style={presentStyles.emptyDesc}>{t('review.present.empty.desc')}</span>
+            <span className="dfg-review__present-empty-desc">{t('review.present.empty.desc')}</span>
           ) : (
             <SlidePreview frame={frame} pageId={slide.pageId} document={document_} />
           )}
@@ -139,21 +144,19 @@ export function Presenter() {
           data-df-state={barVisible ? 'visible' : 'hidden'}
           aria-label={t('review.present.controls.label')}
           aria-hidden={!barVisible}
-          style={
-            barVisible ? presentStyles.bar : { ...presentStyles.bar, ...presentStyles.barHidden }
-          }
+          className="dfg-review__present-bar"
         >
-          <span data-df-present-page="" style={presentStyles.pageText}>
+          <span data-df-present-page="" className="dfg-review__present-page">
             {t('review.present.page', { current: total === 0 ? 0 : index + 1, total })}
           </span>
-          <span style={presentStyles.slideLabel}>
+          <span className="dfg-review__present-slide-label">
             {slide === undefined ? '' : slideLabel(slide)}
           </span>
-          <span style={presentStyles.barSpacer} />
+          <span className="dfg-review__present-bar-spacer" />
           <button
             type="button"
             aria-label={t('review.present.prev')}
-            style={presentStyles.barButton}
+            className="dfg-review__present-bar-button"
             onClick={() => {
               session.present.getState().step(-1, total);
             }}
@@ -163,7 +166,7 @@ export function Presenter() {
           <button
             type="button"
             aria-label={t('review.present.next')}
-            style={presentStyles.barButton}
+            className="dfg-review__present-bar-button"
             onClick={() => {
               session.present.getState().step(1, total);
             }}
@@ -173,7 +176,7 @@ export function Presenter() {
           <button
             type="button"
             aria-label={t('review.present.fullscreen')}
-            style={presentStyles.barButton}
+            className="dfg-review__present-bar-button"
             onClick={() => {
               void requestFullscreenIfPossible();
             }}
@@ -183,7 +186,7 @@ export function Presenter() {
           <button
             type="button"
             aria-label={t('review.present.exit')}
-            style={presentStyles.barButton}
+            className="dfg-review__present-bar-button"
             onClick={() => {
               session.present.getState().exitPresentation();
               exitFullscreenIfNeeded();

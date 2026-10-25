@@ -4,7 +4,12 @@
  *
  * 断言口径：能通过「读文档 / 读选择集 / 读 aria 语义」观察到的东西；
  * 不碰内部实现（行内 state 只通过 `data-df-state` 这类**对外挂点**呈现，那本来就是门禁取样契约）。
+ * 样式单轨（工单 06）：原读 `style` 的断言改为类挂载 + editor-panels.css 规则文本
+ * （External CSS 在 jsdom 不计算，先例 verify/a11y-keyboard.test.tsx）。
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { getChildrenIds, getNode, getPage, type ScenePage } from '@dforge/engine';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -18,6 +23,14 @@ import {
 } from '../test-utils';
 import { LayersPanel } from './LayersPanel';
 import { PanelsProvider } from './panels-context';
+
+/** 读域内 CSS 文本并截取某个规则块（jsdom 不计算 External CSS）。 */
+function cssRule(cssPath: string, className: string): string {
+  const css = readFileSync(resolve(process.cwd(), cssPath), 'utf8');
+  const at = css.indexOf(`.${className} {`);
+  expect(at, `${cssPath} 缺少 .${className} 规则`).toBeGreaterThanOrEqual(0);
+  return css.slice(at, css.indexOf('}', at));
+}
 
 /** 渲染图层面板（夹具会话）。 */
 function renderPanel(options: { loading?: boolean; error?: string | null } = {}) {
@@ -51,8 +64,10 @@ describe('图层面板', () => {
     expect(row('首屏').getAttribute('aria-level')).toBe('1');
     expect(row('标题组').getAttribute('aria-level')).toBe('2');
     expect(row('标题').getAttribute('aria-level')).toBe('3');
-    // 缩进 = 4 + 12 × 深度（单位来自令牌）
-    expect(row('标题组').style.paddingLeft).toContain('var(--dfg-space-3)');
+    // 缩进 = 4 + 12 × 深度（单位来自令牌；行深经 --dfg-layer-depth 动态注入，工单 06 豁免）
+    expect(row('标题组').className).toContain('dfg-panels__layer-row');
+    expect(cssRule('src/features/editor-panels/editor-panels.css', 'dfg-panels__layer-row'))
+      .toContain('padding-left: calc(var(--dfg-space-1) + var(--dfg-space-3) * var(--dfg-layer-depth))');
     // 容器带展开态语义，叶子不带
     expect(row('首屏').getAttribute('aria-expanded')).toBe('true');
     expect(row('卡片').hasAttribute('aria-expanded')).toBe(false);
@@ -253,7 +268,10 @@ describe('图层面板', () => {
     );
     const items = screen.getAllByRole('treeitem');
     expect(items).toHaveLength(300);
-    expect((items[0] as HTMLElement).style.contentVisibility).toBe('auto');
+    // 样式单轨（工单 06）：content-visibility 落在行类上，对 CSS 规则文本断言
+    expect((items[0] as HTMLElement).className).toContain('dfg-panels__layer-row');
+    expect(cssRule('src/features/editor-panels/editor-panels.css', 'dfg-panels__layer-row'))
+      .toContain('content-visibility: auto');
     // 行数挂在树容器上（门禁取样用）
     expect(screen.getByRole('tree').getAttribute('data-df-layer-count')).toBe('300');
   });

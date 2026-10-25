@@ -21,9 +21,10 @@ import {
 import { type CSSProperties, type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
-import { layerTypeColor, layerTypeIcon } from './layer-icons';
+import { layerTypeIcon } from './layer-icons';
 import type { LayerRowModel } from './layer-rows';
-import { layerRowStateStyles, layerRowStyles } from './styles';
+
+import '../editor-panels.css';
 
 /** 拖拽落点指示：行的上缘 / 下缘画线，行内（放入容器）画内描边。 */
 export type DropEdge = 'top' | 'bottom' | 'inside';
@@ -60,15 +61,9 @@ export function LayerRow(props: LayerRowProps) {
   const showActions = hovered || row.selected || !row.node.visible || row.node.locked;
 
   const typeLabel = t(`panels.layerType.${row.node.type}`);
-  const rowStyle: CSSProperties = {
-    ...layerRowStyles.row,
-    // 行深由 CSS 变量喂给缩进算式（单位来自令牌，见 styles.ts）
-    ['--dfg-layer-depth' as string]: String(row.depth),
-    ...(row.selected ? layerRowStateStyles.selected : hovered ? layerRowStateStyles.hover : null),
-    ...(domFocused && props.keyboardFocus ? layerRowStateStyles.focusRing : null),
-    ...(props.dropEdge === 'inside' ? layerRowStateStyles.inside : null),
-    ...(props.dragging ? layerRowStateStyles.dimmed : null),
-  } as CSSProperties;
+  // 行深喂给 CSS 缩进算式（--dfg-layer-depth 是动态值，经自定义变量注入——工单 06 豁免登记）；
+  // 悬停/选中/焦点环/拖拽落点/拖拽中/隐藏变暗/激活等交互态全部由 data-df-* 事实在 CSS 承接。
+  const rowStyle = { '--dfg-layer-depth': String(row.depth) } as CSSProperties;
 
   return (
     <div
@@ -85,8 +80,12 @@ export function LayerRow(props: LayerRowProps) {
       data-depth={row.depth}
       data-df-state={row.selected ? 'selected' : hovered ? 'hover' : 'default'}
       data-df-focus={domFocused ? 'true' : 'false'}
+      data-df-focus-ring={domFocused && props.keyboardFocus ? 'true' : undefined}
+      data-df-dimmed={dimmed ? 'true' : undefined}
+      data-df-active={row.active ? 'true' : undefined}
       data-df-drop-indicator={props.dropEdge ?? undefined}
       data-df-dragging={props.dragging ? 'true' : undefined}
+      className="dfg-panels__layer-row"
       style={rowStyle}
       onMouseEnter={() => {
         setHovered(true);
@@ -117,7 +116,7 @@ export function LayerRow(props: LayerRowProps) {
         props.onContextMenu(row.id, { x: event.clientX, y: event.clientY });
       }}
     >
-      {props.dropEdge === 'top' ? <span style={layerRowStyles.indicatorTop} /> : null}
+      {props.dropEdge === 'top' ? <span className="dfg-panels__drop-indicator-top" /> : null}
       {row.container ? (
         <IconButton
           size="sm"
@@ -132,10 +131,10 @@ export function LayerRow(props: LayerRowProps) {
           }}
         />
       ) : (
-        <span aria-hidden style={{ width: 'var(--dfg-icon-size-sm)' }} />
+        <span aria-hidden className="dfg-panels__layer-icon-spacer" />
       )}
 
-      <span aria-hidden style={{ color: layerTypeColor(row.node), display: 'inline-flex' }}>
+      <span aria-hidden className="dfg-panels__layer-type-icon" data-df-layer-type={row.node.type}>
         {layerTypeIcon(row.node)}
       </span>
 
@@ -150,19 +149,13 @@ export function LayerRow(props: LayerRowProps) {
           }}
         />
       ) : (
-        <span
-          style={{
-            ...layerRowStyles.name,
-            ...(dimmed ? layerRowStateStyles.dimmed : null),
-            ...(row.active ? { fontWeight: 'var(--dfg-font-weight-medium)' } : null),
-          }}
-        >
+        <span className="dfg-panels__layer-name">
           {row.node.name}
           {row.overridden ? (
             <span
               title={t('panels.layers.overridden')}
               data-df-overridden="true"
-              style={{ marginLeft: 'var(--dfg-space-1)', color: 'var(--dfg-color-text-secondary)' }}
+              className="dfg-panels__layer-overridden"
             >
               •
             </span>
@@ -171,7 +164,7 @@ export function LayerRow(props: LayerRowProps) {
       )}
 
       {showActions ? (
-        <span style={layerRowStyles.actions}>
+        <span className="dfg-panels__layer-actions">
           <IconButton
             size="sm"
             label={
@@ -214,7 +207,7 @@ export function LayerRow(props: LayerRowProps) {
           />
         </span>
       ) : null}
-      {props.dropEdge === 'bottom' ? <span style={layerRowStyles.indicatorBottom} /> : null}
+      {props.dropEdge === 'bottom' ? <span className="dfg-panels__drop-indicator-bottom" /> : null}
     </div>
   );
 }
@@ -237,10 +230,9 @@ function RenameInput({
   return (
     <input
       type="text"
-      className="dfg-input"
+      className="dfg-input dfg-panels__layer-rename-input"
       aria-label={t('panels.layers.renameInput')}
       defaultValue={row.node.name}
-      style={layerRowStyles.input}
       // biome-ignore lint/a11y/noAutofocus: 双击进入重命名后焦点必须落在输入框（Figma 同款交互）
       autoFocus
       onFocus={(event) => {

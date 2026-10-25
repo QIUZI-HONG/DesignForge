@@ -23,7 +23,7 @@ import {
 } from '@dforge/engine';
 import { type CSSProperties, useEffect, useState } from 'react';
 
-import { presentStyles } from './present-styles';
+import '../review.css';
 
 /** 舞台留白比例（几何口径：视口宽 90% / 高 85% 内做 contain）。 */
 const FIT_WIDTH_RATIO = 0.9;
@@ -56,8 +56,9 @@ export function SlidePreview({ frame, pageId, document: designDocument }: SlideP
   return (
     <div
       data-df-slide-frame={frame.id}
+      className="dfg-review__slide-frame"
+      // 缩放尺寸与画板底色是几何/文档数据（非界面样式），内联豁免——工单 06 登记表
       style={{
-        ...presentStyles.slideFrame,
         width: `${String(frame.width * scale)}px`,
         height: `${String(frame.height * scale)}px`,
         background: paintToCss(frame.fills[0]) ?? 'transparent',

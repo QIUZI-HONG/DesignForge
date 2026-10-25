@@ -6,7 +6,9 @@
  * 1. **组件**：`./components` 已是策展过的 barrel（页面只从这里取件），整表转发；
  * 2. **页面级纯逻辑**：`filters`（筛选/检索）、`load-store`（本地装载记录册）、
  *    `feedback`（回流计数）——整个模块的接口都是页面级共享面，整表转发；
- * 3. **样式**：`styles`（按令牌变量的页面级版式对象；浅色市场族 + 深色面板族）；
+ * 3. **样式**：`badge-classes`（徽标/进度条 tone → 修饰类名）；页面版式落在
+ *    `market.css` 的 `.dfg-market__*` 类上（工单 06 · 样式单轨），本 barrel 引入 CSS
+ *    供 app/dashboard 消费方直接用类；
  * 4. **hooks / 视图态**：`useMarketQuery` / `useMarketAsset` / `useLoadPlan` / `useLoadRecords`
  *    （取数）、`classifyMarketOutcome`（索引缺失/损坏归一成空态）、`MarketPanel`（编辑器内速览面板）。
  *
@@ -18,16 +20,18 @@
  * `capabilities` / `quality` 内部口径、`state-coverage*`（门禁用统计）。
  */
 
+import './market.css';
+
 /** 测试夹具命名空间（**仅供 `*.test.*`**；理由见文件头）。 */
 export * as marketFixtures from './__fixtures__/market';
 export { classifyMarketOutcome, isSearchDegraded, type MarketOutcome } from './api';
+export { badgeClassName, meterFillClassName, type BadgeTone } from './badge-classes';
 export * from './components';
 export * from './feedback';
 export * from './filters';
 export * from './load-store';
 export * from './pagination';
 export { MarketPanel, type MarketPanelProps } from './panel/MarketPanel';
-export * from './styles';
 export {
   type MarketQueryState,
   useLoadPlan,

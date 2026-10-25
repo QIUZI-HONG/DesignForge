@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 /**
  * 资产面板组件测试（seam：分段/搜索/卡片/令牌列表与四种状态的可观测行为）。
+ *
+ * 样式单轨（工单 06）：原读 `style` 的断言改为类挂载 + editor-panels.css 规则文本
+ * （External CSS 在 jsdom 不计算，先例 verify/a11y-keyboard.test.tsx）。
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -114,11 +120,19 @@ describe('资产面板', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('组件卡颜色：缩略图用组件紫令牌（禁裸值的语义色）', () => {
+  it('组件卡颜色：缩略图挂类，组件紫令牌由 CSS 规则承接（样式单轨，工单 06）', () => {
     renderAssets();
     const card = screen.getByRole('button', { name: '按钮' });
     const thumb = card.querySelector('[aria-hidden="true"]') as HTMLElement;
-    expect(thumb.style.color).toBe('var(--dfg-color-component)');
+    // External CSS 在 jsdom 不计算：断言类挂载 + editor-panels.css 的规则文本
+    expect(thumb.className).toContain('dfg-panels__asset-thumb');
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/features/editor-panels/editor-panels.css'),
+      'utf8',
+    );
+    const at = css.indexOf('.dfg-panels__asset-thumb {');
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(css.slice(at, css.indexOf('}', at))).toContain('var(--dfg-color-component)');
   });
 
   it('面板边界与语义：具名 region「资产」（截图门禁按面板边界取样）', () => {

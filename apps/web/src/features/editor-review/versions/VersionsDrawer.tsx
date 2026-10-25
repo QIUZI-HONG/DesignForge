@@ -17,9 +17,10 @@ import { useState } from 'react';
 import { t } from '@/i18n';
 import { formatTimestamp } from '../format';
 import { useReviewSession, useVersionsUi } from '../review-context';
-import { reviewStyles, versionStyles } from '../styles';
 import { documentSummary, type VersionSnapshot } from './snapshots';
 import { VersionCompare } from './VersionCompare';
+
+import '../review.css';
 
 /** 版本历史抽屉。 */
 export function VersionsDrawer() {
@@ -40,7 +41,7 @@ export function VersionsDrawer() {
           width="md"
           closeLabel={t('review.versions.close')}
         >
-          <div style={versionStyles.drawerBody}>
+          <div className="dfg-review__versions-body">
             <button
               type="button"
               className="dfg-btn dfg-btn--secondary dfg-btn--sm"
@@ -53,12 +54,14 @@ export function VersionsDrawer() {
             </button>
 
             {snapshots.length === 0 ? (
-              <div data-df-sample="versions/empty" style={reviewStyles.empty}>
-                <span style={reviewStyles.emptyTitle}>{t('review.versions.empty.title')}</span>
-                <span style={reviewStyles.emptyDesc}>{t('review.versions.empty.desc')}</span>
+              <div data-df-sample="versions/empty" className="dfg-review__empty">
+                <span className="dfg-review__empty-title">
+                  {t('review.versions.empty.title')}
+                </span>
+                <span className="dfg-review__empty-desc">{t('review.versions.empty.desc')}</span>
               </div>
             ) : (
-              <ul aria-label={t('review.versions.list.label')} style={reviewStyles.listReset}>
+              <ul aria-label={t('review.versions.list.label')} className="dfg-review__list-reset">
                 {snapshots.map((snapshot) => (
                   <VersionRow key={snapshot.id} snapshot={snapshot} />
                 ))}
@@ -82,7 +85,7 @@ function VersionRow({ snapshot }: { snapshot: VersionSnapshot }) {
       data-df-version-row=""
       data-df-version-id={snapshot.id}
       data-df-state={hover ? 'hover' : 'idle'}
-      style={versionStyles.row}
+      className="dfg-review__version-row"
       onMouseEnter={() => {
         setHover(true);
       }}
@@ -90,18 +93,18 @@ function VersionRow({ snapshot }: { snapshot: VersionSnapshot }) {
         setHover(false);
       }}
     >
-      <span style={versionStyles.rowHead}>
-        <span style={reviewStyles.panelTitle}>
+      <span className="dfg-review__version-row-head">
+        <span className="dfg-review__panel-title">
           {snapshot.label === '' ? snapshot.id : snapshot.label}
         </span>
-        <span data-df-version-time="" style={reviewStyles.meta}>
+        <span data-df-version-time="" className="dfg-review__meta">
           {formatTimestamp(snapshot.createdAt)}
         </span>
       </span>
-      <span style={reviewStyles.meta}>
+      <span className="dfg-review__meta">
         {t('review.versions.summary', { pages: summary.pages, nodes: summary.nodes })}
       </span>
-      <span style={versionStyles.rowActions}>
+      <span className="dfg-review__version-row-actions">
         <button
           type="button"
           className="dfg-btn dfg-btn--secondary dfg-btn--sm"

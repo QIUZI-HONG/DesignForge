@@ -1,0 +1,528 @@
+/*
+ * 市场与看板页面级样式（工单 06 · 样式单轨）。
+ *
+ * 口径（_shared §3 禁裸值）：颜色/间距/圆角/字号一律 `var(--dfg-*)` 令牌引用
+ * （`scripts/guard-tokens.mjs` 扫本文件，R1-R4 与组件同轨约束）；
+ * 三处页面几何常量（240/320/180 最小列宽）逐行 `guard-tokens:allow` 登记，
+ * 与 `scripts/verify-market.mjs` 的登记口径一致。
+ * 主题差异由 data-theme 的令牌变量自身承接（浅色首页族 ↔ 深色编辑器族）。
+ * 仪表盘（/dashboard）复用本文件的版式类（两域共用同一套页面排版基线）。
+ */
+
+/* ---------- 页面骨架（浅色市场族） ---------- */
+
+.dfg-market__page {
+  min-height: 100vh;
+  display: grid;
+  align-content: start;
+  gap: var(--dfg-space-6);
+  padding: var(--dfg-space-6);
+  background-color: var(--dfg-color-canvas);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-13);
+}
+
+.dfg-market__header {
+  display: grid;
+  gap: var(--dfg-space-3);
+}
+
+.dfg-market__title {
+  margin: 0;
+  font-size: var(--dfg-font-size-20);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-market__subtitle {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  line-height: var(--dfg-line-height-relaxed);
+}
+
+.dfg-market__hint {
+  margin: 0;
+  color: var(--dfg-color-text-disabled);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-market__pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dfg-space-3);
+  padding-block: var(--dfg-space-2);
+}
+
+.dfg-market__pagination-error {
+  color: var(--dfg-color-danger);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-market__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+/* 工具栏主列（搜索框撑满剩余宽） */
+.dfg-market__toolbar-grow {
+  flex: 1 1 auto;
+  min-width: var(--dfg-size-menu-min-width);
+}
+
+/* 等宽字段槽（来源仓库输入等） */
+.dfg-market__min-field {
+  min-width: var(--dfg-size-menu-min-width);
+}
+
+/* 纵向栈（gap 按修饰档） */
+.dfg-market__stack {
+  display: grid;
+  gap: var(--dfg-space-4);
+}
+
+.dfg-market__stack--gap-3 {
+  gap: var(--dfg-space-3);
+}
+
+.dfg-market__stack--gap-2 {
+  gap: var(--dfg-space-2);
+}
+
+.dfg-market__stack--menu-min {
+  min-width: var(--dfg-size-menu-min-width);
+}
+
+/* 居中页头（独立路由的深色面板演示页） */
+.dfg-market__head-center {
+  display: grid;
+  gap: var(--dfg-space-1);
+  text-align: center;
+}
+
+/* 区块标题重置（h2/h3 语义不变，只去默认边距） */
+.dfg-market__heading-reset {
+  margin: 0;
+}
+
+/* 正文段（页内说明文字；relaxed 档给长简介） */
+.dfg-market__prose {
+  margin: 0;
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfg-market__prose--relaxed {
+  line-height: var(--dfg-line-height-relaxed);
+}
+
+/* 能力清单行内的「标签 + 风险徽标」横排 */
+.dfg-market__cap-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+/* ---------- 筛选栏（白底卡片） ---------- */
+
+.dfg-market__filter-bar {
+  display: grid;
+  gap: var(--dfg-space-3);
+  padding: var(--dfg-space-4);
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+}
+
+.dfg-market__filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+/* ---------- 卡片 ---------- */
+
+.dfg-market__grid {
+  display: grid;
+  /* 卡片最小列宽：240 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); /* guard-tokens:allow 卡片最小列宽：240 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
+  gap: var(--dfg-space-4);
+  align-items: stretch;
+}
+
+.dfg-market__card {
+  display: grid;
+  align-content: start;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-4);
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+  box-shadow: var(--dfg-shadow-sm);
+  transition:
+    transform var(--dfg-duration-fast) var(--dfg-easing-standard),
+    box-shadow var(--dfg-duration-fast) var(--dfg-easing-standard);
+}
+
+/* 卡片悬停态（抬升一个基础间距档 + 强调阴影）：data-df-state 是组件投射的对外事实 */
+.dfg-market__card[data-df-state='hover'] {
+  transform: translateY(calc(var(--dfg-space-1) * -1));
+  box-shadow: var(--dfg-shadow-lg);
+  border-color: var(--dfg-color-border-strong);
+  cursor: pointer;
+}
+
+.dfg-market__thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  background-color: var(--dfg-color-surface-subtle);
+  border-radius: var(--dfg-radius-md);
+  color: var(--dfg-color-icon-secondary);
+}
+
+.dfg-market__card-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--dfg-space-2);
+  justify-content: space-between;
+}
+
+.dfg-market__card-name {
+  margin: 0;
+  font-size: var(--dfg-font-size-15);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+/* 卡片主名的按钮化（保持标题排版，行为是按钮——键盘可达） */
+.dfg-market__card-open {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dfg-market__card-sub-name {
+  margin: 0;
+  color: var(--dfg-color-text-disabled);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-market__card-summary {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  line-height: var(--dfg-line-height-base);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- 徽标族（风险/许可/来源/指标共用；色调由修饰档承接） ---------- */
+
+.dfg-market__badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dfg-space-1);
+}
+
+.dfg-market__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  padding-block: var(--dfg-space-1);
+  padding-inline: var(--dfg-space-2);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  background-color: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-market__badge--ok {
+  color: var(--dfg-color-success);
+}
+
+.dfg-market__badge--warn {
+  color: var(--dfg-color-warning);
+}
+
+.dfg-market__badge--danger {
+  color: var(--dfg-color-danger);
+}
+
+/* 搜索命中高亮 */
+.dfg-market__mark {
+  background-color: var(--dfg-color-selection);
+  color: var(--dfg-color-selection-text);
+  border-radius: var(--dfg-radius-sm);
+}
+
+/* ---------- 区块与信息表（详情/看板分组） ---------- */
+
+.dfg-market__section {
+  display: grid;
+  gap: var(--dfg-space-3);
+  padding: var(--dfg-space-4);
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+}
+
+.dfg-market__section-title {
+  margin: 0;
+  font-size: var(--dfg-font-size-15);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-market__kv-table {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--dfg-space-2) var(--dfg-space-4);
+  margin: 0;
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-market__kv-key {
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-market__kv-value {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 详情两栏（左预览 / 右信息） */
+.dfg-market__detail-layout {
+  display: grid;
+  /* 详情预览栏最小宽：320 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
+  grid-template-columns: minmax(320px, 5fr) minmax(0, 7fr); /* guard-tokens:allow 详情预览栏最小宽：320 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
+  gap: var(--dfg-space-4);
+  align-items: start;
+}
+
+.dfg-market__preview {
+  display: grid;
+  gap: var(--dfg-space-3);
+  padding: var(--dfg-space-4);
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+  position: sticky;
+  top: var(--dfg-space-4);
+}
+
+.dfg-market__preview-canvas {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  background-color: var(--dfg-color-surface-subtle);
+  border: var(--dfg-border-width-hairline) dashed var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  color: var(--dfg-color-icon-secondary);
+}
+
+/* ---------- 清单与质量面板 ---------- */
+
+.dfg-market__list {
+  display: grid;
+  gap: var(--dfg-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfg-market__list-item {
+  display: grid;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-3);
+  background-color: var(--dfg-color-surface-subtle);
+  border-radius: var(--dfg-radius-md);
+}
+
+.dfg-market__dim-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+/* 质量面板版式：雷达 + 维度条横排 */
+.dfg-market__quality-layout {
+  display: flex;
+  gap: var(--dfg-space-4);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.dfg-market__meter-track {
+  height: var(--dfg-space-2);
+  background-color: var(--dfg-color-surface-subtle);
+  border-radius: var(--dfg-radius-pill);
+  overflow: hidden;
+}
+
+/* 进度条填充（宽度由数据行内注入——动态值豁免）；色调由修饰档承接 */
+.dfg-market__meter-fill {
+  display: block;
+  height: 100%;
+  background-color: var(--dfg-color-primary);
+}
+
+.dfg-market__meter-fill--warn {
+  background-color: var(--dfg-color-warning);
+}
+
+.dfg-market__meter-fill--danger {
+  background-color: var(--dfg-color-danger);
+}
+
+.dfg-market__score {
+  font-size: var(--dfg-font-size-15);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+/* ---------- 看板统计 ---------- */
+
+.dfg-market__stat-grid {
+  display: grid;
+  /* 统计卡最小列宽：180 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); /* guard-tokens:allow 统计卡最小列宽：180 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
+  gap: var(--dfg-space-3);
+}
+
+.dfg-market__stat-card {
+  display: grid;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-4);
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+}
+
+.dfg-market__stat-value {
+  font-size: var(--dfg-font-size-20);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-market__stat-label {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-market__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-market__th {
+  text-align: left;
+  padding: var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-market__td {
+  text-align: left;
+  padding: var(--dfg-space-2);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+/* 空态里的采集指引命令块（等宽显示 CLI） */
+.dfg-market__code {
+  display: block;
+  margin: 0;
+  padding: var(--dfg-space-3);
+  background-color: var(--dfg-color-surface-subtle);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  font-family: monospace;
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-primary);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+/* ---------- 深色面板（D5 编辑器内市场面板） ---------- */
+
+/* 面板外壳（宽固定，随编辑器右栏挂载；独立路由时居中演示） */
+.dfg-market__panel {
+  display: grid;
+  align-content: start;
+  gap: var(--dfg-space-3);
+  width: 100%;
+  max-width: var(--dfg-size-drawer-md);
+  padding: var(--dfg-space-4);
+  background-color: var(--dfg-color-surface);
+  color: var(--dfg-color-text-primary);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-market__panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-market__panel-title {
+  margin: 0;
+  font-size: var(--dfg-font-size-15);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-market__panel-list {
+  display: grid;
+  gap: var(--dfg-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 面板列表行按钮（紧凑行高随深色族密度；选中描边走 aria-pressed） */
+.dfg-market__panel-row-btn {
+  display: grid;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-2);
+  background-color: var(--dfg-color-surface-raised);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dfg-market__panel-row-btn[aria-pressed='true'] {
+  border-color: var(--dfg-color-border-strong);
+}
+
+.dfg-market__panel-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-icon-gap);
+}
+
+/* 面板行图标 + 主名 + 徽标的行内版式 */
+.dfg-market__dark-page {
+  min-height: 100vh;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: var(--dfg-space-4);
+  padding: var(--dfg-space-6);
+  background-color: var(--dfg-color-canvas);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+}

@@ -24,7 +24,6 @@ import {
 } from '@dforge/engine';
 import { EmptyState, ErrorState, Skeleton } from '@dforge/ui';
 import {
-  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -51,7 +50,8 @@ import { LayerContextMenu } from './LayerContextMenu';
 import { type DropEdge, LayerRow } from './LayerRow';
 import { buildLayerRows, type LayerRowModel } from './layer-rows';
 import { usePanelsSession } from './panels-context';
-import { panelStyles } from './styles';
+
+import '../editor-panels.css';
 
 /** 拖拽阈值（几何常量）：超过才判定为拖拽，避免点击被误认为微拖。 */
 const DRAG_THRESHOLD = 4;
@@ -344,18 +344,17 @@ export function LayersPanel({
       aria-label={t('panels.layers.title')}
       aria-busy={loading}
       data-df-panel="layers"
-      className={className}
-      style={panelStyles.panel}
+      className={className === undefined ? 'dfg-panels__panel' : `${className} dfg-panels__panel`}
     >
       {hideHeader ? null : (
-        <header style={panelStyles.header}>
-          <span style={panelStyles.headerTitle}>{t('panels.layers.title')}</span>
-          <span style={panelStyles.headerSpacer} />
+        <header className="dfg-panels__header">
+          <span className="dfg-panels__header-title">{t('panels.layers.title')}</span>
+          <span className="dfg-panels__header-spacer" />
         </header>
       )}
 
       {error !== null ? (
-        <div data-df-sample="layers/error" style={panelStyles.body}>
+        <div data-df-sample="layers/error" className="dfg-panels__body">
           <ErrorState
             title={t('panels.layers.error.title')}
             description={t('panels.layers.error.desc')}
@@ -364,21 +363,18 @@ export function LayersPanel({
           />
         </div>
       ) : loading ? (
-        <div data-df-sample="layers/loading" style={panelStyles.body}>
+        <div data-df-sample="layers/loading" className="dfg-panels__body">
           <span className="dfg-visually-hidden" role="status">
             {t('panels.layers.loading')}
           </span>
           {Array.from({ length: 6 }, (_, index) => (
-            <div
-              key={`skeleton-${String(index)}`}
-              style={{ padding: 'var(--dfg-space-1) var(--dfg-space-2)' }}
-            >
+            <div key={`skeleton-${String(index)}`} className="dfg-panels__skeleton-row">
               <Skeleton height="var(--dfg-row-height-md)" />
             </div>
           ))}
         </div>
       ) : rows.length === 0 ? (
-        <div data-df-sample="layers/empty" style={panelStyles.body}>
+        <div data-df-sample="layers/empty" className="dfg-panels__body">
           <EmptyState
             title={t('panels.layers.empty.title')}
             description={t('panels.layers.empty.desc')}
@@ -390,7 +386,7 @@ export function LayersPanel({
           role="tree"
           aria-label={t('panels.layers.tree.label')}
           data-df-layer-count={rows.length}
-          style={{ ...panelStyles.body, ...layerListStyle }}
+          className="dfg-panels__body dfg-panels__layer-list"
           onPointerMove={onListPointerMove}
           onPointerUp={finishDrag}
           onPointerCancel={finishDrag}
@@ -432,6 +428,3 @@ export function LayersPanel({
     </section>
   );
 }
-
-/** 行容器：上下留白（行自身再缩进深度）。 */
-const layerListStyle: CSSProperties = { paddingBlock: 'var(--dfg-space-1)' };

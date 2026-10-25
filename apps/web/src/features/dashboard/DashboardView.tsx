@@ -10,22 +10,7 @@
 
 import type { MarketAssetKind, MarketQueryResponse } from '@dforge/contracts';
 import type { ReactNode } from 'react';
-import {
-  badgeRowStyle,
-  badgeStyle,
-  hintStyle,
-  meterFillStyle,
-  meterTrackStyle,
-  sectionStyle,
-  sectionTitleStyle,
-  statCardStyle,
-  statGridStyle,
-  statLabelStyle,
-  statValueStyle,
-  tableStyle,
-  tdStyle,
-  thStyle,
-} from '@/features/market';
+import { badgeClassName, meterFillClassName } from '@/features/market';
 import { t } from '@/i18n';
 import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 import {
@@ -35,6 +20,8 @@ import {
   readCollectionProgress,
   readLayerStatuses,
 } from './metrics';
+
+import '@/features/market/market.css';
 
 /** 四类资产的 i18n 键（看板的分部计数用）。 */
 const KIND_LABEL_KEYS: Record<MarketAssetKind, string> = {
@@ -59,16 +46,16 @@ export function DashboardView({ response, nowIso }: DashboardViewProps) {
   const freshness = computeFreshness(response.items, { generatedAt: response.generatedAt }, nowIso);
   const freshMax = Math.max(1, ...freshness.buckets.map((bucket) => bucket.count));
   const notReported = (
-    <span style={badgeStyle('warn')} data-df-market="not-reported">
+    <span className={badgeClassName('warn')} data-df-market="not-reported">
       {t('dashboard.notReported')}
     </span>
   );
 
   return (
-    <div data-df-page="dashboard" style={{ display: 'grid', gap: 'var(--dfg-space-4)' }}>
-      <section style={sectionStyle} data-df-market="progress">
-        <h2 style={sectionTitleStyle}>{t('dashboard.progress.title')}</h2>
-        <div style={statGridStyle}>
+    <div data-df-page="dashboard" className="dfg-market__stack">
+      <section className="dfg-market__section" data-df-market="progress">
+        <h2 className="dfg-market__section-title">{t('dashboard.progress.title')}</h2>
+        <div className="dfg-market__stat-grid">
           <StatCard
             label={t('dashboard.progress.generatedAt')}
             value={progress.generatedAt ?? t('dashboard.notReported')}
@@ -91,43 +78,43 @@ export function DashboardView({ response, nowIso }: DashboardViewProps) {
           />
           <StatCard label={t('dashboard.progress.loaded')} value={String(progress.loaded)} />
         </div>
-        <p style={hintStyle} data-df-market="progress-note">
+        <p className="dfg-market__hint" data-df-market="progress-note">
           {t('dashboard.progress.loadedNote', {
             loaded: progress.loaded,
             total: progress.total ?? 0,
           })}
         </p>
-        <div style={badgeRowStyle}>
+        <div className="dfg-market__badge-row">
           {progress.byKind.map((entry) => (
-            <span key={entry.kind} style={badgeStyle('neutral')}>
+            <span key={entry.kind} className={badgeClassName('neutral')}>
               {t(KIND_LABEL_KEYS[entry.kind])} {entry.count}
             </span>
           ))}
         </div>
-        <p style={hintStyle}>{t('dashboard.notReportedReason')}</p>
+        <p className="dfg-market__hint">{t('dashboard.notReportedReason')}</p>
       </section>
 
-      <section style={sectionStyle} data-df-market="layers">
-        <h2 style={sectionTitleStyle}>{t('dashboard.layers.title')}</h2>
-        <table style={tableStyle}>
+      <section className="dfg-market__section" data-df-market="layers">
+        <h2 className="dfg-market__section-title">{t('dashboard.layers.title')}</h2>
+        <table className="dfg-market__table">
           <thead>
             <tr>
-              <th style={thStyle}>{t('dashboard.layer.id')}</th>
-              <th style={thStyle}>{t('dashboard.layer.entries')}</th>
-              <th style={thStyle}>{t('dashboard.layer.rebuiltAt')}</th>
-              <th style={thStyle}>{t('dashboard.layer.note')}</th>
+              <th className="dfg-market__th">{t('dashboard.layer.id')}</th>
+              <th className="dfg-market__th">{t('dashboard.layer.entries')}</th>
+              <th className="dfg-market__th">{t('dashboard.layer.rebuiltAt')}</th>
+              <th className="dfg-market__th">{t('dashboard.layer.note')}</th>
             </tr>
           </thead>
           <tbody>
             {layers.map((layer) => (
               <tr key={layer.id} data-df-market="layer-row" data-df-layer={layer.id}>
-                <td style={tdStyle}>{t(layer.labelKey)}</td>
-                <td style={tdStyle}>
+                <td className="dfg-market__td">{t(layer.labelKey)}</td>
+                <td className="dfg-market__td">
                   {layer.entries === null ? notReported : String(layer.entries)}
                 </td>
-                <td style={tdStyle}>{layer.rebuiltAt === null ? notReported : layer.rebuiltAt}</td>
-                <td style={tdStyle}>
-                  <span style={hintStyle}>{t(layer.noteKey)}</span>
+                <td className="dfg-market__td">{layer.rebuiltAt === null ? notReported : layer.rebuiltAt}</td>
+                <td className="dfg-market__td">
+                  <span className="dfg-market__hint">{t(layer.noteKey)}</span>
                 </td>
               </tr>
             ))}
@@ -135,34 +122,34 @@ export function DashboardView({ response, nowIso }: DashboardViewProps) {
         </table>
       </section>
 
-      <section style={sectionStyle} data-df-market="quality-boards">
-        <h2 style={sectionTitleStyle}>{t('dashboard.quality.title')}</h2>
-        <p style={hintStyle} data-df-market="thresholds-pending">
+      <section className="dfg-market__section" data-df-market="quality-boards">
+        <h2 className="dfg-market__section-title">{t('dashboard.quality.title')}</h2>
+        <p className="dfg-market__hint" data-df-market="thresholds-pending">
           {t('dashboard.quality.thresholdsPending')}
         </p>
 
-        <h3 style={sectionTitleStyle}>{t('dashboard.completeness.title')}</h3>
-        <p style={hintStyle} data-df-market="completeness-rate">
+        <h3 className="dfg-market__section-title">{t('dashboard.completeness.title')}</h3>
+        <p className="dfg-market__hint" data-df-market="completeness-rate">
           {t('dashboard.completeness.rate', {
             rate: completeness.rate.toFixed(3),
             missing: completeness.missingTotal,
             slots: completeness.total * completeness.fields.length,
           })}
         </p>
-        <table style={tableStyle} data-df-market="completeness-table">
+        <table className="dfg-market__table" data-df-market="completeness-table">
           <thead>
             <tr>
-              <th style={thStyle}>{t('dashboard.completeness.field')}</th>
-              <th style={thStyle}>{t('dashboard.completeness.missing')}</th>
-              <th style={thStyle}>{t('dashboard.completeness.rateOfField')}</th>
+              <th className="dfg-market__th">{t('dashboard.completeness.field')}</th>
+              <th className="dfg-market__th">{t('dashboard.completeness.missing')}</th>
+              <th className="dfg-market__th">{t('dashboard.completeness.rateOfField')}</th>
             </tr>
           </thead>
           <tbody>
             {completeness.fields.map((field) => (
               <tr key={field.field}>
-                <td style={tdStyle}>{field.field}</td>
-                <td style={tdStyle}>{field.missing}</td>
-                <td style={tdStyle}>
+                <td className="dfg-market__td">{field.field}</td>
+                <td className="dfg-market__td">{field.missing}</td>
+                <td className="dfg-market__td">
                   {completeness.total === 0
                     ? UNAVAILABLE_PLACEHOLDER
                     : (field.missing / completeness.total).toFixed(2)}
@@ -172,8 +159,8 @@ export function DashboardView({ response, nowIso }: DashboardViewProps) {
           </tbody>
         </table>
 
-        <h3 style={sectionTitleStyle}>{t('dashboard.consistency.title')}</h3>
-        <div style={statGridStyle}>
+        <h3 className="dfg-market__section-title">{t('dashboard.consistency.title')}</h3>
+        <div className="dfg-market__stat-grid">
           <StatCard
             label={t('dashboard.consistency.duplicateIds')}
             value={String(consistency.duplicateIdGroups.length)}
@@ -187,33 +174,31 @@ export function DashboardView({ response, nowIso }: DashboardViewProps) {
             value={String(consistency.danglingRefs)}
           />
         </div>
-        <p style={hintStyle}>{t('dashboard.consistency.explain')}</p>
+        <p className="dfg-market__hint">{t('dashboard.consistency.explain')}</p>
 
-        <h3 style={sectionTitleStyle}>{t('dashboard.freshness.title')}</h3>
-        <div style={statGridStyle}>
+        <h3 className="dfg-market__section-title">{t('dashboard.freshness.title')}</h3>
+        <div className="dfg-market__stat-grid">
           {freshness.buckets.map((bucket) => (
             <div
               key={bucket.key}
-              style={statCardStyle}
+              className="dfg-market__stat-card"
               data-df-market="freshness-bucket"
               data-df-bucket={bucket.key}
             >
-              <span style={statLabelStyle}>{t(bucket.labelKey)}</span>
-              <span style={statValueStyle}>{bucket.count}</span>
-              <span style={meterTrackStyle}>
+              <span className="dfg-market__stat-label">{t(bucket.labelKey)}</span>
+              <span className="dfg-market__stat-value">{bucket.count}</span>
+              <span className="dfg-market__meter-track">
                 <span
-                  style={{
-                    ...meterFillStyle('primary'),
-                    display: 'block',
-                    width: `${String(Math.round((bucket.count / freshMax) * 100))}%`,
-                  }}
+                  className={meterFillClassName('primary')}
+                  // 填充宽度由数据给百分比（动态值豁免——工单 06 登记表）
+                  style={{ width: `${String(Math.round((bucket.count / freshMax) * 100))}%` }}
                 />
               </span>
             </div>
           ))}
           <StatCard label={t('dashboard.fresh.unknown')} value={String(freshness.unknown)} />
         </div>
-        <p style={hintStyle} data-df-market="index-age">
+        <p className="dfg-market__hint" data-df-market="index-age">
           {freshness.indexAgeDays === null
             ? t('dashboard.fresh.indexAgeUnknown')
             : t('dashboard.fresh.indexAge', {
@@ -229,9 +214,9 @@ export function DashboardView({ response, nowIso }: DashboardViewProps) {
 /** 统计卡（数值 + 标签）。 */
 function StatCard({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div style={statCardStyle} data-df-market="stat">
-      <span style={statLabelStyle}>{label}</span>
-      <span style={statValueStyle}>{value}</span>
+    <div className="dfg-market__stat-card" data-df-market="stat">
+      <span className="dfg-market__stat-label">{label}</span>
+      <span className="dfg-market__stat-value">{value}</span>
     </div>
   );
 }

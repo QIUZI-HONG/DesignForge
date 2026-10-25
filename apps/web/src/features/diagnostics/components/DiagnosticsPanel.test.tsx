@@ -3,7 +3,12 @@
  * 诊断面板组件测试（seam：用户可观察的界面行为——环境行、连通性逐项状态与重试、日志尾部）。
  *
  * 断言口径：可见文案（i18n 真源）+ 可访问角色；数据形状由 environment.test.ts 覆盖。
+ * 样式单轨（工单 06）：样式断言走**类名挂载 + diagnostics.css 文本**（External CSS 在
+ * jsdom 不计算，先例 verify/a11y-keyboard.test.tsx 注入 CSS）。
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -107,5 +112,45 @@ describe('诊断面板（F8）', () => {
     });
     expect(port.healthCalls).toBe(2);
     expect(screen.queryByText('本地服务不可达')).toBeNull();
+  });
+});
+
+/** 读域内 CSS 文本（jsdom 不计算 External CSS，类规则只能对文件文本断言）。 */
+const diagnosticsCss = (): string =>
+  readFileSync(resolve(process.cwd(), 'src/features/diagnostics/components/diagnostics.css'), 'utf8');
+
+/** 断言 CSS 里有 `.类名 { … }` 规则块，并返回该块文本。 */
+function cssRule(css: string, className: string): string {
+  const at = css.indexOf(`.${className} {`);
+  expect(at, `diagnostics.css 缺少 .${className} 规则`).toBeGreaterThanOrEqual(0);
+  const end = css.indexOf('}', at);
+  return css.slice(at, end);
+}
+
+describe('诊断面板 · 样式单轨（工单 06）', () => {
+  it('样式挂类不挂内联：面板内容树不产生 style 属性', () => {
+    const port = fakeDiagnosticsPort();
+    render(<DiagnosticsPanel port={port} env={ENV} open onOpenChange={() => undefined} />);
+    const root = document.querySelector('[data-df-panel="diagnostics"]');
+    expect(root?.classList.contains('dfg-diagnostics__body')).toBe(true);
+    // 本域无几何算式场景：整棵面板不允许任何内联样式（豁免登记表在工单 06）
+    expect(root?.querySelector('[style]')).toBeNull();
+    // 环境行与连通性条目挂预期类
+    expect(document.querySelector('[data-df-env-row]')?.className).toContain(
+      'dfg-diagnostics__row',
+    );
+    expect(
+      document.querySelector('[data-df-connectivity-item]')?.className,
+    ).toContain('dfg-diagnostics__item');
+  });
+
+  it('关键规则块落盘：错误横幅/状态 chip/日志尾部的令牌引用逐一断言', () => {
+    const css = diagnosticsCss();
+    expect(cssRule(css, 'dfg-diagnostics__error-banner')).toContain(
+      'var(--dfg-color-danger-subtle)',
+    );
+    expect(cssRule(css, 'dfg-diagnostics__status-chip')).toContain('var(--dfg-radius-pill)');
+    expect(cssRule(css, 'dfg-diagnostics__row-label')).toContain('var(--dfg-space-16)');
+    expect(cssRule(css, 'dfg-diagnostics__log-line')).toContain('var(--dfg-font-sans)');
   });
 });

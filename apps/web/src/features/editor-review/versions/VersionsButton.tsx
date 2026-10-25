@@ -10,30 +10,28 @@ import { t } from '@/i18n';
 
 import { HistoryIcon } from '../icons';
 import { useReviewSession, useVersionsUi } from '../review-context';
-import { commentStyles } from '../styles';
+
+import '../review.css';
 
 /** 版本历史按钮 props。 */
 export interface VersionsButtonProps {
   className?: string;
 }
 
-/** 「版本历史」入口按钮。 */
+/** 「版本历史」入口按钮（开启态由 aria-pressed 在 CSS 承接）。 */
 export function VersionsButton({ className }: VersionsButtonProps) {
   const session = useReviewSession();
   const open = useVersionsUi(session, (state) => state.open);
   return (
     <button
       type="button"
-      className={className}
+      className={
+        className === undefined ? 'dfg-review__mode-toggle' : `${className} dfg-review__mode-toggle`
+      }
       data-df-versions-toggle=""
       data-df-state={open ? 'active' : 'idle'}
       aria-pressed={open}
       title={t('review.versions.title')}
-      style={
-        open
-          ? { ...commentStyles.modeToggle, ...commentStyles.modeToggleOn }
-          : commentStyles.modeToggle
-      }
       onClick={() => {
         session.versions.getState().setOpen(!open);
       }}

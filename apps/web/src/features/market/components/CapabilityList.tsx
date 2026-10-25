@@ -11,7 +11,9 @@
 import { t } from '@/i18n';
 
 import { type CapabilityRisk, describeCapabilities } from '../capabilities';
-import { badgeStyle, hintStyle, listItemStyle, listStyle } from '../styles';
+import { badgeClassName } from '../badge-classes';
+
+import '../market.css';
 
 /** 风险档 → 徽标色调。 */
 const RISK_TONE: Record<CapabilityRisk, 'ok' | 'warn' | 'danger' | 'neutral'> = {
@@ -42,40 +44,43 @@ export function CapabilityList({
   const { items, ackList } = describeCapabilities(capabilities, ackRequired ?? []);
   if (items.length === 0) {
     return (
-      <p style={hintStyle} data-df-market="capability-empty">
+      <p className="dfg-market__hint" data-df-market="capability-empty">
         {t('market.cap.empty')}
       </p>
     );
   }
   return (
     <div data-df-market="capability-list">
-      <ul style={listStyle}>
+      <ul className="dfg-market__list">
         {items.map((item) => (
           <li
             key={item.id}
-            style={listItemStyle}
+            className="dfg-market__list-item"
             data-df-market="capability-item"
             data-df-cap={item.id}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--dfg-space-2)' }}>
+            <span className="dfg-market__cap-row">
               <strong>{item.labelKey === null ? item.id : t(item.labelKey)}</strong>
-              <span style={badgeStyle(RISK_TONE[item.risk])} data-df-market="capability-risk">
+              <span
+                className={badgeClassName(RISK_TONE[item.risk])}
+                data-df-market="capability-risk"
+              >
                 {t(RISK_LABEL_KEYS[item.risk])}
               </span>
               {item.ackRequired ? (
-                <span style={badgeStyle('danger')} data-df-market="capability-ack">
+                <span className={badgeClassName('danger')} data-df-market="capability-ack">
                   {t('market.cap.ackBadge')}
                 </span>
               ) : null}
             </span>
-            <span style={hintStyle}>
+            <span className="dfg-market__hint">
               {item.labelKey === null ? `${item.id} · ${t(item.scopeKey)}` : t(item.scopeKey)}
             </span>
           </li>
         ))}
       </ul>
       {ackList.length === 0 ? null : (
-        <p style={hintStyle} data-df-market="capability-ack-list">
+        <p className="dfg-market__hint" data-df-market="capability-ack-list">
           {t('market.cap.ackList', { list: ackList.join('、') })}
         </p>
       )}

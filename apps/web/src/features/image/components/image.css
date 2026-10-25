@@ -1,0 +1,215 @@
+/**
+ * 出图面板特性样式（工单 06 · 样式单轨）。
+ *
+ * 口径（`_shared.md` §3 禁裸值 + canvas.css/editor-shell.css 既有惯例）：
+ * 颜色/间距/圆角/字号一律 `var(--dfg-*)` 令牌引用（`scripts/guard-tokens.mjs` 扫本文件，
+ * R1-R4 与组件同轨约束）；本域无几何算式场景，不存在内联 style（豁免登记表在工单 06）。
+ */
+
+.dfg-image__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-3);
+}
+
+/* 探测不可达横幅（浅警示底） */
+.dfg-image__banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  background-color: var(--dfg-color-warning-subtle);
+  border-radius: var(--dfg-radius-md);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfg-image__banner-header {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-image__banner-detail {
+  color: var(--dfg-color-text-secondary);
+  word-break: break-word;
+}
+
+/* 动作 chip 行（可执行动作的小标签） */
+.dfg-image__chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-image__chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--dfg-control-height-sm);
+  padding: 0 var(--dfg-space-2);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-pill);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* ---------- 表单 ---------- */
+
+.dfg-image__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-image__field-label {
+  font-size: var(--dfg-font-size-12);
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-image__textarea {
+  width: 100%;
+  min-height: var(--dfg-size-textarea-min-height);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  background-color: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-primary);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+  resize: vertical;
+}
+
+.dfg-image__param-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--dfg-space-2);
+}
+
+.dfg-image__param-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-image__param-input {
+  width: 100%;
+  height: var(--dfg-control-height-md);
+  padding: 0 var(--dfg-space-2);
+  background-color: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-primary);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+}
+
+/* ---------- 进度与失败态 ---------- */
+
+.dfg-image__progress-area {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+  background-color: var(--dfg-color-surface-subtle);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+}
+
+.dfg-image__progress-header {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-image__status-text {
+  flex: 1 1 auto;
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-image__failure-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+  background-color: var(--dfg-color-danger-subtle);
+  border-radius: var(--dfg-radius-md);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfg-image__failure-message {
+  color: var(--dfg-color-text-primary);
+  word-break: break-word;
+}
+
+.dfg-image__model-lists {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* ---------- 结果区 ---------- */
+
+.dfg-image__artifact-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfg-image__artifact-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  height: var(--dfg-row-height-md);
+  padding: 0 var(--dfg-space-2);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-image__artifact-name {
+  flex: 1 1 auto;
+  color: var(--dfg-color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dfg-image__artifact-size {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-image__section-title {
+  font-size: var(--dfg-font-size-12);
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-image__empty-text {
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-image__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-image__spacer {
+  flex: 1 1 auto;
+}
