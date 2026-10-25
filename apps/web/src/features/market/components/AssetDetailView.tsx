@@ -17,25 +17,14 @@ import { Button, Tooltip } from '@dforge/ui';
 import { t } from '@/i18n';
 
 import { buildSourceUrl } from '../api';
+import { badgeClassName } from '../badge-classes';
 import { describeInstallButton, describeLicenseGate } from '../capabilities';
 import { containsCjk } from '../filters';
-import {
-  badgeRowStyle,
-  badgeStyle,
-  detailLayoutStyle,
-  hintStyle,
-  kvKeyStyle,
-  kvTableStyle,
-  kvValueStyle,
-  previewCanvasStyle,
-  previewStyle,
-  sectionStyle,
-  sectionTitleStyle,
-  thumbStyle,
-} from '../styles';
 import { KindBadge, kindIcon, LicenseBadge, ScoreBadge, SourceBadge } from './Badges';
 import { CapabilityList } from './CapabilityList';
 import { QualityPanel } from './QualityPanel';
+
+import '../market.css';
 
 /** 安全结论 → i18n 键与色调。 */
 const SECURITY_LABEL_KEYS: Record<MarketAsset['installGate']['security'], string> = {
@@ -82,7 +71,7 @@ export function AssetDetailView({
 
   return (
     <div data-df-page="market-detail" data-df-asset={asset.id}>
-      <div style={badgeRowStyle}>
+      <div className="dfg-market__badge-row">
         <Button variant="ghost" size="sm" onClick={onBack} data-df-market="detail-back">
           {t('market.detail.back')}
         </Button>
@@ -95,12 +84,12 @@ export function AssetDetailView({
         <LicenseBadge gate={asset.source.license.gate} />
         <ScoreBadge score={asset.quality.score} />
         {updateAvailable ? (
-          <span style={badgeStyle('warn')}>{t('market.card.updateBadge')}</span>
+          <span className={badgeClassName('warn')}>{t('market.card.updateBadge')}</span>
         ) : null}
       </div>
 
       {asset.yanked === null ? null : (
-        <p style={badgeStyle('danger')} role="alert" data-df-market="detail-yanked">
+        <p className={badgeClassName('danger')} role="alert" data-df-market="detail-yanked">
           {t('market.detail.yanked', {
             reason: asset.yanked.reason,
             at: asset.yanked.at,
@@ -109,13 +98,13 @@ export function AssetDetailView({
         </p>
       )}
 
-      <div style={detailLayoutStyle}>
-        <section style={previewStyle} data-df-market="detail-preview">
-          <h2 style={sectionTitleStyle}>{t('market.detail.preview')}</h2>
-          <div style={previewCanvasStyle} aria-hidden>
-            <span style={thumbStyle}>{kindIcon(asset.kind, 48)}</span>
+      <div className="dfg-market__detail-layout">
+        <section className="dfg-market__preview" data-df-market="detail-preview">
+          <h2 className="dfg-market__section-title">{t('market.detail.preview')}</h2>
+          <div className="dfg-market__preview-canvas" aria-hidden>
+            <span className="dfg-market__thumb">{kindIcon(asset.kind, 48)}</span>
           </div>
-          <p style={hintStyle}>{t('market.detail.previewPlaceholder')}</p>
+          <p className="dfg-market__hint">{t('market.detail.previewPlaceholder')}</p>
           <Button
             variant="secondary"
             size="sm"
@@ -128,39 +117,41 @@ export function AssetDetailView({
           </Button>
         </section>
 
-        <div style={{ display: 'grid', gap: 'var(--dfg-space-4)' }}>
-          <section style={sectionStyle} data-df-market="detail-basic">
-            <h2 style={sectionTitleStyle}>{t('market.detail.basic')}</h2>
-            <dl style={kvTableStyle}>
-              <dt style={kvKeyStyle}>{t('market.detail.source')}</dt>
-              <dd style={kvValueStyle}>
+        <div className="dfg-market__stack">
+          <section className="dfg-market__section" data-df-market="detail-basic">
+            <h2 className="dfg-market__section-title">{t('market.detail.basic')}</h2>
+            <dl className="dfg-market__kv-table">
+              <dt className="dfg-market__kv-key">{t('market.detail.source')}</dt>
+              <dd className="dfg-market__kv-value">
                 {asset.source.repo} ·{' '}
                 {t('market.detail.commit', { short: asset.source.ref.slice(0, 7) })}
               </dd>
-              <dt style={kvKeyStyle}>{t('market.detail.path')}</dt>
-              <dd style={kvValueStyle}>{asset.source.path.length > 0 ? asset.source.path : '/'}</dd>
-              <dt style={kvKeyStyle}>{t('market.detail.author')}</dt>
-              <dd style={kvValueStyle}>{author}</dd>
-              <dt style={kvKeyStyle}>{t('market.detail.license')}</dt>
-              <dd style={kvValueStyle} data-df-market="detail-license">
+              <dt className="dfg-market__kv-key">{t('market.detail.path')}</dt>
+              <dd className="dfg-market__kv-value">
+                {asset.source.path.length > 0 ? asset.source.path : '/'}
+              </dd>
+              <dt className="dfg-market__kv-key">{t('market.detail.author')}</dt>
+              <dd className="dfg-market__kv-value">{author}</dd>
+              <dt className="dfg-market__kv-key">{t('market.detail.license')}</dt>
+              <dd className="dfg-market__kv-value" data-df-market="detail-license">
                 {t('market.detail.licenseDetail', {
                   tier: t(license.labelKey),
                   spdx: asset.source.license.spdx ?? t('market.load.spdxUnknown'),
                 })}
-                <span style={hintStyle}> {t(license.noticeKey)}</span>
+                <span className="dfg-market__hint"> {t(license.noticeKey)}</span>
               </dd>
-              <dt style={kvKeyStyle}>{t('market.detail.version')}</dt>
-              <dd style={kvValueStyle}>{asset.version ?? t('market.detail.versionUnknown')}</dd>
-              <dt style={kvKeyStyle}>{t('market.detail.id')}</dt>
-              <dd style={kvValueStyle} data-df-market="detail-id">
+              <dt className="dfg-market__kv-key">{t('market.detail.version')}</dt>
+              <dd className="dfg-market__kv-value">{asset.version ?? t('market.detail.versionUnknown')}</dd>
+              <dt className="dfg-market__kv-key">{t('market.detail.id')}</dt>
+              <dd className="dfg-market__kv-value" data-df-market="detail-id">
                 {asset.id}
               </dd>
-              <dt style={kvKeyStyle}>{t('market.detail.stars')}</dt>
-              <dd style={kvValueStyle}>{asset.source.stars}</dd>
-              <dt style={kvKeyStyle}>{t('market.detail.pushedAt')}</dt>
-              <dd style={kvValueStyle}>{asset.source.pushedAt}</dd>
-              <dt style={kvKeyStyle}>{t('market.detail.archived')}</dt>
-              <dd style={kvValueStyle}>
+              <dt className="dfg-market__kv-key">{t('market.detail.stars')}</dt>
+              <dd className="dfg-market__kv-value">{asset.source.stars}</dd>
+              <dt className="dfg-market__kv-key">{t('market.detail.pushedAt')}</dt>
+              <dd className="dfg-market__kv-value">{asset.source.pushedAt}</dd>
+              <dt className="dfg-market__kv-key">{t('market.detail.archived')}</dt>
+              <dd className="dfg-market__kv-value">
                 {asset.source.archived
                   ? t('market.detail.archivedYes')
                   : t('market.detail.archivedNo')}
@@ -168,61 +159,62 @@ export function AssetDetailView({
             </dl>
           </section>
 
-          <section style={sectionStyle} data-df-market="detail-overview">
-            <h2 style={sectionTitleStyle}>{t('market.detail.overview')}</h2>
+          <section className="dfg-market__section" data-df-market="detail-overview">
+            <h2 className="dfg-market__section-title">{t('market.detail.overview')}</h2>
             {description.length === 0 ? (
-              <p style={hintStyle}>{t('market.detail.noOverview')}</p>
+              <p className="dfg-market__hint">{t('market.detail.noOverview')}</p>
             ) : (
               <>
                 {descriptionIsEnglish ? (
-                  <p style={badgeStyle('warn')} data-df-market="detail-translation-notice">
+                  <p
+                    className={badgeClassName('warn')}
+                    data-df-market="detail-translation-notice"
+                  >
                     {t('market.detail.translationNotice')}
                   </p>
                 ) : null}
-                <p style={{ margin: '0', lineHeight: 'var(--dfg-line-height-relaxed)' }}>
-                  {description}
-                </p>
+                <p className="dfg-market__prose dfg-market__prose--relaxed">{description}</p>
               </>
             )}
           </section>
 
           <QualityPanel quality={asset.quality} />
 
-          <section style={sectionStyle} data-df-market="detail-capabilities">
-            <h2 style={sectionTitleStyle}>{t('market.detail.capabilities')}</h2>
+          <section className="dfg-market__section" data-df-market="detail-capabilities">
+            <h2 className="dfg-market__section-title">{t('market.detail.capabilities')}</h2>
             <CapabilityList
               capabilities={asset.capabilities}
               ackRequired={asset.installGate.ackRequired}
             />
-            <p style={hintStyle} data-df-market="detail-security">
+            <p className="dfg-market__hint" data-df-market="detail-security">
               {t('market.detail.security', {
                 verdict: t(SECURITY_LABEL_KEYS[asset.installGate.security]),
               })}
             </p>
           </section>
 
-          <section style={sectionStyle} data-df-market="detail-usage">
-            <h2 style={sectionTitleStyle}>{t('market.detail.usage')}</h2>
-            <p style={hintStyle}>{t('market.detail.usageNote')}</p>
-            <div style={badgeRowStyle}>
-              <span style={hintStyle}>{t('market.detail.tags')}</span>
+          <section className="dfg-market__section" data-df-market="detail-usage">
+            <h2 className="dfg-market__section-title">{t('market.detail.usage')}</h2>
+            <p className="dfg-market__hint">{t('market.detail.usageNote')}</p>
+            <div className="dfg-market__badge-row">
+              <span className="dfg-market__hint">{t('market.detail.tags')}</span>
               {asset.facets.tags.length === 0 ? (
-                <span style={hintStyle}>{t('market.detail.noTags')}</span>
+                <span className="dfg-market__hint">{t('market.detail.noTags')}</span>
               ) : (
                 asset.facets.tags.map((tag) => (
-                  <span key={tag} style={badgeStyle('neutral')}>
+                  <span key={tag} className={badgeClassName('neutral')}>
                     {tag}
                   </span>
                 ))
               )}
             </div>
-            <div style={badgeRowStyle}>
-              <span style={hintStyle}>{t('market.detail.scenes')}</span>
+            <div className="dfg-market__badge-row">
+              <span className="dfg-market__hint">{t('market.detail.scenes')}</span>
               {asset.facets.scenes.length === 0 ? (
-                <span style={hintStyle}>{t('market.detail.noScenes')}</span>
+                <span className="dfg-market__hint">{t('market.detail.noScenes')}</span>
               ) : (
                 asset.facets.scenes.map((scene) => (
-                  <span key={scene} style={badgeStyle('neutral')}>
+                  <span key={scene} className={badgeClassName('neutral')}>
                     {scene}
                   </span>
                 ))
@@ -230,30 +222,30 @@ export function AssetDetailView({
             </div>
           </section>
 
-          <section style={sectionStyle} data-df-market="detail-more">
-            <h2 style={sectionTitleStyle}>{t('market.detail.more')}</h2>
-            <dl style={kvTableStyle}>
-              <dt style={kvKeyStyle}>{t('market.detail.digest')}</dt>
-              <dd style={kvValueStyle}>{asset.digest}</dd>
-              <dt style={kvKeyStyle}>{t('market.detail.category')}</dt>
-              <dd style={kvValueStyle}>{asset.facets.category}</dd>
-              <dt style={kvKeyStyle}>{t('market.detail.lane')}</dt>
-              <dd style={kvValueStyle}>{asset.facets.lane}</dd>
-              <dt style={kvKeyStyle}>{t('market.detail.mode')}</dt>
-              <dd style={kvValueStyle}>{asset.facets.mode ?? t('market.detail.modeUnknown')}</dd>
-              <dt style={kvKeyStyle}>{t('market.detail.fetchedAt')}</dt>
-              <dd style={kvValueStyle}>{asset.source.fetchedAt}</dd>
+          <section className="dfg-market__section" data-df-market="detail-more">
+            <h2 className="dfg-market__section-title">{t('market.detail.more')}</h2>
+            <dl className="dfg-market__kv-table">
+              <dt className="dfg-market__kv-key">{t('market.detail.digest')}</dt>
+              <dd className="dfg-market__kv-value">{asset.digest}</dd>
+              <dt className="dfg-market__kv-key">{t('market.detail.category')}</dt>
+              <dd className="dfg-market__kv-value">{asset.facets.category}</dd>
+              <dt className="dfg-market__kv-key">{t('market.detail.lane')}</dt>
+              <dd className="dfg-market__kv-value">{asset.facets.lane}</dd>
+              <dt className="dfg-market__kv-key">{t('market.detail.mode')}</dt>
+              <dd className="dfg-market__kv-value">{asset.facets.mode ?? t('market.detail.modeUnknown')}</dd>
+              <dt className="dfg-market__kv-key">{t('market.detail.fetchedAt')}</dt>
+              <dd className="dfg-market__kv-value">{asset.source.fetchedAt}</dd>
               {loaded && loadedAt !== null ? (
                 <>
-                  <dt style={kvKeyStyle}>{t('market.detail.loadedAt')}</dt>
-                  <dd style={kvValueStyle}>{loadedAt}</dd>
+                  <dt className="dfg-market__kv-key">{t('market.detail.loadedAt')}</dt>
+                  <dd className="dfg-market__kv-value">{loadedAt}</dd>
                 </>
               ) : null}
             </dl>
           </section>
 
-          <section style={sectionStyle} data-df-market="detail-actions">
-            <div style={badgeRowStyle}>
+          <section className="dfg-market__section" data-df-market="detail-actions">
+            <div className="dfg-market__badge-row">
               <Tooltip
                 content={plan === null ? t('market.detail.planPending') : plan.notice}
                 delay={0}
@@ -284,7 +276,7 @@ export function AssetDetailView({
                 </Button>
               ) : null}
             </div>
-            <p style={hintStyle}>{t('market.detail.installHint')}</p>
+            <p className="dfg-market__hint">{t('market.detail.installHint')}</p>
           </section>
         </div>
       </div>

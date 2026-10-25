@@ -29,16 +29,10 @@ import {
   rejectLoadSession,
   remainingTokenMs,
 } from '../load-token';
-import {
-  badgeStyle,
-  hintStyle,
-  kvKeyStyle,
-  kvTableStyle,
-  kvValueStyle,
-  listItemStyle,
-  listStyle,
-} from '../styles';
+import { badgeClassName } from '../badge-classes';
 import { CapabilityList } from './CapabilityList';
+
+import '../market.css';
 
 /** 对话框 props（`now` 可注入：测试模拟超时，不依赖真实时钟）。 */
 export interface LoadConfirmDialogProps {
@@ -159,12 +153,12 @@ export function LoadConfirmDialog({
       }
     >
       <div
-        style={{ display: 'grid', gap: 'var(--dfg-space-3)' }}
+        className="dfg-market__stack dfg-market__stack--gap-3"
         data-df-market="load-confirm"
         data-df-status={session.status}
       >
         {session.errorCode === null ? null : (
-          <p style={badgeStyle('danger')} role="alert" data-df-market="load-error">
+          <p className={badgeClassName('danger')} role="alert" data-df-market="load-error">
             {t(
               session.errorCode === 'load_token_expired'
                 ? 'market.load.tokenExpired'
@@ -177,13 +171,13 @@ export function LoadConfirmDialog({
           </p>
         )}
 
-        <dl style={kvTableStyle}>
-          <dt style={kvKeyStyle}>{t('market.load.targetPath')}</dt>
-          <dd style={kvValueStyle} data-df-market="load-target">
+        <dl className="dfg-market__kv-table">
+          <dt className="dfg-market__kv-key">{t('market.load.targetPath')}</dt>
+          <dd className="dfg-market__kv-value" data-df-market="load-target">
             {plan.targetPathHint ?? t('market.load.targetPathUnknown')}
           </dd>
-          <dt style={kvKeyStyle}>{t('market.load.license')}</dt>
-          <dd style={kvValueStyle} data-df-market="load-license">
+          <dt className="dfg-market__kv-key">{t('market.load.license')}</dt>
+          <dd className="dfg-market__kv-value" data-df-market="load-license">
             {t('market.load.licenseDetail', {
               tier: t(describeLicenseGate(asset.source.license.gate).labelKey),
               spdx: asset.source.license.spdx ?? t('market.load.spdxUnknown'),
@@ -191,38 +185,38 @@ export function LoadConfirmDialog({
               sha: asset.source.license.evidence.sha256.slice(0, 12),
             })}
           </dd>
-          <dt style={kvKeyStyle}>{t('market.load.attribution')}</dt>
-          <dd style={kvValueStyle}>
+          <dt className="dfg-market__kv-key">{t('market.load.attribution')}</dt>
+          <dd className="dfg-market__kv-value">
             {t('market.load.attributionValue', { repo: asset.source.repo })}
           </dd>
         </dl>
 
-        <h3 style={{ margin: '0' }}>{t('market.cap.list.title')}</h3>
+        <h3 className="dfg-market__heading-reset">{t('market.cap.list.title')}</h3>
         <CapabilityList capabilities={asset.capabilities} ackRequired={plan.ackRequired} />
 
         {ownedBefore ? (
-          <p style={badgeStyle('warn')} data-df-market="load-overwrite">
+          <p className={badgeClassName('warn')} data-df-market="load-overwrite">
             {t('market.load.overwriteNotice')}
           </p>
         ) : null}
 
-        <ul style={listStyle}>
-          <li style={listItemStyle}>
-            <span style={hintStyle}>{t('market.load.dryRun')}</span>
+        <ul className="dfg-market__list">
+          <li className="dfg-market__list-item">
+            <span className="dfg-market__hint">{t('market.load.dryRun')}</span>
             <span>{plan.notice}</span>
             {plan.reasons.length === 0 ? null : <span>{plan.reasons.join('；')}</span>}
           </li>
         </ul>
 
         {session.status === 'consumed' ? (
-          <p style={badgeStyle('ok')} role="status" data-df-market="load-done">
+          <p className={badgeClassName('ok')} role="status" data-df-market="load-done">
             {t('market.load.loadedDone')}
           </p>
         ) : null}
 
         {session.status === 'approved' ? (
           <p
-            style={badgeStyle(expired ? 'danger' : 'ok')}
+            className={badgeClassName(expired ? 'danger' : 'ok')}
             role="status"
             data-df-market="load-token"
           >
@@ -235,7 +229,7 @@ export function LoadConfirmDialog({
           </p>
         ) : null}
 
-        <p style={hintStyle} data-df-market="load-audit-hint">
+        <p className="dfg-market__hint" data-df-market="load-audit-hint">
           {t('market.load.auditHint')}
         </p>
         <span hidden data-df-tick={tick} />
