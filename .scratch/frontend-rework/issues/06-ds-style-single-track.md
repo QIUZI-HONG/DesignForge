@@ -22,12 +22,19 @@ blockers: 02
 | apps/web/src/features/canvas/ui/floating-toolbar.tsx | 几何算式 | C9 浮层工具条锚点 `left/top` 由画布世界坐标 × zoom + pan 算出（CSS 无法表达世界坐标换算） |
 | apps/web/src/features/editor-review/comments/CommentLayer.tsx | 几何算式 | 钉点/预览卡/草稿卡屏幕坐标 = 世界坐标 × zoom + pan（+ 常量偏移）；其余视觉已全部落 review.css |
 | apps/web/src/features/editor-review/present/SlidePreview.tsx | 几何/文档数据 | 幻灯片缩放尺寸（宽高 = 画板尺寸 × fitScale）与画板底色来自 Design IR 文档数据——按图渲染是本分，颜色不是界面令牌 |
-| apps/web/src/features/editor-panels/components/LayerRow.tsx | 动态值 | 行深经 `--dfg-layer-depth` 自定义变量行内注入，喂 editor-panels.css 的缩进 calc 算式（`attr()` 进 calc 浏览器尚不可用） |
+| apps/web/src/features/editor-panels/components/AssetsPanel.tsx | 动态值（文档数据） | Token 色块 `background` = 文档令牌解析值（任意色，非界面令牌；与 inspector/controls.tsx 同类；底座样式已在 editor-panels.css） |
+| apps/web/src/features/editor-panels/components/LayerContextMenu.tsx | 几何算式 | 菜单容器 `position: fixed` 的 `left/top` = 右键指针视口坐标（与 floating-toolbar 同类几何换算） |
 | apps/web/src/features/dashboard/DashboardView.tsx | 动态值 | 看板 meter 填充宽度 = 数据百分比（时效分桶计数 / 最大值） |
 | apps/web/src/features/market/components/QualityPanel.tsx | 动态值 | 质量 meter 填充宽度 = 维度得分百分比 |
 | apps/web/src/features/inspector/components/controls.tsx | 动态值 | 字段色样 `background` = 文档令牌解析值（文档数据，非界面样式；底座样式已在 inspector.css） |
 | apps/web/src/app/_design/page.tsx | 动态值 | 预览页色样/圆角样取值 = 运行时枚举的令牌变量引用（`var(${name})`，枚举对象是数据） |
 | apps/web/src/features/inspect-export/model/codegen.ts | 非样式 | 生成的**代码文本**（codegen 产物字符串，不是运行时样式路径） |
+
+> RW-13 增补/删行（图层面板 Tree 接入同批）：`LayerRow.tsx` 随面板重写删除——行深缩进改由
+> Tree 的组级联（`.dfg-tree__group`）承接，`--dfg-layer-depth` 行内注入不复存在，豁免随之撤销；
+> `EditorPanels.tsx` 的两处内联样式对象迁移为 editor-panels.css 类（`.dfg-panels__group` /
+> `__tab-strip`），退出登记；增补 `AssetsPanel.tsx` / `LayerContextMenu.tsx`（FE-04 既有内联样式补登记，
+> 此前漏登，属工单 06 的存量债）。
 
 ## 逐域提交
 

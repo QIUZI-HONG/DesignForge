@@ -1,11 +1,12 @@
 'use client';
 
 /**
- * 图层右键菜单（C3 右键：重命名 / 删除 / 编组 / 解组 / 上移到顶 / 下移到底）。
+ * 图层右键菜单（C3 右键：删除 / 编组 / 解组 / 上移到顶 / 下移到底）。
  *
  * 复用设计系统的下拉菜单（FE-01）：条目高、分组分隔线、键盘漫游、Esc 关闭与点击外关闭
  * 都是既有行为；本组件只负责「定位到指针处」与「条目 → 命令」的映射。
- * 定位用 `position: fixed` + 指针坐标（几何计算，允许写裸数值）。
+ * RW-13 起无「重命名」条目（归 Tree 行内编辑，双击/F2）。
+ * 定位用 `position: fixed` + 指针坐标（几何算式，工单 06 豁免登记）。
  */
 import { findPage, type NodeId } from '@dforge/engine';
 import {
@@ -15,7 +16,6 @@ import {
   DropdownMenu,
   LayersIcon,
   type MenuItemSpec,
-  PencilIcon,
   TrashIcon,
 } from '@dforge/ui';
 import { type CSSProperties, type ReactNode, useEffect, useRef } from 'react';
@@ -28,7 +28,6 @@ import { usePanelsSession } from './panels-context';
 
 /** 菜单动作 → 图标（与条目语义对齐）。 */
 const ACTION_ICONS: Record<LayerMenuActionId, ReactNode> = {
-  rename: <PencilIcon size={16} />,
   delete: <TrashIcon size={16} />,
   group: <BoxIcon size={16} />,
   ungroup: <LayersIcon size={16} />,
@@ -84,12 +83,6 @@ export function LayerContextMenu({ rowId, position, onClose }: LayerContextMenuP
       : { disabledReason: t(entry.disabledReasonKey) }),
     ...(entry.danger === true ? { danger: true } : {}),
     onSelect: () => {
-      if (entry.id === 'rename') {
-        // 重命名是 UI 手势（内联输入框），不是一次性命令
-        session.ui.getState().beginRename(rowId);
-        onClose();
-        return;
-      }
       session.run(entry.commands, t(entry.historyKey));
       onClose();
     },

@@ -1,5 +1,5 @@
 /**
- * `@dforge/web` 编辑器面板特性（FE-04）—— 图层面板 + 资产面板的公开面。
+ * `@dforge/web` 编辑器面板特性（FE-04 · RW-13 重写图层面板）—— 图层面板 + 资产面板的公开面。
  *
  * 消费方（FE-03 编辑器壳 / FE-05 Inspector / FE-06 画布）只需要这几样：
  * - `createPanelsSession` + `PanelsProvider`：把命令栈与选择集接起来；
@@ -10,11 +10,10 @@
  */
 
 export {
-  type DropRow,
-  type DropTarget,
-  isNoopDrop,
-  resolveDropTarget,
-} from './commands/drop-target';
+  type TreeDropPlacement,
+  type TreeDropPointer,
+  resolveTreeDropPlacement,
+} from './commands/tree-drop';
 export {
   bringToFrontCommands,
   deleteLayerCommands,
@@ -32,9 +31,7 @@ export { type LayerMenuEntry, layerContextMenu } from './commands/layer-menu';
 export { AssetsPanel, type AssetsPanelProps } from './components/AssetsPanel';
 export { EditorPanels, type EditorPanelsProps } from './components/EditorPanels';
 export { LayerContextMenu, type LayerContextMenuProps } from './components/LayerContextMenu';
-export { LayerRow, type LayerRowProps } from './components/LayerRow';
 export { LayersPanel, type LayersPanelProps } from './components/LayersPanel';
-export { buildLayerRows, type LayerRowModel } from './components/layer-rows';
 export { PanelsProvider, usePanelsSession } from './components/panels-context';
 
 export { createPanelsSession, type PanelsSession, type PanelsSessionOptions } from './session';

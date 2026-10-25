@@ -4,6 +4,9 @@
  * 与 Figma 的口径一致：右键**未选中**的行会先把它选上，菜单动作作用在（可能是多选的）选择集上；
  * 「编组」要求 ≥2 个**同级真实节点**，「解组」只对真实编组节点可用，
  * 已在端位的「上移到顶 / 下移到底」置灰（命令构造器返回空列表即禁用，UI 与命令同源）。
+ *
+ * RW-13 起不再带「重命名」条目：重命名归 Tree 行内编辑（双击/F2）——Tree v1 的编辑态是
+ * 组件内私有状态，菜单无法触达；行内入口比菜单更短。
  */
 import {
   type Command,
@@ -24,13 +27,7 @@ import {
 } from './layer-commands';
 
 /** 菜单动作 id（也是 i18n 键片段与菜单条目的稳定标识）。 */
-export type LayerMenuActionId =
-  | 'rename'
-  | 'delete'
-  | 'group'
-  | 'ungroup'
-  | 'bringToFront'
-  | 'sendToBack';
+export type LayerMenuActionId = 'delete' | 'group' | 'ungroup' | 'bringToFront' | 'sendToBack';
 
 /** 菜单条目：可用性 + 命令 + 历史条目键。 */
 export interface LayerMenuEntry {
@@ -81,21 +78,12 @@ export function layerContextMenu(
   const deletable = deleteTargets.filter(
     (id) => parseVirtualNodeId(id) === null && page.nodes[id] !== undefined,
   );
-  const readOnlyRow = parseVirtualNodeId(rowId) !== null;
 
   const frontCommands = bringToFrontCommands(page, pageId, rowId);
   const backCommands = sendToBackCommands(page, pageId, rowId);
   const ungroupCommands = ungroupLayerCommands(page, pageId, rowId);
 
   return [
-    {
-      id: 'rename',
-      labelKey: 'panels.menu.rename',
-      shortcut: '⌘R',
-      disabled: readOnlyRow,
-      commands: [],
-      historyKey: 'panels.history.rename',
-    },
     {
       id: 'delete',
       labelKey: 'panels.menu.delete',
