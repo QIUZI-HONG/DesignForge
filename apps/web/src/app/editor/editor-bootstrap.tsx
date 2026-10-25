@@ -26,10 +26,10 @@
 import { useEffect } from 'react';
 
 import { mountEditorWorkspace } from '@/features/canvas/register';
+import { DocumentSaveControl } from '@/features/canvas/workspace/save-control';
 import {
   AiEntryButton,
   CanvasSlot,
-  DocumentSaveControl,
   LeftPanelSlot,
   OverlaysSlot,
   RightPanelSlot,
@@ -59,8 +59,11 @@ import {
  * id 约定 `<ticket>-<feature>`；order 与既有挂载完全一致（挂载产物同位替换壳层空态，
  * 见 `features/editor-shell/slots/registry.ts` 的排序语义：order 升序，同 order 按
  * 声明顺序）。
+ *
+ * 导出面说明：`export` 供接线测试按票过滤（`register.test.tsx` 取 `fe-07-` 前缀重挂），
+ * 产品路径仍只经本引导件在挂载后统一执行。
  */
-const EDITOR_SLOT_DECLARATIONS: readonly EditorSlotDeclaration[] = [
+export const EDITOR_SLOT_DECLARATIONS: readonly EditorSlotDeclaration[] = [
   // —— FE-06 工作区装配（画布 / 面板 / 保存 / AI 入口 / AI+MCP 浮层）——
   {
     slot: 'topbar-center',

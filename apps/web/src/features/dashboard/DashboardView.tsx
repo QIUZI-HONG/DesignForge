@@ -21,8 +21,6 @@ import {
   readLayerStatuses,
 } from './metrics';
 
-import '@/features/market/market.css';
-
 /** 四类资产的 i18n 键（看板的分部计数用）。 */
 const KIND_LABEL_KEYS: Record<MarketAssetKind, string> = {
   skill: 'market.kind.skill',

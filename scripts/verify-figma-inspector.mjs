@@ -3,21 +3,22 @@
  * verify-figma-inspector —— 页面级对照门禁（FE-05 交付；本票范围内自管，**不接 CI**）。
  *
  * 对照面：编辑器页的 Inspector 面板三态（清单 C5/C6/C7 · 深色 UI3）——
- *   ① 默认态（单选文本：四分区齐备）② 混选态（C6：混选「—」）③ 空选态（C7：画布设置）。
+ *   ① 默认态（单选文本：六分区齐备）② 混选态（C6：混选「—」）③ 空选态（C7：画布设置）。
  * 参照集：`~/df-evidence/reference-v1/`（REF-01 冻结）中的三张对照图：
  *   `figma-editor-C5-inspector-dark-default.png` / `figma-editor-C6-inspector-dark-mixed.png`
  *   / `figma-editor-C7-canvas-settings-dark-empty.png`（命名口径见研究 #2 §2.3）。
  * 判定：pixelmatch 8.0.0（threshold 0.1，忽略抗锯齿）逐态比对，差异像素率 ≤ `--max-ratio`
  *   （默认 0.001，A 级 0.1%）；另有两类**功能性**断言（不依赖参照集）：
- *   - 结构不变量（DOM 级）：默认态四分区齐备 / 混选态字段显示「—」/ 空选态画布设置在场 /
- *     控件高 = 28（深色族 `--dfg-control-height-md`，「控件 28」对标要点）；
+ *   - 结构不变量（DOM 级）：默认态六分区齐备（RW-10 分区口径：尺寸/填充/描边/圆角/效果/文字）/
+ *     混选态字段显示「—」/ 空选态画布设置在场 / 控件高 = 28（深色族 `--dfg-control-height-md`）；
  *   - **提交时序**（300ms 语义）：连续输入后静默 300ms 只落**一条**命令，Esc 回滚零历史。
  *
  * 宿主协议（编辑器路由，FE-06 接线；`apps/web/src/features/inspector/preview.ts` 是预设来源）：
  *   1. `?df-state=default|mixed|empty` → 用 `previewSelection(state)` 作为选中集，
  *      `createPreviewDocument()` 作为文档，并把 `<html data-theme="dark">`；
- *   2. 暴露 `window.__dfInspectorProbe`：返回 `{ undo: string[], redo: string[],
- *      node: (id) => Record<string, unknown> | undefined }`（读 CommandStack 历史与节点属性）。
+ *   2. 暴露 `window.__dfInspectorProbe`：**对象挂点**（RW-04 起，见 canvas/register.tsx）——
+ *      `{ undo: () => string[], redo: () => string[], node: (id) => Record<string, unknown> | undefined }`
+ *      （读 CommandStack 历史与节点属性；门禁在页面内调用后取回普通数据）。
  *   缺任一项 → exit 2（阻塞：前置条件不成立，禁止假绿）。
  *
  * 用法（仓库根执行）：
@@ -48,23 +49,33 @@ const THRESHOLD = 0.1;
 const CONTROL_HEIGHT = 28; // 深色族「控件 28」（清单 C5）；来源 = --dfg-control-height-md
 const COMMIT_WAIT_MS = 600; // > 300ms 提交窗口，留出渲染余量
 
-/** 三态对照单元：状态名 → 参照图名 + 结构不变量。 */
+/** 三态对照单元：状态名 → 参照图名 + 结构不变量。
+ *  分区/字段 id 口径 = RW-10 重写后的实现（features/inspector/components/sections.tsx
+ *  的 `data-df-inspector-section` / `data-df-inspector-field`），与
+ *  InspectorPanel.test.tsx「折叠分区齐备」断言同源：默认态单选文本 → 六分区全开；
+ *  混选态两个矩形 → 无文字分区；空选态画布设置无字段级挂点（只断根挂点）。 */
 const STATES = [
   {
     state: 'default',
-    title: 'C5 Inspector 默认态（单选文本：四分区齐备）',
+    title: 'C5 Inspector 默认态（单选文本：六分区齐备）',
     ref: 'figma-editor-C5-inspector-dark-default.png',
     expect: {
-      sections: ['layout', 'appearance', 'text', 'advanced'],
+      sections: ['size', 'fill', 'stroke', 'corner', 'effects', 'text'],
       fields: [
         'x',
         'y',
         'width',
         'height',
         'rotation',
-        'opacity',
-        'cornerRadius',
         'blendMode',
+        'opacity',
+        'fillColor',
+        'fillOpacity',
+        'strokeColor',
+        'strokeWidth',
+        'cornerRadius',
+        'effects',
+        'textAlign',
         'export',
       ],
     },
@@ -74,7 +85,7 @@ const STATES = [
     title: 'C6 混选态（混合值显示「—」）',
     ref: 'figma-editor-C6-inspector-dark-mixed.png',
     expect: {
-      sections: ['layout', 'appearance'],
+      sections: ['size', 'fill', 'stroke', 'corner', 'effects'],
       mixedFields: ['x'],
       singleFields: [{ field: 'width', value: '100' }],
     },
@@ -85,7 +96,6 @@ const STATES = [
     ref: 'figma-editor-C7-canvas-settings-dark-empty.png',
     expect: {
       canvasSettings: true,
-      fields: ['pageName', 'background', 'gridVisible', 'gridSize'],
     },
   },
 ];
@@ -324,10 +334,8 @@ for (const target of targets) {
         const found = document.querySelector('[data-df-inspector="canvas-settings"]');
         findings.push({ ok: found !== null, note: '画布设置在场' });
       }
-      // 「控件 28」（深色族）：任取一个在场控件量高度
-      const control = document.querySelector(
-        '[data-df-inspector-field="x"], [data-df-inspector-field="pageName"]',
-      );
+      // 「控件 28」（深色族）：任取一个在场控件量高度（空选态画布设置无字段级挂点，跳过）
+      const control = document.querySelector('[data-df-inspector-field="x"]');
       if (control !== null) {
         const height = Number.parseFloat(getComputedStyle(control).height);
         findings.push({
@@ -427,17 +435,32 @@ if (only === undefined || only === 'default') {
   await page.goto(`${HOST_URL}?df-state=default`, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-df-inspector-field="x"]');
 
-  const hasProbe = await page.evaluate(() => typeof window.__dfInspectorProbe === 'function');
+  // 探针协议（RW-04 起）：__dfInspectorProbe 是**对象挂点**（{undo(), redo(), node(id)}），
+  // 在页面内调用后取回普通数据（page.evaluate 只序列化返回值）。
+  const hasProbe = await page.evaluate(
+    () =>
+      typeof globalThis.__dfInspectorProbe === 'object' &&
+      globalThis.__dfInspectorProbe !== null &&
+      typeof globalThis.__dfInspectorProbe.undo === 'function' &&
+      typeof globalThis.__dfInspectorProbe.node === 'function',
+  );
   if (!hasProbe) {
     await browser.close();
     blocked(evidence, '宿主页未暴露 window.__dfInspectorProbe（提交时序断言无法取证）', [
-      '契约：window.__dfInspectorProbe = () => ({ undo, redo, node })；',
+      '契约：window.__dfInspectorProbe = { undo: () => string[], redo: () => string[],',
+      '  node: (id) => Record<string, unknown> | undefined }（对象挂点，非函数）；',
       'undo/redo 为 CommandStack.history() 的两个数组，node(id) 返回当前页面节点属性。',
-      '见本脚本头部「宿主协议」第 2 条与 apps/web/src/features/inspector/preview.ts。',
+      '见本脚本头部「宿主协议」第 2 条与 apps/web/src/features/canvas/register.tsx。',
     ]);
   }
 
-  const readProbe = () => page.evaluate(() => window.__dfInspectorProbe());
+  const readProbe = () =>
+    page.evaluate(() => {
+      const probe = globalThis.__dfInspectorProbe;
+      return { undo: probe.undo(), redo: probe.redo() };
+    });
+  const readNode = (id) =>
+    page.evaluate((nodeId) => globalThis.__dfInspectorProbe.node(nodeId), id);
   const before = await readProbe();
   const field = page.locator('[data-df-inspector-field="x"] input');
 
@@ -454,8 +477,8 @@ if (only === undefined || only === 'default') {
   });
   evidence.functional.assertions.push({
     name: '提交值为最后一次输入（125）',
-    ok: afterType.node(PROBE_NODE_ID)?.x === 125,
-    detail: { x: afterType.node(PROBE_NODE_ID)?.x },
+    ok: (await readNode(PROBE_NODE_ID))?.x === 125,
+    detail: { x: (await readNode(PROBE_NODE_ID))?.x },
   });
 
   // ② Esc 回滚：不产生历史
@@ -463,12 +486,13 @@ if (only === undefined || only === 'default') {
   await field.press('Escape');
   await page.waitForTimeout(COMMIT_WAIT_MS);
   const afterEsc = await readProbe();
+  const escNodeX = (await readNode(PROBE_NODE_ID))?.x;
   evidence.functional.assertions.push({
     name: 'Esc 回滚草稿（零历史、零副作用）',
-    ok: afterEsc.undo.length === afterType.undo.length && afterEsc.node(PROBE_NODE_ID)?.x === 125,
+    ok: afterEsc.undo.length === afterType.undo.length && escNodeX === 125,
     detail: {
       undo: afterEsc.undo.length,
-      x: afterEsc.node(PROBE_NODE_ID)?.x,
+      x: escNodeX,
     },
   });
 
@@ -476,12 +500,11 @@ if (only === undefined || only === 'default') {
   await field.fill('300');
   await field.press('Enter');
   const afterEnter = await readProbe();
+  const enterNodeX = (await readNode(PROBE_NODE_ID))?.x;
   evidence.functional.assertions.push({
     name: 'Enter 立即提交（无需等待 300ms）',
-    ok:
-      afterEnter.undo.length === afterEsc.undo.length + 1 &&
-      afterEnter.node(PROBE_NODE_ID)?.x === 300,
-    detail: { undo: afterEnter.undo.length, x: afterEnter.node(PROBE_NODE_ID)?.x },
+    ok: afterEnter.undo.length === afterEsc.undo.length + 1 && enterNodeX === 300,
+    detail: { undo: afterEnter.undo.length, x: enterNodeX },
   });
 
   const functionalFailed = evidence.functional.assertions.filter((item) => item.ok !== true);
