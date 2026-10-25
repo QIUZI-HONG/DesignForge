@@ -147,6 +147,56 @@ describe('NumberField', () => {
     expect(onCommit).toHaveBeenCalledTimes(1);
   });
 
+  it('scrub 会话钩子（RW-10）：onScrubStart 先于提交，onScrubEnd 后于唯一一次提交', () => {
+    const onScrubStart = vi.fn();
+    const onScrubEnd = vi.fn();
+    const onCommit = vi.fn();
+    render(
+      <NumberField
+        label="X"
+        fieldName="x"
+        value={10}
+        onCommit={onCommit}
+        onScrubStart={onScrubStart}
+        onScrubEnd={onScrubEnd}
+      />,
+    );
+    const handle = screen.getByTestId('numberfield-scrub-x');
+
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 1 });
+    expect(onScrubStart).toHaveBeenCalledTimes(1);
+    expect(onCommit).not.toHaveBeenCalled(); // 会话开启先于任何提交
+
+    fireEvent.pointerMove(handle, { clientX: 5, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 12, pointerId: 1 });
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(handle, { clientX: 12, pointerId: 1 });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onScrubEnd).toHaveBeenCalledTimes(1); // 收口在提交之后恰好一次
+  });
+
+  it('scrub 会话钩子：值未变化即松手（pointerdown/up）也给 onScrubEnd，但不提交', () => {
+    const onScrubStart = vi.fn();
+    const onScrubEnd = vi.fn();
+    const onCommit = vi.fn();
+    render(
+      <NumberField
+        label="X"
+        fieldName="x"
+        value={10}
+        onCommit={onCommit}
+        onScrubStart={onScrubStart}
+        onScrubEnd={onScrubEnd}
+      />,
+    );
+    const handle = screen.getByTestId('numberfield-scrub-x');
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientX: 0, pointerId: 1 });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(onScrubEnd).toHaveBeenCalledTimes(1);
+  });
+
   it('混选（value undefined）：以基准值起拖，提交基准 + 位移', () => {
     const onCommit = vi.fn();
     render(

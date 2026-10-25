@@ -191,10 +191,12 @@ export function RightPanelSlot() {
         {tab === 'image' ? <ImageTab /> : null}
       </div>
       <div className="dfc-ws-right__inspector" data-df-workspace="inspector">
+        {/* RW-10：面板自订阅面板域选择态（zustand）——选中变化即时刷新，不依赖宿主整树重渲 */}
         <InspectorPanel
           stack={workspace.canvas.stack}
           pageId={workspace.pageId}
           selection={selection}
+          selectionStore={workspace.panels.ui}
         />
       </div>
     </div>
