@@ -367,12 +367,16 @@ function innerShadow(color: string, offsetX: number, blur: number): Effect {
 }
 
 /** 造只含一个效果矩形的页面（浅/深主题由调用方经 palette 决定）。 */
-function singleEffectPage(
-  id: string,
-  _effects: readonly Effect[],
-  fill = '#D9D9D9',
-): ScenePage {
-  const rect = createRect({ id, x: 10, y: 10, width: 50, height: 30, fills: [solidPaint(fill)] });
+function singleEffectPage(id: string, effects: readonly Effect[], fill = '#D9D9D9'): ScenePage {
+  const rect = createRect({
+    id,
+    x: 10,
+    y: 10,
+    width: 50,
+    height: 30,
+    fills: [solidPaint(fill)],
+    effects,
+  });
   return createPage({
     id: 'page_1',
     rootIds: [id],
@@ -453,7 +457,7 @@ describe('效果渲染（工单 09：投影/内阴影/层模糊真实落像素�
   });
 
   it('容器层模糊作用于子树（显式扩圈样本：子节点随容器一起模糊）', () => {
-    const frame = createFrame({
+    const frameNode = createFrame({
       id: 'n_frame',
       x: 120,
       y: 10,
@@ -461,6 +465,7 @@ describe('效果渲染（工单 09：投影/内阴影/层模糊真实落像素�
       height: 80,
       fills: [solidPaint('#FFFFFF')],
       effects: [layerBlur(8)],
+      children: ['n_child'],
     });
     const child = createRect({
       id: 'n_child',
@@ -473,10 +478,11 @@ describe('效果渲染（工单 09：投影/内阴影/层模糊真实落像素�
     const page = createPage({
       id: 'page_1',
       rootIds: ['n_frame'],
-      nodes: { n_frame: frame, n_child: child },
+      nodes: { n_frame: frameNode, n_child: child },
       grid: { ...defaultGridSettings(), visible: false },
     });
     const renderer = rasterRenderer();
+    // 局部节点常量更名 frameNode（原名遮蔽本文件「page→帧」助手 frame()，曾致编译错）
     const { stats, pixelAt } = renderPixels(renderer, frame(page));
     expect(stats.effectsRendered).toBe(1);
     expect(stats.nodesDrawn).toBeGreaterThanOrEqual(2);

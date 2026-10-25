@@ -300,11 +300,7 @@ export const SizeSection = memo(function SizeSection({
                   );
                 })()}
                 {(() => {
-                  const pad = readAutoLayoutField(
-                    page,
-                    selection,
-                    (config) => config.padding.left,
-                  );
+                  const pad = readAutoLayoutField(page, selection, (config) => config.padding.left);
                   const base = activeFieldValue(page, selection, (node) =>
                     node.type === 'frame' && node.autoLayout !== null
                       ? node.autoLayout.padding.left
@@ -338,7 +334,6 @@ export const SizeSection = memo(function SizeSection({
 
 /** 填充分区（颜色走 UI-kit ColorField 口径）。 */
 export const FillSection = memo(function FillSection({
-  stack,
   pageId,
   page,
   selection,
@@ -398,7 +393,6 @@ export const FillSection = memo(function FillSection({
 
 /** 描边分区。 */
 export const StrokeSection = memo(function StrokeSection({
-  stack,
   pageId,
   page,
   selection,
@@ -455,6 +449,7 @@ export const StrokeSection = memo(function StrokeSection({
 /** 圆角分区（P0：四角统一一个字段，UI 不撒谎）。 */
 export const CornerSection = memo(function CornerSection({
   page,
+  pageId,
   selection,
   actions,
   open,
@@ -594,7 +589,6 @@ const EffectRow = memo(function EffectRow({
 
 /** 效果分区（列表可见可调 + 添加入口；混选诚实呈现）。 */
 export const EffectsSection = memo(function EffectsSection({
-  stack,
   pageId,
   page,
   selection,
@@ -669,7 +663,6 @@ export const EffectsSection = memo(function EffectsSection({
 
 /** 文字分区（仅含文本节点时渲染）。 */
 export const TextSection = memo(function TextSection({
-  stack,
   pageId,
   page,
   selection,

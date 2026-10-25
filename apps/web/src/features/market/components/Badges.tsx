@@ -12,9 +12,8 @@ import { displayText } from '@dforge/contracts';
 import { ComponentIcon, FrameIcon, LayersIcon, TextIcon } from '@dforge/ui';
 
 import { t } from '@/i18n';
-
-import { describeLicenseGate, describeRequirementTags } from '../capabilities';
 import { badgeClassName } from '../badge-classes';
+import { describeLicenseGate, describeRequirementTags } from '../capabilities';
 
 import '../market.css';
 

@@ -152,11 +152,8 @@ export function sameEffects(a: readonly Effect[], b: readonly Effect[]): boolean
  * （分区仍可见，给「添加效果」入口）——这与「无适用节点 → absent」不同。
  * 多选按结构比较：列表一致才 single，否则 mixed（界面显示「—」，只留添加入口）。
  */
-export function readEffects(
-  page: ScenePage,
-  selection: Selection,
-): FieldValue<readonly Effect[]> {
-  const lists: readonly Effect[][] = [];
+export function readEffects(page: ScenePage, selection: Selection): FieldValue<readonly Effect[]> {
+  const lists: (readonly Effect[])[] = [];
   for (const node of selectionNodes(page, selection)) lists.push(node.effects);
   if (lists.length === 0) return { kind: 'absent' };
   const first = lists[0] as readonly Effect[];

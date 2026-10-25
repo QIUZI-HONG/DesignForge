@@ -148,7 +148,8 @@
 .dfg-market__grid {
   display: grid;
   /* 卡片最小列宽：240 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); /* guard-tokens:allow 卡片最小列宽：240 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
+  --market-card-min: 240px; /* guard-tokens:allow 卡片最小列宽：页面几何常量，令牌族未覆盖 */
+  grid-template-columns: repeat(auto-fill, minmax(var(--market-card-min), 1fr));
   gap: var(--dfg-space-4);
   align-items: stretch;
 }
@@ -168,7 +169,7 @@
 }
 
 /* 卡片悬停态（抬升一个基础间距档 + 强调阴影）：data-df-state 是组件投射的对外事实 */
-.dfg-market__card[data-df-state='hover'] {
+.dfg-market__card[data-df-state="hover"] {
   transform: translateY(calc(var(--dfg-space-1) * -1));
   box-shadow: var(--dfg-shadow-lg);
   border-color: var(--dfg-color-border-strong);
@@ -394,7 +395,8 @@
 .dfg-market__stat-grid {
   display: grid;
   /* 统计卡最小列宽：180 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); /* guard-tokens:allow 统计卡最小列宽：180 为页面几何常量（令牌族未覆盖，见 verify-market 登记） */
+  --market-stat-min: 180px; /* guard-tokens:allow 统计卡最小列宽：页面几何常量，令牌族未覆盖 */
+  grid-template-columns: repeat(auto-fill, minmax(var(--market-stat-min), 1fr));
   gap: var(--dfg-space-3);
 }
 
@@ -504,7 +506,7 @@
   cursor: pointer;
 }
 
-.dfg-market__panel-row-btn[aria-pressed='true'] {
+.dfg-market__panel-row-btn[aria-pressed="true"] {
   border-color: var(--dfg-color-border-strong);
 }
 

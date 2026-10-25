@@ -197,11 +197,11 @@ describe('AI 抽屉 · 样式单轨（工单 06）', () => {
     const css = aiCss();
     // 缺省（queued）= 文字禁用色；active/done/failed 各自覆盖——与原 stepAccent 同语义
     expect(cssRule(css, 'dfg-ai__step-label')).toContain('var(--dfg-color-text-disabled)');
-    expect(css).toContain("[data-df-step-status='active'] .dfg-ai__step-label");
+    expect(css).toContain('[data-df-step-status="active"] .dfg-ai__step-label');
     expect(css).toContain('var(--dfg-color-primary)');
-    expect(css).toContain("[data-df-step-status='done'] .dfg-ai__step-label");
+    expect(css).toContain('[data-df-step-status="done"] .dfg-ai__step-label');
     expect(css).toContain('var(--dfg-color-success)');
-    expect(css).toContain("[data-df-step-status='failed'] .dfg-ai__step-label");
+    expect(css).toContain('[data-df-step-status="failed"] .dfg-ai__step-label');
     expect(css).toContain('var(--dfg-color-danger)');
   });
 

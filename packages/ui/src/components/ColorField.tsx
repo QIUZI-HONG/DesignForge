@@ -16,8 +16,8 @@ import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useId, useSta
 import { cx } from '../utils/class-names';
 import { Swatch } from './Swatch';
 
-/** hex 色值（3/4/6/8 位；提交时归一小写）。 */
-const HEX_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/;
+/** hex 色值（3/4/6/8 位，大小写不敏感；提交时归一小写）。 */
+const HEX_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
 /** ColorField props。 */
 export interface ColorFieldProps {

@@ -37,9 +37,7 @@ export function CommentThreadPanel({ className }: CommentThreadPanelProps) {
 
   return (
     <section
-      className={
-        className === undefined ? 'dfg-review__panel' : `${className} dfg-review__panel`
-      }
+      className={className === undefined ? 'dfg-review__panel' : `${className} dfg-review__panel`}
       data-df-panel="comments"
       aria-label={t('review.comments.title')}
     >

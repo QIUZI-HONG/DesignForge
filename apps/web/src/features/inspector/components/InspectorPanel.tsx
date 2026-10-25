@@ -32,6 +32,7 @@ import {
 import { TabPanel, Tabs } from '@dforge/ui';
 import { useCallback, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
+import type { StoreApi } from 'zustand/vanilla';
 
 import { t } from '@/i18n';
 
@@ -81,14 +82,13 @@ export interface InspectorPanelProps {
 }
 
 /**
- * 选择态订阅源（结构最小面）：只要 zustand vanilla store 的读侧三件套。
- * 用结构类型而不是跨 feature 引 `PanelsUiStore`——避免 Inspector 依赖面板域类型。
+ * 选择态订阅源（结构最小面）：zustand 只读 store API 的 `{ selection }` 投影——
+ * 直接借 zustand 的类型（而不是跨 feature 引 `PanelsUiStore`），useStore 的状态推断才不落 unknown。
  */
-export interface SelectionSource {
-  getState(): { selection: Selection };
-  getInitialState(): { selection: Selection };
-  subscribe(listener: () => void): () => void;
-}
+export type SelectionSource = Pick<
+  StoreApi<{ selection: Selection }>,
+  'getState' | 'getInitialState' | 'subscribe'
+>;
 
 /** 取混合模式单值（mixed/absent → undefined）。 */
 function singleOrUndefined<T>(field: FieldValue<T>): T | undefined {
@@ -215,9 +215,7 @@ function InspectorBody({
                 <NumberField
                   label={t('inspector.field.opacity')}
                   fieldName="opacity"
-                  value={
-                    opacity.kind === 'single' ? Math.round(opacity.value * 100) : undefined
-                  }
+                  value={opacity.kind === 'single' ? Math.round(opacity.value * 100) : undefined}
                   baseValue={base === undefined ? undefined : Math.round(base * 100)}
                   min={0}
                   max={100}

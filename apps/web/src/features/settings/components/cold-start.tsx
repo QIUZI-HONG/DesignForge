@@ -45,7 +45,6 @@ function defaultEnterEditor(documentId: string): void {
   }
 }
 
-
 /** 空库冷启动页。 */
 export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
   const client = useMemo(() => api ?? createSettingsApi(), [api]);
@@ -126,9 +125,7 @@ export function ColdStart({ api, onEnterEditor }: ColdStartProps) {
                 void load();
               }}
             />
-            {loadError === null ? null : (
-              <p className="dfg-settings__error-line">{loadError}</p>
-            )}
+            {loadError === null ? null : <p className="dfg-settings__error-line">{loadError}</p>}
           </div>
         ) : null}
 

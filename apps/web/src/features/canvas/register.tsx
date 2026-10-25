@@ -341,3 +341,15 @@ setWorkspaceBootstrap(() => {
 export function currentZoomLabel(): string {
   return `${String(Math.round(getWorkspace().canvas.viewport().zoom * 100))}%`;
 }
+
+// 插槽与保存控件经注册接缝对 app 路由层暴露（ADR-0004 ②「唯一第二入口」：引导声明表
+// 装配工作区要引这些槽组件；直接深导入 feature 内部路径为边界守卫所禁，与
+// command-palette / editor-review 的 register 导出槽组件同一口径）。
+export { DocumentSaveControl } from './workspace/save-control';
+export {
+  AiEntryButton,
+  CanvasSlot,
+  LeftPanelSlot,
+  OverlaysSlot,
+  RightPanelSlot,
+} from './workspace/slots';

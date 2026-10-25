@@ -293,13 +293,21 @@ export function evaluatePerf(snapshot, baseline, options) {
     typeof thresholds.m2IntervalP95Ms === 'number' &&
     !isPositiveFinite(snapshot.interval.p95Ms)
   ) {
-    return blocked('perf() 快照无有效 interval p95（窗口为空或未接帧计时）——判不了就是阻塞', [], metrics);
+    return blocked(
+      'perf() 快照无有效 interval p95（窗口为空或未接帧计时）——判不了就是阻塞',
+      [],
+      metrics,
+    );
   }
   if (
     typeof thresholds.m2DurationP95Ms === 'number' &&
     !isPositiveFinite(snapshot.duration.p95Ms)
   ) {
-    return blocked('perf() 快照无有效 duration p95（窗口为空或未接帧计时）——判不了就是阻塞', [], metrics);
+    return blocked(
+      'perf() 快照无有效 duration p95（窗口为空或未接帧计时）——判不了就是阻塞',
+      [],
+      metrics,
+    );
   }
   if (
     typeof thresholds.m2IntervalP95Ms === 'number' &&
@@ -374,7 +382,11 @@ export function evaluatePerfRun(run, baseline) {
   }
   const thresholds = baseline.thresholds[run.size];
   if (thresholds === null || thresholds === undefined || typeof thresholds !== 'object') {
-    return blocked(`基线未含规模档 ${String(run.size)} 的阈值——判不了（禁拿缺口阈值判性能）`, [], null);
+    return blocked(
+      `基线未含规模档 ${String(run.size)} 的阈值——判不了（禁拿缺口阈值判性能）`,
+      [],
+      null,
+    );
   }
 
   const metrics = {
@@ -407,13 +419,21 @@ export function evaluatePerfRun(run, baseline) {
     typeof thresholds.m2IntervalP95Ms === 'number' &&
     !isPositiveFinite(run.m2Window.interval.p95Ms)
   ) {
-    return blocked('perf() 环形窗口无有效 interval p95（窗口为空或未接帧计时）——判不了就是阻塞', [], metrics);
+    return blocked(
+      'perf() 环形窗口无有效 interval p95（窗口为空或未接帧计时）——判不了就是阻塞',
+      [],
+      metrics,
+    );
   }
   if (
     typeof thresholds.m2DurationP95Ms === 'number' &&
     !isPositiveFinite(run.m2Window.duration.p95Ms)
   ) {
-    return blocked('perf() 环形窗口无有效 duration p95（窗口为空或未接帧计时）——判不了就是阻塞', [], metrics);
+    return blocked(
+      'perf() 环形窗口无有效 duration p95（窗口为空或未接帧计时）——判不了就是阻塞',
+      [],
+      metrics,
+    );
   }
 
   // M1 首帧（必采指标）。
@@ -454,7 +474,11 @@ export function evaluatePerfRun(run, baseline) {
     metrics[metricKey] = isPositiveFinite(p95) ? p95 : null;
     if (threshold === null || threshold === undefined) continue; // 记录性档
     if (!isPositiveFinite(p95)) {
-      return blocked(`${family}（${thresholdKey}）为判定档但未采集到有效 p95——采集不完整`, [], metrics);
+      return blocked(
+        `${family}（${thresholdKey}）为判定档但未采集到有效 p95——采集不完整`,
+        [],
+        metrics,
+      );
     }
     const min = baseline.minSamples?.[family] ?? 0;
     const samples = reading?.samples ?? 0;
@@ -469,9 +493,8 @@ export function evaluatePerfRun(run, baseline) {
 
   // 记录性指标（无通过线，随证据留存）。
   metrics.m6HeapSampledBytes = isPositiveFinite(run.m6?.sampledBytes) ? run.m6.sampledBytes : null;
-  metrics.m7ClipRate = typeof run.m7?.rate === 'number' && Number.isFinite(run.m7.rate)
-    ? run.m7.rate
-    : null;
+  metrics.m7ClipRate =
+    typeof run.m7?.rate === 'number' && Number.isFinite(run.m7.rate) ? run.m7.rate : null;
 
   // 违规判定（阈值 null 一律跳过）。
   const violations = [];
@@ -563,9 +586,7 @@ export function computeClipRate(stats) {
     nodesDrawn,
     clipped,
     textRuns:
-      typeof stats.textRuns === 'number' && Number.isFinite(stats.textRuns)
-        ? stats.textRuns
-        : null,
+      typeof stats.textRuns === 'number' && Number.isFinite(stats.textRuns) ? stats.textRuns : null,
   };
 }
 
@@ -669,7 +690,11 @@ export function selfTest() {
     ['有基线无快照', evaluatePerf(null, baseline).code, 2],
     ['快照结构非法（缺 duration）', evaluatePerf({}, baseline).code, 2],
     ['基线结构非法（扁平旧形）', evaluatePerf(snapshot, { thresholds: {} }).code, 2],
-    ['基线 provisional（模板态）', evaluatePerf(snapshot, { ...baseline, provisional: true }).code, 2],
+    [
+      '基线 provisional（模板态）',
+      evaluatePerf(snapshot, { ...baseline, provisional: true }).code,
+      2,
+    ],
     ['样本不足（窗口帧数）', evaluatePerf({ ...snapshot, frames: 59 }, baseline).code, 2],
     [
       'interval p95 超阈',
@@ -920,7 +945,8 @@ async function daemonSavePage(daemonUrl, documentId, pageId, pageBody) {
   );
   if (!created.ok) return created;
   const createdPageId = created.result?.page?.id;
-  if (typeof createdPageId !== 'string') return { ok: false, error: 'daemon 创建页面响应缺少 page.id' };
+  if (typeof createdPageId !== 'string')
+    return { ok: false, error: 'daemon 创建页面响应缺少 page.id' };
   return daemonRequest(
     daemonUrl,
     'PUT',
@@ -1190,9 +1216,7 @@ async function collectTier(browser, options) {
   if (wants.m4 === true) {
     const latencies = [];
     for (let index = 0; index < 8; index += 1) {
-      latencies.push(
-        await page.evaluate(UNDO_PROBE, { x: 40, y: 40, width: 120, height: 90 }),
-      );
+      latencies.push(await page.evaluate(UNDO_PROBE, { x: 40, y: 40, width: 120, height: 90 }));
     }
     const summary = summarizeLatencySamples(latencies);
     m4 = { p95Ms: summary.p95Ms, p99Ms: summary.p99Ms, samples: summary.count };
@@ -1334,7 +1358,8 @@ async function mainRealChain(baselineInput, requestedSizes) {
     humanReview: {
       verdict: 'pending',
       reviewer: null,
-      reason: '阈值入库由 dev 机基线轮签字：两轮实采（本证据即采集产物）→ 写入 docs/quality/perf-baseline-v1.json 并置 provisional:false',
+      reason:
+        '阈值入库由 dev 机基线轮签字：两轮实采（本证据即采集产物）→ 写入 docs/quality/perf-baseline-v1.json 并置 provisional:false',
     },
     exitCode: 2,
   };
@@ -1642,7 +1667,10 @@ function main() {
   const sizeArg = flagValue('--size') ?? flagValue('--sizes');
   let requestedSizes = BENCH_SIZES;
   if (sizeArg !== undefined) {
-    const keys = sizeArg.split(',').map((item) => item.trim()).filter(Boolean);
+    const keys = sizeArg
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
     const unknown = keys.filter((key) => !BENCH_SIZES.some((tier) => tier.key === key));
     if (unknown.length > 0) {
       console.error(

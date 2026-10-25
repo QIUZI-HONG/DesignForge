@@ -168,10 +168,7 @@ export function AssetDetailView({
             ) : (
               <>
                 {descriptionIsEnglish ? (
-                  <p
-                    className={badgeClassName('warn')}
-                    data-df-market="detail-translation-notice"
-                  >
+                  <p className={badgeClassName('warn')} data-df-market="detail-translation-notice">
                     {t('market.detail.translationNotice')}
                   </p>
                 ) : null}

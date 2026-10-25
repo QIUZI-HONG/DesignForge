@@ -8,12 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import {
-  createDocument,
-  createPage,
-  createRect,
-  createSelection,
-} from '@dforge/engine';
+import { createDocument, createPage, createRect, createSelection } from '@dforge/engine';
 import { DropdownMenu, type MenuSectionSpec } from '@dforge/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

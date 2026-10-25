@@ -29,8 +29,8 @@ export {
   type SelectionSource,
 } from './components/InspectorPanel';
 export { MIXED_PLACEHOLDER, NumberField, type NumberFieldProps } from './components/NumberField';
-export { createScrubSession, type ScrubSession } from './model/scrub-session';
 export { COMMIT_DELAY_MS, type DraftCommit, useDraftCommit } from './model/draft';
+export { createScrubSession, type ScrubSession } from './model/scrub-session';
 export {
   createPreviewDocument,
   INSPECTOR_PREVIEW_STATES,

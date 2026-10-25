@@ -92,11 +92,11 @@ describe('布局 · 主轴 fill · 基础分配', () => {
 
   it('固定子项与多个 fill 混排：fill 均分「内容 − 固定项 − 间距」，间距计入所有相邻对', () => {
     const result = solveAutoLayout(config(), { width: 300, height: 100 }, [
-      { id: 'fixed', width: 60, height: 20 },
       { id: 'a', width: 10, height: 20, mainSizing: 'fill' },
+      { id: 'fixed', width: 60, height: 20 },
       { id: 'b', width: 10, height: 20, mainSizing: 'fill' },
     ]);
-    // 可分配 = 284 - 60 - 2×8 = 208 → 各 104
+    // 可分配 = 284 - 60 - 2×8 = 208 → 各 104（子项声明序即视觉序：a → fixed → b）
     expect(result.sizes.a).toEqual({ width: 104, height: 20 });
     expect(result.sizes.b).toEqual({ width: 104, height: 20 });
     expect(result.sizes.fixed).toBeUndefined(); // 固定项不进 sizes

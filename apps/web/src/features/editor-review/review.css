@@ -160,11 +160,11 @@
   pointer-events: auto;
 }
 
-.dfg-review__pin[data-df-state='resolved'] {
+.dfg-review__pin[data-df-state="resolved"] {
   background-color: var(--dfg-color-success);
 }
 
-.dfg-review__pin[data-df-active='true'] {
+.dfg-review__pin[data-df-active="true"] {
   box-shadow: 0 0 0 var(--dfg-border-width-thick) var(--dfg-color-focus-ring);
 }
 
@@ -235,7 +235,7 @@
   background: transparent;
 }
 
-.dfg-review__thread-toggle[aria-expanded='true'] {
+.dfg-review__thread-toggle[aria-expanded="true"] {
   background-color: var(--dfg-color-hover);
 }
 
@@ -302,8 +302,8 @@
 }
 
 /* 开启态：主色底 + 反白（data-df-state / aria-pressed 都是对外语义） */
-.dfg-review__mode-toggle[data-df-state='active'],
-.dfg-review__mode-toggle[aria-pressed='true'] {
+.dfg-review__mode-toggle[data-df-state="active"],
+.dfg-review__mode-toggle[aria-pressed="true"] {
   background-color: var(--dfg-color-primary);
   border-color: var(--dfg-color-primary);
   color: var(--dfg-color-on-primary);
@@ -477,7 +477,7 @@
 }
 
 /* 自动隐藏态：保留 DOM（可测、可被读屏忽略）但不可点 */
-.dfg-review__present-bar[data-df-state='hidden'] {
+.dfg-review__present-bar[data-df-state="hidden"] {
   opacity: 0;
   pointer-events: none;
 }

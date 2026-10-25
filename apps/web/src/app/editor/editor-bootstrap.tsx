@@ -25,15 +25,15 @@
  */
 import { useEffect } from 'react';
 
-import { mountEditorWorkspace } from '@/features/canvas/register';
-import { DocumentSaveControl } from '@/features/canvas/workspace/save-control';
 import {
   AiEntryButton,
   CanvasSlot,
+  DocumentSaveControl,
   LeftPanelSlot,
+  mountEditorWorkspace,
   OverlaysSlot,
   RightPanelSlot,
-} from '@/features/canvas/workspace/slots';
+} from '@/features/canvas/register';
 import {
   CommandPaletteSlot,
   registerCommandPalette,

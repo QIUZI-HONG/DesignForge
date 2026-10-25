@@ -87,6 +87,13 @@ describe('Tabs / TabPanel', () => {
     await user.keyboard('{ArrowRight}');
     expect(onChange).toHaveBeenLastCalledWith('design');
     expect(document.activeElement).toBe(screen.getByRole('tab', { name: '设计' }));
+    // 受控契约：激活回调由调用方落回 value——漫游起点取受控 value（不是焦点所在页签）
+    rerender(
+      <Tabs label="检查器" tabs={tabs} value="design" onChange={onChange}>
+        <TabPanel tab="design">设计内容</TabPanel>
+        <TabPanel tab="export">导出内容</TabPanel>
+      </Tabs>,
+    );
     await user.keyboard('{ArrowLeft}');
     expect(onChange).toHaveBeenLastCalledWith('export');
   });

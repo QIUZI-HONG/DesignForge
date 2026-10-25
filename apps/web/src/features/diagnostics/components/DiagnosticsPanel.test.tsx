@@ -131,16 +131,19 @@ function cssRule(css: string, className: string): string {
 }
 
 describe('诊断面板 · 样式单轨（工单 06）', () => {
-  it('样式挂类不挂内联：面板内容树不产生 style 属性', () => {
+  it('样式挂类不挂内联：面板内容树不产生 style 属性', async () => {
     const port = fakeDiagnosticsPort();
     render(<DiagnosticsPanel port={port} env={ENV} open onOpenChange={() => undefined} />);
     const root = document.querySelector('[data-df-panel="diagnostics"]');
     expect(root?.classList.contains('dfg-diagnostics__body')).toBe(true);
     // 本域无几何算式场景：整棵面板不允许任何内联样式（豁免登记表在工单 06）
     expect(root?.querySelector('[style]')).toBeNull();
-    // 环境行与连通性条目挂预期类
+    // 环境行同步渲染；连通性条目经 port 异步取数——等它落 DOM 再断类名
     expect(document.querySelector('[data-df-env-row]')?.className).toContain(
       'dfg-diagnostics__row',
+    );
+    await waitFor(() =>
+      expect(document.querySelector('[data-df-connectivity-item]')).not.toBeNull(),
     );
     expect(document.querySelector('[data-df-connectivity-item]')?.className).toContain(
       'dfg-diagnostics__item',

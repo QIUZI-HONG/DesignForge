@@ -12,10 +12,10 @@
  *    演示入口**与画布文档同源**——画布上出现画板后入口自动可点（不刷新、不重挂）。
  */
 
-import { EDITOR_SLOT_DECLARATIONS } from '@/app/editor/editor-bootstrap';
 import { ToastProvider } from '@dforge/ui';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { EDITOR_SLOT_DECLARATIONS } from '@/app/editor/editor-bootstrap';
 import { getWorkspace, resetWorkspace } from '@/features/canvas';
 import {
   CanvasHudProvider,

@@ -10,11 +10,6 @@
  */
 
 export {
-  resolveTreeDropPlacement,
-  type TreeDropPlacement,
-  type TreeDropPointer,
-} from './commands/tree-drop';
-export {
   bringToFrontCommands,
   deleteLayerCommands,
   groupLayersCommands,
@@ -28,6 +23,11 @@ export {
   ungroupLayerCommands,
 } from './commands/layer-commands';
 export { type LayerMenuEntry, layerContextMenu } from './commands/layer-menu';
+export {
+  resolveTreeDropPlacement,
+  type TreeDropPlacement,
+  type TreeDropPointer,
+} from './commands/tree-drop';
 export { AssetsPanel, type AssetsPanelProps } from './components/AssetsPanel';
 export { EditorPanels, type EditorPanelsProps } from './components/EditorPanels';
 export { LayerContextMenu, type LayerContextMenuProps } from './components/LayerContextMenu';

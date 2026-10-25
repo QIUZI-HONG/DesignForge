@@ -80,7 +80,7 @@ function stubScrollIntoView(): void {
   (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView = function scrollIntoViewStub(
     this: Element,
   ) {
-    scrolledIds.push((this as HTMLElement).dataset['nodeId'] ?? '');
+    scrolledIds.push((this as HTMLElement).dataset.nodeId ?? '');
   };
 }
 const restoreScrollIntoView = (): void => {
@@ -121,9 +121,9 @@ describe('图层面板 · 树渲染（Tree 接入）', () => {
     expect(row('首屏').getAttribute('aria-expanded')).toBe('true');
     expect(row('卡片').hasAttribute('aria-expanded')).toBe(false);
     // 树容器取样挂点：全量节点数（门禁用，与折叠态无关；挂在面板树容器上）
-    expect(document.querySelector('[data-df-layer-count]')?.getAttribute('data-df-layer-count')).toBe(
-      '8',
-    );
+    expect(
+      document.querySelector('[data-df-layer-count]')?.getAttribute('data-df-layer-count'),
+    ).toBe('8');
   });
 
   it('类型图标挂点：行内 icon 槽渲染类型图标（组件族落 data-df-layer-type 供 CSS 着色）', () => {
@@ -273,7 +273,8 @@ describe('图层面板 · 拖拽落位约定（RW-13：上/下各半；跨父 = 
     const restore = stubRowRects();
     try {
       const { session, page } = renderPanel();
-      dragOnto('首屏', '标题', 5 * ROW_HEIGHT + 14);
+      // 目标行取节点 id（t1 = 「标题」，g1 内）：dragOnto 第二参是 id 不是显示名
+      dragOnto('首屏', 't1', 5 * ROW_HEIGHT + 14);
       expect(getChildrenIds(page(), 'f1')).toEqual(['r1', 'r2', 'g1']);
       expect(session.stack.history().undo).toHaveLength(0);
     } finally {
@@ -319,6 +320,7 @@ describe('图层面板 · 行级状态（Tree 六态消费）', () => {
     );
     const { session } = renderPanelDoc(doc);
     const virtualChild = getChildrenIds(getPage(session.stack.document, session.pageId), 'i1')[0];
+    if (virtualChild === undefined) throw new Error('夹具缺失：实例 i1 必须有虚子节点');
     const virtualRow = nodeRow(virtualChild);
     expect(virtualRow?.getAttribute('aria-disabled')).toBe('true');
 
@@ -362,9 +364,9 @@ describe('图层面板 · 千级图层与渲染窗口化（零依赖）', () => 
       </PanelsProvider>,
     );
     expect(screen.getAllByRole('treeitem')).toHaveLength(1000);
-    expect(document.querySelector('[data-df-layer-count]')?.getAttribute('data-df-layer-count')).toBe(
-      '1000',
-    );
+    expect(
+      document.querySelector('[data-df-layer-count]')?.getAttribute('data-df-layer-count'),
+    ).toBe('1000');
   });
 
   it('窗口化规则文本：面板树行声明 content-visibility 与 contain-intrinsic-size（行高令牌）', () => {

@@ -112,11 +112,7 @@ const maskFilterCache = new WeakMap<CanvasKit, Map<string, MaskFilter>>();
 const FILTER_CACHE_CAPACITY = 256;
 
 /** 取（或构建）缓存的 ImageFilter；命中即复用，避免每帧 new Embind 对象。 */
-function cachedFilter(
-  canvasKit: CanvasKit,
-  key: string,
-  build: () => ImageFilter,
-): ImageFilter {
+function cachedFilter(canvasKit: CanvasKit, key: string, build: () => ImageFilter): ImageFilter {
   let perKit = filterCache.get(canvasKit);
   if (perKit === undefined) {
     perKit = new Map();

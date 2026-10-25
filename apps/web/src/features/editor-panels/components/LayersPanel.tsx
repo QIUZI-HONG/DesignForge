@@ -53,7 +53,6 @@ import { moveLayerCommands, renameLayerCommands } from '../commands/layer-comman
 import { resolveTreeDropPlacement } from '../commands/tree-drop';
 import { usePanelsDocument, usePanelsUi } from '../state/hooks';
 import { LayerContextMenu } from './LayerContextMenu';
-import { layerTypeIcon } from './layer-icons';
 import { buildTreeModel, type PanelTreeModel } from './layers-tree-model';
 import { usePanelsSession } from './panels-context';
 
@@ -220,7 +219,7 @@ export function LayersPanel({
     (event: ReactMouseEvent<HTMLDivElement>) => {
       // Tree 行带 data-node-id：右键命中行即出菜单；未选中的行先选上（Figma 语义）
       const hit = (event.target as HTMLElement).closest<HTMLElement>('[data-node-id]');
-      const id = hit?.dataset['nodeId'];
+      const id = hit?.dataset.nodeId;
       if (id === undefined) return;
       event.preventDefault();
       const ui = session.ui.getState();
@@ -274,6 +273,7 @@ export function LayersPanel({
           ))}
         </div>
       ) : (
+        // biome-ignore lint/a11y/noStaticElementInteractions: 右键菜单是设计工具惯例（Figma 同款）；键盘等价路径由 Tree 行内漫游（roving tabindex）承担
         <div
           ref={treeRef}
           data-df-layer-count={model.totalCount}

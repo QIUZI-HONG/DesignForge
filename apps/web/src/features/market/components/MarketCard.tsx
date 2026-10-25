@@ -127,11 +127,7 @@ export function MarketCard({
           </span>
         ) : null}
         {asset.yanked !== null ? (
-          <span
-            className={badgeClassName('danger')}
-            data-df-market="badge"
-            data-df-badge="yanked"
-          >
+          <span className={badgeClassName('danger')} data-df-market="badge" data-df-badge="yanked">
             {t('market.card.yankedBadge', { reason: asset.yanked.reason })}
           </span>
         ) : null}

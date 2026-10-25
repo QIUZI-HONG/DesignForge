@@ -476,7 +476,12 @@ function drawInnerShadows(
   for (const shadow of plan.innerShadows) {
     canvas.save();
     if (isEllipse) {
-      canvas.clipOval(rect, canvasKit.ClipOp.Intersect, true);
+      // CanvasKit 无 clipOval：正椭圆 = 半径取半宽半高的 RRect 裁剪（与 rect 分支同一 API）
+      canvas.clipRRect(
+        canvasKit.RRectXY(rect, geometry.width / 2, geometry.height / 2),
+        canvasKit.ClipOp.Intersect,
+        true,
+      );
     } else {
       canvas.clipRRect(canvasKit.RRectXY(rect, radius, radius), canvasKit.ClipOp.Intersect, true);
     }

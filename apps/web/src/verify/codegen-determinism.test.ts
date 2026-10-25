@@ -61,6 +61,7 @@ function makePage() {
   });
   const first = createDocument({ id: 'doc_1', pages: [page] }).pages[0];
   if (first === undefined) throw new Error('fixture: page_1 must exist');
+  return first;
 }
 
 /** 令牌集：含别名、同值多条、大小写差异、单位差异。 */

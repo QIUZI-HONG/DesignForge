@@ -37,7 +37,12 @@ import { resolveTreeDropPlacement } from './tree-drop';
  */
 function fixture(): DesignDocument {
   let doc = createDocument({ id: 'doc-drop', pages: [createPage({ id: 'p1' })] });
-  doc = insertNode(doc, 'p1', createFrame({ id: 'f1', name: '首屏', width: 200, height: 200 }), null);
+  doc = insertNode(
+    doc,
+    'p1',
+    createFrame({ id: 'f1', name: '首屏', width: 200, height: 200 }),
+    null,
+  );
   doc = insertNodes(
     doc,
     'p1',
@@ -67,7 +72,12 @@ function fixture(): DesignDocument {
     createComponent({ id: 'c1', name: '按钮', x: 0, y: 300, width: 100, height: 40 }),
     null,
   );
-  doc = insertNode(doc, 'p1', createRect({ id: 'cr1', name: '底板', width: 100, height: 40 }), 'c1');
+  doc = insertNode(
+    doc,
+    'p1',
+    createRect({ id: 'cr1', name: '底板', width: 100, height: 40 }),
+    'c1',
+  );
   doc = insertNode(
     doc,
     'p1',
@@ -170,7 +180,8 @@ describe('落位 → 引擎命令族（与 moveLayerCommands 组合）', () => {
       rowBottom: 112,
     });
     expect(placement).toEqual({ parentId: 'f2', index: 1, edge: 'after' });
-    const commands = moveLayerCommands(page, 'p1', 'r2', placement!.parentId, placement!.index);
+    const spot = placement as NonNullable<typeof placement>;
+    const commands = moveLayerCommands(page, 'p1', 'r2', spot.parentId, spot.index);
     const reparent = commands[1] as { type: string; parentId: string | null; index: number };
     expect(reparent.parentId).toBe('f2');
     expect(reparent.index).toBe(1);

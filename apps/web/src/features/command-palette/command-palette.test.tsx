@@ -199,23 +199,23 @@ describe('键盘导航', () => {
     // 键从搜索框（焦点所在）冒泡到卡片统一处理
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     expect(
-      document.getElementById(input.getAttribute('aria-activedescendant') as string)?.getAttribute(
-        'data-df-command',
-      ),
+      document
+        .getElementById(input.getAttribute('aria-activedescendant') as string)
+        ?.getAttribute('data-df-command'),
     ).toBe('tool.rect');
 
     fireEvent.keyDown(input, { key: 'Home' });
     expect(
-      document.getElementById(input.getAttribute('aria-activedescendant') as string)?.getAttribute(
-        'data-df-command',
-      ),
+      document
+        .getElementById(input.getAttribute('aria-activedescendant') as string)
+        ?.getAttribute('data-df-command'),
     ).toBe('tool.frame');
 
     fireEvent.keyDown(input, { key: 'End' });
     expect(
-      document.getElementById(input.getAttribute('aria-activedescendant') as string)?.getAttribute(
-        'data-df-command',
-      ),
+      document
+        .getElementById(input.getAttribute('aria-activedescendant') as string)
+        ?.getAttribute('data-df-command'),
     ).toBe('help.shortcuts');
   });
 
@@ -223,9 +223,9 @@ describe('键盘导航', () => {
     const { input } = await openPalette();
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     expect(
-      document.getElementById(input.getAttribute('aria-activedescendant') as string)?.getAttribute(
-        'data-df-command',
-      ),
+      document
+        .getElementById(input.getAttribute('aria-activedescendant') as string)
+        ?.getAttribute('data-df-command'),
     ).toBe('help.shortcuts');
   });
 

@@ -52,7 +52,7 @@
 /* ---------- 图层树（C3，RW-13：接入 @dforge/ui Tree） ---------- */
 
 /*
- * 树容器：排版沿用面板 12px 口径（Tree 组件默认字号是控件档），上下留半档呼吸；
+ * 树容器：排版沿用面板正文字号 --dfg-font-size-12（Tree 组件默认字号是控件档），上下留半档呼吸；
  * 选中/悬停/禁用/焦点环/拖拽中的行状态全部由 @dforge/ui 的 .dfg-tree__node 规则承接，
  * 这里不重复声明（单轨：状态样式只有一份真源）。
  */
@@ -79,9 +79,9 @@
   color: var(--dfg-color-icon-secondary);
 }
 
-.dfg-panels__layer-type-icon[data-df-layer-type='component'],
-.dfg-panels__layer-type-icon[data-df-layer-type='component_set'],
-.dfg-panels__layer-type-icon[data-df-layer-type='instance'] {
+.dfg-panels__layer-type-icon[data-df-layer-type="component"],
+.dfg-panels__layer-type-icon[data-df-layer-type="component_set"],
+.dfg-panels__layer-type-icon[data-df-layer-type="instance"] {
   color: var(--dfg-color-component);
 }
 
@@ -140,7 +140,7 @@
   cursor: pointer;
 }
 
-.dfg-panels__asset-card[aria-pressed='true'] {
+.dfg-panels__asset-card[aria-pressed="true"] {
   border-color: var(--dfg-color-primary);
 }
 

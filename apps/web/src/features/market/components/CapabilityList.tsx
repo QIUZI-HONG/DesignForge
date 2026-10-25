@@ -9,9 +9,8 @@
  */
 
 import { t } from '@/i18n';
-
-import { type CapabilityRisk, describeCapabilities } from '../capabilities';
 import { badgeClassName } from '../badge-classes';
+import { type CapabilityRisk, describeCapabilities } from '../capabilities';
 
 import '../market.css';
 

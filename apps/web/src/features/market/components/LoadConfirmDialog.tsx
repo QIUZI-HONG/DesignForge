@@ -17,7 +17,7 @@ import { Button, Modal } from '@dforge/ui';
 import { useEffect, useState } from 'react';
 
 import { t } from '@/i18n';
-
+import { badgeClassName } from '../badge-classes';
 import { describeLicenseGate } from '../capabilities';
 import {
   approveLoadSession,
@@ -29,7 +29,6 @@ import {
   rejectLoadSession,
   remainingTokenMs,
 } from '../load-token';
-import { badgeClassName } from '../badge-classes';
 import { CapabilityList } from './CapabilityList';
 
 import '../market.css';

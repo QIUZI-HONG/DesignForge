@@ -16,10 +16,10 @@ export interface HorizontalScrubOptions {
   disabled: boolean;
   /** 激活阈值（px 位移超过才算拖拽；抓手传 0——一动就是拖）。 */
   threshold: number;
-  onStart?: () => void;
+  onStart?: (() => void) | undefined;
   /** 每次位移：`delta` 为本段增量，`total` 为自按下起的累计位移。 */
-  onMove?: (delta: number, total: number) => void;
-  onEnd?: () => void;
+  onMove?: ((delta: number, total: number) => void) | undefined;
+  onEnd?: (() => void) | undefined;
 }
 
 /** 横向拖拽会话句柄。 */

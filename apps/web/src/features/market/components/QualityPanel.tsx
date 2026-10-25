@@ -11,7 +11,7 @@
 import type { MarketQuality } from '@dforge/contracts';
 
 import { t } from '@/i18n';
-
+import { meterFillClassName } from '../badge-classes';
 import {
   buildRadarDims,
   deductionLabelKey,
@@ -19,7 +19,6 @@ import {
   summarizeDeductions,
   toPointsAttr,
 } from '../quality';
-import { badgeClassName, meterFillClassName } from '../badge-classes';
 
 import '../market.css';
 

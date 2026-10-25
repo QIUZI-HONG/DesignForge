@@ -18,6 +18,8 @@
  * hydration 时序的真值断言另由 e2e:smoke（真 daemon + 生产构建 + 真 Chromium）承担，
  * 本文件守住的是「渲染期零注册 + 挂载后填充」的结构契约。
  */
+
+import { ToastProvider } from '@dforge/ui';
 import { act, render } from '@testing-library/react';
 import { hydrateRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -69,7 +71,12 @@ describe('/editor · 服务端首帧（空槽形态）', () => {
 
 describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
   it('hydrate 服务端 HTML 无 mismatch；挂载后插槽按声明表填充、命令注册到位', () => {
-    const serverHtml = renderToStaticMarkup(<EditorPage />);
+    // SSR 与水合同树形（ToastProvider 渲染一层 div：两侧都带，否则按节点比对必错位）
+    const serverHtml = renderToStaticMarkup(
+      <ToastProvider>
+        <EditorPage />
+      </ToastProvider>,
+    );
     const container = document.createElement('div');
     container.innerHTML = serverHtml;
     document.body.appendChild(container);
@@ -81,7 +88,12 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
     let root: Root | null = null;
     try {
       act(() => {
-        root = hydrateRoot(container, <EditorPage />);
+        root = hydrateRoot(
+          container,
+          <ToastProvider>
+            <EditorPage />
+          </ToastProvider>,
+        );
       });
 
       // —— hydration 一致性：任何 hydration 告警都算失败（首帧不一致即整树停空槽） ——
@@ -108,6 +120,8 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
         'fe-10-overlays',
         'fe-07-presenter',
         'fe-07-versions',
+        'rw-08-command-palette',
+        'rw-08-shortcut-cheatsheet',
       ]);
 
       // —— FE-04~FE-10 挂载产物可见：画布壳（FE-06）出现，空槽兜底全部退场 ——
@@ -132,19 +146,29 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
   });
 
   it('重复渲染（SPA 离开再回来）幂等：同 id 覆盖，插槽与命令都不叠加', () => {
-    const first = render(<EditorPage />);
+    const first = render(
+      <ToastProvider>
+        <EditorPage />
+      </ToastProvider>,
+    );
     const slotCount = listEditorSlotItems('overlays').length;
     const commandCount = getCommandsSnapshot().length;
-    expect(slotCount).toBe(3);
+    expect(slotCount).toBe(5); // fe-10-overlays + fe-07-presenter/versions + rw-08 面板/速查卡
     first.unmount();
 
-    render(<EditorPage />);
+    render(
+      <ToastProvider>
+        <EditorPage />
+      </ToastProvider>,
+    );
 
     // 同 id 覆盖（last wins）：条目数不变，顺序与首次一致
     expect(listEditorSlotItems('overlays').map((item) => item.id)).toEqual([
       'fe-10-overlays',
       'fe-07-presenter',
       'fe-07-versions',
+      'rw-08-command-palette',
+      'rw-08-shortcut-cheatsheet',
     ]);
     expect(listEditorSlotItems('canvas').map((item) => item.id)).toEqual([
       'fe-06-canvas',

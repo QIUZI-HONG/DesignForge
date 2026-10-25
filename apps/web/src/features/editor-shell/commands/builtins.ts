@@ -101,7 +101,7 @@ export function builtinCommands(): Command[] {
       id: 'help.shortcuts',
       title: t('editor.action.shortcuts'),
       group: t('editor.group.help'),
-      shortcut: '⌘/',
+      // 不占键位：⌘/ 归命令面板（工单 08，features/command-palette/register 注册）
       run: () => {
         useEditorUi.getState().setShortcutsOpen(true);
       },

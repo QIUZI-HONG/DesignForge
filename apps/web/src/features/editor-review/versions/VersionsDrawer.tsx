@@ -55,9 +55,7 @@ export function VersionsDrawer() {
 
             {snapshots.length === 0 ? (
               <div data-df-sample="versions/empty" className="dfg-review__empty">
-                <span className="dfg-review__empty-title">
-                  {t('review.versions.empty.title')}
-                </span>
+                <span className="dfg-review__empty-title">{t('review.versions.empty.title')}</span>
                 <span className="dfg-review__empty-desc">{t('review.versions.empty.desc')}</span>
               </div>
             ) : (

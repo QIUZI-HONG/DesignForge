@@ -38,6 +38,13 @@ function firstPage(doc: DesignDocument): ScenePage {
   return page;
 }
 
+/** 取第 index 个 rootId（noUncheckedIndexedAccess：缺位即夹具坏了，显式失败不静默比较）。 */
+function rootIdAt(page: ScenePage, index: number): NodeId {
+  const id = page.rootIds[index];
+  if (id === undefined) throw new Error(`rootIds 缺位：${String(index)}`);
+  return id;
+}
+
 /** 按 id 取顶层 rect 节点（缺节点/类型漂移一律显式失败，不静默比较 undefined）。 */
 function rectOf(page: ScenePage, id: NodeId): RectNode {
   const node = page.nodes[id];
@@ -107,8 +114,8 @@ describe('确定性基准文档生成器（工单 14）', () => {
     const nodeCount = 101; // 非完全平方数：强制 ceil(sqrt(n)) = 11 列，尾行不满
     const page = firstPage(createBenchmarkDocument({ nodeCount, ids: createIdFactory(1) }));
     const cols = Math.ceil(Math.sqrt(nodeCount));
-    const first = rectOf(page, page.rootIds[0]);
-    const last = rectOf(page, page.rootIds[nodeCount - 1]);
+    const first = rectOf(page, rootIdAt(page, 0));
+    const last = rectOf(page, rootIdAt(page, nodeCount - 1));
     expect(first).toMatchObject({ x: 0, y: 0, width: BENCHMARK_NODE_SIZE_PX });
     expect(last).toMatchObject({
       x: ((nodeCount - 1) % cols) * BENCHMARK_CELL_PX,
@@ -117,7 +124,7 @@ describe('确定性基准文档生成器（工单 14）', () => {
       height: BENCHMARK_NODE_SIZE_PX,
     });
     // 同行内相邻节点 x 严格递增一个格距（公式生成的确定性网格）
-    const second = rectOf(page, page.rootIds[1]);
+    const second = rectOf(page, rootIdAt(page, 1));
     expect(second.x - first.x).toBe(BENCHMARK_CELL_PX);
     expect(second.y).toBe(first.y);
   });
@@ -129,8 +136,8 @@ describe('确定性基准文档生成器（工单 14）', () => {
     const shiftedPage = firstPage(shifted);
     expect(shiftedPage.rootIds[0]).not.toBe(basePage.rootIds[0]);
     expect(shiftedPage.rootIds[0]).toBe('n_7');
-    expect(shapeOf(rectOf(shiftedPage, shiftedPage.rootIds[0]))).toEqual(
-      shapeOf(rectOf(basePage, basePage.rootIds[0])),
+    expect(shapeOf(rectOf(shiftedPage, rootIdAt(shiftedPage, 0)))).toEqual(
+      shapeOf(rectOf(basePage, rootIdAt(basePage, 0))),
     );
   });
 

@@ -13,12 +13,7 @@
  *   面板、快捷键说明同一真源；修饰键判定复用 editor-shell 的 `parseShortcut`/`hasModifier`，
  *   不另写一套解析。
  */
-import {
-  type Command,
-  hasModifier,
-  isEditableTarget,
-  parseShortcut,
-} from '../editor-shell';
+import { type Command, hasModifier, isEditableTarget, parseShortcut } from '../editor-shell';
 
 /** 速查卡上下文。 */
 export type CheatContext = 'palette' | 'text' | 'canvas';

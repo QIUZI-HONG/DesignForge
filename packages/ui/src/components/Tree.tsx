@@ -153,6 +153,9 @@ export function Tree({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const renameOriginal = useRef('');
+  // 重命名收尾同步锁：focusRow 会同步触发输入框 blur，blur 的 finishRename(true)
+  // 带旧闭包重入——不锁住，Esc 取消会被 blur 抢成提交
+  const renameFinishing = useRef(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
@@ -204,13 +207,18 @@ export function Tree({
 
   const finishRename = useCallback(
     (commit: boolean): void => {
-      if (renamingId === null) return;
+      if (renamingId === null || renameFinishing.current) return;
       const id = renamingId;
       const text = draft.trim();
       setRenamingId(null);
-      // 回焦点到行：编辑结束不把焦点丢给 body（键盘连续操作）
-      focusRow(id);
-      if (commit && text !== '' && text !== renameOriginal.current) onRename?.(id, text);
+      renameFinishing.current = true;
+      try {
+        // 回焦点到行：编辑结束不把焦点丢给 body（键盘连续操作）
+        focusRow(id);
+        if (commit && text !== '' && text !== renameOriginal.current) onRename?.(id, text);
+      } finally {
+        renameFinishing.current = false;
+      }
     },
     [draft, focusRow, onRename, renamingId],
   );

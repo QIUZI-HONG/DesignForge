@@ -39,6 +39,14 @@
  * `useEditorView`（缩放与当前工具）· `useEditorUi`（命令面板/快捷键说明）· `canvasHud`（HUD 命令式）。
  */
 
+// 引导族（工单 02：唯一客户端引导 + 声明式注册表的**机制层**；声明与执行点在
+// `app/editor/editor-bootstrap.tsx`，本包不反向依赖 feature 域）
+export {
+  type EditorBootstrapEntry,
+  type EditorSlotDeclaration,
+  mountEditorSlotDeclarations,
+  runEditorBootstrapEntries,
+} from './bootstrap/registry';
 // 命令族
 export {
   builtinCommands,
@@ -73,7 +81,15 @@ export {
   getCanvasHudSnapshot,
   subscribeCanvasHud,
 } from './hud/controller';
-
+// 快捷键解析/判定（冻结接口的配套纯函数；工单 08 速查卡消费同一条规则——
+// 「卡上展示的键位 = 此刻派发真会生效的键位」）
+export {
+  hasModifier,
+  isEditableTarget,
+  type ParsedShortcut,
+  parseShortcut,
+  type ShortcutEventLike,
+} from './shortcuts/matching';
 // 插槽族
 export { EditorSlotHost, type EditorSlotHostProps, useEditorSlotItems } from './slots/host';
 export {
@@ -85,23 +101,6 @@ export {
   resetEditorSlots,
   subscribeEditorSlots,
 } from './slots/registry';
-// 引导族（工单 02：唯一客户端引导 + 声明式注册表的**机制层**；声明与执行点在
-// `app/editor/editor-bootstrap.tsx`，本包不反向依赖 feature 域）
-export {
-  type EditorBootstrapEntry,
-  type EditorSlotDeclaration,
-  mountEditorSlotDeclarations,
-  runEditorBootstrapEntries,
-} from './bootstrap/registry';
-// 快捷键解析/判定（冻结接口的配套纯函数；工单 08 速查卡消费同一条规则——
-// 「卡上展示的键位 = 此刻派发真会生效的键位」）
-export {
-  hasModifier,
-  isEditableTarget,
-  type ParsedShortcut,
-  parseShortcut,
-  type ShortcutEventLike,
-} from './shortcuts/matching';
 export {
   type EditorUiState,
   isEditorOverlayOpen,

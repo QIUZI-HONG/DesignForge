@@ -96,15 +96,18 @@ function typeAndEnter(name: string, text: string): void {
 
 /** 给节点预置效果（直接经命令栈，测试效果分区的读侧）。 */
 function presetEffect(stack: CommandStack, nodeId: string, effect: Effect): void {
-  stack.dispatch(
-    {
-      type: 'node.update',
-      pageId: FIXTURE_PAGE_ID,
-      nodeId,
-      patch: { effects: [effect] },
-    },
-    { label: '预置' },
-  );
+  // 栈订阅经 useSyncExternalStore 是并发调度更新：不经 act 冲刷，同步查询拿旧 DOM
+  act(() => {
+    stack.dispatch(
+      {
+        type: 'node.update',
+        pageId: FIXTURE_PAGE_ID,
+        nodeId,
+        patch: { effects: [effect] },
+      },
+      { label: '预置' },
+    );
+  });
 }
 
 describe('InspectorPanel · 组织（Tabs + 折叠分区）', () => {
@@ -149,8 +152,8 @@ describe('InspectorPanel · 组织（Tabs + 折叠分区）', () => {
       expect(trigger?.getAttribute('aria-expanded')).toBe('true');
     }
     // DOM 顺序即 Tab 序：size → fill → stroke → corner → effects → text
-    const rendered = [...document.querySelectorAll('[data-df-inspector-section]')].map(
-      (element) => element.getAttribute('data-df-inspector-section'),
+    const rendered = [...document.querySelectorAll('[data-df-inspector-section]')].map((element) =>
+      element.getAttribute('data-df-inspector-section'),
     );
     expect(rendered).toEqual(sectionIds);
   });
@@ -214,7 +217,7 @@ describe('InspectorPanel · 选中集合即时刷新（zustand 选择态订阅�
   it('混选批量修改经 store 选中集作用于全选（一次撤销全还原）', () => {
     vi.useFakeTimers();
     try {
-      const { stack, ui } = setupWithStore(createSelection(['r1', 'r2']));
+      const { stack } = setupWithStore(createSelection(['r1', 'r2']));
       typeAndEnter('x', '25');
       act(() => vi.advanceTimersByTime(COMMIT_DELAY_MS));
       expect(stack.document.pages[0]?.nodes.r1?.x).toBe(25);
@@ -341,10 +344,10 @@ describe('InspectorPanel · 效果分区（交付 c：可见可调，联动画�
     const user = userEvent.setup();
     const { node } = setup(['r1']);
     await user.selectOptions(
-      document.querySelector<HTMLSelectElement>('[data-df-effect-type]')!,
+      document.querySelector<HTMLSelectElement>('[data-df-effect-type]') as HTMLSelectElement,
       'layer_blur',
     );
-    fireEvent.click(document.querySelector<HTMLElement>('[data-df-effect-add]')!);
+    fireEvent.click(document.querySelector<HTMLElement>('[data-df-effect-add]') as HTMLElement);
     expect(node('r1').effects[0]).toMatchObject({ type: 'layer_blur' });
   });
 
@@ -409,7 +412,7 @@ describe('InspectorPanel · 效果分区（交付 c：可见可调，联动画�
     expect(document.querySelector('[data-df-effect-mixed]')).not.toBeNull();
     expect(document.querySelector('[data-df-effect="drop_shadow"]')).toBeNull(); // 无共有列表可渲染
 
-    fireEvent.click(document.querySelector<HTMLElement>('[data-df-effect-add]')!);
+    fireEvent.click(document.querySelector<HTMLElement>('[data-df-effect-add]') as HTMLElement);
     expect(node('r1').effects).toHaveLength(2);
     expect(node('r2').effects).toHaveLength(1);
     expect(node('r2').effects[0]).toMatchObject({ type: 'drop_shadow' });
@@ -462,7 +465,7 @@ describe('InspectorPanel · P0 圆角与既有路径不回归', () => {
     const { node } = setup(['r1']);
     expect(field('blendMode').querySelector('select')).not.toBeNull();
     expect(field('opacity')).not.toBeNull();
-    fireEvent.change(field('blendMode').querySelector('select')!, {
+    fireEvent.change(field('blendMode').querySelector('select') as HTMLSelectElement, {
       target: { value: 'multiply' },
     });
     expect(node('r1').blendMode).toBe('multiply');

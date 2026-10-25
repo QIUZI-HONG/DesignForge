@@ -195,7 +195,7 @@ describe('readEffects（效果分区 · RW-10）', () => {
       id: 'p2',
       nodes: {
         r1: { ...a, effects: [shadowA] },
-        r2: { ...b, effects: [{ ...shadowA } ] }, // 同结构不同引用
+        r2: { ...b, effects: [{ ...shadowA }] }, // 同结构不同引用
       },
       rootIds: ['r1', 'r2'],
     });

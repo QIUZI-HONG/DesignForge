@@ -37,7 +37,7 @@ export const ROW_HEIGHT = 28;
 export function stubRowRects(height: number = ROW_HEIGHT): () => void {
   const original = Element.prototype.getBoundingClientRect;
   Element.prototype.getBoundingClientRect = function getBoundingClientRectStub(this: Element) {
-    if (this instanceof HTMLElement && this.dataset['nodeId'] !== undefined) {
+    if (this instanceof HTMLElement && this.dataset.nodeId !== undefined) {
       const siblings = Array.from(document.querySelectorAll('[data-node-id]'));
       const index = siblings.indexOf(this);
       const top = index * height;

@@ -181,11 +181,7 @@ export function McpConfirmBar(props: McpConfirmBarProps) {
       ) : null}
 
       {view.phase === 'approved' || view.phase === 'rejected' ? (
-        <div
-          className="dfg-mcp__result"
-          role="status"
-          data-df-mcp-decision={view.decision ?? ''}
-        >
+        <div className="dfg-mcp__result" role="status" data-df-mcp-decision={view.decision ?? ''}>
           <strong>
             {view.decision === 'approved' ? t('mcp.result.approved') : t('mcp.result.rejected')}
           </strong>

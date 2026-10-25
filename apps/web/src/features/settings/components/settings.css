@@ -101,11 +101,11 @@
 }
 
 /* 悬停底色（工单 06 起走 CSS 伪类——域内已有样式文件，不再需要 React 态显式驱动） */
-.dfg-settings__nav-item:hover:not([aria-current='true']) {
+.dfg-settings__nav-item:hover:not([aria-current="true"]) {
   background-color: var(--dfg-color-hover);
 }
 
-.dfg-settings__nav-item[aria-current='true'] {
+.dfg-settings__nav-item[aria-current="true"] {
   background-color: var(--dfg-color-selection);
   color: var(--dfg-color-selection-text);
   font-weight: var(--dfg-font-weight-medium);
@@ -162,7 +162,7 @@
 }
 
 /* 当前步高亮（aria-current 是状态机投射的对外语义） */
-.dfg-settings__step-item[aria-current='step'] {
+.dfg-settings__step-item[aria-current="step"] {
   background-color: var(--dfg-color-selection);
   color: var(--dfg-color-selection-text);
   font-weight: var(--dfg-font-weight-medium);
@@ -266,22 +266,22 @@
   color: var(--dfg-color-text-secondary);
 }
 
-.dfg-settings__chip[data-df-connectivity='ok'] {
+.dfg-settings__chip[data-df-connectivity="ok"] {
   background-color: var(--dfg-color-success-subtle);
   color: var(--dfg-color-success);
 }
 
-.dfg-settings__chip[data-df-connectivity='degraded'] {
+.dfg-settings__chip[data-df-connectivity="degraded"] {
   background-color: var(--dfg-color-warning-subtle);
   color: var(--dfg-color-text-primary);
 }
 
-.dfg-settings__chip[data-df-connectivity='unavailable'] {
+.dfg-settings__chip[data-df-connectivity="unavailable"] {
   background-color: var(--dfg-color-danger-subtle);
   color: var(--dfg-color-danger);
 }
 
-.dfg-settings__chip[data-df-connectivity='not-configured'] {
+.dfg-settings__chip[data-df-connectivity="not-configured"] {
   background-color: var(--dfg-color-surface-subtle);
   color: var(--dfg-color-text-secondary);
 }

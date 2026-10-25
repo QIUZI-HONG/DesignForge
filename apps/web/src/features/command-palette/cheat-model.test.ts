@@ -16,7 +16,13 @@ import { buildCheatGroups, resolveCheatContext } from './cheat-model';
 
 /** 造命令。 */
 function command(id: string, title: string, group: string, shortcut?: string): Command {
-  return { id, title, group, ...(shortcut === undefined ? {} : { shortcut }), run: () => undefined };
+  return {
+    id,
+    title,
+    group,
+    ...(shortcut === undefined ? {} : { shortcut }),
+    run: () => undefined,
+  };
 }
 
 const commands: Command[] = [

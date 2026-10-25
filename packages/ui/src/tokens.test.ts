@@ -192,7 +192,8 @@ describe('令牌 · 单位合法性（F-1 缺陷回归守卫）', () => {
       if (family === undefined) continue;
       const suffix = { ms: 'ms', px: 'px', em: 'em', none: '' }[family[1]];
       const pattern = suffix === '' ? /^\d+(?:\.\d+)?$/ : new RegExp(`${suffix}$`);
-      expect(`${name}=${value}`).toMatch(pattern);
+      // 无单位族锚定整串纯数字：断言对象必须是 value 本身（拼 `name=` 前缀会必失配）
+      expect(value, name).toMatch(pattern);
     }
   });
 });

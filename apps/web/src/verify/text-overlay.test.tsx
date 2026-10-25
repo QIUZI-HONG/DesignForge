@@ -159,14 +159,8 @@ describe('文本覆盖层 · 与渲染层同口径（祖先链）', () => {
     render(<TextOverlay session={session} />);
     const geometry = overlayGeometry();
     // 渲染层（draw-scene）按祖先链 translate；覆盖层必须同口径
-    expect(geometry.left, '覆盖层 left 未含父级偏移 → 与画布字形错位').toBeCloseTo(
-      world.x,
-      6,
-    );
-    expect(geometry.top, '覆盖层 top 未含父级偏移 → 与画布字形错位').toBeCloseTo(
-      world.y,
-      6,
-    );
+    expect(geometry.left, '覆盖层 left 未含父级偏移 → 与画布字形错位').toBeCloseTo(world.x, 6);
+    expect(geometry.top, '覆盖层 top 未含父级偏移 → 与画布字形错位').toBeCloseTo(world.y, 6);
   });
 
   it('[缺陷] 父级旋转 30°：覆盖层旋转角必须含祖先旋转（当前只取自身 rotation）', () => {

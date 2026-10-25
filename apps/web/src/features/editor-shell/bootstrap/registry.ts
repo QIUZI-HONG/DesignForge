@@ -36,6 +36,7 @@ export interface EditorBootstrapEntry {
   /** 条目 id（建议 `'<ticket>-<domain>'`，与插槽条目 id 约定一致）。 */
   id: string;
   /** 注册实现。返回清理函数时由执行器统一保管（产品路径不消费）。 */
+  // biome-ignore lint/suspicious/noConfusingVoidType: 「无返回（void）或返回清理函数」正是登记项口径本体；执行器按 typeof 收敛
   setup: () => void | (() => void);
 }
 
