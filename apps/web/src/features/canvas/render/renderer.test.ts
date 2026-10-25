@@ -18,9 +18,12 @@ import {
   createRect,
   createText,
   defaultGridSettings,
+  dropShadow,
+  type Effect,
   type NodeId,
   type Rect,
   type ScenePage,
+  solidPaint,
   type Viewport,
 } from '@dforge/engine';
 import type { CanvasKit, Surface } from 'canvaskit-wasm';
@@ -182,6 +185,8 @@ describe('场景渲染（像素级）', () => {
     const renderer = rasterRenderer();
     const { stats, pixelAt } = renderPixels(renderer, frame(page));
     expect(stats.nodesDrawn).toBeGreaterThanOrEqual(3);
+    // 计数样本（工单 09）：无效果夹具 → 效果绘制计数为 0（防误报基准）
+    expect(stats.effectsRendered).toBe(0);
     // 空白处 = 画布底（稍带抗锯齿溢出，取邻域判断）
     expect(pixelAt(200, 140)).toMatchObject({ r: 30, g: 30, b: 30 });
     // 矩形（10,10)-(60,40) 默认填充 #D9D9D9
@@ -333,6 +338,162 @@ describe('场景渲染（像素级）', () => {
     // 网格线 = 浅色描边令牌 #E6E6E6（抗锯齿会把 1px 线摊成略浅的灰）
     const gridPixels = countWhere((r, g, b) => r === g && g === b && r >= 225 && r <= 248);
     expect(gridPixels).toBeGreaterThan(10);
+    renderer.dispose();
+  });
+});
+
+/** 效果字面量便捷构造（engine 只内置 dropShadow 构造器，另两类用字面量）。 */
+function layerBlur(blur: number): Effect {
+  return {
+    type: 'layer_blur',
+    color: '#000000',
+    offsetX: 0,
+    offsetY: 0,
+    blur,
+    spread: 0,
+    visible: true,
+  };
+}
+function innerShadow(color: string, offsetX: number, blur: number): Effect {
+  return {
+    type: 'inner_shadow',
+    color,
+    offsetX,
+    offsetY: 0,
+    blur,
+    spread: 0,
+    visible: true,
+  };
+}
+
+/** 造只含一个效果矩形的页面（浅/深主题由调用方经 palette 决定）。 */
+function singleEffectPage(id: string, effects: readonly Effect[], fill = '#D9D9D9'): ScenePage {
+  const rect = createRect({ id, x: 10, y: 10, width: 50, height: 30, fills: [solidPaint(fill)] });
+  return createPage({
+    id: 'page_1',
+    rootIds: [id],
+    nodes: { [id]: rect },
+    grid: { ...defaultGridSettings(), visible: false },
+  });
+}
+
+describe('效果渲染（工单 09：投影/内阴影/层模糊真实落像素）', () => {
+  it('投影落在形状外（spread=0：滤镜输出含内容，内容盖在阴影上）', () => {
+    // σ4 + offset20 + 3σ reach12 → 阴影出现在形状右缘外 x∈(60, 82)
+    const page = singleEffectPage('n_shadow', [dropShadow('#FF0000', 20, 0, 8, 0)]);
+    const renderer = rasterRenderer();
+    const { stats, pixelAt, countWhere } = renderPixels(
+      renderer,
+      frame(page, { palette: canvasPalette('light') }),
+    );
+    expect(stats.effectsRendered).toBe(1);
+    // 内容在阴影之上：形状内部仍是填充色
+    expect(pixelAt(30, 20)).toMatchObject({ r: 217, g: 217, b: 217 });
+    // 阴影够不到的地方 = 画布底
+    expect(pixelAt(150, 25)).toMatchObject({ r: 255, g: 255, b: 255 });
+    // 阴影真实落像素：红 #FF0000 在白底上
+    const red = countWhere((r, g, b) => r > 180 && g < 120 && b < 120);
+    expect(red).toBeGreaterThan(10);
+    renderer.dispose();
+  });
+
+  it('投影带 spread：阴影轮廓外扩（底垫笔只留阴影，内容另起一笔）', () => {
+    // blur 2（σ1、reach3）+ spread 10：轮廓扩成 (0,0)-(70,50)，无 offset
+    const page = singleEffectPage('n_shadow', [dropShadow('#FF0000', 0, 0, 2, 10)]);
+    const renderer = rasterRenderer();
+    const { stats, pixelAt } = renderPixels(
+      renderer,
+      frame(page, { palette: canvasPalette('light') }),
+    );
+    expect(stats.effectsRendered).toBe(1);
+    // 形状左缘外 5px：没有 spread 时该点够不到阴影，有 spread 则接近实心红（σ1 模糊尾部可忽略）
+    expect(pixelAt(5, 25).r).toBeGreaterThan(200);
+    expect(pixelAt(5, 25).g).toBeLessThan(80);
+    // 远处仍是画布底
+    expect(pixelAt(150, 25)).toMatchObject({ r: 255, g: 255, b: 255 });
+    renderer.dispose();
+  });
+
+  it('内阴影画在形状内部（dx>0 → 左缘色带），绝不越出形状', () => {
+    // blur 4（σ2、reach6）：擦除轮廓右移 10 → 左缘留下 x∈[10,14] 的蓝色带
+    const page = singleEffectPage('n_inner', [innerShadow('#0000FF', 10, 4)], '#FFFFFF');
+    const renderer = rasterRenderer();
+    const { stats, pixelAt } = renderPixels(
+      renderer,
+      frame(page, { palette: canvasPalette('light') }),
+    );
+    expect(stats.effectsRendered).toBe(1);
+    // 左缘色带：蓝 #0000FF 叠在白填充上（色带深处擦除轮廓尚够不到，接近实心蓝）
+    expect(pixelAt(11, 25).b).toBeGreaterThan(200);
+    expect(pixelAt(11, 25).r).toBeLessThan(60);
+    // 形状中部被擦干净 = 白填充原样
+    expect(pixelAt(35, 25)).toMatchObject({ r: 255, g: 255, b: 255 });
+    // 形状之外无内阴影（内阴影只在 clip 内）
+    expect(pixelAt(75, 25)).toMatchObject({ r: 255, g: 255, b: 255 });
+    renderer.dispose();
+  });
+
+  it('层模糊软化形状边缘（Decal：界外透明，无 Clamp 拖影）', () => {
+    // blur 10 → σ5、reach15：边缘出现渐变带，远处不受影响
+    const page = singleEffectPage('n_blur', [layerBlur(10)]);
+    const renderer = rasterRenderer();
+    const { stats, pixelAt } = renderPixels(renderer, frame(page));
+    expect(stats.effectsRendered).toBe(1);
+    // 形状中心仍实（离边缘 ≥ 15 = 3σ）
+    expect(pixelAt(30, 25).r).toBeGreaterThan(180);
+    // 形状右缘外 5px（reach 内）：明显亮于画布底 30
+    expect(pixelAt(65, 25).r).toBeGreaterThan(45);
+    // 40px 外（reach 外）：回到画布底（抗锯齿容差内）
+    expect(pixelAt(100, 25).r).toBeLessThan(40);
+    renderer.dispose();
+  });
+
+  it('容器层模糊作用于子树（显式扩圈样本：子节点随容器一起模糊）', () => {
+    const frame = createFrame({
+      id: 'n_frame',
+      x: 120,
+      y: 10,
+      width: 80,
+      height: 80,
+      fills: [solidPaint('#FFFFFF')],
+      effects: [layerBlur(8)],
+    });
+    const child = createRect({
+      id: 'n_child',
+      x: 30,
+      y: 30,
+      width: 30,
+      height: 20,
+      fills: [solidPaint('#FF0000')],
+    });
+    const page = createPage({
+      id: 'page_1',
+      rootIds: ['n_frame'],
+      nodes: { n_frame: frame, n_child: child },
+      grid: { ...defaultGridSettings(), visible: false },
+    });
+    const renderer = rasterRenderer();
+    const { stats, pixelAt } = renderPixels(renderer, frame(page));
+    expect(stats.effectsRendered).toBe(1);
+    expect(stats.nodesDrawn).toBeGreaterThanOrEqual(2);
+    // 子节点（世界 (150,40)-(180,60)，红 #FF0000）随容器一起模糊：该点红分量显著、绿分量被压低
+    // （若只有画板白底被模糊，白模糊的 g 不会低于 150）
+    expect(pixelAt(165, 50).r).toBeGreaterThan(150);
+    expect(pixelAt(165, 50).g).toBeLessThan(150);
+    // 白色画板边缘外 3px（reach 12 内）：白被模糊带出画板外（σ4 下 3px 处强度约 0.23 → 亮度 ≈ 81）
+    expect(pixelAt(203, 50).r).toBeGreaterThan(60);
+    renderer.dispose();
+  });
+
+  it('多效果逐项应用与计数（effectsRendered = 实际绘制的效果条数）', () => {
+    const page = singleEffectPage('n_multi', [
+      dropShadow('#000000', 6, 6, 4, 0),
+      innerShadow('#00FF00', 0, 4),
+      layerBlur(4),
+    ]);
+    const renderer = rasterRenderer();
+    const { stats } = renderPixels(renderer, frame(page, { palette: canvasPalette('light') }));
+    expect(stats.effectsRendered).toBe(3);
     renderer.dispose();
   });
 });

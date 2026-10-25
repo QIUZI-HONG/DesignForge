@@ -24,6 +24,8 @@ import type { RenderStats } from './scale';
 export interface SceneRenderStats extends RenderStats {
   textRuns: number;
   clipped: number;
+  /** 实际绘制的效果条数（投影/内阴影/层模糊逐条计；工单 09 经 stats() 观测通道供门禁读取）。 */
+  effectsRendered: number;
   rulers: boolean;
   labels: number;
   /** 是否绘制了拖画草稿（创建工具）。 */
@@ -74,6 +76,7 @@ function emptyStats(palette: CanvasPalette): SceneRenderStats {
     selectedIds: [],
     textRuns: 0,
     clipped: 0,
+    effectsRendered: 0,
     rulers: false,
     labels: 0,
     draft: false,
@@ -89,6 +92,8 @@ export function createSceneRenderer(options: SceneRendererOptions): SceneRendere
     fill: new canvasKit.Paint(),
     stroke: new canvasKit.Paint(),
     line: new canvasKit.Paint(),
+    filter: new canvasKit.Paint(),
+    eraser: new canvasKit.Paint(),
   };
   tools.fill.setAntiAlias(true);
   tools.fill.setStyle(canvasKit.PaintStyle.Fill);
@@ -97,6 +102,12 @@ export function createSceneRenderer(options: SceneRendererOptions): SceneRendere
   tools.line.setAntiAlias(true);
   tools.line.setStyle(canvasKit.PaintStyle.Stroke);
   tools.line.setStrokeWidth(1);
+  // 效果画笔（工单 09）：底垫/滤镜载体 Fill 风格；擦除笔恒为 DstOut（内阴影）
+  tools.filter.setAntiAlias(true);
+  tools.filter.setStyle(canvasKit.PaintStyle.Fill);
+  tools.eraser.setAntiAlias(true);
+  tools.eraser.setStyle(canvasKit.PaintStyle.Fill);
+  tools.eraser.setBlendMode(canvasKit.BlendMode.DstOut);
 
   const paragraphs: ParagraphCache | null =
     options.fonts === null ? null : new ParagraphCache(canvasKit, options.fonts.fontMgr);
@@ -168,6 +179,7 @@ export function createSceneRenderer(options: SceneRendererOptions): SceneRendere
         selectedIds: [...frame.selection],
         textRuns: scene.textRuns,
         clipped: scene.clipped,
+        effectsRendered: scene.effectsRendered,
         rulers: overlayCounters.rulers,
         labels: overlayCounters.labels,
         devicePixelRatio: dpr,
@@ -188,6 +200,8 @@ export function createSceneRenderer(options: SceneRendererOptions): SceneRendere
       tools.fill.delete();
       tools.stroke.delete();
       tools.line.delete();
+      tools.filter.delete();
+      tools.eraser.delete();
     },
   };
 }
