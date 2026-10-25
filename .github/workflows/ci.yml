@@ -33,6 +33,12 @@ jobs:
       - name: 静态检查（逐包 + 根 scripts）
         run: pnpm lint
 
+      # 全量诊断转储（不阻断）：biome 默认截断 20 条，修复轮次里隐藏项反复挤牙膏；
+      # 本步一次性打印全部诊断供修复方使用。始终运行（lint 红也照跑）。
+      - name: 全量诊断转储（biome --max-diagnostics=999，不阻断）
+        if: always()
+        run: pnpm exec biome check . --max-diagnostics=999 || true
+
       - name: 类型检查（逐包 tsc --noEmit）
         run: pnpm typecheck
 

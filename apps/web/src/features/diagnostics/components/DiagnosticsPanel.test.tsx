@@ -142,9 +142,9 @@ describe('诊断面板 · 样式单轨（工单 06）', () => {
     expect(document.querySelector('[data-df-env-row]')?.className).toContain(
       'dfg-diagnostics__row',
     );
-    expect(
-      document.querySelector('[data-df-connectivity-item]')?.className,
-    ).toContain('dfg-diagnostics__item');
+    expect(document.querySelector('[data-df-connectivity-item]')?.className).toContain(
+      'dfg-diagnostics__item',
+    );
   });
 
   it('关键规则块落盘：错误横幅/状态 chip/日志尾部的令牌引用逐一断言', () => {

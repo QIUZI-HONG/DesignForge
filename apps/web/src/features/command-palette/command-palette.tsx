@@ -207,6 +207,7 @@ export function CommandPalette() {
         className="dfg-cmdk__card"
         data-df-preview="editor/command-palette"
         // 键盘事件从搜索框冒泡到此统一处理（combobox + listbox 模式，浮层内无第二处焦点陷阱）
+        // biome-ignore lint/a11y/noStaticElementInteractions: 键位统一在搜索输入框（combobox 焦点宿主），容器只接冒泡，不承担独立交互
         onKeyDown={onKeyDown}
       >
         <div className="dfg-cmdk__search">
@@ -242,6 +243,7 @@ export function CommandPalette() {
                       key={item.command.id}
                       role="option"
                       id={`${listboxId}-option-${index}`}
+                      tabIndex={-1}
                       data-cmdk-index={index}
                       aria-selected={selected}
                       aria-disabled={item.disabled ? true : undefined}
@@ -251,6 +253,7 @@ export function CommandPalette() {
                         (selected ? ' dfg-cmdk__item--active' : '') +
                         (item.disabled ? ' dfg-cmdk__item--disabled' : '')
                       }
+                      // biome-ignore lint/a11y/useKeyWithClickEvents: 键盘执行经搜索框 Enter（aria-activedescendant 漫游），option 自身不设焦点
                       onClick={() => {
                         if (item.disabled) return;
                         setActiveIndex(index);

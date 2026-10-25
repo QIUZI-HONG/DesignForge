@@ -6,14 +6,11 @@
  *      缩放锚点漂移 / 吸附阈值 5.99 vs 6.00。
  */
 import {
-  CommandStack,
   computeSnap,
   createDocument,
   createPage,
   createRect,
-  createSelection,
   getPage,
-  hitTestHandle,
   rotatedHandlePoints,
   SNAP_THRESHOLD_PX,
   snapThresholdWorld,
@@ -23,15 +20,6 @@ import { describe, expect, it } from 'vitest';
 
 import { handleHitAt } from '@/features/canvas/input/hit';
 import { type CanvasSession, createCanvasSession } from '@/features/canvas/state/session';
-
-/** 会话：任意页面 + 初始视口。 */
-function sessionOf(
-  page: ReturnType<typeof createPage>,
-  viewport = { zoom: 1, panX: 0, panY: 0 },
-): CanvasSession {
-  const document = createDocument({ id: 'doc_1', pages: [page] });
-  return createCanvasSession({ document, pageId: page.id, viewport });
-}
 
 /** 画布会话构造（correct 形状）。 */
 function makeSession(

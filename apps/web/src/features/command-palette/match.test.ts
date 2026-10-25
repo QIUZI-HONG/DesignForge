@@ -1,13 +1,17 @@
 /**
- * 命令模糊匹配测试（工�?08 · 中文模糊搜索的核心）�? *
- * 期望值独立给出（不是实现的反算）�? * - 「连续包含」比「子序列」靠前；子序列要�?*按序**�?命面" 命中「命令面板」，"面命" 不命中）�? * - 命中区段�?*标题上的半开区间**，视图据此高亮（连续命中一段、子序列多段）；
- * - id / 分组兜底命中（英文搜索词�?zoom 也能找到「放大」），但排在标题命中之后�? * - 同分保持注册顺序（排序必须稳定，不做实现外的抖动）�? */
+ * 命令模糊匹配测试（工单 08 · 中文模糊搜索的核心）。
+ * 期望值独立给出（不是实现的反算）：
+ * - 「连续包含」比「子序列」靠前；子序列要求**按序**（"命面" 命中「命令面板」，"面命" 不命中）；
+ * - 命中区段＝*标题上的半开区间**，视图据此高亮（连续命中一段、子序列多段）；
+ * - id / 分组兜底命中（英文搜索词如 zoom 也能找到「放大」），但排在标题命中之后；
+ * - 同分保持注册顺序（排序必须稳定，不做实现外的抖动）。
+ */
 import { describe, expect, it } from 'vitest';
 
 import type { Command } from '../editor-shell';
 import { matchCommand, searchCommands } from './match';
 
-/** 造命令（enabled 缺省视为可运行——匹配层不关心置灰）�?*/
+/** 造命令（enabled 缺省视为可运行——匹配层不关心置灰）。 */
 function command(id: string, title: string, group = '工具'): Command {
   return { id, title, group, run: () => undefined };
 }
@@ -28,7 +32,7 @@ describe('matchCommand（单条）', () => {
     ]);
   });
 
-  it('子序列乱序不命中�?面命" 不是「命令面板」的子序列）', () => {
+  it('子序列乱序不命中（"面命" 不是「命令面板」的子序列）', () => {
     expect(matchCommand(command('view.palette', '命令面板'), '面命')).toBeNull();
   });
 
@@ -50,17 +54,17 @@ describe('matchCommand（单条）', () => {
     expect(hit?.ranges).toEqual([]);
   });
 
-  it('无命�?�?null', () => {
-    expect(matchCommand(command('tool.move', '移动工具'), '不存在的�?)).toBeNull();
+  it('无命中 → null', () => {
+    expect(matchCommand(command('tool.move', '移动工具'), '不存在的词')).toBeNull();
   });
 
-  it('空查询（含纯空白）→ null（空查询=全量，由 searchCommands 处理�?, () => {
+  it('空查询（含纯空白）→ null（空查询=全量，由 searchCommands 处理）', () => {
     expect(matchCommand(command('tool.move', '移动工具'), '')).toBeNull();
     expect(matchCommand(command('tool.move', '移动工具'), '   ')).toBeNull();
   });
 });
 
-describe('searchCommands（排序与全量�?, () => {
+describe('searchCommands（排序与全量）', () => {
   const commands: Command[] = [
     command('tool.move', '移动工具'),
     command('tool.rect', '矩形工具'),
@@ -79,12 +83,12 @@ describe('searchCommands（排序与全量�?, () => {
     expect(hits.every((hit) => hit.match === null)).toBe(true);
   });
 
-  it('连续包含排在子序列之�?, () => {
+  it('连续包含排在子序列之前', () => {
     const hits = searchCommands(
       [command('a.subseq', '移图动板'), command('b.contains', '移动')],
       '移动',
     );
-    // a：移@0 动@2（非连续，子序列）；b：连续包�?�?b 在前
+    // a：移@0 动@2（非连续，子序列）；b：连续包含 → b 在前
     expect(hits[0]?.command.id).toBe('b.contains');
     expect(hits[0]?.match?.ranges).toEqual([[0, 2]]);
   });
@@ -94,22 +98,22 @@ describe('searchCommands（排序与全量�?, () => {
       [command('zoom.tool', '平移缩放'), command('view.zoomIn', '放大')],
       'zoom',
     );
-    expect(hits[0]?.command.id).toBe('zoom.tool'); // 标题�?zoom
-    expect(hits[1]?.command.id).toBe('view.zoomIn'); // �?id 命中
+    expect(hits[0]?.command.id).toBe('zoom.tool'); // 标题含 zoom
+    expect(hits[1]?.command.id).toBe('view.zoomIn'); // 仅 id 命中
   });
 
   it('同分保持注册顺序（排序稳定，不抖动）', () => {
     const hits = searchCommands(
-      [command('x.first', '放大一'), command('y.second', '放大�?)],
+      [command('x.first', '放大一'), command('y.second', '放大二')],
       '放大',
     );
-    // 两者都是位�?0 的连续包含、标题等�?�?注册顺序
+    // 两者都是位置 0 的连续包含、标题等长 → 按注册顺序
     expect(hits.map((hit) => hit.command.id)).toEqual(['x.first', 'y.second']);
   });
 
-  it('命中位置越靠前分越高（前缀命中先出�?, () => {
+  it('命中位置越靠前分越高（前缀命中先出来）', () => {
     const hits = searchCommands(
-      [command('x.late', '一键放�?), command('y.early', '放大画板')],
+      [command('x.late', '一键放大'), command('y.early', '放大画板')],
       '放大',
     );
     expect(hits[0]?.command.id).toBe('y.early');

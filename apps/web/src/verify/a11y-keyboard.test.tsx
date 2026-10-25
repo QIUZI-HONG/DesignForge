@@ -10,7 +10,6 @@ import { resolve } from 'node:path';
 
 import {
   createDocument,
-  createFrame,
   createPage,
   createRect,
   createSelection,

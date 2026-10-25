@@ -154,7 +154,8 @@ describe('落位 → 引擎命令族（与 moveLayerCommands 组合）', () => {
       rowBottom: 140,
     });
     expect(placement).not.toBeNull();
-    const commands = moveLayerCommands(page, 'p1', 'r1', placement!.parentId, placement!.index);
+    const spot = placement as NonNullable<typeof placement>;
+    const commands = moveLayerCommands(page, 'p1', 'r1', spot.parentId, spot.index);
     expect(commands.map((command) => command.type)).toEqual(['node.update', 'node.reparent']);
     const reparent = commands[1] as { type: string; parentId: string | null; index: number };
     expect(reparent.parentId).toBe('f1');

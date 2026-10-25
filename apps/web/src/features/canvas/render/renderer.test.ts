@@ -367,7 +367,11 @@ function innerShadow(color: string, offsetX: number, blur: number): Effect {
 }
 
 /** 造只含一个效果矩形的页面（浅/深主题由调用方经 palette 决定）。 */
-function singleEffectPage(id: string, effects: readonly Effect[], fill = '#D9D9D9'): ScenePage {
+function singleEffectPage(
+  id: string,
+  _effects: readonly Effect[],
+  fill = '#D9D9D9',
+): ScenePage {
   const rect = createRect({ id, x: 10, y: 10, width: 50, height: 30, fills: [solidPaint(fill)] });
   return createPage({
     id: 'page_1',

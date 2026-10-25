@@ -478,11 +478,7 @@ function drawInnerShadows(
     if (isEllipse) {
       canvas.clipOval(rect, canvasKit.ClipOp.Intersect, true);
     } else {
-      canvas.clipRRect(
-        canvasKit.RRectXY(rect, radius, radius),
-        canvasKit.ClipOp.Intersect,
-        true,
-      );
+      canvas.clipRRect(canvasKit.RRectXY(rect, radius, radius), canvasKit.ClipOp.Intersect, true);
     }
     canvas.saveLayer(tools.filter, rect);
     canvas.drawColor(shadow.color, canvasKit.BlendMode.SrcOver);
