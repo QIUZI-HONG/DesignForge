@@ -16,7 +16,7 @@ import {
   type Effect,
   type ScenePage,
 } from '@dforge/engine';
-import type { CanvasKit } from 'canvaskit-wasm';
+import type { CanvasKit, ImageFilter } from 'canvaskit-wasm';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -246,6 +246,54 @@ describe('blurMaskFilter（内阴影擦除滤镜）', () => {
     expect(filter).not.toBeNull();
     expect(blurMaskFilter(canvasKit, 2)).toBe(filter);
     expect(blurMaskFilter(canvasKit, 0)).toBeNull();
+  });
+});
+
+describe('滤镜缓存淘汰（容量 256 上限 + Embind delete；P1-2/P2-6 对抗）', () => {
+  /**
+   * 缓存状态不可从外部读（模块私有 Map），用**对象同一性**做行为级断言：
+   * 被淘汰的签名重建 → 新对象（淘汰路径真触发）；未被淘汰的签名重建 → 同一对象（容量守恒）。
+   * σ 段取 20.0x（远离其它用例的 σ=2），避免跨用例互踩缓存。
+   */
+  const SIGMA_START = 20.001;
+
+  it('blurMaskFilter：连续 300 个不同 σ（>容量）→ 最早签名被淘汰重建，近期签名仍复用', () => {
+    const first = blurMaskFilter(canvasKit, SIGMA_START);
+    expect(first).not.toBeNull();
+    for (let i = 1; i <= 299; i += 1) {
+      expect(blurMaskFilter(canvasKit, SIGMA_START + i / 1000)).not.toBeNull();
+    }
+    // 300 个不同签名 > 容量 256：最早的 σ 被淘汰（含显式 delete）后再取 → 重建的新对象
+    expect(blurMaskFilter(canvasKit, SIGMA_START)).not.toBe(first);
+    // 最近签名仍在缓存内：同签名复用同一对象（淘汰最旧，而非退化成无界 Map）
+    const recent = SIGMA_START + 299 / 1000;
+    expect(blurMaskFilter(canvasKit, recent)).toBe(blurMaskFilter(canvasKit, recent));
+  });
+
+  it('buildEffectPlan：单帧 >256 个不同签名淘汰压力下，计划结构仍正确（纯逻辑层；真渲染待 dev 机）', () => {
+    // 300 个互不相同的投影签名（offsetX 逐个错开，避开其它用例的取值段）持续施压逼淘汰
+    let firstOfBatch: ImageFilter | null = null;
+    for (let i = 0; i < 300; i += 1) {
+      const plan = buildEffectPlan(canvasKit, [dropShadow('#000000', i + 40, 0, 8, 0)], 1);
+      if (i === 0) firstOfBatch = plan.content;
+      // 淘汰压力下每个计划仍完整可绘：单遍内容滤镜、rendered=1、外扩口径不变形
+      expect(plan.content).not.toBeNull();
+      expect(plan.shadowOnly).toBeNull();
+      expect(plan.innerShadows).toHaveLength(0);
+      expect(plan.rendered).toBe(1);
+      expect(plan.outset.x).toBeCloseTo(i + 40 + 12); // |dx| + 3σ = (i+40) + 3×4
+    }
+    expect(firstOfBatch).not.toBeNull();
+    // 缓存状态：最近签名命中复用（同一 ImageFilter 对象）
+    const recent = buildEffectPlan(canvasKit, [dropShadow('#000000', 339, 0, 8, 0)], 1);
+    expect(recent.content).not.toBeNull();
+    expect(recent.content).toBe(
+      buildEffectPlan(canvasKit, [dropShadow('#000000', 339, 0, 8, 0)], 1).content,
+    );
+    // 最早签名已越出容量被淘汰：重建得到**新对象**（淘汰路径在计划构建层真触发）
+    const rebuiltFirst = buildEffectPlan(canvasKit, [dropShadow('#000000', 40, 0, 8, 0)], 1);
+    expect(rebuiltFirst.content).not.toBeNull();
+    expect(rebuiltFirst.content).not.toBe(firstOfBatch);
   });
 });
 

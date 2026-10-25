@@ -17,7 +17,6 @@
 import type { Size } from '@dforge/engine';
 import type { ThemeName } from '@dforge/ui';
 import type { CanvasKit, FontMgr } from 'canvaskit-wasm';
-import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
@@ -72,7 +71,6 @@ export interface CanvasStageProps {
    * 避免「画布与壳层各执行一遍」（例如 ⌘Z 撤销两次）。
    */
   coveredShortcutIds?: readonly string[];
-  style?: CSSProperties;
   className?: string;
 }
 
@@ -94,7 +92,6 @@ export function CanvasStage({
   onStatus,
   hud,
   coveredShortcutIds,
-  style,
   className,
 }: CanvasStageProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -398,7 +395,6 @@ export function CanvasStage({
     <div
       ref={shellRef}
       className={className === undefined ? 'dfc-canvas-shell' : `dfc-canvas-shell ${className}`}
-      style={style}
       // 键盘事件挂在 document（点过工具条/菜单后仍可用），因此这里不需要 tabIndex
       role="application"
       aria-label={t('canvas.stage.label')}

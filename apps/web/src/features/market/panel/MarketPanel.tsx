@@ -165,7 +165,7 @@ export function MarketPanel({
             </Button>
           </div>
           {install === null ? null : (
-            <p style={hintStyle} data-df-market="panel-gate">
+            <p className="dfg-market__hint" data-df-market="panel-gate">
               {t('market.panel.gate', { label: t(install.labelKey) })}
             </p>
           )}

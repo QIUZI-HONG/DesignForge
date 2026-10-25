@@ -30,8 +30,11 @@
  *   容器带层模糊再 +1 层（子树合成）。层边界 = 节点矩形外扩 `outset`
  *   （3σ + |offset| + spread）——短命小层，非全画布层；
  * - `ImageFilter` / `MaskFilter` 是 Embind 对象，**按效果签名缓存复用**（同 ParagraphCache
- *   惯例：超容量显式 delete 最旧，避免 wasm 堆泄漏；当前签名一帧内不会被淘汰）。
+ *   惯例：两个缓存都是 256 容量上限，超限淘汰最早插入项并显式 delete，避免 wasm 堆泄漏）。
  *   同一签名的节点全帧共享同一对象，不每帧 new；
+ *   已知边界（对抗用例登记，`effects.test.ts`）：单帧不同签名超过容量时，最早的滤镜对象
+ *   会在同帧内被淘汰删除——常态下单帧签名数远小于容量（淘汰对象均已绘制完），真实渲染
+ *   下的边界表现待 dev 机验证；纯逻辑层用例锁定「计划结构仍正确 + 淘汰路径真触发」。
  * - 效果绘制计数：`EffectPlan.rendered` 供 draw-scene 累加进 `SceneDrawCounters.effectsRendered`，
  *   经既有 `stats()` 观测通道供门禁读取（工单 09 验收项）。
  */
@@ -136,6 +139,10 @@ function cachedFilter(
 /**
  * 内阴影擦除用的模糊 MaskFilter（`BlurStyle.Normal` + respectCTM：σ 是世界单位）。
  * σ ≤ 0 → null（硬边擦除，无需滤镜）。
+ *
+ * 缓存与 `cachedFilter` 同构：按 σ 签名复用 + 容量上限淘汰最旧（淘汰时显式
+ * `delete()` Embind 对象再出 map）——无上限的 `Map.set` 会让每个新 σ 常驻 wasm 堆。
+ * 构建失败（MakeBlur 返回 null）不入缓存，下次重试。
  */
 export function blurMaskFilter(canvasKit: CanvasKit, sigma: number): MaskFilter | null {
   if (!Number.isFinite(sigma) || sigma <= 0) return null;
@@ -152,7 +159,15 @@ export function blurMaskFilter(canvasKit: CanvasKit, sigma: number): MaskFilter 
     sigma,
     true,
   ) as MaskFilter | null;
-  if (filter !== null) perKit.set(key, filter);
+  if (filter === null) return null;
+  perKit.set(key, filter);
+  if (perKit.size > FILTER_CACHE_CAPACITY) {
+    const oldestKey = perKit.keys().next().value;
+    if (oldestKey !== undefined && oldestKey !== key) {
+      perKit.get(oldestKey)?.delete();
+      perKit.delete(oldestKey);
+    }
+  }
   return filter;
 }
 
