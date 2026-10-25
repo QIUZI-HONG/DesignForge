@@ -42,7 +42,9 @@ pnpm verify:shell-parity
 
 浏览器门禁（`verify-figma-*` / `verify-canvas` / `e2e:smoke` / `verify:shell-parity` 对照段）为**挂点**，
 随对应实现票与参照集冻结接入；非浏览器门禁（`guard:tokens` / `guard:electron-baseline` / `verify:engine` /
-`test:scripts` / 参照集阻塞语义断言）**已接 CI**。未实现脚本 `exit 2`（阻塞语义，禁假绿）。
+`test:scripts` / 参照集·动效·性能阻塞语义断言）**已接 CI**——后三者同 figma-baseline 模式断言当前态
+`exit 2`（无参照集 / `verify:motion` 挂点未实现 / `verify:perf` 基线 provisional，禁假绿）。
+未实现脚本 `exit 2`（阻塞语义，禁假绿）。
 
 ## 目录地图
 

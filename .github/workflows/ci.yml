@@ -2,7 +2,7 @@ name: ci
 
 # 设界 · 主 CI（骨架期口径，见 docs/plan/skeleton-and-package-layout-v1.md §2）
 # 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck → 逐包测试
-#      → 脚本单测 → **非浏览器门禁**（守卫 / 引擎 / 参照集阻塞语义；明细见文末挂点说明）。
+#      → 脚本单测 → **非浏览器门禁**（守卫 / 引擎 / 参照集·动效·性能阻塞语义；明细见文末挂点说明）。
 on:
   push:
     branches: [main]
@@ -79,6 +79,49 @@ jobs:
           fi
           echo "OK：无参照集 → exit 2（阻塞，非通过）且日志点名「参照集未冻结」——门禁确已执行。"
 
+      # 动效门禁（RW-01 交付）当前为**挂点**（断言实现待阶段 1「设计系统底座」），真实现前
+      # **必须** exit 2（阻塞）并点名「断言未实现」：本步骤断言的是**三态语义契约**
+      # （脚本确已执行、不得零校验 exit 0 假绿），不是「门禁通过」；阶段 1 接入真实断言后
+      # 改为要求 exit 0。
+      - name: 动效实际生效门禁（断言阻塞语义：挂点未实现 → exit 2）
+        run: |
+          set +e
+          output=$(node scripts/verify-motion.mjs 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+          if [ "$code" -eq 0 ]; then
+            echo "动效断言已在 CI 判定通过（挂点已转真实现）：本步骤此后应改为必须 exit 0。"
+            exit 0
+          fi
+          if [ "$code" -ne 2 ] || ! printf '%s' "$output" | grep -q '阻塞：动效实际生效断言未实现'; then
+            echo "违规：动效门禁的退出码/日志不符挂点语义（exit=$code；期望 2 + 「阻塞：动效实际生效断言未实现」）"
+            exit 1
+          fi
+          echo "OK：挂点未实现 → exit 2（阻塞，非通过）且日志点名「断言未实现」——门禁确已执行。"
+
+      # 性能门禁（RW-14 交付）当前**判不了**：基线 provisional（模板态，恒阻塞）；真链路在
+      # CI 还会先撞 Chromium 缺失（node 22 早期小版本则在引擎生成器 TS 加载处更早阻塞）。
+      # 具体阻塞原因随环境变，但**一律** exit 2——故本步骤断言**三态语义契约**（确已执行、
+      # 阻塞而非假绿），只锚 exit 2 + 「阻塞」标记、不锚定具体原因；dev 机基线轮
+      # （provisional:false）且 CI 具备真链路后改为要求 exit 0。
+      - name: 渲染性能门禁（断言阻塞语义：基线 provisional / 真链路不可用 → exit 2）
+        run: |
+          set +e
+          output=$(node scripts/verify-perf.mjs 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+          if [ "$code" -eq 0 ]; then
+            echo "性能基线已校准且门禁在 CI 判定通过：本步骤此后应改为必须 exit 0（正式接入）。"
+            exit 0
+          fi
+          if [ "$code" -ne 2 ] || ! printf '%s' "$output" | grep -q '阻塞'; then
+            echo "违规：性能门禁的退出码/日志不符三态语义（exit=$code；期望 2 + 「阻塞」）"
+            exit 1
+          fi
+          echo "OK：CI 判不了（基线 provisional / 真链路不可用）→ exit 2（阻塞，非通过）——门禁确已执行。"
+
       # ---------------------------------------------------------------------------------
       # 未接入本 CI 的门禁与原因（**不许注释说接了实际没接**）：
       #   - 浏览器门禁（挂点，随对应实现票接入）：
@@ -90,8 +133,12 @@ jobs:
       #       需 Chromium 与冻结参照集，CI 暂不具备。
       #   - verify:figma-baseline 的**正式判定**（像素/哈希对照）：参照集按纪律存仓库外
       #     （~/df-evidence/reference-v1，见 implementation-workflow.md「证据存仓库外」），
-      #     CI 环境不存在 → 只会是 exit 2；本轮只断言其阻塞语义（上一步骤），
+      #     CI 环境不存在 → 只会是 exit 2；本轮只断言其阻塞语义（上方步骤），
       #     REF-01 冻结且参照集在 CI 可达后改为正式接入。
+      #   - verify:motion / verify:perf 的**正式判定**：未接入（motion：断言实现待阶段 1，
+      #     挂点恒 exit 2；perf：基线 provisional（模板态）恒阻塞，真链路另需 Chromium 与
+      #     dev 机基线轮实采置 provisional:false）——两者的**阻塞语义断言**已接入（上方
+      #     步骤，同 verify-figma-baseline 模式），各自前提齐备后改为正式接入。
       #   - pnpm verify:mk-01：判据来自 ~/df-evidence/mk-01 的采集产物（需真网 + GH_TOKEN
       #     采集，产物按纪律存仓库外）→ CI 内无产物，只会 exit 2（阻塞），故不接；
       #     其离线重放路径（--replay 冻结样本）由 services/ingest 单测覆盖（pnpm test）。
