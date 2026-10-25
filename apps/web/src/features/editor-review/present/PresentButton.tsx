@@ -10,15 +10,16 @@ import { t } from '@/i18n';
 
 import { PlayIcon } from '../icons';
 import { useReviewSession } from '../review-context';
-import { commentStyles } from '../styles';
 import { usePresentUi } from './present-hooks';
+
+import '../review.css';
 
 /** 演示按钮 props。 */
 export interface PresentButtonProps {
   className?: string;
 }
 
-/** 「演示」入口按钮。 */
+/** 「演示」入口按钮（开启态由 aria-pressed 在 CSS 承接）。 */
 export function PresentButton({ className }: PresentButtonProps) {
   const session = useReviewSession();
   const open = usePresentUi(session, (state) => state.open);
@@ -26,16 +27,13 @@ export function PresentButton({ className }: PresentButtonProps) {
   return (
     <button
       type="button"
-      className={className}
+      className={
+        className === undefined ? 'dfg-review__mode-toggle' : `${className} dfg-review__mode-toggle`
+      }
       data-df-present-toggle=""
       data-df-state={open ? 'active' : 'idle'}
       aria-pressed={open}
       title={open ? t('review.present.exit') : t('review.present.title')}
-      style={
-        open
-          ? { ...commentStyles.modeToggle, ...commentStyles.modeToggleOn }
-          : commentStyles.modeToggle
-      }
       onClick={() => {
         if (open) {
           session.present.getState().exitPresentation();

@@ -1,6 +1,6 @@
 'use client';
 
-import { type CSSProperties, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 /**
  * 评论钉点覆盖层（C12/F7 的画布侧）。
  *
@@ -26,8 +26,9 @@ import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { formatTimestamp } from '../format';
 import { useCommentsUi, useReviewSession, useReviewViewport } from '../review-context';
-import { commentStyles, reviewStyles } from '../styles';
 import { hitTestPins, pinScreenPoint, worldAnchorAt } from './coords';
+
+import '../review.css';
 
 /** 命中半径（屏幕像素；缩小时可点性不变）。 */
 const HIT_RADIUS_SCREEN = 16;
@@ -106,17 +107,16 @@ export function CommentLayer({ className }: CommentLayerProps) {
 
   return (
     <div
-      className={className}
+      className={className === undefined ? 'dfg-review__layer' : `${className} dfg-review__layer`}
       data-df-comment-layer=""
       data-df-state={mode ? 'active' : 'idle'}
-      style={commentStyles.layer}
     >
       {mode ? (
         <button
           type="button"
           data-df-comment-surface=""
           aria-label={t('review.comments.surfaceLabel')}
-          style={commentStyles.surface}
+          className="dfg-review__comment-surface"
           onClick={handleSurfaceClick}
         />
       ) : null}
@@ -126,12 +126,11 @@ export function CommentLayer({ className }: CommentLayerProps) {
             const screen = pinScreenPoint(viewport, thread.anchor);
             const state =
               thread.id === hoveredThreadId ? 'hover' : thread.resolved ? 'resolved' : 'default';
-            const pinStyle: CSSProperties = {
-              ...commentStyles.pin,
+            // 钉点屏幕坐标 = 世界坐标 × zoom + pan（几何算式，内联豁免——工单 06 登记表）；
+            // 解决态/激活态由 data-df-state / data-df-active 挂点在 CSS 承接。
+            const pinStyle = {
               left: `${String(screen.x)}px`,
               top: `${String(screen.y)}px`,
-              ...(thread.resolved ? commentStyles.pinResolved : {}),
-              ...(thread.id === activeThreadId ? commentStyles.pinActive : {}),
             };
             return (
               <button
@@ -139,11 +138,13 @@ export function CommentLayer({ className }: CommentLayerProps) {
                 type="button"
                 data-df-comment-pin={thread.id}
                 data-df-state={state}
+                data-df-active={thread.id === activeThreadId ? 'true' : undefined}
                 aria-label={t(
                   thread.resolved ? 'review.comments.pinResolvedLabel' : 'review.comments.pinLabel',
                   { body: thread.body },
                 )}
                 style={pinStyle}
+                className="dfg-review__pin"
                 onMouseEnter={() => {
                   session.comments.getState().setHovered(thread.id);
                 }}
@@ -173,23 +174,24 @@ export function CommentLayer({ className }: CommentLayerProps) {
               <div
                 data-df-comment-hover={hovered.id}
                 data-df-state="hover"
+                className="dfg-review__hover-card"
+                // 预览卡贴钉点右下（偏移量是几何算式，内联豁免——工单 06 登记表）
                 style={{
-                  ...commentStyles.hoverCard,
                   left: `${String(screen.x + CARD_OFFSET)}px`,
                   top: `${String(screen.y + CARD_OFFSET)}px`,
                 }}
               >
-                <span style={commentStyles.threadHead}>
-                  <span style={commentStyles.author}>{hovered.author}</span>
-                  <span style={reviewStyles.meta}>{formatTimestamp(hovered.createdAt)}</span>
+                <span className="dfg-review__thread-head">
+                  <span className="dfg-review__author">{hovered.author}</span>
+                  <span className="dfg-review__meta">{formatTimestamp(hovered.createdAt)}</span>
                 </span>
-                <span style={commentStyles.body}>{hovered.body}</span>
+                <span className="dfg-review__comment-body">{hovered.body}</span>
                 {hovered.replies.map((reply) => (
-                  <span key={reply.id} style={commentStyles.body}>
+                  <span key={reply.id} className="dfg-review__comment-body">
                     {reply.body}
                   </span>
                 ))}
-                <span style={reviewStyles.meta}>
+                <span className="dfg-review__meta">
                   {t('review.comments.replyCount', { count: hovered.replies.length })}
                 </span>
               </div>
@@ -204,8 +206,9 @@ export function CommentLayer({ className }: CommentLayerProps) {
               <div
                 data-df-comment-draft=""
                 data-df-state="draft"
+                className="dfg-review__draft"
+                // 草稿卡贴落点右下（偏移量是几何算式，内联豁免——工单 06 登记表）
                 style={{
-                  ...commentStyles.draft,
                   left: `${String(screen.x + CARD_OFFSET)}px`,
                   top: `${String(screen.y + CARD_OFFSET)}px`,
                 }}
@@ -215,7 +218,7 @@ export function CommentLayer({ className }: CommentLayerProps) {
                   aria-label={t('review.comments.draft.placeholder')}
                   placeholder={t('review.comments.draft.placeholder')}
                   value={draftBody}
-                  style={reviewStyles.textarea}
+                  className="dfg-review__textarea"
                   onChange={(event) => {
                     setDraftBody(event.target.value);
                   }}
@@ -226,11 +229,11 @@ export function CommentLayer({ className }: CommentLayerProps) {
                   }}
                 />
                 {error !== null ? (
-                  <span role="alert" style={reviewStyles.error}>
+                  <span role="alert" className="dfg-review__error">
                     {error}
                   </span>
                 ) : null}
-                <div style={reviewStyles.buttonRow}>
+                <div className="dfg-review__button-row">
                   <button
                     type="button"
                     className="dfg-btn dfg-btn--ghost dfg-btn--sm"

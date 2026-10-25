@@ -10,30 +10,28 @@
 import { t } from '@/i18n';
 import { CommentPinIcon } from '../icons';
 import { useCommentsUi, useReviewSession } from '../review-context';
-import { commentStyles } from '../styles';
+
+import '../review.css';
 
 /** 评论模式开关 props。 */
 export interface CommentsModeToggleProps {
   className?: string;
 }
 
-/** 评论模式开关（顶栏/工具栏插槽）。 */
+/** 评论模式开关（顶栏/工具栏插槽；开启态由 aria-pressed 在 CSS 承接）。 */
 export function CommentsModeToggle({ className }: CommentsModeToggleProps) {
   const session = useReviewSession();
   const mode = useCommentsUi(session, (state) => state.mode);
   return (
     <button
       type="button"
-      className={className}
+      className={
+        className === undefined ? 'dfg-review__mode-toggle' : `${className} dfg-review__mode-toggle`
+      }
       data-df-comment-toggle=""
       data-df-state={mode ? 'active' : 'idle'}
       aria-pressed={mode}
       title={mode ? t('review.comments.toggleOn') : t('review.comments.toggle')}
-      style={
-        mode
-          ? { ...commentStyles.modeToggle, ...commentStyles.modeToggleOn }
-          : commentStyles.modeToggle
-      }
       onClick={() => {
         session.comments.getState().toggleMode();
       }}
