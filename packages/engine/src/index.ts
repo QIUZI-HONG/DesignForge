@@ -35,4 +35,5 @@ export * from './selection/index';
 export * from './serialize/index';
 
 export * from './snap/index';
+export * from './testing/benchmark-doc';
 export * from './tokens/index';
