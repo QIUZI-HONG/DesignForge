@@ -326,6 +326,105 @@ export const BoxIcon = createIcon(
   </>,
 );
 
+// ---------------------------------------------------------------------------
+// 编辑器补全（RW-07：图层树 / Inspector / 命令面板；用词对齐 Figma 中文界面）
+// ---------------------------------------------------------------------------
+
+/** 拖拽把手（图层树行拖拽排序、Scrubber 抓手）。 */
+export const GripIcon = createIcon(
+  'GripIcon',
+  <>
+    <circle cx="5.8" cy="4" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="10.2" cy="4" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="5.8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="10.2" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="5.8" cy="12" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="10.2" cy="12" r="1.1" fill="currentColor" stroke="none" />
+  </>,
+);
+
+/** 矩形（图层类型）。 */
+export const RectangleIcon = createIcon(
+  'RectangleIcon',
+  <rect x="2.6" y="3.4" width="10.8" height="9.2" rx="1.2" />,
+);
+
+/** 椭圆（图层类型；圆弧组合，横长纵短）。 */
+export const EllipseIcon = createIcon(
+  'EllipseIcon',
+  <path d="M3 8a5 4.6 0 1 0 10 0a5 4.6 0 1 0 -10 0Z" />,
+);
+
+/** 多边形（图层类型，三角）。 */
+export const PolygonIcon = createIcon('PolygonIcon', <path d="M8 3.2 13.2 12.4H2.8Z" />);
+
+/** 直线（图层类型）。 */
+export const LineIcon = createIcon('LineIcon', <path d="M2.8 13.2 13.2 2.8" />);
+
+/** 图片（图层类型：相框 + 光点 + 山形）。 */
+export const ImageIcon = createIcon(
+  'ImageIcon',
+  <>
+    <rect x="2.4" y="3.2" width="11.2" height="9.6" rx="1.4" />
+    <circle cx="5.8" cy="6.6" r="1.1" />
+    <path d="M2.8 10.6 6.2 7.8 8.8 10 10.6 8.4 13.2 10.6" />
+  </>,
+);
+
+/** 组（图层类型：虚线框——组是随内容收缩的容器）。 */
+export const GroupIcon = createIcon(
+  'GroupIcon',
+  <rect x="2.6" y="2.6" width="10.8" height="10.8" rx="1.4" strokeDasharray="2.2 1.8" />,
+);
+
+/** 区块（图层类型：带标题条的大容器）。 */
+export const SectionIcon = createIcon(
+  'SectionIcon',
+  <>
+    <rect x="2.4" y="3.4" width="11.2" height="9.2" rx="1.2" />
+    <path d="M2.4 6.6h11.2" />
+  </>,
+);
+
+/** 吸管（取色器：ColorField / Inspector 取色）。 */
+export const PipetteIcon = createIcon(
+  'PipetteIcon',
+  <>
+    <path d="M10.2 2.8a2.1 2.1 0 0 1 3 3l-1.5 1.5-3-3Z" />
+    <path d="M9.4 4.4 4 9.8a1.7 1.7 0 0 0-.5.8l-.5 1.9 1.9-.5a1.7 1.7 0 0 0 .8-.5l5.4-5.4" />
+    <path d="M2.4 13.6l1.4-1.4" />
+  </>,
+);
+
+/** 效果（四角星：投影/模糊/背景模糊分区）。 */
+export const EffectsIcon = createIcon(
+  'EffectsIcon',
+  <path d="M8 2.4 9.4 6.6 13.6 8 9.4 9.4 8 13.6 6.6 9.4 2.4 8 6.6 6.6Z" />,
+);
+
+/** 回车（命令面板执行键提示）。 */
+export const CornerDownLeftIcon = createIcon(
+  'CornerDownLeftIcon',
+  <>
+    <path d="M12.6 3.4v4.2a1.6 1.6 0 0 1-1.6 1.6H3.4" />
+    <path d="M6.6 6 3.4 9.2l3.2 3.2" />
+  </>,
+);
+
+/** 键盘（快捷键速查卡）。 */
+export const KeyboardIcon = createIcon(
+  'KeyboardIcon',
+  <>
+    <rect x="1.8" y="4.4" width="12.4" height="7.2" rx="1.4" />
+    <circle cx="4.2" cy="6.6" r="0.6" fill="currentColor" stroke="none" />
+    <circle cx="6.3" cy="6.6" r="0.6" fill="currentColor" stroke="none" />
+    <circle cx="8.4" cy="6.6" r="0.6" fill="currentColor" stroke="none" />
+    <circle cx="10.5" cy="6.6" r="0.6" fill="currentColor" stroke="none" />
+    <circle cx="12.4" cy="6.6" r="0.6" fill="currentColor" stroke="none" />
+    <path d="M4.6 9.2h6.8" />
+  </>,
+);
+
 /**
  * 图标注册表：预览页矩阵与门禁脚本按名列举（也是「图标集齐备」的唯一清单）。
  */
@@ -359,6 +458,18 @@ export const ICONS = {
   FrameIcon,
   TextIcon,
   BoxIcon,
+  GripIcon,
+  RectangleIcon,
+  EllipseIcon,
+  PolygonIcon,
+  LineIcon,
+  ImageIcon,
+  GroupIcon,
+  SectionIcon,
+  PipetteIcon,
+  EffectsIcon,
+  CornerDownLeftIcon,
+  KeyboardIcon,
 } satisfies Record<string, IconComponent>;
 
 /** 图标名（注册表键）。 */
