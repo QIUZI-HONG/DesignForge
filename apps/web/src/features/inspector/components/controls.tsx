@@ -8,6 +8,7 @@
  * 文案一律由调用方传入（本模块不含业务文案）。
  */
 
+import { ColorField as UiColorField } from '@dforge/ui';
 import { type ChangeEvent, type KeyboardEvent, type ReactNode, useId } from 'react';
 
 import { useDraftCommit } from '../model/draft';
@@ -204,4 +205,46 @@ export function SelectField({
 /** 行容器（字段标签 + 控件横排）。 */
 export function FieldRow({ children }: { children: ReactNode }) {
   return <div className="dfi-row">{children}</div>;
+}
+
+/** 颜色字段 props（新组件口径：UI-kit ColorField + 门禁挂点 + 混选态）。 */
+export interface ColorFieldRowProps {
+  label: string;
+  fieldName: string;
+  /** 外部真值（hex）；undefined = 混选（控件置空并标 mixed 态）。 */
+  value: string | undefined;
+  /** 提交（UI-kit ColorField 仅在 hex 合法时上报；清空不上报——Inspector 不允许无填充语义）。 */
+  onCommit(color: string): void;
+  disabled?: boolean | undefined;
+}
+
+/**
+ * 颜色字段（RW-10 迁移到 UI-kit `ColorField`：色块预览 + hex 文本，
+ * 非法输入保留原文标 `aria-invalid` 且不上报）。外层单元是门禁/测试挂点
+ * （`data-df-inspector-field` + `data-df-state`），控件本体样式归 `@dforge/ui`。
+ */
+export function ColorFieldRow({
+  label,
+  fieldName,
+  value,
+  onCommit,
+  disabled = false,
+}: ColorFieldRowProps) {
+  const mixed = value === undefined;
+  return (
+    <div
+      className="dfi-colorfield"
+      data-df-inspector-field={fieldName}
+      data-df-state={disabled ? 'disabled' : mixed ? 'mixed' : 'default'}
+    >
+      <UiColorField
+        fieldLabel={label}
+        value={mixed ? null : value}
+        disabled={disabled}
+        onChange={(next) => {
+          if (next !== null) onCommit(next);
+        }}
+      />
+    </div>
+  );
 }

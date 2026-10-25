@@ -56,6 +56,13 @@ export interface NumberFieldProps {
   disabled?: boolean;
   /** 提交回调（提交时刻才调用；值已夹取与取整）。 */
   onCommit(value: number): void;
+  /**
+   * 拖拽会话开启（pointerdown 即开，与引擎 interaction 会话的 begin 同语义；
+   * RW-10：调用方用它括约「拖拽中不写文档、松手单事务提交」）。
+   */
+  onScrubStart?: (() => void) | undefined;
+  /** 拖拽会话收口（在唯一一次提交之后 / 值未变化即松手时；与 commit/end 成对）。 */
+  onScrubEnd?: (() => void) | undefined;
 }
 
 /** 拖拽会话。 */
@@ -78,6 +85,8 @@ export function NumberField({
   suffix,
   disabled = false,
   onCommit,
+  onScrubStart,
+  onScrubEnd,
 }: NumberFieldProps) {
   const scrubRef = useRef<ScrubSession>({ active: false, startX: 0, startValue: 0 });
   // 行内提示（G3）：拒绝/限制都要说一声——「已恢复原值」/「已限制为 N」；
@@ -156,6 +165,8 @@ export function NumberField({
     if (disabled) return;
     event.preventDefault();
     scrubRef.current = { active: true, startX: event.clientX, startValue: currentNumber() };
+    // 会话开启先于任何提交（RW-10：拖拽中不写文档的括约起点）
+    onScrubStart?.();
     // jsdom 无指针捕获（可选调用）；真实浏览器里保证拖出元素仍收到 move/up
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
@@ -173,6 +184,8 @@ export function NumberField({
     if (!scrubRef.current.active) return;
     scrubRef.current.active = false;
     flush();
+    // 会话收口在唯一一次提交之后（值未变化即松手时也收口，括约必成对）
+    onScrubEnd?.();
   };
 
   return (
@@ -199,6 +212,7 @@ export function NumberField({
           onPointerUp={handlePointerUp}
           onPointerCancel={() => {
             scrubRef.current.active = false;
+            onScrubEnd?.(); // 异常终止也收口（零提交，括约仍成对）
           }}
           onDoubleClick={(event) => event.preventDefault()}
         >
