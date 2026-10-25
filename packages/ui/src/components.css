@@ -944,6 +944,434 @@
   cursor: not-allowed;
 }
 
+/* ---------- Tree（F16 树族，RW-07） ---------- */
+
+.dfg-tree {
+  display: block;
+  min-width: 0;
+  font-size: var(--dfg-font-size-control);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-tree__node {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-icon-gap);
+  min-height: var(--dfg-row-height-sm);
+  padding-inline: var(--dfg-control-padding-x-sm);
+  border: 0;
+  background-color: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: var(--dfg-line-height-base);
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--dfg-duration-fast) var(--dfg-easing-standard);
+}
+
+.dfg-tree__node:hover:not(.dfg-tree__node--selected):not(.dfg-tree__node--disabled),
+.dfg-tree__node.dfg-state-hover:not(.dfg-tree__node--selected):not(.dfg-tree__node--disabled) {
+  background-color: var(--dfg-color-hover);
+}
+
+/* 焦点环走语义档（--dfg-focus-ring-*，令牌 v2；色/宽/偏移随主题分叉） */
+.dfg-tree__node:focus-visible {
+  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
+  outline-offset: calc(var(--dfg-focus-ring-offset) * -1);
+}
+
+.dfg-tree__node--selected {
+  background-color: var(--dfg-color-selection);
+  color: var(--dfg-color-selection-text);
+}
+
+.dfg-tree__node--disabled {
+  color: var(--dfg-color-text-disabled);
+  cursor: not-allowed;
+}
+
+.dfg-tree__node--error {
+  color: var(--dfg-color-danger);
+}
+
+.dfg-tree__node--dragging {
+  opacity: 0.5;
+}
+
+.dfg-tree__node--droptarget {
+  outline: var(--dfg-border-width-hairline) solid var(--dfg-color-primary);
+  outline-offset: calc(var(--dfg-border-width-hairline) * -1);
+}
+
+/* 子层缩进由组级联（行不必各自算层级） */
+.dfg-tree__group {
+  padding-inline-start: var(--dfg-space-3);
+}
+
+.dfg-tree__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--dfg-space-3);
+  height: var(--dfg-space-3);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dfg-color-icon-secondary);
+  cursor: pointer;
+}
+
+.dfg-tree__toggle:hover {
+  color: var(--dfg-color-icon-primary);
+}
+
+.dfg-tree__toggle-gap {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--dfg-space-3);
+}
+
+.dfg-tree__status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--dfg-color-icon-secondary);
+}
+
+.dfg-tree__node--error .dfg-tree__status {
+  color: var(--dfg-color-danger);
+}
+
+.dfg-tree__icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--dfg-color-icon-secondary);
+}
+
+.dfg-tree__node--selected .dfg-tree__icon {
+  color: inherit;
+}
+
+.dfg-tree__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dfg-tree__rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--dfg-control-height-sm);
+  padding-inline: var(--dfg-control-padding-x-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-focus-ring);
+  border-radius: var(--dfg-radius-sm);
+  background-color: var(--dfg-color-surface);
+  color: var(--dfg-color-text-primary);
+  font: inherit;
+  outline: none;
+}
+
+.dfg-tree__empty {
+  padding: var(--dfg-space-4);
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-secondary);
+  text-align: center;
+}
+
+/* ---------- NumberField / Scrubber（F17 数值输入族，RW-07） ---------- */
+
+.dfg-numfield__input {
+  text-align: left;
+}
+
+.dfg-numfield__unit {
+  flex: 0 0 auto;
+  font-size: var(--dfg-font-size-control);
+  color: var(--dfg-color-text-secondary);
+  user-select: none;
+}
+
+.dfg-numfield__steppers {
+  display: inline-flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+}
+
+.dfg-numfield__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dfg-space-3);
+  height: calc(var(--dfg-control-height-md) / 2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dfg-color-icon-secondary);
+  cursor: pointer;
+}
+
+.dfg-numfield__step:hover:not(:disabled) {
+  color: var(--dfg-color-icon-primary);
+}
+
+.dfg-numfield__step:disabled {
+  color: var(--dfg-color-icon-disabled);
+  cursor: not-allowed;
+}
+
+.dfg-numfield--invalid {
+  border-color: var(--dfg-color-danger);
+}
+
+/* 拖拽改值进行中：横向缩放暗示 + 防误选文本 */
+.dfg-numfield--scrubbing {
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.dfg-numfield__status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--dfg-color-icon-secondary);
+}
+
+.dfg-scrubber {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-icon-gap);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.dfg-scrubber--dragging {
+  cursor: ew-resize;
+}
+
+.dfg-scrubber:focus-visible {
+  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
+  outline-offset: var(--dfg-focus-ring-offset);
+}
+
+/* ---------- Swatch / ColorField / TypographyField（F18 色板与文字族，RW-07） ---------- */
+
+.dfg-swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dfg-space-4);
+  height: var(--dfg-space-4);
+  padding: 0;
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  background: transparent;
+  font: inherit;
+}
+
+span.dfg-swatch {
+  cursor: default;
+}
+
+button.dfg-swatch {
+  cursor: pointer;
+}
+
+button.dfg-swatch:disabled {
+  cursor: not-allowed;
+}
+
+button.dfg-swatch:focus-visible {
+  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
+  outline-offset: var(--dfg-focus-ring-offset);
+}
+
+.dfg-swatch--sm {
+  width: var(--dfg-space-3);
+  height: var(--dfg-space-3);
+}
+
+.dfg-swatch--selected {
+  outline: var(--dfg-border-width-thick) solid var(--dfg-color-primary);
+  outline-offset: var(--dfg-border-width-hairline);
+}
+
+.dfg-swatch__fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+/* 无色斜纹：透明与描边色相间的条纹（「无值」的数据表达，不拿色值占位） */
+.dfg-swatch__fill--empty {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent var(--dfg-space-1),
+    var(--dfg-color-border) var(--dfg-space-1),
+    var(--dfg-color-border) calc(var(--dfg-space-1) * 2)
+  );
+}
+
+.dfg-colorfield__swatch {
+  flex: 0 0 auto;
+}
+
+.dfg-colorfield--invalid {
+  border-color: var(--dfg-color-danger);
+}
+
+.dfg-typography__controls {
+  display: flex;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-typography__select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--dfg-control-height-md);
+  padding-inline: var(--dfg-control-padding-x-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  background-color: var(--dfg-color-surface);
+  color: var(--dfg-color-text-primary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-control);
+  cursor: pointer;
+  transition: border-color var(--dfg-duration-fast) var(--dfg-easing-standard);
+}
+
+.dfg-typography__select:hover:not(:disabled),
+.dfg-typography__select.dfg-state-hover:not(:disabled) {
+  border-color: var(--dfg-color-border-strong);
+}
+
+.dfg-typography__select:focus-visible {
+  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
+  outline-offset: var(--dfg-focus-ring-offset);
+}
+
+.dfg-typography__select[aria-invalid="true"] {
+  border-color: var(--dfg-color-danger);
+}
+
+.dfg-typography__select:disabled {
+  background-color: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* ---------- Tabs / TabPanel / Collapse（F19 页签与折叠族，RW-07） ---------- */
+
+.dfg-tabs {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dfg-tabs__list {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  height: var(--dfg-row-height-md);
+  padding-inline: var(--dfg-control-padding-x-sm);
+  border: 0;
+  border-bottom: var(--dfg-border-width-thick) solid transparent;
+  background: transparent;
+  color: var(--dfg-color-text-secondary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-control);
+  line-height: var(--dfg-line-height-tight);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--dfg-duration-fast) var(--dfg-easing-standard),
+    border-color var(--dfg-duration-fast) var(--dfg-easing-standard);
+}
+
+.dfg-tabs__tab:hover:not(.dfg-tabs__tab--selected):not(.dfg-tabs__tab--disabled),
+.dfg-tabs__tab.dfg-state-hover:not(.dfg-tabs__tab--selected):not(.dfg-tabs__tab--disabled) {
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-tabs__tab:focus-visible {
+  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
+  outline-offset: calc(var(--dfg-focus-ring-offset) * -1);
+}
+
+.dfg-tabs__tab--selected {
+  color: var(--dfg-color-text-primary);
+  border-bottom-color: var(--dfg-color-primary);
+}
+
+.dfg-tabs__tab--disabled {
+  color: var(--dfg-color-text-disabled);
+  cursor: not-allowed;
+}
+
+.dfg-tabpanel {
+  padding-block: var(--dfg-space-2);
+  font-size: var(--dfg-font-size-control);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-collapse {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dfg-collapse__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-icon-gap);
+  min-height: var(--dfg-row-height-sm);
+  padding-inline: var(--dfg-control-padding-x-sm);
+  border: 0;
+  border-radius: var(--dfg-radius-sm);
+  background: transparent;
+  color: var(--dfg-color-text-primary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-control);
+  font-weight: var(--dfg-font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dfg-collapse__trigger:hover:not(:disabled),
+.dfg-collapse__trigger.dfg-state-hover:not(:disabled) {
+  background-color: var(--dfg-color-hover);
+}
+
+.dfg-collapse__trigger:focus-visible {
+  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
+  outline-offset: var(--dfg-focus-ring-offset);
+}
+
+.dfg-collapse__trigger:disabled {
+  color: var(--dfg-color-text-disabled);
+  cursor: not-allowed;
+}
+
+.dfg-collapse__content {
+  padding-block: var(--dfg-space-2);
+}
+
 /* ---------- 动画 ---------- */
 
 @keyframes dfg-spin {
@@ -1024,7 +1452,10 @@
   .dfg-btn,
   .dfg-iconbtn,
   .dfg-input-wrap,
-  .dfg-progress__bar {
+  .dfg-progress__bar,
+  .dfg-tree__node,
+  .dfg-typography__select,
+  .dfg-tabs__tab {
     transition: none;
   }
 
