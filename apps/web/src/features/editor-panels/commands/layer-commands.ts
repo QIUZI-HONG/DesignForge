@@ -147,8 +147,8 @@ function reorderCommands(page: ScenePage, pageId: PageId, nodeId: NodeId, op: ZO
  * 改父（拖拽排序/跨容器）：保持世界位置不变，落到新父级的指定下标。
  *
  * **下标坐标空间**：`index` 是「**先从原父级摘除，再插入新位置的列表**」中的下标——
- * 与引擎 `node.reparent` 的语义一致（见 `scene/mutate.ts`）。同级拖动请把落点交给
- * `commands/drop-target.ts` 的 `resolveDropTarget` 计算，它直接产出这一坐标空间的下标，
+ * 与引擎 `node.reparent` 的语义一致（见 `scene/mutate.ts`）。Tree 拖拽（RW-13）请把落点交给
+ * `commands/tree-drop.ts` 的 `resolveTreeDropPlacement` 计算，它直接产出这一坐标空间的下标，
  * 避免「向下拖一格却少移一位」的经典 off-by-one。
  *
  * 目标父级为自身或自身后代、或无实际位移 → 无操作（返回空列表）。

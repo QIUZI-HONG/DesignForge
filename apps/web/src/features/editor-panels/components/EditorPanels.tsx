@@ -6,9 +6,9 @@
  * 为什么合成一个组件：Figma 的左面板就是「文件（图层）」与「资产」两个页签共享一栏；
  * 面板各自独立（`LayersPanel` / `AssetsPanel`）仍可单独挂载，
  * 组合后的整栏带 `data-df-panel-group` 供面板级截图门禁取样（保留完整面板边界 + spec 规定的固定外扩边距）。
+ * 样式单轨（工单 06）：整栏/页签条样式走 editor-panels.css 类（.dfg-panels__group / __tab-strip）。
  */
 import { SegmentedControl } from '@dforge/ui';
-import type { CSSProperties } from 'react';
 
 import { t } from '@/i18n';
 import { usePanelsUi } from '../state/hooks';
@@ -16,6 +16,8 @@ import type { LeftPanelTab } from '../state/panels-store';
 import { AssetsPanel, type AssetsPanelProps } from './AssetsPanel';
 import { LayersPanel, type LayersPanelProps } from './LayersPanel';
 import { usePanelsSession } from './panels-context';
+
+import '../editor-panels.css';
 
 /** 左栏组合 props：与两个面板共用同一份数据态（loading/error/retry）。 */
 export interface EditorPanelsProps extends LayersPanelProps, AssetsPanelProps {}
@@ -30,10 +32,12 @@ export function EditorPanels({ loading, error, onRetry, className }: EditorPanel
     ...(error === undefined ? {} : { error }),
     ...(onRetry === undefined ? {} : { onRetry }),
   };
+  const groupClass =
+    className === undefined ? 'dfg-panels__group' : `${className} dfg-panels__group`;
 
   return (
-    <div data-df-panel-group="editor-panels" className={className} style={groupStyle}>
-      <div style={tabStripStyle}>
+    <div data-df-panel-group="editor-panels" className={groupClass}>
+      <div className="dfg-panels__tab-strip">
         <SegmentedControl
           label={t('panels.tabs.label')}
           size="sm"
@@ -55,22 +59,3 @@ export function EditorPanels({ loading, error, onRetry, className }: EditorPanel
     </div>
   );
 }
-
-const groupStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  height: '100%',
-  minHeight: 0,
-  background: 'var(--dfg-color-surface)',
-  borderInline: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
-  color: 'var(--dfg-color-text-primary)',
-  fontFamily: 'var(--dfg-font-sans)',
-};
-
-const tabStripStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--dfg-space-2)',
-  padding: 'var(--dfg-space-2) var(--dfg-space-3)',
-  borderBottom: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
-};
