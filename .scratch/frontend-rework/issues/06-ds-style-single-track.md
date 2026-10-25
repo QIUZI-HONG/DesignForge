@@ -12,29 +12,12 @@ blockers: 02
 - [ ] 相关组件测试与视觉冒烟全绿（按域批次均绿）——**待 dev 机验证**（组件测试已随批改造：类挂载 + CSS 规则文本断言；jsdom 不计算 External CSS，先例 `verify/a11y-keyboard.test.tsx`）
 - [x] 主题切换路径唯一（暗色编辑器族/浅色首页族切换无分叉）——所有内联颜色分支（如 stepAccent 按状态算色、modeToggleOn 按开合合对象）删除，色值一律由 `data-theme` 下的令牌变量与状态选择器承接
 
-## 内联样式豁免登记表（验收 §1 的「豁免清单登记」）
+## 内联样式豁免登记表（已迁出，此处不再维护）
 
-静态守卫：`apps/web/src/verify/style-single-track.test.ts` 扫描 `apps/web/src` 的 `style={`
-出现点，**逐条比对本表**（首列为仓库相对路径，测试解析本表）；未登记的内联样式即测试红。
-
-| 路径 | 类别 | 理由 |
-| --- | --- | --- |
-| apps/web/src/features/canvas/ui/floating-toolbar.tsx | 几何算式 | C9 浮层工具条锚点 `left/top` 由画布世界坐标 × zoom + pan 算出（CSS 无法表达世界坐标换算） |
-| apps/web/src/features/editor-review/comments/CommentLayer.tsx | 几何算式 | 钉点/预览卡/草稿卡屏幕坐标 = 世界坐标 × zoom + pan（+ 常量偏移）；其余视觉已全部落 review.css |
-| apps/web/src/features/editor-review/present/SlidePreview.tsx | 几何/文档数据 | 幻灯片缩放尺寸（宽高 = 画板尺寸 × fitScale）与画板底色来自 Design IR 文档数据——按图渲染是本分，颜色不是界面令牌 |
-| apps/web/src/features/editor-panels/components/AssetsPanel.tsx | 动态值（文档数据） | Token 色块 `background` = 文档令牌解析值（任意色，非界面令牌；与 inspector/controls.tsx 同类；底座样式已在 editor-panels.css） |
-| apps/web/src/features/editor-panels/components/LayerContextMenu.tsx | 几何算式 | 菜单容器 `position: fixed` 的 `left/top` = 右键指针视口坐标（与 floating-toolbar 同类几何换算） |
-| apps/web/src/features/dashboard/DashboardView.tsx | 动态值 | 看板 meter 填充宽度 = 数据百分比（时效分桶计数 / 最大值） |
-| apps/web/src/features/market/components/QualityPanel.tsx | 动态值 | 质量 meter 填充宽度 = 维度得分百分比 |
-| apps/web/src/features/inspector/components/controls.tsx | 动态值 | 字段色样 `background` = 文档令牌解析值（文档数据，非界面样式；底座样式已在 inspector.css） |
-| apps/web/src/app/_design/page.tsx | 动态值 | 预览页色样/圆角样取值 = 运行时枚举的令牌变量引用（`var(${name})`，枚举对象是数据） |
-| apps/web/src/features/inspect-export/model/codegen.ts | 非样式 | 生成的**代码文本**（codegen 产物字符串，不是运行时样式路径） |
-
-> RW-13 增补/删行（图层面板 Tree 接入同批）：`LayerRow.tsx` 随面板重写删除——行深缩进改由
-> Tree 的组级联（`.dfg-tree__group`）承接，`--dfg-layer-depth` 行内注入不复存在，豁免随之撤销；
-> `EditorPanels.tsx` 的两处内联样式对象迁移为 editor-panels.css 类（`.dfg-panels__group` /
-> `__tab-strip`），退出登记；增补 `AssetsPanel.tsx` / `LayerContextMenu.tsx`（FE-04 既有内联样式补登记，
-> 此前漏登，属工单 06 的存量债）。
+登记表已迁 **`docs/quality/style-single-track-registry-v1.md`**（常驻真源——工单树会随批次归档，
+豁免登记是长期口径；守卫测试 `apps/web/src/verify/style-single-track.test.ts` 已改从新位置解析）。
+2026-10 修复批同步做了登记面与代码面的对表（market 三文件迁出豁免面、canvas 两件补登、
+`canvas-stage.tsx` 无主 style 透传 prop 删除），变更记录见新登记表的「变更记录」节。
 
 ## 逐域提交
 
@@ -46,7 +29,8 @@ blockers: 02
 | diagnostics | ec7ea1a | diagnosticsStyles → diagnostics.css |
 | editor-panels | 0784bb9 | 四组对象 → editor-panels.css；行交互态走 data-df-* 事实（新增 focus-ring/dimmed/active/layer-type 投影）；行深动态值豁免 |
 | editor-review | df89dcf | 四组对象 → review.css；几何/文档数据豁免；barrel 样式出口移除 |
-| market | 68359dc | 约 40 个导出对象 → market.css；badge/meter tone → 修饰类；app 三页 + dashboard 消费方同批 |
+| market | 68359dc | 约 40 个导出对象 → market.css；badge/meter tone → 修饰类；app 消费方**部分**同批（首页 `/market` 与面板页 `/market/panel`）——详情页 `/market/[assetId]`、看板 `/dashboard` 与 `MarketPanel` 当时漏迁，残留对已删样式对象的引用（幻影导入），由 2026-10 修复批补迁 market.css 版式类 |
 | settings + design | 8e9bbbd | 五组件本地对象 → settings.css；/_design → design.css；hover 改伪类 |
-| 守卫与登记 | （本提交） | 豁免登记表 + verify/style-single-track 守卫测试 + guard 覆盖确认 |
+| 守卫与登记 | （本提交） | 豁免登记表 + verify/style-single-track 守卫测试 + guard 覆盖确认（登记表后迁 docs/quality 常驻，见上节指针） |
+| 修复批对表 | （2026-10 修复批） | code-review P1-1：market 三文件迁出豁免面；canvas `context-menu` / `text-overlay` 补登；`canvas-stage.tsx` 无主 style 透传 prop 删除——登记面与代码面恢复双向一致（登记表 12 条） |
 

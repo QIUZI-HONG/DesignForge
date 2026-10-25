@@ -126,7 +126,8 @@ export const STATE_FAMILIES: StateFamilyEntry[] = [
   {
     id: 'F17',
     name: '数值输入族',
-    owner: 'RW-07 基础件（NumberField/Scrubber：步进、拖拽改值、解析标错、同步转圈）；Inspector 接入归 RW-10',
+    owner:
+      'RW-07 基础件（NumberField/Scrubber：步进、拖拽改值、解析标错、同步转圈）；Inspector 数值编辑由 app 级实现承接（features/inspector/components/NumberField.tsx——300ms 草稿提交/Esc 取消/混选起拖语义已被组件测试与 inspector-commit 门禁钉死，RW-10 有意不迁 DS 件），DS 件留作后续收敛',
     components: ['NumberField', 'Scrubber'],
     states: ['hover', 'active', 'disabled', 'loading', 'error'],
     icon: 'MoveIcon',
@@ -134,7 +135,8 @@ export const STATE_FAMILIES: StateFamilyEntry[] = [
   {
     id: 'F18',
     name: '色板与文字族',
-    owner: 'RW-07 基础件（Swatch/ColorField/TypographyField：色块点选、hex 解析标错、无色斜纹）；Inspector 接入归 RW-10',
+    owner:
+      'RW-07 基础件（Swatch/ColorField/TypographyField：色块点选、hex 解析标错、无色斜纹）；Inspector 色板编辑由 app 级实现承接（features/inspector/components/controls.tsx 的 ColorFieldRow 等——RW-10 有意保留 app 级实现），DS 件留作后续收敛',
     components: ['Swatch', 'ColorField', 'TypographyField'],
     states: ['hover', 'active', 'disabled', 'empty', 'error'],
     icon: 'PipetteIcon',

@@ -1,14 +1,16 @@
 // @vitest-environment node
 /**
- * 样式单轨守卫（工单 06 · 验收 §1）。
+ * 样式单轨守卫（工单 06 立规 · 豁免登记表常驻于 docs/quality）。
  *
  * 两件事：
  * 1. **无内联样式对象文件**——`features/**` 下不得再有 `styles.ts` / `*-styles.ts`
  *   （工单 06 已把八组内联样式对象全部收敛为域内 CSS + 类名；新样式只能进 `.css`，
  *    由 guard:tokens 与组件测试同轨约束）；
  * 2. **内联 `style={` 逐条对表**——扫描 `apps/web/src` 非测试源码的全部 `style={` 出现点，
- *    每个文件都必须登记在工单 06 的「内联样式豁免登记表」（解析工单 markdown 的表格首列）。
- *    登记表是真源（工单树内可查），本测试只保证「代码面与登记表双向一致」：
+ *    每个文件都必须登记在豁免登记表（**常驻真源**
+ *    `docs/quality/style-single-track-registry-v1.md`——2026-10 修复批自工单 06 迁出，
+ *    工单树随批次归档而登记是长期口径；测试解析该文件表格首列）。
+ *    本测试只保证「代码面与登记表双向一致」：
  *    代码里冒出未登记的内联样式 → 红；登记表指向已不再有内联样式的文件 → 红。
  *
  * guard:tokens 覆盖确认（验收 §1 的「两轨同等约束」）：域内 CSS 落在 `apps/web/src` 下，
@@ -26,10 +28,10 @@ import { describe, expect, it } from 'vitest';
 const repoRoot = resolve(process.cwd(), '../..');
 /** 应用层源码根。 */
 const webSrcRoot = resolve(process.cwd(), 'src');
-/** 工单 06（豁免登记表所在）。 */
-const ticketPath = resolve(
+/** 豁免登记表（常驻真源；原载工单 06，2026-10 修复批迁 docs/quality）。 */
+const registryPath = resolve(
   repoRoot,
-  '.scratch/frontend-rework/issues/06-ds-style-single-track.md',
+  'docs/quality/style-single-track-registry-v1.md',
 );
 
 /** 递归收集源码文件（.ts/.tsx；跳过测试与无关目录）。 */
@@ -52,9 +54,9 @@ function collectSourceFiles(root: string): string[] {
   return out.sort();
 }
 
-/** 解析工单 06 豁免登记表的首列路径集合（`| apps/web/src/… | 类别 | 理由 |`）。 */
+/** 解析豁免登记表（docs/quality/style-single-track-registry-v1.md）的首列路径集合（`| apps/web/src/… | 类别 | 理由 |`）。 */
 function registeredExemptionPaths(): Set<string> {
-  const text = readFileSync(ticketPath, 'utf8');
+  const text = readFileSync(registryPath, 'utf8');
   const paths = new Set<string>();
   for (const line of text.split('\n')) {
     const match = /^\|\s*(apps\/web\/src\/[^\s|]+)\s*\|/.exec(line);
@@ -68,19 +70,19 @@ function relOf(absPath: string): string {
   return relative(repoRoot, absPath).split(sep).join('/');
 }
 
-describe('样式单轨（工单 06）· 无内联样式对象文件', () => {
+describe('样式单轨 · 无内联样式对象文件', () => {
   it('apps/web/src 下不再有 styles.ts / *-styles.ts（单轨化已收敛为域内 CSS）', () => {
     const offenders = collectSourceFiles(webSrcRoot).filter((abs) =>
       /(^|[/\\-])styles\.tsx?$/.test(abs),
     );
     expect(
       offenders.map(relOf),
-      '仍存在内联样式对象文件——应迁移为域内 CSS + 类名（工单 06）',
+      '仍存在内联样式对象文件——应迁移为域内 CSS + 类名（样式单轨口径）',
     ).toEqual([]);
   });
 });
 
-describe('样式单轨（工单 06）· 内联 style 逐条对豁免登记表', () => {
+describe('样式单轨 · 内联 style 逐条对豁免登记表', () => {
   it('登记表非空且每行指向真实存在的文件（防「登记表是空话」）', () => {
     const registry = registeredExemptionPaths();
     expect(registry.size, '豁免登记表为空——几何/动态值场景必须逐条登记').toBeGreaterThan(0);
@@ -98,7 +100,7 @@ describe('样式单轨（工单 06）· 内联 style 逐条对豁免登记表', 
     const unregistered = hits.filter((rel) => !registry.has(rel));
     expect(
       unregistered,
-      '存在未登记的内联样式：迁域内 CSS，或在工单 06 登记表逐条登记理由',
+      '存在未登记的内联样式：迁域内 CSS，或在 docs/quality/style-single-track-registry-v1.md 逐条登记理由',
     ).toEqual([]);
   });
 
@@ -114,7 +116,7 @@ describe('样式单轨（工单 06）· 内联 style 逐条对豁免登记表', 
   });
 });
 
-describe('样式单轨（工单 06）· guard:tokens 对域内 CSS 同权覆盖（文本级锁定）', () => {
+describe('样式单轨 · guard:tokens 对域内 CSS 同权覆盖（文本级锁定）', () => {
   const guardCore = readFileSync(
     resolve(repoRoot, 'packages/ui/src/tools/guard-tokens-core.mjs'),
     'utf8',

@@ -500,7 +500,6 @@ export const CornerSection = memo(function CornerSection({
 const EffectRow = memo(function EffectRow({
   effect,
   index,
-  stack,
   pageId,
   page,
   selection,
@@ -508,7 +507,6 @@ const EffectRow = memo(function EffectRow({
 }: {
   effect: Effect;
   index: number;
-  stack: CommandStack;
   pageId: PageId;
   page: ScenePage;
   selection: Selection;
@@ -629,7 +627,6 @@ export const EffectsSection = memo(function EffectsSection({
               key={`${effect.type}-${index}`}
               effect={effect}
               index={index}
-              stack={stack}
               pageId={pageId}
               page={page}
               selection={selection}

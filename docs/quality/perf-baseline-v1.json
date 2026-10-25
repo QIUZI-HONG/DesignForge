@@ -46,7 +46,7 @@
   },
   "recordOnly": {
     "m6HeapSampledBytes": "20k 档记录：CDP HeapProfiler 采样树 selfSize 汇总（GC 后），无通过线",
-    "m7ClipRate": "20k 档记录：clipped/nodesDrawn（注意：当前渲染无视口剔除，clipped 语义=应用 clipsContent 的画板数，非视口剔除率——见 verify-perf.mjs computeClipRate 注释；若实测远低于预期，正是 E-7 空间索引的立项依据）"
+    "m7ClipRate": "20k 档记录：clipped/nodesDrawn（注意：当前渲染无视口剔除，clipped 语义=应用 clipsContent 的画板数，非视口剔除率——见 verify-perf.mjs computeClipRate 注释；若实测远低于预期，正是 E-7 空间索引的立项依据）。**口径变更登记（2026-10 修复批）**：nodesDrawn 分母 = 实际绘制节点数，opacity=0 的节点不计（draw-scene.ts 头注释登记）——与旧口径「本帧访问的节点数」相比分母收窄，跨期比对 M7 时须同口径"
   },
   "rounds": []
 }

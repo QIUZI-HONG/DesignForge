@@ -19,8 +19,7 @@ import { UNAVAILABLE_PLACEHOLDER } from '@/lib/unavailable';
 
 import { useDraftCommit } from '../model/draft';
 
-/** 混选占位（C6：混合值显示「—」）。 */
-/** 混合值占位（值来自单点 `@/lib/unavailable`，复核 J5）。 */
+/** 混选占位（C6：混合值显示「—」；值来自单点 `@/lib/unavailable`，复核 J5）。 */
 export const MIXED_PLACEHOLDER = UNAVAILABLE_PLACEHOLDER;
 
 /** 数值格式化：按精度四舍五入并去掉尾随零（10 → "10"，1.50 → "1.5"）。 */
@@ -197,8 +196,8 @@ export function NumberField({
       data-df-state={disabled ? 'disabled' : value === undefined ? 'mixed' : 'default'}
     >
       <div className="dfi-numberfield">
-        {/* 标签双击即拖拽改值（Figma 惯例）；键盘用户走输入框的上下键 */}
-        {/* 标签即拖拽把手：Figma 惯例；键盘步进由输入框的上下键承担（把手不进 Tab 序列） */}
+        {/* 标签即拖拽把手：按下即起拖（Figma 惯例；onDoubleClick 仅抑制双击选中文本的默认行为）；
+            键盘步进由输入框的上下键承担（把手不进 Tab 序列） */}
         <button
           type="button"
           className="dfi-numberfield__label"

@@ -15,6 +15,9 @@
  *   仍登记的近似：投影/内阴影按**节点自身形状**轮廓（group 无自身形状 → 其投影/内阴影
  *   不画、仅层模糊生效；不做子树联合轮廓）；文本节点不画内阴影（无简单形状可 clip）；
  *   容器带可见层模糊时子树 saveLayer 合成后再模糊（唯一扩圈，见 effects.ts）。
+ * - **观测计数口径（登记）**：`counters.nodes` = **实际绘制节点数**——`opacity = 0`（含
+ *   预览补丁压到 0）的节点不进计数（零绘制不该算「画了」）；该口径变更已同步
+ *   `docs/quality/perf-baseline-v1.json` 的 M7 recordOnly 注记（nodesDrawn 分母随之收窄）。
  * - 描边对齐（inside/outside）按中心线近似（口径保持，未扩）；
  * - 容器 opacity 不做离屏图层合成（逐 paint 乘 alpha；口径保持，不因效果扩圈）。
  */
@@ -61,6 +64,7 @@ export interface DrawTools {
 
 /** 绘制计数（渲染统计：门禁据此断言「画了什么」）。 */
 export interface SceneDrawCounters {
+  /** 实际绘制节点数（`opacity = 0` 的节点不计——口径登记见文件头注释）。 */
   nodes: number;
   clipped: number;
   textRuns: number;

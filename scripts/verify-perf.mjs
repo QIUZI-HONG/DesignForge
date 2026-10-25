@@ -53,7 +53,9 @@
  *
  * 环境变量：DF_PERF_BASELINE（基线 JSON 路径）、DF_PERF_SNAPSHOT（离线快照路径）、
  *           DF_WEB_URL（复用已跑站点）、DF_EVIDENCE_DIR（证据根，默认 ~/df-evidence）、
- *           DF_E2E_KEEP=1（保留临时数据目录）、BENCH_CHROME_EXECUTABLE（Chromium 路径）。
+ *           BENCH_CHROME_EXECUTABLE（Chromium 路径）。
+ *           临时数据目录（系统 tmpdir，路径见日志的「数据根」一行）**不自动清理**，
+ *           需要复核时按日志路径手动处理（曾经的 DF_E2E_KEEP=1 声明无实现，已删除）。
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -544,7 +546,8 @@ export function summarizeLatencySamples(samples) {
  * M7 剔除率（clipped/nodesDrawn；记录性指标，不设通过线）。
  *
  * **语义登记（工单 14 实现取舍）**：渲染计数器（draw-scene.ts）的 `clipped` 是
- * 「应用了 clipsContent 裁剪的画板数」，`nodesDrawn`（counters.nodes）是「本帧访问的节点数」——
+ * 「应用了 clipsContent 裁剪的画板数」，`nodesDrawn`（counters.nodes）是「实际绘制节点数」
+ * （opacity=0 不计——口径变更登记见 draw-scene.ts 头注释与 perf-baseline-v1.json M7 注记）——
  * 当前渲染循环**没有视口剔除**（这正是 E-7 空间索引要立的项），故本比例现阶段衡量的是
  * 裁剪画板频度，不是「视口外剔除率」。门禁照报告 §4.2 公式记录原值，
  * 语义以本注释 + 证据字段为准，供基线讨论（先测后优化：测的就是现状）。
