@@ -30,7 +30,8 @@ import {
   MARKET_KIND_TABS,
   type MarketFilters,
 } from '../filters';
-import { badgeRowStyle, filterBarStyle, filterRowStyle, hintStyle, toolbarStyle } from '../styles';
+
+import '../market.css';
 
 /** 泳道词表（§1.4；中文口径按规格原词）。 */
 const LANES: readonly { value: MarketLane; labelKey: string }[] = [
@@ -99,9 +100,13 @@ export function FilterBar({
   const scoped = total !== null && globalTotal !== null && total !== globalTotal;
 
   return (
-    <section style={filterBarStyle} data-df-page="market-home" data-df-market="filter-bar">
-      <div style={toolbarStyle}>
-        <div style={{ flex: '1 1 auto', minWidth: 'var(--dfg-size-menu-min-width)' }}>
+    <section
+      className="dfg-market__filter-bar"
+      data-df-page="market-home"
+      data-df-market="filter-bar"
+    >
+      <div className="dfg-market__toolbar">
+        <div className="dfg-market__toolbar-grow">
           <Input
             kind="search"
             value={filters.query}
@@ -126,7 +131,7 @@ export function FilterBar({
       </div>
 
       <div
-        style={toolbarStyle}
+        className="dfg-market__toolbar"
         role="tablist"
         aria-label={t('market.filter.kind')}
         data-df-market="kind-tabs"
@@ -146,7 +151,7 @@ export function FilterBar({
         ))}
       </div>
 
-      <div style={filterRowStyle}>
+      <div className="dfg-market__filter-row">
         <SelectMenu
           label={t('market.filter.sort')}
           valueLabel={t(
@@ -228,7 +233,7 @@ export function FilterBar({
             },
           }))}
         />
-        <div style={{ minWidth: 'var(--dfg-size-menu-min-width)' }}>
+        <div className="dfg-market__min-field">
           <Input
             value={filters.repo}
             aria-label={t('market.filter.source')}
@@ -254,15 +259,15 @@ export function FilterBar({
           </Button>
         ) : null}
         {filterCount > 0 ? (
-          <span style={hintStyle} data-df-market="filter-count">
+          <span className="dfg-market__hint" data-df-market="filter-count">
             {t('market.filter.activeCount', { count: filterCount })}
           </span>
         ) : null}
       </div>
 
       {scenes.length > 0 ? (
-        <div style={badgeRowStyle} data-df-market="scene-chips">
-          <span style={hintStyle}>{t('market.scene.label')}</span>
+        <div className="dfg-market__badge-row" data-df-market="scene-chips">
+          <span className="dfg-market__hint">{t('market.scene.label')}</span>
           {scenes.map((scene) => (
             <Button
               key={scene}
@@ -279,8 +284,8 @@ export function FilterBar({
         </div>
       ) : null}
 
-      <div style={badgeRowStyle} data-df-market="summary">
-        <span style={hintStyle} data-df-market="result-count">
+      <div className="dfg-market__badge-row" data-df-market="summary">
+        <span className="dfg-market__hint" data-df-market="result-count">
           {countUnavailable
             ? MARKET_COUNT_UNAVAILABLE
             : total === null
@@ -297,7 +302,7 @@ export function FilterBar({
                   })}
         </span>
         {generatedAt === null ? null : (
-          <span style={hintStyle}>{t('market.generatedAt', { at: generatedAt })}</span>
+          <span className="dfg-market__hint">{t('market.generatedAt', { at: generatedAt })}</span>
         )}
       </div>
     </section>

@@ -14,18 +14,23 @@ import {
   createText,
   type DesignDocument,
   defaultTextContent,
+  dropShadow,
   type NodeId,
   solidPaint,
 } from '@dforge/engine';
 import { describe, expect, it } from 'vitest';
 
 import {
+  addEffectCommands,
   applyAutoLayoutCommands,
+  defaultEffect,
+  removeEffectCommands,
   setBlendModeCommands,
   setFillColorCommands,
   setNumberCommands,
   setStrokeCommands,
   setTextCommands,
+  updateEffectCommands,
 } from './patches';
 
 /** 夹具：两个矩形（填充透明度不同）+ 一个文本 + 空画板 + 含两子项的画板。 */
@@ -148,6 +153,144 @@ describe('setBlendModeCommands（高级分区）', () => {
     expect(pageOf(stack).nodes.t1?.blendMode).toBe('multiply');
     stack.undo();
     expect(pageOf(stack).nodes.r1?.blendMode).toBe('normal');
+  });
+});
+
+describe('effects 命令族（效果分区 · RW-10）', () => {
+  it('defaultEffect：三种类型都给出可见的完整参数（文档数据色非界面令牌）', () => {
+    for (const type of ['drop_shadow', 'inner_shadow', 'layer_blur'] as const) {
+      const effect = defaultEffect(type);
+      expect(effect.type).toBe(type);
+      expect(effect.visible).toBe(true);
+      expect(effect.blur).toBeGreaterThan(0);
+    }
+  });
+
+  it('addEffectCommands：批量追加，保留各节点已有效果；撤销一步全还原', () => {
+    const stack = new CommandStack(fixture());
+    // r1 预置一个投影（追加不得覆盖）
+    stack.dispatch(
+      {
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r1',
+        patch: { effects: [dropShadow('#000000', 0, 4, 10)] },
+      },
+      { label: '预置效果' },
+    );
+    const effect = defaultEffect('layer_blur');
+    stack.dispatch(addEffectCommands(pageOf(stack), 'p1', ['r1', 'r2'], effect), {
+      label: '添加效果',
+    });
+
+    const effects1 = pageOf(stack).nodes.r1?.effects ?? [];
+    const effects2 = pageOf(stack).nodes.r2?.effects ?? [];
+    expect(effects1).toHaveLength(2);
+    expect(effects1[0]).toMatchObject({ type: 'drop_shadow' });
+    expect(effects1[1]).toMatchObject({ type: 'layer_blur' });
+    expect(effects2).toHaveLength(1);
+    expect(effects2[0]).toMatchObject({ type: 'layer_blur' });
+
+    expect(stack.undo()).toBe(true);
+    expect(pageOf(stack).nodes.r1?.effects).toHaveLength(1);
+    expect(pageOf(stack).nodes.r2?.effects).toHaveLength(0);
+  });
+
+  it('removeEffectCommands：按序号移除；越界节点跳过（全部越界则无命令）', () => {
+    const stack = new CommandStack(fixture());
+    stack.dispatch(
+      {
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r1',
+        patch: { effects: [dropShadow('#000000', 0, 4, 10), defaultEffect('layer_blur')] },
+      },
+      { label: '预置效果' },
+    );
+    stack.dispatch(
+      {
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r2',
+        patch: { effects: [defaultEffect('layer_blur')] },
+      },
+      { label: '预置效果' },
+    );
+
+    // 移除序号 1：r1 丢层模糊、r2 越界跳过
+    stack.dispatch(removeEffectCommands(pageOf(stack), 'p1', ['r1', 'r2'], 1), {
+      label: '移除效果',
+    });
+    expect(pageOf(stack).nodes.r1?.effects).toHaveLength(1);
+    expect(pageOf(stack).nodes.r1?.effects[0]).toMatchObject({ type: 'drop_shadow' });
+    expect(pageOf(stack).nodes.r2?.effects).toHaveLength(1);
+
+    // 全部越界：不产生空命令
+    expect(removeEffectCommands(pageOf(stack), 'p1', ['r1', 'r2'], 9)).toEqual([]);
+  });
+
+  it('updateEffectCommands：按序号合并参数补丁；无变化/越界不出命令', () => {
+    const stack = new CommandStack(fixture());
+    stack.dispatch(
+      {
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r1',
+        patch: { effects: [dropShadow('#000000', 0, 4, 10)] },
+      },
+      { label: '预置效果' },
+    );
+    stack.dispatch(
+      updateEffectCommands(pageOf(stack), 'p1', ['r1'], 0, { blur: 24, color: '#3300FF' }),
+      { label: '效果参数' },
+    );
+
+    const effect = pageOf(stack).nodes.r1?.effects[0];
+    expect(effect).toMatchObject({
+      type: 'drop_shadow',
+      blur: 24,
+      color: '#3300FF',
+      offsetX: 0, // 未涉及的参数保留
+      offsetY: 4,
+    });
+
+    // 值无变化 → 不产生空命令；越界序号同样为空
+    const page = pageOf(stack);
+    expect(updateEffectCommands(page, 'p1', ['r1'], 0, { blur: 24 })).toEqual([]);
+    expect(updateEffectCommands(page, 'p1', ['r1'], 3, { blur: 1 })).toEqual([]);
+  });
+
+  it('批量改效果参数：一次事务作用全选（撤销一次全还原）', () => {
+    const stack = new CommandStack(fixture());
+    // 预置两个节点各一个投影（一条事务：1 条历史）
+    stack.dispatch(
+      [
+        {
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'r1',
+          patch: { effects: [dropShadow('#000000', 0, 4, 10)] },
+        },
+        {
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'r2',
+          patch: { effects: [dropShadow('#000000', 0, 4, 10)] },
+        },
+      ],
+      { label: '预置效果' },
+    );
+
+    stack.dispatch(updateEffectCommands(pageOf(stack), 'p1', ['r1', 'r2'], 0, { offsetY: 8 }), {
+      label: '效果参数',
+    });
+    expect(pageOf(stack).nodes.r1?.effects[0]).toMatchObject({ offsetY: 8 });
+    expect(pageOf(stack).nodes.r2?.effects[0]).toMatchObject({ offsetY: 8 });
+    expect(stack.history().undo).toHaveLength(2); // 预置 1 条 + 批量 1 条
+
+    expect(stack.undo()).toBe(true);
+    expect(pageOf(stack).nodes.r1?.effects[0]).toMatchObject({ offsetY: 4 });
+    expect(pageOf(stack).nodes.r2?.effects[0]).toMatchObject({ offsetY: 4 });
   });
 });
 

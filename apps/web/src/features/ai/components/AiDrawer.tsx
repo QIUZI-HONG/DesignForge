@@ -18,8 +18,9 @@ import { t } from '@/i18n';
 
 import { type AiPort, createAiPort } from '../client';
 import { AI_STEPS, type AiStepId, type AiStepStatus } from '../steps';
-import { aiStyles, stepAccent } from './styles';
 import { useAiRun } from './use-ai-run';
+
+import './ai.css';
 
 /** AiDrawer props。 */
 export interface AiDrawerProps {
@@ -38,21 +39,21 @@ function StepGlyph({ status }: { status: AiStepStatus }) {
   if (status === 'active') return <Spinner size="sm" />;
   if (status === 'done') return <CheckIcon size={12} title={t('ai.step.status.done')} />;
   if (status === 'failed') return <AlertCircleIcon size={12} title={t('ai.step.status.failed')} />;
-  return <span style={aiStyles.stepDot} aria-hidden="true" />;
+  return <span className="dfg-ai__step-dot" aria-hidden="true" />;
 }
 
-/** 单步（`data-df-step` / `data-df-step-status` 是门禁与测试共用的挂点）。 */
+/** 单步（`data-df-step` / `data-df-step-status` 是门禁与测试共用的挂点；强调色由 CSS 状态选择器承接）。 */
 function StepRow({ id, status }: { id: AiStepId; status: AiStepStatus }) {
   return (
     <li
       data-df-step={id}
       data-df-step-status={status}
       aria-current={status === 'active' ? 'step' : undefined}
-      style={aiStyles.stepRow}
+      className="dfg-ai__step-row"
     >
       <StepGlyph status={status} />
-      <span style={{ ...aiStyles.stepLabel, color: stepAccent(status) }}>{t(`ai.step.${id}`)}</span>
-      <span style={aiStyles.stepStatus}>{t(`ai.step.status.${status}`)}</span>
+      <span className="dfg-ai__step-label">{t(`ai.step.${id}`)}</span>
+      <span className="dfg-ai__step-status">{t(`ai.step.status.${status}`)}</span>
     </li>
   );
 }
@@ -73,13 +74,13 @@ function Suggestions({
 }) {
   if (suggestions.length === 0) return null;
   return (
-    <ul aria-label={t('ai.suggestion.actions')} style={aiStyles.suggestionList}>
+    <ul aria-label={t('ai.suggestion.actions')} className="dfg-ai__suggestion-list">
       {suggestions.map((suggestion, index) => (
-        <li key={`${suggestion.kind}-${String(index)}`} style={aiStyles.suggestionRow}>
-          <span style={aiStyles.suggestionText}>
+        <li key={`${suggestion.kind}-${String(index)}`} className="dfg-ai__suggestion-row">
+          <span className="dfg-ai__suggestion-text">
             <span>{suggestion.title}</span>
             {suggestion.detail === null ? null : (
-              <span style={aiStyles.suggestionDetail}>{suggestion.detail}</span>
+              <span className="dfg-ai__suggestion-detail">{suggestion.detail}</span>
             )}
           </span>
           {suggestion.kind === 'configure-credentials' && onConfigureCredentials !== undefined ? (
@@ -107,7 +108,7 @@ export function AiDrawer(props: AiDrawerProps) {
   const running = state.phase === 'running';
 
   const footer = (
-    <div style={aiStyles.actions}>
+    <div className="dfg-ai__actions">
       <Button
         variant="primary"
         onClick={() => submit(prompt)}
@@ -117,9 +118,9 @@ export function AiDrawer(props: AiDrawerProps) {
       >
         {t('ai.action.submit')}
       </Button>
-      <span style={aiStyles.spacer} />
+      <span className="dfg-ai__spacer" />
       {state.attempt > 0 ? (
-        <span style={aiStyles.stepStatus}>{t('ai.attempt', { count: state.attempt })}</span>
+        <span className="dfg-ai__step-status">{t('ai.attempt', { count: state.attempt })}</span>
       ) : null}
     </div>
   );
@@ -136,15 +137,15 @@ export function AiDrawer(props: AiDrawerProps) {
       width="md"
       footer={footer}
     >
-      <div data-df-panel="ai" style={aiStyles.body}>
+      <div data-df-panel="ai" className="dfg-ai__body">
         {status !== null && !status.configured && status.degradedHint !== null ? (
-          <p role="status" style={aiStyles.hint}>
+          <p role="status" className="dfg-ai__hint">
             {status.degradedHint}
           </p>
         ) : null}
 
-        <div style={aiStyles.field}>
-          <label style={aiStyles.fieldLabel} htmlFor="dfg-ai-prompt">
+        <div className="dfg-ai__field">
+          <label className="dfg-ai__field-label" htmlFor="dfg-ai-prompt">
             {t('ai.input.label')}
           </label>
           <textarea
@@ -153,13 +154,13 @@ export function AiDrawer(props: AiDrawerProps) {
             onChange={(event) => setPrompt(event.target.value)}
             placeholder={t('ai.input.placeholder')}
             disabled={running}
-            style={aiStyles.textarea}
+            className="dfg-ai__textarea"
           />
         </div>
 
-        <section aria-label={t('ai.steps.label')} style={aiStyles.field}>
-          <span style={aiStyles.sectionTitle}>{t('ai.steps.label')}</span>
-          <ul aria-label={t('ai.steps.label')} style={aiStyles.stepList}>
+        <section aria-label={t('ai.steps.label')} className="dfg-ai__field">
+          <span className="dfg-ai__section-title">{t('ai.steps.label')}</span>
+          <ul aria-label={t('ai.steps.label')} className="dfg-ai__step-list">
             {AI_STEPS.map((id) => (
               <StepRow key={id} id={id} status={state.steps[id]} />
             ))}
@@ -168,17 +169,17 @@ export function AiDrawer(props: AiDrawerProps) {
 
         <section
           aria-label={t('ai.result.title')}
-          style={aiStyles.result}
+          className="dfg-ai__result"
           data-df-ai-result={state.phase}
         >
-          <div style={aiStyles.resultHeader}>
-            <span style={aiStyles.sectionTitle}>{t('ai.result.title')}</span>
-            <span style={aiStyles.spacer} />
+          <div className="dfg-ai__result-header">
+            <span className="dfg-ai__section-title">{t('ai.result.title')}</span>
+            <span className="dfg-ai__spacer" />
             {state.degraded ? (
               <span
                 data-df-badge="local-template"
                 title={t('ai.badge.localTemplate.desc')}
-                style={aiStyles.badge}
+                className="dfg-ai__badge"
               >
                 {t('ai.badge.localTemplate')}
               </span>
@@ -186,9 +187,9 @@ export function AiDrawer(props: AiDrawerProps) {
           </div>
 
           {state.phase === 'failed' && state.error !== null ? (
-            <div style={aiStyles.actions}>
-              <span style={aiStyles.errorText}>{state.error}</span>
-              <span style={aiStyles.spacer} />
+            <div className="dfg-ai__actions">
+              <span className="dfg-ai__error-text">{state.error}</span>
+              <span className="dfg-ai__spacer" />
               <Button size="sm" onClick={retry}>
                 {t('ai.action.retry')}
               </Button>
@@ -196,11 +197,11 @@ export function AiDrawer(props: AiDrawerProps) {
           ) : null}
 
           {state.content.length > 0 ? (
-            <p style={aiStyles.content}>{state.content}</p>
+            <p className="dfg-ai__content">{state.content}</p>
           ) : state.phase === 'done' && state.degraded ? (
-            <p style={aiStyles.suggestionDetail}>{t('ai.badge.localTemplate.desc')}</p>
+            <p className="dfg-ai__suggestion-detail">{t('ai.badge.localTemplate.desc')}</p>
           ) : state.phase === 'idle' ? (
-            <p style={aiStyles.suggestionDetail}>{t('ai.result.empty')}</p>
+            <p className="dfg-ai__suggestion-detail">{t('ai.result.empty')}</p>
           ) : null}
 
           {state.phase === 'done' ? (

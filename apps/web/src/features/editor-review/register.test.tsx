@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
- * FE-07 ⇄ FE-03 接线测试（seam：路由侧挂载模块的可观测效果）。
+ * FE-07 ⇄ FE-03 接线测试（seam：路由侧接线模块的可观测效果）。
  *
- * 断言口径：`register.tsx` 一 import——
+ * 断言口径（工单 02 起挂载时机统一收口到编辑器引导件）：命令经 `registerEditorReview()`
+ * 登记、插槽经统一引导注册表的 FE-07 声明（`EDITOR_SLOT_DECLARATIONS`）挂载——
  * 1. 三个预留命令（评论模式 / 演示 / 版本历史）已注册 → 顶栏入口自动点亮（不再禁用）；
  * 2. 槽位挂载到位：`canvas`（评论层）、`right-panel`（线程面板）、`overlays`（Present/版本）；
  * 3. 走**用户路径**（点顶栏入口）能到达三块面：评论层进 active 态、版本抽屉打开、
@@ -14,28 +15,37 @@
 import { ToastProvider } from '@dforge/ui';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { EDITOR_SLOT_DECLARATIONS } from '@/app/editor/editor-bootstrap';
 import { getWorkspace, resetWorkspace } from '@/features/canvas';
 import {
   CanvasHudProvider,
   EditorShell,
   getCommand,
   listEditorSlotItems,
+  mountEditorSlotDeclarations,
   resetCommandRegistry,
   resetEditorSlots,
 } from '@/features/editor-shell';
 
-import './register';
 import { registerEditorReview, resetReviewSessionForTest } from './register';
 
 beforeEach(() => {
-  // 两个单例都跨用例存活：先复位，再重挂一次注册（命令的 subscribe 闭包据此绑定新会话）
+  // 单例复位后按**新装配**重挂：命令经本模块登记函数，插槽经统一引导注册表的 FE-07 声明
+  // （命令的 subscribe 闭包据此绑定新会话；生产由编辑器引导件挂载后统一执行）
   resetWorkspace();
   resetReviewSessionForTest();
+  resetCommandRegistry();
+  resetEditorSlots();
   registerEditorReview();
+  mountEditorSlotDeclarations(
+    EDITOR_SLOT_DECLARATIONS.filter((declaration) => declaration.id.startsWith('fe-07-')),
+  );
 });
 
 afterEach(() => {
   cleanup();
+  resetCommandRegistry();
+  resetEditorSlots();
 });
 
 /** 整壳渲染（应用根部形态：ToastProvider 在壳外，见 app/layout.tsx）。 */
@@ -162,10 +172,3 @@ describe('FE-07 路由侧接线 · 用户路径', () => {
     expect((screen.getByRole('button', { name: '演示' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
-
-/** 复位单例（防同文件内测试互相污染——本文件按「注册即用」的口径写，这里显式声明一处）。 */
-function _resetSingletons(): void {
-  resetCommandRegistry();
-  resetEditorSlots();
-}
-void _resetSingletons;

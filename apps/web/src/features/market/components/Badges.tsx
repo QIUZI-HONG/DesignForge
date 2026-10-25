@@ -12,9 +12,10 @@ import { displayText } from '@dforge/contracts';
 import { ComponentIcon, FrameIcon, LayersIcon, TextIcon } from '@dforge/ui';
 
 import { t } from '@/i18n';
-
+import { badgeClassName } from '../badge-classes';
 import { describeLicenseGate, describeRequirementTags } from '../capabilities';
-import { badgeRowStyle, badgeStyle } from '../styles';
+
+import '../market.css';
 
 /** kind → 中文标签键。 */
 const KIND_LABEL_KEYS: Record<MarketAssetKind, string> = {
@@ -42,7 +43,7 @@ export function kindIcon(kind: MarketAssetKind, size?: number) {
 /** 四类资产徽标。 */
 export function KindBadge({ kind }: { kind: MarketAssetKind }) {
   return (
-    <span style={badgeStyle('neutral')} data-df-market="badge" data-df-badge="kind">
+    <span className={badgeClassName('neutral')} data-df-market="badge" data-df-badge="kind">
       {t(KIND_LABEL_KEYS[kind])}
     </span>
   );
@@ -66,7 +67,7 @@ export function SourceBadge({
   const short = gitRef.slice(0, 7);
   return (
     <span
-      style={badgeStyle(archived === true ? 'warn' : 'neutral')}
+      className={badgeClassName(archived === true ? 'warn' : 'neutral')}
       data-df-market="badge"
       data-df-badge="source"
     >
@@ -80,7 +81,11 @@ export function SourceBadge({
 export function LicenseBadge({ gate }: { gate: MarketAsset['source']['license']['gate'] }) {
   const descriptor = describeLicenseGate(gate);
   return (
-    <span style={badgeStyle(descriptor.tone)} data-df-market="badge" data-df-badge="license">
+    <span
+      className={badgeClassName(descriptor.tone)}
+      data-df-market="badge"
+      data-df-badge="license"
+    >
       {t('market.badge.license', { tier: t(descriptor.labelKey) })}
     </span>
   );
@@ -89,7 +94,7 @@ export function LicenseBadge({ gate }: { gate: MarketAsset['source']['license'][
 /** 总分徽标（总分不单独展示为数字大标题，跟随雷达与徽标——规格 §5.1）。 */
 export function ScoreBadge({ score }: { score: number }) {
   return (
-    <span style={badgeStyle('ok')} data-df-market="badge" data-df-badge="score">
+    <span className={badgeClassName('ok')} data-df-market="badge" data-df-badge="score">
       {t('market.badge.score', { score: score.toFixed(2) })}
     </span>
   );
@@ -102,19 +107,19 @@ export function MetricRow({ asset }: { asset: MarketAsset }) {
     metrics !== undefined &&
     (metrics.installs > 0 || metrics.adoptions > 0 || metrics.favorites > 0);
   return (
-    <span style={badgeRowStyle} data-df-market="metrics">
-      <span style={badgeStyle('neutral')}>
+    <span className="dfg-market__badge-row" data-df-market="metrics">
+      <span className={badgeClassName('neutral')}>
         {t('market.metric.stars', { count: asset.source.stars })}
       </span>
       {hasFeedback ? (
-        <span style={badgeStyle('neutral')}>
+        <span className={badgeClassName('neutral')}>
           {t('market.metric.feedback', {
             installs: metrics?.installs ?? 0,
             adoptions: metrics?.adoptions ?? 0,
           })}
         </span>
       ) : (
-        <span style={badgeStyle('neutral')} data-df-market="metrics-pending">
+        <span className={badgeClassName('neutral')} data-df-market="metrics-pending">
           {t('market.metric.localOnlyPending')}
         </span>
       )}
@@ -126,9 +131,9 @@ export function MetricRow({ asset }: { asset: MarketAsset }) {
 export function RequirementTags({ capabilities }: { capabilities: readonly string[] }) {
   const keys = describeRequirementTags(capabilities);
   return (
-    <span style={badgeRowStyle} data-df-market="requirement-tags">
+    <span className="dfg-market__badge-row" data-df-market="requirement-tags">
       {keys.map((key) => (
-        <span key={key} style={badgeStyle(key === 'market.tag.localOnly' ? 'ok' : 'warn')}>
+        <span key={key} className={badgeClassName(key === 'market.tag.localOnly' ? 'ok' : 'warn')}>
           {t(key)}
         </span>
       ))}

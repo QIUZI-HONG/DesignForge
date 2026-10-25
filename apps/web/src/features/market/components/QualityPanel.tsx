@@ -11,7 +11,7 @@
 import type { MarketQuality } from '@dforge/contracts';
 
 import { t } from '@/i18n';
-
+import { meterFillClassName } from '../badge-classes';
 import {
   buildRadarDims,
   deductionLabelKey,
@@ -19,17 +19,8 @@ import {
   summarizeDeductions,
   toPointsAttr,
 } from '../quality';
-import {
-  dimRowStyle,
-  hintStyle,
-  listItemStyle,
-  listStyle,
-  meterFillStyle,
-  meterTrackStyle,
-  scoreStyle,
-  sectionStyle,
-  sectionTitleStyle,
-} from '../styles';
+
+import '../market.css';
 
 /** 雷达画布几何（SVG 用户单位，非 CSS 像素——不产生裸值）。 */
 const RADAR_SIZE = 200;
@@ -53,20 +44,13 @@ export function QualityPanel({ quality }: { quality: MarketQuality }) {
   );
 
   return (
-    <section style={sectionStyle} data-df-market="quality-panel">
-      <h2 style={sectionTitleStyle}>{t('market.quality.title')}</h2>
-      <p style={hintStyle} data-df-market="quality-score">
+    <section className="dfg-market__section" data-df-market="quality-panel">
+      <h2 className="dfg-market__section-title">{t('market.quality.title')}</h2>
+      <p className="dfg-market__hint" data-df-market="quality-score">
         {t('market.quality.score', { score: quality.score.toFixed(2) })}
       </p>
 
-      <div
-        style={{
-          display: 'flex',
-          gap: 'var(--dfg-space-4)',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-        }}
-      >
+      <div className="dfg-market__quality-layout">
         <svg
           width={RADAR_SIZE}
           height={RADAR_SIZE}
@@ -126,28 +110,25 @@ export function QualityPanel({ quality }: { quality: MarketQuality }) {
           })}
         </svg>
 
-        <div
-          style={{
-            display: 'grid',
-            gap: 'var(--dfg-space-2)',
-            minWidth: 'var(--dfg-size-menu-min-width)',
-          }}
-        >
+        <div className="dfg-market__stack dfg-market__stack--gap-2 dfg-market__stack--menu-min">
           {dims.map((dim) => (
-            <div key={dim.key} style={dimRowStyle} data-df-market="dim-row" data-df-dim={dim.key}>
+            <div
+              key={dim.key}
+              className="dfg-market__dim-row"
+              data-df-market="dim-row"
+              data-df-dim={dim.key}
+            >
               <span>{t(dim.labelKey)}</span>
-              <span style={meterTrackStyle}>
+              <span className="dfg-market__meter-track">
                 <span
-                  style={{
-                    ...meterFillStyle(
-                      dim.value >= 0.6 ? 'primary' : dim.value >= 0.3 ? 'warn' : 'danger',
-                    ),
-                    display: 'block',
-                    width: `${String(Math.round(dim.value * 100))}%`,
-                  }}
+                  className={meterFillClassName(
+                    dim.value >= 0.6 ? 'primary' : dim.value >= 0.3 ? 'warn' : 'danger',
+                  )}
+                  // 填充宽度由数据给百分比（动态值豁免——工单 06 登记表）
+                  style={{ width: `${String(Math.round(dim.value * 100))}%` }}
                 />
               </span>
-              <span style={scoreStyle}>
+              <span className="dfg-market__score">
                 {dim.hasSignal ? dim.value.toFixed(2) : t('market.dim.noSignal')}
               </span>
             </div>
@@ -155,16 +136,16 @@ export function QualityPanel({ quality }: { quality: MarketQuality }) {
         </div>
       </div>
 
-      <h3 style={sectionTitleStyle}>{t('market.quality.why')}</h3>
+      <h3 className="dfg-market__section-title">{t('market.quality.why')}</h3>
       {groups.length === 0 ? (
-        <p style={hintStyle} data-df-market="quality-no-deductions">
+        <p className="dfg-market__hint" data-df-market="quality-no-deductions">
           {t('market.quality.noDeductions')}
         </p>
       ) : (
-        <ul style={listStyle} data-df-market="deductions">
+        <ul className="dfg-market__list" data-df-market="deductions">
           {groups.map((group) => (
-            <li key={group.dim} style={listItemStyle}>
-              <span style={hintStyle}>{t(group.labelKey)}</span>
+            <li key={group.dim} className="dfg-market__list-item">
+              <span className="dfg-market__hint">{t(group.labelKey)}</span>
               {group.deductions.map((deduction) => {
                 const labelKey = deductionLabelKey(deduction.code);
                 return (

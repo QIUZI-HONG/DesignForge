@@ -59,3 +59,40 @@ describe('图标集 · 统一口径', () => {
     expect(Custom.displayName).toBe('CustomIcon');
   });
 });
+
+describe('图标集 · 编辑器补全（RW-07：图层树 / Inspector / 命令面板）', () => {
+  // 用词对齐 Figma 中文界面：图层类型（矩形/椭圆/多边形/直线/图片/组/区块）、
+  // 拖拽把手、吸管（取色）、效果、回车（命令面板执行）、键盘（快捷键速查）。
+  const REQUIRED = [
+    'GripIcon',
+    'RectangleIcon',
+    'EllipseIcon',
+    'PolygonIcon',
+    'LineIcon',
+    'ImageIcon',
+    'GroupIcon',
+    'SectionIcon',
+    'PipetteIcon',
+    'EffectsIcon',
+    'CornerDownLeftIcon',
+    'KeyboardIcon',
+  ] as const;
+
+  it('图层树/Inspector/命令面板所需图标全部在册', () => {
+    const missing = REQUIRED.filter((name) => !(name in ICONS));
+    expect(missing).toEqual([]);
+  });
+
+  it('补全图标沿用统一口径（16 画布 / 1.5 描边 / 装饰性）', () => {
+    for (const name of REQUIRED) {
+      const Icon = ICONS[name];
+      const { container, unmount } = render(<Icon />);
+      const svg = container.querySelector('svg');
+      expect(svg, name).not.toBeNull();
+      expect(svg?.getAttribute('viewBox'), name).toBe('0 0 16 16');
+      expect(svg?.getAttribute('stroke-width'), name).toBe('1.5');
+      expect(svg?.getAttribute('aria-hidden'), name).toBe('true');
+      unmount();
+    }
+  });
+});

@@ -1,0 +1,536 @@
+/*
+ * 编辑器评审特性样式（工单 06 · 样式单轨；深色编辑器族）。
+ *
+ * 纪律（_shared §3）：**禁裸值**——颜色/间距/圆角/字号一律 `var(--dfg-…)` 令牌引用
+ * （`scripts/guard-tokens.mjs` 会扫本文件）；几何适配用 calc/百分比，不算裸值。
+ * 覆盖范围：评论层/钉点/线程面板（C12/F7）、版本抽屉与并排对比（C14/F10）、
+ * Present 浮层（C13）。主题全部走深色编辑器族令牌。
+ *
+ * 内联仅保留**几何算式**（钉点屏幕坐标 = 世界坐标 × zoom + pan、幻灯片缩放尺寸、
+ * 文档数据驱动的画板渲染）与**动态令牌引用**——逐条登记在工单 06 豁免登记表。
+ */
+
+/* ---------- 评审面板骨架（评论/版本右栏共用） ---------- */
+
+.dfg-review__panel {
+  display: flex;
+  flex-direction: column;
+  width: var(--dfg-size-sidebar);
+  height: 100%;
+  min-height: 0;
+  background-color: var(--dfg-color-surface);
+  border-inline: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfg-review__panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-review__panel-title {
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-review__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dfg-review__meta {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* 元信息继承父色（如「已解决」徽标随行前景） */
+.dfg-review__meta--inherit {
+  color: inherit;
+}
+
+.dfg-review__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-6) var(--dfg-space-3);
+  text-align: center;
+}
+
+.dfg-review__empty-title {
+  font-size: var(--dfg-font-size-13);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-review__empty-desc {
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* 文本域（评论草稿/回复共用；深度 4 行高由令牌最小高度给出） */
+.dfg-review__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: var(--dfg-size-textarea-min-height);
+  resize: none;
+  padding: var(--dfg-space-2);
+  border-radius: var(--dfg-radius-md);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  background-color: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfg-review__button-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-review__error {
+  color: var(--dfg-color-danger);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* 列表重置（ul/li 不显标记与缩进）——评论/版本列表共用 */
+.dfg-review__list-reset {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---------- 评论层与钉点（C12/F7） ---------- */
+
+/* 覆盖层：铺满画布视口，默认不吃指针事件（只有钉点/草稿卡片吃） */
+.dfg-review__layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/*
+ * 落点按钮：铺满视口的透明控件（评论模式下才渲染；键盘等价路径见组件头注释）。
+ * pointer-events: auto 是必需的：覆盖层根节点是 none（不吃画布事件），
+ * 只靠继承的话落点按钮在真浏览器里点不到（jsdom 不算 pointer-events）。
+ */
+.dfg-review__comment-surface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: crosshair;
+  pointer-events: auto;
+}
+
+/*
+ * 钉点：屏幕坐标（left/top）由组件按世界坐标 × zoom + pan 算出后行内注入（几何豁免）；
+ * 视觉中心对齐锚点；解决态/激活态由 data-df-state / data-df-active 承接。
+ */
+.dfg-review__pin {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dfg-icon-size-lg);
+  height: var(--dfg-icon-size-lg);
+  transform: translate(-50%, -50%);
+  border-radius: var(--dfg-radius-pill);
+  border: none;
+  background-color: var(--dfg-color-primary);
+  color: var(--dfg-color-on-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.dfg-review__pin[data-df-state="resolved"] {
+  background-color: var(--dfg-color-success);
+}
+
+.dfg-review__pin[data-df-active="true"] {
+  box-shadow: 0 0 0 var(--dfg-border-width-thick) var(--dfg-color-focus-ring);
+}
+
+/* 悬停展开的预览卡（钉点右下方；left/top 几何豁免） */
+.dfg-review__hover-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  min-width: var(--dfg-size-menu-min-width);
+  max-width: var(--dfg-size-tooltip-max-width);
+  padding: var(--dfg-space-2);
+  border-radius: var(--dfg-radius-md);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  background-color: var(--dfg-color-surface-raised);
+  box-shadow: var(--dfg-shadow-popover);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  pointer-events: none;
+}
+
+/* 草稿卡片（新评论落点处；left/top 几何豁免） */
+.dfg-review__draft {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  width: var(--dfg-size-sidebar);
+  padding: var(--dfg-space-2);
+  border-radius: var(--dfg-radius-md);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  background-color: var(--dfg-color-surface-raised);
+  box-shadow: var(--dfg-shadow-popover);
+  pointer-events: auto;
+}
+
+/* ---------- 线程面板条目 ---------- */
+
+.dfg-review__thread-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-review__author {
+  font-weight: var(--dfg-font-weight-medium);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-review__comment-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 线程条目的整行按钮：条目排版 + 重置 + 激活底色（aria-expanded 是对外语义）。
+   注：原样式对象合并里 threadToggle 的 border:none 覆盖了 thread 的 border-bottom，
+   实际渲染无边框——此处按真实视觉落 CSS。 */
+.dfg-review__thread-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border: none;
+  cursor: default;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+}
+
+.dfg-review__thread-toggle[aria-expanded="true"] {
+  background-color: var(--dfg-color-hover);
+}
+
+/* 条目行内动作区（已解决条目的显式「重新打开」入口；行内右对齐、始终可见） */
+.dfg-review__row-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--dfg-space-3) var(--dfg-space-2);
+}
+
+/* 线程展开区（回复列表 + 输入 + 操作） */
+.dfg-review__thread-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: 0 var(--dfg-space-3) var(--dfg-space-3);
+}
+
+.dfg-review__reply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding-left: var(--dfg-space-3);
+  border-left: var(--dfg-border-width-thick) solid var(--dfg-color-border);
+}
+
+.dfg-review__reply-item {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 「已解决」分段头（展开/折叠） */
+.dfg-review__section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border: none;
+  border-top: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  background: transparent;
+  color: var(--dfg-color-text-secondary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-11);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* ---------- 顶栏/工具栏插槽件（评论开关/演示/版本入口共用基座） ---------- */
+
+.dfg-review__mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-icon-gap);
+  height: var(--dfg-control-height-md);
+  padding-inline: var(--dfg-control-padding-x-md);
+  border-radius: var(--dfg-radius-md);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  background: transparent;
+  color: var(--dfg-color-text-secondary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  cursor: pointer;
+}
+
+/* 开启态：主色底 + 反白（data-df-state / aria-pressed 都是对外语义） */
+.dfg-review__mode-toggle[data-df-state="active"],
+.dfg-review__mode-toggle[aria-pressed="true"] {
+  background-color: var(--dfg-color-primary);
+  border-color: var(--dfg-color-primary);
+  color: var(--dfg-color-on-primary);
+}
+
+/* ---------- 版本历史（抽屉列表 + 并排对比浮层） ---------- */
+
+.dfg-review__versions-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+}
+
+.dfg-review__version-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-2) 0;
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-review__version-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-review__version-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+/*
+ * 并排对比浮层的内容容器（铺满视口；两栏才是真的「并排」）。
+ * 定位与 z 序归 @dforge/ui 的 Overlay（浮层栈内同源推导）——这里只说「内容如何排布」。
+ */
+.dfg-review__compare-overlay {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-3);
+  padding: var(--dfg-space-4);
+  background-color: var(--dfg-color-surface);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  overflow-y: auto;
+}
+
+.dfg-review__compare-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--dfg-space-3);
+}
+
+.dfg-review__compare-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--dfg-space-3);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.dfg-review__compare-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+  border-radius: var(--dfg-radius-lg);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  background-color: var(--dfg-color-surface-subtle);
+  min-height: 0;
+}
+
+.dfg-review__compare-column-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-review__compare-column-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dfg-review__compare-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-3);
+  border-radius: var(--dfg-radius-lg);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  background-color: var(--dfg-color-surface-raised);
+}
+
+.dfg-review__compare-diff-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--dfg-space-3);
+  padding-block: var(--dfg-space-1);
+}
+
+.dfg-review__compare-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-review__compare-confirm-hint {
+  flex: 1 1 auto;
+  color: var(--dfg-color-text-secondary);
+}
+
+/* ---------- Present 浮层（C13） ---------- */
+
+/*
+ * 舞台：由 @dforge/ui 的 Overlay 提供全视口覆盖与 z 序（浮层栈内同源推导），
+ * 本样式只负责「铺满 + 居中 + 深色底」——不自持 position: fixed / z 令牌，
+ * 否则会与栈序脱钩（同 D-4 一类缺陷）。
+ */
+.dfg-review__present-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background-color: var(--dfg-color-canvas);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+}
+
+/* 幻灯片区域（居中，留出控制条的空间） */
+.dfg-review__present-canvas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 顶部悬浮控制条：圆角胶囊 + 悬浮阴影；隐藏态由 data-df-state 承接 */
+.dfg-review__present-bar {
+  position: absolute;
+  top: var(--dfg-space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  height: var(--dfg-control-height-md);
+  padding-inline: var(--dfg-space-3);
+  border-radius: var(--dfg-radius-pill);
+  background-color: var(--dfg-color-surface-raised);
+  box-shadow: var(--dfg-shadow-lg);
+  color: var(--dfg-color-text-primary);
+  font-size: var(--dfg-font-size-12);
+  transition: opacity var(--dfg-duration-base) var(--dfg-easing-standard);
+  opacity: 1;
+}
+
+/* 自动隐藏态：保留 DOM（可测、可被读屏忽略）但不可点 */
+.dfg-review__present-bar[data-df-state="hidden"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dfg-review__present-bar-spacer {
+  flex: 1 1 auto;
+  min-width: var(--dfg-space-3);
+}
+
+.dfg-review__present-page {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-review__present-slide-label {
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-review__present-bar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dfg-control-height-sm);
+  height: var(--dfg-control-height-sm);
+  border-radius: var(--dfg-radius-pill);
+  border: none;
+  background: transparent;
+  color: var(--dfg-color-text-primary);
+  font-size: var(--dfg-font-size-13);
+  cursor: pointer;
+}
+
+/* 空态（无画板） */
+.dfg-review__present-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  text-align: center;
+}
+
+.dfg-review__present-empty-title {
+  font-size: var(--dfg-font-size-15);
+}
+
+.dfg-review__present-empty-desc {
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* 幻灯片外框（宽高/背景由画板数据行内注入——几何与文档数据豁免；缩放见 SlidePreview） */
+.dfg-review__slide-frame {
+  position: relative;
+  overflow: hidden;
+  transform-origin: top left;
+}

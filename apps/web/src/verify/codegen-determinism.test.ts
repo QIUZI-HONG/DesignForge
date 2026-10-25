@@ -59,7 +59,9 @@ function makePage() {
     rootIds: ['n_card', 'n_title'],
     nodes: { n_card: rect, n_title: text },
   });
-  return createDocument({ id: 'doc_1', pages: [page] }).pages[0]!;
+  const first = createDocument({ id: 'doc_1', pages: [page] }).pages[0];
+  if (first === undefined) throw new Error('fixture: page_1 must exist');
+  return first;
 }
 
 /** 令牌集：含别名、同值多条、大小写差异、单位差异。 */
@@ -211,7 +213,8 @@ describe('代码生成 · 数值格式化边界', () => {
     const pageWithFloat = createDocument({
       id: 'doc_2' as DesignDocument['id'],
       pages: [createPage({ id: 'page_2', rootIds: ['n_f'], nodes: { n_f: withFloat } })],
-    }).pages[0]!;
+    }).pages[0];
+    if (pageWithFloat === undefined) throw new Error('fixture: page_2 must exist');
     const code = generateCss(pageWithFloat, 'n_f', {}).code;
     expect(code).toContain('left: 0.5px');
     expect(code).toContain('top: 1px');

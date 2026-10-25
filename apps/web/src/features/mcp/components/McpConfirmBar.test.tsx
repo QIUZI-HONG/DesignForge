@@ -3,7 +3,12 @@
  * MCP 确认条组件测试（seam：用户可观察的界面行为——逐项 diff、一次性确认、超时失效）。
  *
  * 达标语义硬要求：**桩必须在 UI 里显式标注**（角标「桩」，且 `data-df-stub="true"` 是门禁挂点）。
+ * 样式单轨（工单 06）：样式断言走**类名挂载 + mcp.css 文本**（External CSS 在 jsdom
+ * 不计算，先例 verify/a11y-keyboard.test.tsx 注入 CSS）。
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -121,5 +126,39 @@ describe('MCP 确认条（F9 · 桩）', () => {
     await waitFor(() => {
       expect(screen.getByText('已失效（超时未确认）')).toBeTruthy();
     });
+  });
+});
+
+/** 读域内 CSS 文本（jsdom 不计算 External CSS，类规则只能对文件文本断言）。 */
+const mcpCss = (): string =>
+  readFileSync(resolve(process.cwd(), 'src/features/mcp/components/mcp.css'), 'utf8');
+
+/** 断言 CSS 里有 `.类名 { … }` 规则块，并返回该块文本。 */
+function cssRule(css: string, className: string): string {
+  const at = css.indexOf(`.${className} {`);
+  expect(at, `mcp.css 缺少 .${className} 规则`).toBeGreaterThanOrEqual(0);
+  const end = css.indexOf('}', at);
+  return css.slice(at, end);
+}
+
+describe('MCP 确认条 · 样式单轨（工单 06）', () => {
+  it('样式挂类不挂内联：确认条子树不产生 style 属性', () => {
+    renderBar();
+    const bar = document.querySelector('[data-df-mcp-confirm]');
+    expect(bar?.classList.contains('dfg-mcp__bar')).toBe(true);
+    // 本域无几何算式场景：整棵确认条不允许任何内联样式（豁免登记表在工单 06）
+    expect(bar?.querySelector('[style]')).toBeNull();
+    // 桩角标挂类（全站唯一的「桩」标注样式走 CSS 承接）
+    expect(screen.getByText('桩').className).toContain('dfg-mcp__stub-badge');
+  });
+
+  it('关键规则块落盘：外壳/桩角标/终态底色的令牌引用逐一断言', () => {
+    const css = mcpCss();
+    expect(cssRule(css, 'dfg-mcp__bar')).toContain('var(--dfg-size-modal-md)');
+    expect(cssRule(css, 'dfg-mcp__bar')).toContain('var(--dfg-color-surface-raised)');
+    expect(cssRule(css, 'dfg-mcp__stub-badge')).toContain('var(--dfg-color-component)');
+    expect(cssRule(css, 'dfg-mcp__result')).toContain('var(--dfg-color-success-subtle)');
+    expect(cssRule(css, 'dfg-mcp__expired')).toContain('var(--dfg-color-warning-subtle)');
+    expect(cssRule(css, 'dfg-mcp__failure')).toContain('var(--dfg-color-danger-subtle)');
   });
 });

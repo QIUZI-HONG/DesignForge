@@ -89,7 +89,9 @@ export function ZoomMenu() {
             data-df-zoom={toZoomPercent(zoom)}
             {...state.triggerProps}
           >
-            <span className="dfg-editor-zoom__value">{toZoomPercent(zoom)}%</span>
+            {/* 单表达式成单一文本节点：{值}% 两段相邻文本在 SSR 静态标记里被合并，
+                水合按节点比对必然错位（Server "100%" vs Client "100"） */}
+            <span className="dfg-editor-zoom__value">{`${String(toZoomPercent(zoom))}%`}</span>
             <ChevronDownIcon size={12} />
           </button>
         )}

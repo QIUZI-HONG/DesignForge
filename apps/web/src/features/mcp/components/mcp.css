@@ -1,0 +1,161 @@
+/**
+ * MCP 确认条特性样式（工单 06 · 样式单轨）。
+ *
+ * 口径（`_shared.md` §3 禁裸值 + canvas.css/editor-shell.css 既有惯例）：
+ * 颜色/间距/圆角/字号一律 `var(--dfg-*)` 令牌引用（`scripts/guard-tokens.mjs` 扫本文件，
+ * R1-R4 与组件同轨约束）；本域无几何算式场景，不存在内联 style（豁免登记表在工单 06）。
+ */
+
+.dfg-mcp__bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+  background-color: var(--dfg-color-surface-raised);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+  box-shadow: var(--dfg-shadow-md);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+  max-width: var(--dfg-size-modal-md);
+}
+
+.dfg-mcp__header {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-mcp__title {
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+/* 桩角标：AI 紫语义色（与 AI 族同源），全站唯一的「桩」标注样式 */
+.dfg-mcp__stub-badge {
+  display: inline-flex;
+  align-items: center;
+  height: var(--dfg-control-height-sm);
+  padding: 0 var(--dfg-space-2);
+  background-color: var(--dfg-color-component);
+  color: var(--dfg-color-on-primary);
+  border-radius: var(--dfg-radius-pill);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+  cursor: help;
+}
+
+.dfg-mcp__spacer {
+  flex: 1 1 auto;
+}
+
+.dfg-mcp__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-mcp__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+}
+
+.dfg-mcp__tool {
+  font-family: var(--dfg-font-sans);
+  color: var(--dfg-color-text-primary);
+}
+
+/* ---------- 逐项 diff ---------- */
+
+.dfg-mcp__diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfg-mcp__diff-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-2);
+  background-color: var(--dfg-color-surface-subtle);
+  border-radius: var(--dfg-radius-sm);
+}
+
+.dfg-mcp__diff-head {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-mcp__diff-op {
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-mcp__diff-target {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-mcp__diff-summary {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* ---------- 动作行与终态 ---------- */
+
+.dfg-mcp__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-mcp__countdown {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-mcp__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-2);
+  background-color: var(--dfg-color-success-subtle);
+  border-radius: var(--dfg-radius-sm);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-mcp__expired {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-2);
+  background-color: var(--dfg-color-warning-subtle);
+  border-radius: var(--dfg-radius-sm);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-mcp__failure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-2);
+  background-color: var(--dfg-color-danger-subtle);
+  border-radius: var(--dfg-radius-sm);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-mcp__stub-note {
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+}

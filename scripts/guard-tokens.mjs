@@ -7,10 +7,17 @@
  *   node scripts/guard-tokens.mjs --verbose   # 附带打印白名单跳过明细
  *   node scripts/guard-tokens.mjs --roots apps/web/src
  *
- * 规则（详见 packages/ui/src/tools/guard-tokens-core.mjs 的 R1/R2/R3）：
+ * 规则（详见 packages/ui/src/tools/guard-tokens-core.mjs 的 R1/R2/R3/R4/R5）：
  *   R1 颜色裸值 `#hex` / `rgb()` / `hsl()`（函数名与 `(` 间可含空白）；
  *   R2 长度裸值 `12px`/`1.5rem`/`.5rem`/`-12px`/`12PX`（单位大小写不敏感；零值放行）；
- *   R3 样式对象里的间距/尺寸族裸数字（`marginTop: 8`；不含 `lineHeight`/`inset`）。
+ *   R3 样式对象里的间距/尺寸族裸数字（`marginTop: 8`；不含 `lineHeight`/`inset`）；
+ *   R4 令牌单位非法（F-1 缺陷回归守卫）：`--dfg-*` 数值按族校验——时长必须 ms、长度必须 px、
+ *      字重/行高/层级必须无单位、字距必须 em；未登记数值族一律违规（登记制）。
+ *      白名单对 R1-R3 豁免令牌定义文件，但 R4 对 `packages/ui/src/tokens.css` 照查
+ *      （时长档落盘 `150px` 的病灶就在该文件）；R4 不设行内豁免。
+ *   R5 语义档未登记（令牌 v2 登记制）：海拔/动效/焦点环语义名必须在 SEMANTIC_TOKEN_FAMILIES
+ *      登记，值是 none 或指向登记刻度的 var(--dfg-…) 别名（语义层只做映射，不重造值）；
+ *      未登记语义名/重造值/引用源未登记/none 越权一律违规；不设行内豁免，与 R4 同口径。
  * 精度（「样式语法上下文才判」）：注释里的说明文本（带 `{` 的样式对象样例、`rgb(`/`hsl(`
  * 取色说明、令牌引用示例 `var(--dfg-…)`）与字符串里的示例文本（带 `{` 或 `var(--dfg-…)`）、
  * 自然语言文案（含中日韩文字）视为非取值，跳过；取值写法（字符串里的 CSS 函数与 `key: 数值`、
@@ -72,7 +79,7 @@ for (const violation of violations) {
 }
 
 console.error(
-  `guard-tokens：发现 ${violations.length} 处裸值（组件禁裸值：颜色/间距/圆角/字号走令牌）`,
+  `guard-tokens：发现 ${violations.length} 处违规（禁裸值 R1-R3 + 令牌单位 R4 + 语义档登记 R5）`,
 );
 for (const [file, list] of byFile) {
   console.error(`  ${file}`);
@@ -83,6 +90,12 @@ for (const [file, list] of byFile) {
   }
 }
 console.error(
-  '修复：改用 var(--dfg-…) 令牌引用；确有个别例外时在该行注释里写 `guard-tokens:allow <理由>`。',
+  '修复：裸值改用 var(--dfg-…) 令牌引用（确有个别例外时在该行注释写 `guard-tokens:allow <理由>`）；',
+);
+console.error(
+  '单位非法（R4）改令牌值本身或其在 guard-tokens-core.mjs TOKEN_UNIT_RULES 的登记单位——R4 无行内豁免；',
+);
+console.error(
+  '语义档未登记（R5）改用已登记语义名或按 guard-tokens-core.mjs SEMANTIC_TOKEN_FAMILIES 登记——R5 无行内豁免。',
 );
 process.exit(1);

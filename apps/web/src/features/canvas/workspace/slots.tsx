@@ -30,6 +30,7 @@ import { t } from '@/i18n';
 
 import { installCanvasDebugHandle, sessionDebugHandle } from '../debug/canvas-debug';
 import { daemonPageId } from '../persistence/documents-client';
+import { createFramePerfRecorder, type FramePerfRecorder } from '../render/frame-perf';
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
 import { AiEntryIcon } from './icons';
@@ -70,6 +71,9 @@ export function CanvasSlot() {
   const hud = useCanvasHud();
   const statsRef = useRef<SceneRenderStats | null>(null);
   const statusRef = useRef<CanvasRuntimeStatus | null>(null);
+  // 帧性能记录器（渲染观测 seam）：帧闭包喂样本，门禁经 __dforgeCanvas.perf() 按需读快照
+  const perfRef = useRef<FramePerfRecorder | null>(null);
+  if (perfRef.current === null) perfRef.current = createFramePerfRecorder();
 
   // 门禁/调试读点（与 `/_canvas` 同一套字段，见 debug/canvas-debug.ts）
   useEffect(() => {
@@ -87,6 +91,7 @@ export function CanvasSlot() {
             error: null,
           },
         stats: () => statsRef.current,
+        perf: () => perfRef.current?.snapshot() ?? null,
         // 落盘的 daemon 文档 id（D-2）：门禁/e2e 据此断言「打开的是哪一份、保存到哪一份」
         documentId: () => workspace.documents.store.getState().documentId,
       }),
@@ -100,8 +105,9 @@ export function CanvasSlot() {
       theme="dark"
       hud={hud}
       coveredShortcutIds={SHELL_COVERED_SHORTCUT_IDS}
-      onFrame={(stats) => {
+      onFrame={(stats, timing) => {
         statsRef.current = stats;
+        perfRef.current?.record(timing);
       }}
       onStatus={(status) => {
         statusRef.current = status;
@@ -185,10 +191,12 @@ export function RightPanelSlot() {
         {tab === 'image' ? <ImageTab /> : null}
       </div>
       <div className="dfc-ws-right__inspector" data-df-workspace="inspector">
+        {/* RW-10：面板自订阅面板域选择态（zustand）——选中变化即时刷新，不依赖宿主整树重渲 */}
         <InspectorPanel
           stack={workspace.canvas.stack}
           pageId={workspace.pageId}
           selection={selection}
+          selectionStore={workspace.panels.ui}
         />
       </div>
     </div>

@@ -12,6 +12,12 @@
  * 本文件是颜色/间距/圆角/字号的唯一定义处（`scripts/guard-tokens.mjs` 白名单）；
  * `tokens.css` 由 `flattenPrimitives()` / `flattenTheme()` 的同一套命名规则落盘，
  * `tokens.test.ts` 逐项断言两者一致——改令牌必须同时改 CSS，否则测试红。
+ *
+ * 令牌 v2（R-5）：物理刻度之上另有**语义档别名层**，只引用既有刻度、不重造值——
+ * 海拔（页面/浮层/弹层 → `--dfg-shadow-*`）、焦点环（色/宽/偏移组合）、动效
+ * （进入/退出/强调 = `--dfg-duration-*` + `--dfg-easing-*` 组合）。语义名在
+ * `guard-tokens-core.mjs` 的 SEMANTIC_TOKEN_FAMILIES 登记（R5 登记制），组件
+ * 消费语义档自后续票起（既有组件继续引用物理刻度，不受影响）。
  */
 
 /** CSS 变量表（变量名 → 值）。 */
@@ -111,6 +117,24 @@ export interface EasingScale {
   exit: string;
 }
 
+/**
+ * 动效语义档（进入/退出/强调）：时长 + 缓动的语义组合（令牌 v2，R-5）。
+ *
+ * 值是既有 duration / easing 刻度的**别名引用**（`var(--dfg-…)`），不重造值——
+ * R-5 口径「词汇已有一半」，语义层只做映射。三档铺满既有词汇：
+ * 进入 = base + standard、退出 = fast + exit、强调 = slow + emphasized
+ * （退出比进入快：要让位，不抢注意力）。语义名与引用源在
+ * `guard-tokens-core.mjs` 的 SEMANTIC_TOKEN_FAMILIES 登记（登记制，未登记即 R5 违规）。
+ */
+export interface MotionSemanticScale {
+  /** 进入：面板/浮层/抽屉出场。 */
+  enter: { duration: string; easing: string };
+  /** 退出：消失方向的过渡。 */
+  exit: { duration: string; easing: string };
+  /** 强调：大面板/英雄转场等需要存在感的时刻。 */
+  emphasized: { duration: string; easing: string };
+}
+
 /** 图标尺寸档（16px 线性为默认）。 */
 export interface IconSizeScale {
   sm: number;
@@ -162,6 +186,8 @@ export interface Primitives {
   letterSpacing: LetterSpacingScale;
   duration: DurationScale;
   easing: EasingScale;
+  /** 动效语义档（进入/退出/强调 = 时长+缓动别名组合；主题无关，落 `:root`）。 */
+  motion: MotionSemanticScale;
   iconSize: IconSizeScale;
   size: SizeScale;
   z: ZIndexScale;
@@ -183,6 +209,12 @@ export const PRIMITIVES: Primitives = {
     standard: 'cubic-bezier(0.2, 0, 0, 1)',
     emphasized: 'cubic-bezier(0.4, 0, 0.2, 1)',
     exit: 'cubic-bezier(0.4, 0, 1, 1)',
+  },
+  // 动效语义档（令牌 v2）：只引用上面的时长/缓动刻度，不重造值（见 MotionSemanticScale）。
+  motion: {
+    enter: { duration: 'var(--dfg-duration-base)', easing: 'var(--dfg-easing-standard)' },
+    exit: { duration: 'var(--dfg-duration-fast)', easing: 'var(--dfg-easing-exit)' },
+    emphasized: { duration: 'var(--dfg-duration-slow)', easing: 'var(--dfg-easing-emphasized)' },
   },
   iconSize: { sm: 12, md: 16, lg: 24 },
   size: {
@@ -307,7 +339,41 @@ export interface ThemeShadows {
   popover: string;
 }
 
-/** 一套主题 = 语义色 + 阴影 + 默认密度。 */
+/**
+ * 海拔语义档（页面/浮层/弹层）：语义名 → 实际阴影令牌引用，不重造值（令牌 v2，R-5）。
+ *
+ * 口径（改造总纲 §5.2「海拔体系应用」）：浮层统一 shadow-popover、弹层 shadow-lg；
+ * 页面是基面，无海拔阴影（`none`）。值随主题块落盘——两主题当前同构（海拔选择不随
+ * 基准分叉，阴影浓淡由底层 `--dfg-shadow-*` 分叉），但结构允许各主题独立取值。
+ * 语义名登记于 `guard-tokens-core.mjs` 的 SEMANTIC_TOKEN_FAMILIES（未登记即 R5 违规）。
+ */
+export interface ThemeElevation {
+  /** 页面基面：无海拔阴影。 */
+  page: string;
+  /** 浮层（下拉/菜单/气泡/提示）：压在页面之上。 */
+  overlay: string;
+  /** 弹层（模态/抽屉）：压在浮层之上。 */
+  modal: string;
+}
+
+/**
+ * 焦点环令牌（键盘焦点态的颜色/宽度组合，令牌 v2，R-5）。
+ *
+ * 双主题**可分别取值**（各主题块独立落盘）；当前值是既有刻度的别名引用——色取
+ * `color.focusRing`、宽/偏移取 `borderWidth.focus`，与 components.css 现行 outline
+ * 写法同源（改这里不会漂移现有组件外观）。后续票的全组件焦点态统一消费本档，
+ * 不再各写一遍「宽+色」组合。语义名登记于 SEMANTIC_TOKEN_FAMILIES（R5 登记制）。
+ */
+export interface ThemeFocusRing {
+  /** 环色。 */
+  color: string;
+  /** 环宽。 */
+  width: string;
+  /** 环与元素的距离（outline-offset）。 */
+  offset: string;
+}
+
+/** 一套主题 = 语义色 + 阴影 + 海拔语义档 + 焦点环 + 默认密度。 */
 export interface Theme {
   name: ThemeName;
   /** 用给 `color-scheme` / 原生控件（滚动条、表单）的口径。 */
@@ -315,6 +381,10 @@ export interface Theme {
   density: DensityName;
   colors: ThemeColors;
   shadows: ThemeShadows;
+  /** 海拔语义档（页面/浮层/弹层 → 阴影刻度别名）。 */
+  elevation: ThemeElevation;
+  /** 焦点环组合令牌（双主题可分别取值）。 */
+  focusRing: ThemeFocusRing;
 }
 
 const LIGHT_COLORS: ThemeColors = {
@@ -406,6 +476,16 @@ export const THEMES: Record<ThemeName, Theme> = {
       lg: '0 8px 24px rgba(0, 0, 0, 0.16)',
       popover: '0 4px 16px rgba(0, 0, 0, 0.14)',
     },
+    elevation: {
+      page: 'none',
+      overlay: 'var(--dfg-shadow-popover)',
+      modal: 'var(--dfg-shadow-lg)',
+    },
+    focusRing: {
+      color: 'var(--dfg-color-focus-ring)',
+      width: 'var(--dfg-border-width-focus)',
+      offset: 'var(--dfg-border-width-focus)',
+    },
   },
   dark: {
     name: 'dark',
@@ -417,6 +497,16 @@ export const THEMES: Record<ThemeName, Theme> = {
       md: '0 4px 12px rgba(0, 0, 0, 0.4)',
       lg: '0 8px 24px rgba(0, 0, 0, 0.48)',
       popover: '0 4px 16px rgba(0, 0, 0, 0.44)',
+    },
+    elevation: {
+      page: 'none',
+      overlay: 'var(--dfg-shadow-popover)',
+      modal: 'var(--dfg-shadow-lg)',
+    },
+    focusRing: {
+      color: 'var(--dfg-color-focus-ring)',
+      width: 'var(--dfg-border-width-focus)',
+      offset: 'var(--dfg-border-width-focus)',
     },
   },
 };
@@ -455,10 +545,21 @@ function isUnitless(name: string): boolean {
   );
 }
 
-/** 令牌值 → CSS 声明值（数字默认补 px）。 */
+/**
+ * 时长令牌（补 ms 后缀）：CSS `<time>` 必须带时间单位——落成 px 会让引用它的
+ * `transition` / `animation` 整条声明非法、被浏览器静默丢弃（总纲 §1 F-1 病灶，
+ * 全部组件动效因此从未生效）。数字默认补 px 的规则只属于长度类。
+ */
+function isDuration(name: string): boolean {
+  return name.startsWith('--dfg-duration-');
+}
+
+/** 令牌值 → CSS 声明值（时长补 ms、无单位类裸数字、其余数字默认补 px）。 */
 function toCssValue(name: string, value: string | number): string {
   if (typeof value === 'string') return value;
-  return isUnitless(name) ? String(value) : `${value}px`;
+  if (isUnitless(name)) return String(value);
+  if (isDuration(name)) return `${value}ms`;
+  return `${value}px`;
 }
 
 /** 递归展平：数字/字符串成叶子，对象成变量名前缀。 */
@@ -480,11 +581,13 @@ export function flattenPrimitives(): TokenVars {
   return out;
 }
 
-/** 单套主题的 CSS 变量（色 + 影 + 密度几何；落 `:root[data-theme="…"]`）。 */
+/** 单套主题的 CSS 变量（色 + 影 + 海拔/焦点环语义档 + 密度几何；落 `:root[data-theme="…"]`）。 */
 export function flattenTheme(theme: Theme): TokenVars {
   const out: TokenVars = {};
   flattenInto(theme.colors, '--dfg-color', out);
   flattenInto(theme.shadows, '--dfg-shadow', out);
+  flattenInto(theme.elevation, '--dfg-elevation', out);
+  flattenInto(theme.focusRing, '--dfg-focus-ring', out);
   flattenInto(DENSITY[theme.density], '--dfg', out);
   return out;
 }

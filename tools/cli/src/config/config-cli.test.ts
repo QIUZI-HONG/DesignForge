@@ -25,6 +25,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI_BIN = join(HERE, '..', '..', 'bin', 'df.mjs');
 const DAEMON_MAIN = join(HERE, '..', '..', '..', '..', 'apps', 'daemon', 'src', 'main.ts');
 
+// 本测试族全链都是 TS 源直跑（daemon main.ts / df.mjs 内部 import src/index.ts）：
+// node < 23.6 无默认类型剥离（CI 与部分开发机是 node 22），须显式带旗标；
+// dev 机 node 24 起默认开启，条件不满足即不加（旗标语义与默认一致，加上也无害）。
+const [nodeMajor = 0, nodeMinor = 0] = process.versions.node.split('.').map(Number);
+const nodeTsFlags =
+  nodeMajor < 23 || (nodeMajor === 23 && nodeMinor < 6) ? ['--experimental-strip-types'] : [];
+
 /** 哨兵 key（假值；形态过 daemon 的 isPlausibleApiKey）。末 4 位 = `0zzz`。 */
 const SENTINEL_KEY = 'sk-b3-keycli-sentinel-0123456789-0zzz';
 /** 期望掩码（daemon 的 maskSecret 口径：保留 `sk-` 前缀与末 4 位）。 */
@@ -52,7 +59,7 @@ async function waitFor<T>(probe: () => T | null, timeoutMs: number, label: strin
 /** 起临时 daemon（子进程 + 临时数据根；不读开发机 `~/.dforge`）。 */
 async function startDaemon(): Promise<DaemonHandle> {
   const tempDir = await mkdtemp(join(tmpdir(), 'df-b3-keycli-'));
-  const child = spawn(process.execPath, [DAEMON_MAIN], {
+  const child = spawn(process.execPath, [...nodeTsFlags, DAEMON_MAIN], {
     env: {
       PATH: process.env.PATH ?? '',
       DF_DATA_ROOT: join(tempDir, 'data'),
@@ -97,7 +104,7 @@ async function runDf(
   stdin: string | null = null,
   env: Record<string, string> = {},
 ): Promise<CliRun> {
-  const child = spawn(process.execPath, [CLI_BIN, ...args], {
+  const child = spawn(process.execPath, [...nodeTsFlags, CLI_BIN, ...args], {
     env: { ...process.env, NEXT_PUBLIC_DF_DAEMON_URL: '', ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

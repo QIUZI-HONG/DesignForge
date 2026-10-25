@@ -8,23 +8,17 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import {
-  createDocument,
-  createFrame,
-  createPage,
-  createRect,
-  createSelection,
-} from '@dforge/engine';
+import { createDocument, createPage, createRect, createSelection } from '@dforge/engine';
 import { DropdownMenu, type MenuSectionSpec } from '@dforge/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { CommandPalette } from '@/features/command-palette/command-palette';
 import { createPanelsSession } from '@/features/editor-panels';
 import { LayerContextMenu } from '@/features/editor-panels/components/LayerContextMenu';
 import { PanelsProvider } from '@/features/editor-panels/components/panels-context';
 import { registerCommand } from '@/features/editor-shell/commands/registry';
 import { useEditorUi } from '@/features/editor-shell/state/ui';
-import { CommandPalette } from '@/features/editor-shell/ui/command-palette';
 import { ShortcutsDialog } from '@/features/editor-shell/ui/shortcuts-dialog';
 
 /** 注入设计系统样式（jsdom 计算样式来自文档里的样式表，否则布局语义断言无意义）。 */
@@ -190,7 +184,7 @@ describe('a11y · 模态（快捷键说明）', () => {
   });
 });
 
-describe('a11y · 命令面板（⌘K）', () => {
+describe('a11y · 命令面板（工单 08，⌘/ 呼出）', () => {
   it('角色层级：dialog/combobox/listbox/option；打开后焦点在搜索框；Esc 关闭并归还焦点', async () => {
     registerCommand({ id: 'verify.noop', title: '验证命令', group: '验证', run: () => undefined });
     const opener = document.createElement('button');

@@ -1,9 +1,10 @@
 /**
- * 面板测试装配（本票自管，避免改 apps/web 的共享 vitest 配置）。
+ * 面板测试装配（工单 02 起自管，避免改 apps/web 的共享 vitest 配置）。
  *
  * - RTL 自动清理：vitest 未开 `globals`，RTL 不会自动 cleanup，此处显式在 afterEach 卸载；
  * - `stubRowRects`：jsdom 不做布局（所有 `getBoundingClientRect` 都是 0），
- *   拖拽测试需要真实几何——按 DOM 顺序给图层行合成「行高 × 序号」的矩形；
+ *   拖拽落位测试需要真实几何——按 DOM 顺序给 Tree 行（`data-node-id`，RW-13 契约）
+ *   合成「行高 × 序号」的矩形；
  * - 夹具：一份带画板/编组/组件/令牌的文档，供组件测试直接挂载。
  */
 import {
@@ -26,41 +27,18 @@ afterEach(() => {
   cleanup();
 });
 
-/**
- * PointerEvent 兜底：jsdom 不实现 `PointerEvent`（RTL 会退化成无 `clientY` 的 Event），
- * 拖拽测试需要真实指针坐标 → 用 `MouseEvent` 扩展一个最小实现。
- */
-if (
-  typeof window !== 'undefined' &&
-  (window as { PointerEvent?: unknown }).PointerEvent === undefined
-) {
-  class PointerEventPolyfill extends MouseEvent {
-    readonly pointerId: number;
-    readonly pointerType: string;
-    readonly isPrimary: boolean;
-
-    constructor(type: string, init: PointerEventInit = {}) {
-      super(type, init);
-      this.pointerId = init.pointerId ?? 1;
-      this.pointerType = init.pointerType ?? 'mouse';
-      this.isPrimary = init.isPrimary ?? true;
-    }
-  }
-  (window as { PointerEvent: unknown }).PointerEvent = PointerEventPolyfill;
-}
-
 /** 行高（与令牌 `--dfg-row-height-md` 的深色档一致）。 */
 export const ROW_HEIGHT = 28;
 
 /**
- * 给图层行合成矩形（其余元素仍走真实实现）。
+ * 给 Tree 行合成矩形（其余元素仍走真实实现）。
  * 返回值是还原函数。
  */
 export function stubRowRects(height: number = ROW_HEIGHT): () => void {
   const original = Element.prototype.getBoundingClientRect;
   Element.prototype.getBoundingClientRect = function getBoundingClientRectStub(this: Element) {
-    if (this instanceof HTMLElement && this.dataset.dfLayerRow !== undefined) {
-      const siblings = Array.from(document.querySelectorAll('[data-df-layer-row]'));
+    if (this instanceof HTMLElement && this.dataset.nodeId !== undefined) {
+      const siblings = Array.from(document.querySelectorAll('[data-node-id]'));
       const index = siblings.indexOf(this);
       const top = index * height;
       const rect = {
@@ -144,7 +122,7 @@ export function panelsFixture(): DesignDocument {
   return doc;
 }
 
-/** 长列表夹具：`count` 个顶层矩形（>200 验证 content-visibility 路径）。 */
+/** 长列表夹具：`count` 个顶层矩形（千级验证渲染窗口化路径）。 */
 export function manyLayersDocument(count: number): DesignDocument {
   let doc = createDocument({ id: 'doc-many', pages: [createPage({ id: 'p1' })] });
   const nodes = Array.from({ length: count }, (_, index) =>

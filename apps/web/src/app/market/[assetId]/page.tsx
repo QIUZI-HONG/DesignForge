@@ -18,20 +18,18 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import {
   AssetDetailView,
-  badgeRowStyle,
-  headerStyle,
-  hintStyle,
   isUpdateAvailable,
   LoadConfirmDialog,
   MarketErrorState,
-  subtitleStyle,
-  titleStyle,
   useLoadPlan,
   useLoadRecords,
   useMarketAsset,
 } from '@/features/market';
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
+
+// 版式类复用 market.css（工单 06 · 样式单轨；本批补迁——06 首批只迁了首页/面板页，此处当时漏迁）
+import '@/features/market/market.css';
 
 /** 解码路由参数（防御式：已解码的字符串不含 `%` 时原样返回）。 */
 export function decodeAssetId(raw: string): string {
@@ -82,9 +80,9 @@ export default function MarketAssetPage() {
 
   if (status === 'loading') {
     return (
-      <header style={headerStyle} data-df-state="loading" data-df-loading="detail">
-        <h1 style={titleStyle}>{t('market.detail.loading')}</h1>
-        <p style={subtitleStyle}>{t('market.loading')}</p>
+      <header className="dfg-market__header" data-df-state="loading" data-df-loading="detail">
+        <h1 className="dfg-market__title">{t('market.detail.loading')}</h1>
+        <p className="dfg-market__subtitle">{t('market.loading')}</p>
       </header>
     );
   }
@@ -138,7 +136,7 @@ export default function MarketAssetPage() {
       )}
 
       {loadPlan.status === 'loading' && confirming ? (
-        <p style={hintStyle} data-df-state="loading" data-df-loading="load-plan">
+        <p className="dfg-market__hint" data-df-state="loading" data-df-loading="load-plan">
           {t('market.detail.planLoading')}
         </p>
       ) : null}
@@ -156,8 +154,8 @@ export default function MarketAssetPage() {
         />
       ) : null}
 
-      <footer style={badgeRowStyle}>
-        <span style={hintStyle}>{t('market.detail.installHint')}</span>
+      <footer className="dfg-market__badge-row">
+        <span className="dfg-market__hint">{t('market.detail.installHint')}</span>
       </footer>
     </>
   );

@@ -16,6 +16,7 @@ import type { MarketAsset } from '@dforge/contracts';
 import { displayText } from '@dforge/contracts';
 import { Button, EyeIcon } from '@dforge/ui';
 import { t } from '@/i18n';
+import { badgeClassName } from '../badge-classes';
 import { describeInstallButton } from '../capabilities';
 import {
   assetPrimaryName,
@@ -25,15 +26,8 @@ import {
   ScoreBadge,
 } from '../components/Badges';
 import type { FeedbackEntry } from '../feedback';
-import {
-  badgeRowStyle,
-  badgeStyle,
-  hintStyle,
-  panelHeaderStyle,
-  panelListStyle,
-  panelRowStyle,
-  panelStyle,
-} from '../styles';
+
+import '../market.css';
 
 /** 面板 props（选中项、试跑与采纳配额由页面持有）。 */
 export interface MarketPanelProps {
@@ -77,28 +71,18 @@ export function MarketPanel({
       : describeInstallButton(selected.installGate.mode, loadedIds.includes(selected.id));
 
   return (
-    <section style={panelStyle} data-df-page="market-panel" data-df-theme="dark">
-      <div style={panelHeaderStyle}>
-        <h2 style={{ margin: '0', fontSize: 'var(--dfg-font-size-15)' }}>
-          {t('market.panel.title')}
-        </h2>
-        <span style={hintStyle}>{t('market.panel.subtitle')}</span>
+    <section className="dfg-market__panel" data-df-page="market-panel" data-df-theme="dark">
+      <div className="dfg-market__panel-header">
+        <h2 className="dfg-market__panel-title">{t('market.panel.title')}</h2>
+        <span className="dfg-market__hint">{t('market.panel.subtitle')}</span>
       </div>
 
-      <ul style={panelListStyle} data-df-market="panel-list">
+      <ul className="dfg-market__panel-list" data-df-market="panel-list">
         {assets.map((asset) => (
           <li key={asset.id}>
             <button
               type="button"
-              style={{
-                ...panelRowStyle,
-                width: '100%',
-                textAlign: 'left',
-                cursor: 'pointer',
-                ...(selected !== null && asset.id === selected.id
-                  ? { borderColor: 'var(--dfg-color-border-strong)' }
-                  : {}),
-              }}
+              className="dfg-market__panel-row-btn"
               aria-pressed={selected !== null && asset.id === selected.id}
               onClick={() => {
                 onSelect(asset.id);
@@ -106,41 +90,39 @@ export function MarketPanel({
               data-df-market="panel-row"
               data-df-asset={asset.id}
             >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--dfg-icon-gap)' }}>
+              <span className="dfg-market__panel-row-head">
                 {kindIcon(asset.kind, 12)}
                 <strong>{assetPrimaryName(asset)}</strong>
                 <ScoreBadge score={asset.quality.score} />
                 {loadedIds.includes(asset.id) ? (
-                  <span style={badgeStyle('ok')}>{t('market.card.loadedBadge')}</span>
+                  <span className={badgeClassName('ok')}>{t('market.card.loadedBadge')}</span>
                 ) : null}
               </span>
-              <span style={hintStyle}>{displayText(asset.summary, asset.name)}</span>
+              <span className="dfg-market__hint">{displayText(asset.summary, asset.name)}</span>
             </button>
           </li>
         ))}
       </ul>
 
       {selected === null ? (
-        <p style={hintStyle}>{t('market.panel.empty')}</p>
+        <p className="dfg-market__hint">{t('market.panel.empty')}</p>
       ) : (
-        <div style={{ display: 'grid', gap: 'var(--dfg-space-2)' }} data-df-market="panel-detail">
-          <div style={badgeRowStyle}>
+        <div className="dfg-market__stack dfg-market__stack--gap-2" data-df-market="panel-detail">
+          <div className="dfg-market__badge-row">
             <KindBadge kind={selected.kind} />
             <LicenseBadge gate={selected.source.license.gate} />
-            <span style={badgeStyle('neutral')}>
+            <span className={badgeClassName('neutral')}>
               {t('market.panel.localCount', {
                 runs: feedbackOfAsset.runs,
                 adoptions: feedbackOfAsset.adoptions,
               })}
             </span>
           </div>
-          <p style={{ margin: '0', lineHeight: 'var(--dfg-line-height-base)' }}>
-            {displayText(selected.summary, selected.name)}
-          </p>
-          <p style={hintStyle} data-df-market="panel-run-note">
+          <p className="dfg-market__prose">{displayText(selected.summary, selected.name)}</p>
+          <p className="dfg-market__hint" data-df-market="panel-run-note">
             {t('market.panel.runNote')}
           </p>
-          <div style={badgeRowStyle}>
+          <div className="dfg-market__badge-row">
             <Button
               variant="secondary"
               size="sm"
@@ -178,7 +160,7 @@ export function MarketPanel({
             </Button>
           </div>
           {install === null ? null : (
-            <p style={hintStyle} data-df-market="panel-gate">
+            <p className="dfg-market__hint" data-df-market="panel-gate">
               {t('market.panel.gate', { label: t(install.labelKey) })}
             </p>
           )}

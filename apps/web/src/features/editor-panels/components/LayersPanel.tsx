@@ -1,60 +1,62 @@
 'use client';
 
 /**
- * 图层面板（C3）。
+ * 图层面板（C3，RW-13 重写）——接入 @dforge/ui 的 Tree（RW-07）。
  *
  * 数据流：文档快照来自命令栈（`usePanelsDocument`，`useSyncExternalStore`），
- * 选择集/折叠/重命名目标来自面板 UI store（与画布同源）；一切写入都转成引擎命令交给会话。
+ * 选择集/折叠集来自面板 UI store（与画布同源）；一切写入都转成引擎命令交给会话。
  *
- * 交互实现要点：
- * - 键盘漫游（↑/↓ 行走、←/→ 收起/展开、Enter/F2 重命名、Home/End 两端）——
- *   行是 `role="treeitem"`，roving tabindex 落在当前行；
- * - 拖拽用指针序列（pointerdown/move/up）自管，不依赖 HTML5 DnD：
- *   pointerdown 只记录候选，位移超过阈值才进入拖拽（并顺手选中该行）；
- *   落点计算交给 `commands/drop-target.ts`（纯函数、可单测），指针按下时缓存行几何（避免拖动中反复测量）；
- * - 长列表（>200 节点）：行样式带 `content-visibility: auto`，屏外行不参与渲染（不引重依赖）。
+ * Tree 消费口径（RW-13，兑现 RW-07 留给本票的约定）：
+ * - **单选与双向联动**：Tree `selectedId` = 选择集 `activeId`；面板点选走 `selectLayer`
+ *   （引擎 `clickSelection` 无修饰键语义），画布与面板同源读同一 store——画布写入后
+ *   面板滚动定位选中行（`scrollIntoView nearest`）并自动展开折叠的祖先链。
+ *   画布多选时面板只高亮主选中行（Tree v1 单选语义）。
+ * - **重命名**：Tree 行内编辑（双击/F2，Enter/失焦提交、Esc 取消）提交 →
+ *   `renameLayerCommands`（引擎 `node.update` 补丁，空白/同名由两侧共同把关）。
+ *   右键菜单不再带「重命名」条目：Tree v1 的编辑态是组件内私有状态，外部无法触达；
+ *   行内双击/F2 是更短的路径。
+ * - **拖拽落位（RW-13 约定，详见 commands/tree-drop.ts）**：Tree `onReorder(source, target)`
+ *   只上报拖拽对——指针 Y 由本面板在 document 级 `dragover` 自记，target 行矩形在 drop 时
+ *   量取；上/下各半判定插入位置（上=之前/下=之后，无指针按「之前」降级）；跨父拖拽 =
+ *   reparent（`moveLayerCommands` → `reparentPreservingWorldCommands`，世界位置保持）；
+ *   一次 drop 恰好一次 `session.run`（单事务），不碰 `CommandStack.enqueue` 的微任务合并。
+ *   「放入容器内部」不在 Tree v1 约定内——拖入容器 = 展开后落到它的子行上。
+ * - **行级状态**：Tree 六态的 `disabled` = 实例虚节点（结构只读：不可选中/拖拽/重命名，
+ *   键盘漫游跳过；选中与属性编辑走画布/Inspector）；`loading`/`error` 在同步命令栈文档下
+ *   不产生（无异步子树装载），挂点透传留给后续异步装载票（不给 `onRetry` 即关闭错误行入口）。
+ * - **千级图层（渲染窗口化，零依赖）**：全量 DOM 挂载（树结构/折叠/键盘漫游语义完整），
+ *   屏外行的**渲染**跳过交给 CSS `content-visibility: auto`
+ *   （editor-panels.css `.dfg-panels__tree .dfg-tree__node`）——不引依赖、不做 JS 窗口化：
+ *   JS 窗口需要把 Tree 的嵌套 group 结构切片，会破坏键盘漫游与 aria 语义（取舍登记在 RW-13 报告）。
  */
 import {
   type Command,
   findPage,
+  getAncestors,
   layerTree,
   type NodeId,
-  parentIdOf,
   type ScenePage,
 } from '@dforge/engine';
-import { EmptyState, ErrorState, Skeleton } from '@dforge/ui';
+import { EmptyState, ErrorState, Skeleton, Tree } from '@dforge/ui';
 import {
-  type CSSProperties,
-  type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 
 import { t } from '@/i18n';
-import {
-  type DropRow,
-  type DropTarget,
-  isNoopDrop,
-  resolveDropTarget,
-} from '../commands/drop-target';
-import {
-  moveLayerCommands,
-  renameLayerCommands,
-  toggleLockCommands,
-  toggleVisibilityCommands,
-} from '../commands/layer-commands';
+import { moveLayerCommands, renameLayerCommands } from '../commands/layer-commands';
+import { resolveTreeDropPlacement } from '../commands/tree-drop';
 import { usePanelsDocument, usePanelsUi } from '../state/hooks';
 import { LayerContextMenu } from './LayerContextMenu';
-import { type DropEdge, LayerRow } from './LayerRow';
-import { buildLayerRows, type LayerRowModel } from './layer-rows';
+import { buildTreeModel, type PanelTreeModel } from './layers-tree-model';
 import { usePanelsSession } from './panels-context';
-import { panelStyles } from './styles';
 
-/** 拖拽阈值（几何常量）：超过才判定为拖拽，避免点击被误认为微拖。 */
-const DRAG_THRESHOLD = 4;
+import '../editor-panels.css';
 
 /** 图层面板 props（loading/error 是验收标准 §5 的状态挂点，由壳层喂数据态）。 */
 export interface LayersPanelProps {
@@ -80,37 +82,22 @@ export function LayersPanel({
   const doc = usePanelsDocument(session);
   const collapsedIds = usePanelsUi(session, (state) => state.collapsedIds);
   const selection = usePanelsUi(session, (state) => state.selection);
-  const renamingId = usePanelsUi(session, (state) => state.renamingId);
 
   const page = findPage(doc, session.pageId);
-  const rows = useMemo(
-    () => (page === undefined ? [] : buildLayerRows(layerTree(page), { collapsedIds, selection })),
-    [page, collapsedIds, selection],
+  const model = useMemo<PanelTreeModel>(
+    () => buildTreeModel(page === undefined ? [] : layerTree(page)),
+    [page],
+  );
+  // Tree 受控展开集 = 全部容器 − 折叠集（面板 store 持「折叠」语义，Figma 默认全展开）
+  const expandedIds = useMemo(
+    () => model.containerIds.filter((id) => !collapsedIds.has(id)),
+    [model, collapsedIds],
   );
 
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const rowRefs = useRef(new Map<NodeId, HTMLDivElement>());
-  const [focusedId, setFocusedId] = useState<NodeId | null>(null);
-  const [keyboardFocus, setKeyboardFocus] = useState(false);
-  const [drag, setDrag] = useState<{ dragId: NodeId; target: DropTarget | null } | null>(null);
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  /** 拖拽期间自记的指针 Y（document dragover；drop 时与 target 行矩形合成落点证据）。 */
+  const lastDragY = useRef<number | null>(null);
   const [menu, setMenu] = useState<{ rowId: NodeId; x: number; y: number } | null>(null);
-  const dragRef = useRef<{
-    dragId: NodeId;
-    startY: number;
-    metrics: DropRow[];
-    active: boolean;
-    target: DropTarget | null;
-  } | null>(null);
-
-  const effectiveFocusId =
-    focusedId !== null && rows.some((row) => row.id === focusedId)
-      ? focusedId
-      : (rows[0]?.id ?? null);
-
-  const registerRef = useCallback((id: NodeId, element: HTMLDivElement | null) => {
-    if (element === null) rowRefs.current.delete(id);
-    else rowRefs.current.set(id, element);
-  }, []);
 
   const run = useCallback(
     (commands: Command[], labelKey: string) => {
@@ -121,241 +108,152 @@ export function LayersPanel({
   );
 
   /** 取最新页面（写操作必须基于最新文档构造命令）。 */
-  const currentPage = (): ScenePage | undefined => findPage(session.stack.document, session.pageId);
+  const currentPage = useCallback(
+    (): ScenePage | undefined => findPage(session.stack.document, session.pageId),
+    [session],
+  );
 
-  const onActivate = useCallback(
-    (id: NodeId, modifiers: { shift: boolean; meta: boolean }) => {
-      session.ui.getState().selectLayer(id, modifiers);
+  // 拖拽期间记录指针 Y（HTML5 drag 事件冒泡到 document；Tree 行内的 preventDefault 不阻断冒泡）。
+  useEffect(() => {
+    const onDragOver = (event: DragEvent): void => {
+      // 合成事件（测试环境）可能没有坐标——只记录有效数值，缺省时落位按「之前」降级
+      if (typeof event.clientY === 'number') lastDragY.current = event.clientY;
+    };
+    const onDragStart = (): void => {
+      lastDragY.current = null;
+    };
+    document.addEventListener('dragstart', onDragStart);
+    document.addEventListener('dragover', onDragOver);
+    return () => {
+      document.removeEventListener('dragstart', onDragStart);
+      document.removeEventListener('dragover', onDragOver);
+    };
+  }, []);
+
+  // 画布选中 → 面板定位（一）：折叠的祖先链自动展开（让画布选中的节点可见）
+  const activeId = selection.activeId;
+  useEffect(() => {
+    if (activeId === null) return;
+    const current = currentPage();
+    if (current === undefined) return;
+    const ui = session.ui.getState();
+    for (const ancestor of getAncestors(current, activeId)) {
+      if (ui.collapsedIds.has(ancestor)) ui.toggleCollapsed(ancestor);
+    }
+  }, [activeId, currentPage, session]);
+
+  // 画布选中 → 面板定位（二）：选中行滚动进可视区（nearest：已可见则不动；展开后行存在再滚）
+  useEffect(() => {
+    if (activeId === null) return;
+    const rowElement = treeRef.current?.querySelector(`[data-node-id="${activeId}"]`) ?? null;
+    if (rowElement === null) return;
+    if (typeof rowElement.scrollIntoView !== 'function') return;
+    rowElement.scrollIntoView({ block: 'nearest' });
+  }, [activeId, collapsedIds]);
+
+  const onSelect = useCallback(
+    (id: string) => {
+      session.ui.getState().selectLayer(id as NodeId);
     },
     [session],
   );
 
-  const onToggleCollapsed = useCallback(
-    (id: NodeId) => {
-      session.ui.getState().toggleCollapsed(id);
+  const onExpandedChange = useCallback(
+    (ids: string[]) => {
+      // Tree 一次只开合一个节点：与当前展开集做差，把差量折算回「折叠集」的翻转
+      const ui = session.ui.getState();
+      const nextSet = new Set(ids);
+      const added = ids.find((id) => !expandedIds.includes(id));
+      const removed = expandedIds.find((id) => !nextSet.has(id));
+      if (added !== undefined) ui.toggleCollapsed(added as NodeId);
+      else if (removed !== undefined) ui.toggleCollapsed(removed as NodeId);
     },
-    [session],
+    [expandedIds, session],
   );
 
-  const onToggleVisibility = useCallback(
-    (id: NodeId) => {
+  const onRename = useCallback(
+    (id: string, label: string) => {
       const current = currentPage();
       if (current === undefined) return;
-      run(toggleVisibilityCommands(current, session.pageId, id), 'panels.history.visibility');
+      run(
+        renameLayerCommands(current, session.pageId, id as NodeId, label),
+        'panels.history.rename',
+      );
     },
-    [run, session],
+    [currentPage, run, session],
   );
 
-  const onToggleLock = useCallback(
-    (id: NodeId) => {
+  const onReorder = useCallback(
+    (sourceId: string, targetId: string) => {
       const current = currentPage();
       if (current === undefined) return;
-      run(toggleLockCommands(current, session.pageId, id), 'panels.history.lock');
+      // 落位证据：自记的指针 Y + target 行矩形（jsdom 无布局时矩形为 0，降级按「之前」）
+      const rowElement = treeRef.current?.querySelector(`[data-node-id="${targetId}"]`) ?? null;
+      const rect = rowElement?.getBoundingClientRect();
+      const pointer =
+        rect !== undefined && rect.bottom > rect.top && lastDragY.current !== null
+          ? { y: lastDragY.current, rowTop: rect.top, rowBottom: rect.bottom }
+          : null;
+      const placement = resolveTreeDropPlacement(
+        current,
+        sourceId as NodeId,
+        targetId as NodeId,
+        pointer,
+      );
+      if (placement === null) return;
+      run(
+        moveLayerCommands(
+          current,
+          session.pageId,
+          sourceId as NodeId,
+          placement.parentId,
+          placement.index,
+        ),
+        'panels.history.move',
+      );
     },
-    [run, session],
-  );
-
-  const onBeginRename = useCallback(
-    (id: NodeId) => {
-      session.ui.getState().selectLayer(id);
-      session.ui.getState().beginRename(id);
-    },
-    [session],
-  );
-
-  const onCancelRename = useCallback(() => {
-    session.ui.getState().endRename();
-  }, [session]);
-
-  const onCommitRename = useCallback(
-    (id: NodeId, name: string) => {
-      const current = currentPage();
-      if (current !== undefined) {
-        run(renameLayerCommands(current, session.pageId, id, name), 'panels.history.rename');
-      }
-      session.ui.getState().endRename();
-    },
-    [run, session],
+    [currentPage, run, session],
   );
 
   const onContextMenu = useCallback(
-    (id: NodeId, position: { x: number; y: number }) => {
-      // Figma 语义：右键未选中的行先把它选上，菜单动作作用在（可能是多选的）选择集上
-      if (!session.ui.getState().selection.ids.includes(id)) {
-        session.ui.getState().selectLayer(id);
-      }
-      setMenu({ rowId: id, x: position.x, y: position.y });
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      // Tree 行带 data-node-id：右键命中行即出菜单；未选中的行先选上（Figma 语义）
+      const hit = (event.target as HTMLElement).closest<HTMLElement>('[data-node-id]');
+      const id = hit?.dataset.nodeId;
+      if (id === undefined) return;
+      event.preventDefault();
+      const ui = session.ui.getState();
+      if (!ui.selection.ids.includes(id)) ui.selectLayer(id as NodeId);
+      setMenu({ rowId: id as NodeId, x: event.clientX, y: event.clientY });
     },
     [session],
   );
 
-  /** 指针按下时缓存行几何（拖动过程中不再测量 DOM）。 */
-  const measureRows = useCallback((): DropRow[] => {
-    if (page === undefined) return [];
-    return rows.map((row) => {
-      const element = rowRefs.current.get(row.id);
-      const rect = element?.getBoundingClientRect();
-      return {
-        id: row.id,
-        parentId: parentIdOf(page, row.id),
-        depth: row.depth,
-        // 落点「放入」只认可接收的真实容器（空画板也接得住，见 layer-rows 的 droppable）
-        container: row.droppable,
-        top: rect?.top ?? 0,
-        bottom: rect?.bottom ?? 0,
-      };
-    });
-  }, [page, rows]);
-
-  const onRowPointerDown = useCallback(
-    (id: NodeId, event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) return;
-      // 鼠标交互不进「键盘模式」：点击行只出选中底，不画焦点环
-      setKeyboardFocus(false);
-      const row = rows.find((candidate) => candidate.id === id);
-      if (row === undefined || row.readOnly) return;
-      dragRef.current = {
-        dragId: id,
-        startY: event.clientY,
-        metrics: measureRows(),
-        active: false,
-        target: null,
-      };
-    },
-    [rows, measureRows],
+  const emptyContent: ReactNode = (
+    <div data-df-sample="layers/empty">
+      <EmptyState
+        title={t('panels.layers.empty.title')}
+        description={t('panels.layers.empty.desc')}
+      />
+    </div>
   );
-
-  const onListPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragState = dragRef.current;
-      if (dragState === null || page === undefined) return;
-      if (!dragState.active) {
-        if (Math.abs(event.clientY - dragState.startY) < DRAG_THRESHOLD) return;
-        dragState.active = true;
-        // 拖动即选中（Figma 同款）；也顺势结束可能存在的重命名
-        session.ui.getState().selectLayer(dragState.dragId);
-        session.ui.getState().endRename();
-        const target = listRef.current;
-        try {
-          target?.setPointerCapture?.(event.pointerId);
-        } catch {
-          // 指针捕获不是所有环境都实现（jsdom）：拿不到也不影响基本拖拽
-        }
-      }
-      const target = resolveDropTarget(dragState.metrics, page, dragState.dragId, event.clientY);
-      dragState.target = target;
-      setDrag({ dragId: dragState.dragId, target });
-    },
-    [page, session],
-  );
-
-  const finishDrag = useCallback(() => {
-    const dragState = dragRef.current;
-    dragRef.current = null;
-    setDrag(null);
-    if (dragState === null || !dragState.active || dragState.target === null) return;
-    const current = currentPage();
-    if (current === undefined) return;
-    if (isNoopDrop(current, dragState.dragId, dragState.target)) return;
-    run(
-      moveLayerCommands(
-        current,
-        session.pageId,
-        dragState.dragId,
-        dragState.target.parentId,
-        dragState.target.index,
-      ),
-      'panels.history.move',
-    );
-  }, [run, session]);
-
-  /** 键盘漫游（roving tabindex；焦点与选中分离——选中归引擎选择模型）。 */
-  const onRowKeyDown = useCallback(
-    (id: NodeId, event: KeyboardEvent<HTMLDivElement>) => {
-      const index = rows.findIndex((row) => row.id === id);
-      const row = rows[index];
-      if (row === undefined) return;
-      const focusRow = (nextIndex: number): void => {
-        const clamped = Math.max(0, Math.min(rows.length - 1, nextIndex));
-        const nextId = rows[clamped]?.id;
-        if (nextId === undefined) return;
-        setKeyboardFocus(true);
-        setFocusedId(nextId);
-        rowRefs.current.get(nextId)?.focus();
-      };
-      switch (event.key) {
-        case 'ArrowDown':
-          event.preventDefault();
-          focusRow(index + 1);
-          break;
-        case 'ArrowUp':
-          event.preventDefault();
-          focusRow(index - 1);
-          break;
-        case 'Home':
-          event.preventDefault();
-          focusRow(0);
-          break;
-        case 'End':
-          event.preventDefault();
-          focusRow(rows.length - 1);
-          break;
-        case 'ArrowRight':
-          if (row.container) {
-            event.preventDefault();
-            if (row.collapsed) session.ui.getState().toggleCollapsed(id);
-            else focusRow(index + 1);
-          }
-          break;
-        case 'ArrowLeft':
-          if (row.container && !row.collapsed) {
-            event.preventDefault();
-            session.ui.getState().toggleCollapsed(id);
-          } else if (page !== undefined) {
-            event.preventDefault();
-            const parentId = parentIdOf(page, id);
-            const parentIndex = rows.findIndex((candidate) => candidate.id === parentId);
-            if (parentIndex >= 0) focusRow(parentIndex);
-          }
-          break;
-        case 'Enter':
-        case 'F2':
-          if (!row.readOnly) {
-            event.preventDefault();
-            onBeginRename(id);
-          }
-          break;
-        default:
-          break;
-      }
-    },
-    [rows, page, session, onBeginRename],
-  );
-
-  const dropIndicatorFor = (row: LayerRowModel): DropEdge | null => {
-    if (drag === null || drag.target === null || page === undefined) return null;
-    if (isNoopDrop(page, drag.dragId, drag.target)) return null;
-    if (drag.target.indicator.rowId !== row.id) return null;
-    return drag.target.indicator.edge;
-  };
 
   return (
     <section
       aria-label={t('panels.layers.title')}
       aria-busy={loading}
       data-df-panel="layers"
-      className={className}
-      style={panelStyles.panel}
+      className={className === undefined ? 'dfg-panels__panel' : `${className} dfg-panels__panel`}
     >
       {hideHeader ? null : (
-        <header style={panelStyles.header}>
-          <span style={panelStyles.headerTitle}>{t('panels.layers.title')}</span>
-          <span style={panelStyles.headerSpacer} />
+        <header className="dfg-panels__header">
+          <span className="dfg-panels__header-title">{t('panels.layers.title')}</span>
+          <span className="dfg-panels__header-spacer" />
         </header>
       )}
 
       {error !== null ? (
-        <div data-df-sample="layers/error" style={panelStyles.body}>
+        <div data-df-sample="layers/error" className="dfg-panels__body">
           <ErrorState
             title={t('panels.layers.error.title')}
             description={t('panels.layers.error.desc')}
@@ -364,59 +262,35 @@ export function LayersPanel({
           />
         </div>
       ) : loading ? (
-        <div data-df-sample="layers/loading" style={panelStyles.body}>
+        <div data-df-sample="layers/loading" className="dfg-panels__body">
           <span className="dfg-visually-hidden" role="status">
             {t('panels.layers.loading')}
           </span>
           {Array.from({ length: 6 }, (_, index) => (
-            <div
-              key={`skeleton-${String(index)}`}
-              style={{ padding: 'var(--dfg-space-1) var(--dfg-space-2)' }}
-            >
+            <div key={`skeleton-${String(index)}`} className="dfg-panels__skeleton-row">
               <Skeleton height="var(--dfg-row-height-md)" />
             </div>
           ))}
         </div>
-      ) : rows.length === 0 ? (
-        <div data-df-sample="layers/empty" style={panelStyles.body}>
-          <EmptyState
-            title={t('panels.layers.empty.title')}
-            description={t('panels.layers.empty.desc')}
-          />
-        </div>
       ) : (
+        // biome-ignore lint/a11y/noStaticElementInteractions: 右键菜单是设计工具惯例（Figma 同款）；键盘等价路径由 Tree 行内漫游（roving tabindex）承担
         <div
-          ref={listRef}
-          role="tree"
-          aria-label={t('panels.layers.tree.label')}
-          data-df-layer-count={rows.length}
-          style={{ ...panelStyles.body, ...layerListStyle }}
-          onPointerMove={onListPointerMove}
-          onPointerUp={finishDrag}
-          onPointerCancel={finishDrag}
+          ref={treeRef}
+          data-df-layer-count={model.totalCount}
+          className="dfg-panels__body dfg-panels__tree"
+          onContextMenu={onContextMenu}
         >
-          {rows.map((row) => (
-            <LayerRow
-              key={row.id}
-              row={row}
-              focused={effectiveFocusId === row.id}
-              keyboardFocus={keyboardFocus}
-              renaming={renamingId === row.id}
-              dropEdge={dropIndicatorFor(row)}
-              dragging={drag?.dragId === row.id}
-              registerRef={registerRef}
-              onPointerDown={onRowPointerDown}
-              onActivate={onActivate}
-              onKeyDown={onRowKeyDown}
-              onToggleCollapsed={onToggleCollapsed}
-              onToggleVisibility={onToggleVisibility}
-              onToggleLock={onToggleLock}
-              onBeginRename={onBeginRename}
-              onCommitRename={onCommitRename}
-              onCancelRename={onCancelRename}
-              onContextMenu={onContextMenu}
-            />
-          ))}
+          <Tree
+            label={t('panels.layers.tree.label')}
+            nodes={model.nodes}
+            selectedId={activeId}
+            onSelect={onSelect}
+            expandedIds={expandedIds}
+            onExpandedChange={onExpandedChange}
+            onRename={onRename}
+            onReorder={onReorder}
+            emptyContent={emptyContent}
+          />
         </div>
       )}
 
@@ -432,6 +306,3 @@ export function LayersPanel({
     </section>
   );
 }
-
-/** 行容器：上下留白（行自身再缩进深度）。 */
-const layerListStyle: CSSProperties = { paddingBlock: 'var(--dfg-space-1)' };

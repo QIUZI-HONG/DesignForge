@@ -17,15 +17,15 @@
  */
 import type { DesignDocument } from '@dforge/engine';
 import { Overlay, useToast } from '@dforge/ui';
-import type { CSSProperties } from 'react';
 
 import { t } from '@/i18n';
 import { formatTimestamp } from '../format';
 import { SlidePreview } from '../present/SlidePreview';
 import { buildSlides, frameOf } from '../present/sequence';
 import { useReviewDocument, useReviewSession, useVersionsUi } from '../review-context';
-import { reviewStyles, versionStyles } from '../styles';
 import { type DocumentDiff, documentSummary, type PageDiffEntry } from './snapshots';
+
+import '../review.css';
 
 /** 版本对比浮层。 */
 export function VersionCompare() {
@@ -49,17 +49,17 @@ export function VersionCompare() {
       label={t('review.versions.compare.title')}
       data-df-version-compare=""
       data-df-state="compare"
-      style={versionStyles.overlay}
+      className="dfg-review__compare-overlay"
     >
-      <header style={versionStyles.overlayHeader}>
-        <span style={reviewStyles.panelTitle}>{t('review.versions.compare.title')}</span>
-        <span style={reviewStyles.meta}>
+      <header className="dfg-review__compare-header">
+        <span className="dfg-review__panel-title">{t('review.versions.compare.title')}</span>
+        <span className="dfg-review__meta">
           {snapshot.label === '' ? snapshot.id : snapshot.label} ·{' '}
           {formatTimestamp(snapshot.createdAt)}
         </span>
       </header>
 
-      <div style={versionStyles.columns}>
+      <div className="dfg-review__compare-columns">
         <CompareColumn
           side="baseline"
           title={t('review.versions.compare.baseline')}
@@ -75,11 +75,11 @@ export function VersionCompare() {
       <section
         data-df-version-diff=""
         aria-label={t('review.versions.compare.pagesLabel')}
-        style={versionStyles.diffPanel}
+        className="dfg-review__compare-diff"
       >
-        <span style={reviewStyles.meta}>{t('review.versions.compare.pagesLabel')}</span>
+        <span className="dfg-review__meta">{t('review.versions.compare.pagesLabel')}</span>
         {diff === null || !diff.changed ? (
-          <span data-df-version-unchanged="" style={reviewStyles.emptyDesc}>
+          <span data-df-version-unchanged="" className="dfg-review__empty-desc">
             {t('review.versions.compare.unchanged')}
           </span>
         ) : (
@@ -87,8 +87,10 @@ export function VersionCompare() {
         )}
       </section>
 
-      <footer style={versionStyles.footer}>
-        <span style={versionStyles.confirmHint}>{t('review.versions.confirm.hint')}</span>
+      <footer className="dfg-review__compare-footer">
+        <span className="dfg-review__compare-confirm-hint">
+          {t('review.versions.confirm.hint')}
+        </span>
         <button
           type="button"
           className="dfg-btn dfg-btn--ghost dfg-btn--sm"
@@ -134,19 +136,23 @@ function CompareColumn({
   const frame = slide === undefined ? null : frameOf(designDocument, slide);
 
   return (
-    <section data-df-version-column={side} aria-label={title} style={versionStyles.column}>
-      <header style={versionStyles.columnHeader}>
-        <span style={reviewStyles.panelTitle}>{title}</span>
-        <span style={reviewStyles.meta}>{designDocument.name}</span>
-        <span style={reviewStyles.meta}>
+    <section
+      data-df-version-column={side}
+      aria-label={title}
+      className="dfg-review__compare-column"
+    >
+      <header className="dfg-review__compare-column-header">
+        <span className="dfg-review__panel-title">{title}</span>
+        <span className="dfg-review__meta">{designDocument.name}</span>
+        <span className="dfg-review__meta">
           {t('review.versions.summary', { pages: summary.pages, nodes: summary.nodes })}
         </span>
       </header>
-      <div style={versionStyles.columnPreview}>
+      <div className="dfg-review__compare-column-preview">
         {slide !== undefined && frame !== null ? (
           <SlidePreview frame={frame} pageId={slide.pageId} document={designDocument} />
         ) : (
-          <span style={reviewStyles.emptyDesc}>{t('review.present.empty.desc')}</span>
+          <span className="dfg-review__empty-desc">{t('review.present.empty.desc')}</span>
         )}
       </div>
     </section>
@@ -156,14 +162,14 @@ function CompareColumn({
 /** 逐页差异清单。 */
 function DiffList({ diff }: { diff: DocumentDiff }) {
   return (
-    <ul style={reviewStyles.listReset} aria-label={t('review.versions.compare.pagesLabel')}>
+    <ul className="dfg-review__list-reset" aria-label={t('review.versions.compare.pagesLabel')}>
       {diff.nameChanged ? (
-        <li style={versionStyles.diffRow}>
+        <li className="dfg-review__compare-diff-row">
           <span>{t('review.versions.compare.nameChanged')}</span>
         </li>
       ) : null}
       {diff.tokensChanged ? (
-        <li style={versionStyles.diffRow}>
+        <li className="dfg-review__compare-diff-row">
           <span>{t('review.versions.compare.tokensChanged')}</span>
         </li>
       ) : null}
@@ -172,10 +178,10 @@ function DiffList({ diff }: { diff: DocumentDiff }) {
           key={page.pageId}
           data-df-version-page={page.pageId}
           data-df-state={page.status}
-          style={versionStyles.diffRow}
+          className="dfg-review__compare-diff-row"
         >
           <span>{page.name}</span>
-          <span style={reviewStyles.meta}>{statusText(page)}</span>
+          <span className="dfg-review__meta">{statusText(page)}</span>
         </li>
       ))}
     </ul>
@@ -205,6 +211,3 @@ function statusText(page: PageDiffEntry): string {
       return '';
   }
 }
-
-/** 供样式模块引用的类型（保持样式对象在本模块外定义）。 */
-export type VersionCompareStyles = Record<string, CSSProperties>;

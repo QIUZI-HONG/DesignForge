@@ -49,6 +49,43 @@
   gap: var(--dfg-space-2);
 }
 
+/* 折叠分区（RW-10）：标题行走 UI-kit Collapse 触发器，按面板密度收紧 */
+.dfi-section .dfg-collapse {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+}
+
+.dfi-section .dfg-collapse__trigger {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  font-weight: var(--dfg-font-weight-medium);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+  justify-content: flex-start;
+}
+
+/* 页签面板（RW-10）：设计/导出两页签的内容列 */
+.dfi-tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-3);
+}
+
+.dfi-panel .dfg-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-3);
+}
+
+/* 非当前页签面板不参与布局（hidden 属性之外的兜底，防样式覆盖） */
+.dfi-panel .dfg-tabpanel[hidden] {
+  display: none;
+}
+
 .dfi-row {
   display: flex;
   align-items: center;
@@ -352,6 +389,132 @@
   color: var(--dfg-color-text-disabled);
   font: inherit;
   cursor: default;
+}
+
+/* ---------- 颜色字段（RW-10：UI-kit ColorField 的行包装） ---------- */
+
+.dfi-colorfield {
+  display: flex;
+  flex: 2 1 0;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+}
+
+/* 混选：整体走次级色（值是占位而非真值） */
+.dfi-colorfield[data-df-state="mixed"] .dfg-colorfield,
+.dfi-colorfield[data-df-state="mixed"] .dfg-colorfield .dfg-input {
+  color: var(--dfg-color-text-secondary);
+  opacity: 0.72;
+}
+
+/* ---------- 效果分区（RW-10） ---------- */
+
+.dfi-effects {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+}
+
+.dfi-effectrow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-2) 0;
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfi-effectrow:last-of-type {
+  border-bottom: none;
+}
+
+.dfi-effectrow[data-df-state="dimmed"] {
+  opacity: 0.6;
+}
+
+.dfi-effectrow__head {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+}
+
+.dfi-effectrow__type {
+  flex: 1 1 0;
+  color: var(--dfg-color-text-primary);
+  font-size: var(--dfg-font-size-12);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfi-effectrow__head .dfi-switch {
+  flex: none;
+  height: auto;
+}
+
+.dfi-effectrow__remove {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dfg-control-height-md);
+  height: var(--dfg-control-height-md);
+  padding: 0;
+  border: none;
+  border-radius: var(--dfg-radius-sm);
+  background: transparent;
+  color: var(--dfg-color-icon-primary);
+  font-size: var(--dfg-font-size-13);
+  cursor: pointer;
+}
+
+.dfi-effectrow__remove:hover {
+  background: var(--dfg-color-hover);
+}
+
+.dfi-effectrow__remove:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+}
+
+.dfi-effectrow__params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dfg-space-2);
+}
+
+.dfi-effectrow__params > .dfi-numberfield-cell {
+  flex: 1 1 0;
+  min-width: var(--dfg-size-toolbar);
+}
+
+.dfi-effectrow__params > .dfi-colorfield {
+  flex: 2 1 0;
+}
+
+.dfi-effects__add-row {
+  justify-content: space-between;
+}
+
+.dfi-effects__add {
+  box-sizing: border-box;
+  height: var(--dfg-control-height-md);
+  padding: 0 var(--dfg-control-padding-x-md);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  background: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dfi-effects__add:hover {
+  background: var(--dfg-color-hover);
+}
+
+.dfi-effects__add:focus-visible {
+  outline: var(--dfg-border-width-focus) solid var(--dfg-color-focus-ring);
+}
+
+.dfi-effects__mixed {
+  margin: 0;
 }
 
 /* ---------- 空选态（C7 画布设置） ---------- */

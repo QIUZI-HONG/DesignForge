@@ -248,8 +248,8 @@ describe('[verify] guard-tokens · 误报与漏报边界', () => {
     expect(allowlistFor('apps/web/src/features/x/y.spec.tsx').allowed).toBe(false);
   });
 
-  it('规则表：三条规则的 id/文案齐备（CLI 输出依赖）', () => {
-    expect(RULES.map((rule) => rule.id)).toEqual(['R1', 'R2', 'R3']);
+  it('规则表：各规则的 id/文案齐备（CLI 输出依赖；R4=RW-01 单位守卫、R5=令牌 v2 语义档登记）', () => {
+    expect(RULES.map((rule) => rule.id)).toEqual(['R1', 'R2', 'R3', 'R4', 'R5']);
   });
 });
 

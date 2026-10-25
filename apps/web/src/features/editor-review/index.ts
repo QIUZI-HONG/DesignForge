@@ -115,7 +115,6 @@ export {
   type LocalStoreOptions,
   versionsKey,
 } from './storage';
-export { commentStyles, reviewStyles, versionStyles } from './styles';
 export {
   appendSnapshot,
   createSnapshot,

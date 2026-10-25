@@ -8,7 +8,7 @@
  * import { registerCommand, commandRegistry, useCommandList, executeCommand } from '@/features/editor-shell';
  * registerCommand({ id, title, group, shortcut?, enabled?, run });   // 同 id 后注册者覆盖（位置不跳）
  * ```
- * 命令注册进表后自动获得：命令面板条目（⌘K）、快捷键说明条目（E8）、**全局键盘派发**。
+ * 命令注册进表后自动获得：命令面板条目（工单 08 起面板键位 ⌘/）、快捷键说明条目（E8）、**全局键盘派发**。
  *
  * 二、画布 HUD（冻结接口 ②）
  * ```ts
@@ -26,8 +26,10 @@
  * ```
  * 槽位：`topbar-left` | `topbar-center` | `topbar-right` | `toolbar` | `left-panel`
  * | `canvas` | `right-panel` | `overlays`。
- * 约定：各票在自己的 feature 目录里写挂载模块，并在 `app/editor/page.tsx` 顶部
- * 加一行 `import '@/features/<id>/register';`（纯增量）。
+ * 约定（工单 02 起收口）：插槽挂载统一声明在 `app/editor/editor-bootstrap.tsx` 的
+ * `EDITOR_SLOT_DECLARATIONS`（声明式注册表），由**唯一客户端引导件**在挂载后经
+ * `mountEditorSlotDeclarations` 批量注册；各域 register 模块只提供登记函数与渲染件，
+ * 不再自带 `return null` 引导组件（hydration 首帧一致性由引导统一保证）。
  *
  * 四、预留命令 id（入口已渲染为「未注册 = 禁用 + 原因提示」，注册后自动点亮）
  * `view.zoomFit`（FE-06）· `edit.undo` / `edit.redo`（FE-06）· `review.comment.toggle` /
@@ -37,6 +39,14 @@
  * `useEditorView`（缩放与当前工具）· `useEditorUi`（命令面板/快捷键说明）· `canvasHud`（HUD 命令式）。
  */
 
+// 引导族（工单 02：唯一客户端引导 + 声明式注册表的**机制层**；声明与执行点在
+// `app/editor/editor-bootstrap.tsx`，本包不反向依赖 feature 域）
+export {
+  type EditorBootstrapEntry,
+  type EditorSlotDeclaration,
+  mountEditorSlotDeclarations,
+  runEditorBootstrapEntries,
+} from './bootstrap/registry';
 // 命令族
 export {
   builtinCommands,
@@ -71,7 +81,15 @@ export {
   getCanvasHudSnapshot,
   subscribeCanvasHud,
 } from './hud/controller';
-
+// 快捷键解析/判定（冻结接口的配套纯函数；工单 08 速查卡消费同一条规则——
+// 「卡上展示的键位 = 此刻派发真会生效的键位」）
+export {
+  hasModifier,
+  isEditableTarget,
+  type ParsedShortcut,
+  parseShortcut,
+  type ShortcutEventLike,
+} from './shortcuts/matching';
 // 插槽族
 export { EditorSlotHost, type EditorSlotHostProps, useEditorSlotItems } from './slots/host';
 export {
@@ -83,7 +101,11 @@ export {
   resetEditorSlots,
   subscribeEditorSlots,
 } from './slots/registry';
-export { type EditorUiState, isEditorOverlayOpen, useEditorUi } from './state/ui';
+export {
+  type EditorUiState,
+  isEditorOverlayOpen,
+  useEditorUi,
+} from './state/ui';
 // UI 态
 export {
   currentZoomPercent,

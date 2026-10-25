@@ -10,8 +10,9 @@
 import type { MarketAsset } from '@dforge/contracts';
 import { SkeletonCard } from '@dforge/ui';
 
-import { gridStyle } from '../styles';
 import { MarketCard } from './MarketCard';
+
+import '../market.css';
 
 /** 网格 props（回调与卡片同形；`loadedIds` 决定「已装载」态）。 */
 export interface CardGridProps {
@@ -37,7 +38,7 @@ export function CardGrid({
 }: CardGridProps) {
   const loaded = new Set(loadedIds);
   return (
-    <div style={gridStyle} data-df-market="grid" data-df-count={assets.length}>
+    <div className="dfg-market__grid" data-df-market="grid" data-df-count={assets.length}>
       {assets.map((asset) => (
         <MarketCard
           key={asset.id}
@@ -57,7 +58,7 @@ export function CardGrid({
 /** 加载骨架网格（卡片骨架 3–5 块口径由 `SkeletonCard` 承担）。 */
 export function MarketSkeletonGrid({ count = 6 }: { count?: number }) {
   return (
-    <div style={gridStyle} data-df-market="grid" data-df-state="loading" aria-hidden>
+    <div className="dfg-market__grid" data-df-market="grid" data-df-state="loading" aria-hidden>
       {Array.from({ length: count }, (_, index) => (
         <SkeletonCard key={`skeleton-${String(index)}`} />
       ))}

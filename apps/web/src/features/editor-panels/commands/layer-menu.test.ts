@@ -46,11 +46,14 @@ function baseDoc(): DesignDocument {
 const single = (id: string) => ({ ids: [id], activeId: id });
 
 describe('图层右键菜单', () => {
-  it('单选普通节点：重命名/删除可用；编组禁用（原因键）；解组禁用', () => {
+  it('单选普通节点：删除可用；编组禁用（原因键）；解组禁用；无重命名条目（归 Tree 行内编辑）', () => {
     const page = getPage(baseDoc(), 'p1');
     const entries = layerContextMenu(page, 'p1', 'r1', single('r1'));
-    const byId = new Map(entries.map((entry) => [entry.id, entry]));
-    expect(byId.get('rename')?.disabled).toBe(false);
+    // 'rename' 已退出动作词表（归 Tree 行内编辑）：键空间放宽到 string 才能断言其缺席
+    const byId = new Map<string, (typeof entries)[number]>(
+      entries.map((entry) => [entry.id, entry]),
+    );
+    expect(byId.has('rename')).toBe(false);
     expect(byId.get('delete')?.commands).toHaveLength(1);
     expect(byId.get('group')?.disabled).toBe(true);
     expect(byId.get('group')?.disabledReasonKey).toBe('panels.menu.groupDisabled');

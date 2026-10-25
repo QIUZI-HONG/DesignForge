@@ -1,5 +1,5 @@
 /**
- * 壳层内置命令（工具 / 视图 / 帮助三组）——命令面板 E7 与快捷键表 E8 的**初始内容来源**。
+ * 壳层内置命令（工具 / 视图 / 帮助三组）——命令面板与快捷键表的**初始内容来源**。
  *
  * 归属与接管规则（对后续票的合同）：
  * - 工具命令 `tool.<id>`（V/F/R/T/H）与视图命令 `view.zoomIn|zoomOut|zoom100`、帮助命令
@@ -7,7 +7,9 @@
  * - 需要画布真值的命令**不由本票注册**：`view.zoomFit`（需画布尺寸/包围盒）、`edit.undo`
  *   / `edit.redo`（引擎命令栈）、`review.*`、`share.open`、`file.*`——入口在壳层渲染为
  *   **禁用 + 原因提示**，对应票用同 id 注册后自动点亮（注册表 last wins，见 `registry.ts`）；
- * - 想接管默认缩放实现（例如让 ⌘+ 直接改引擎视口）也用同 id 覆盖，无需改本文件。
+ * - 想接管默认缩放实现（例如让 ⌘+ 直接改引擎视口）也用同 id 覆盖，无需改本文件；
+ * - `view.commandPalette` 的键位由工单 08 的命令面板域接管（⌘K → 规格故事 14 的 ⌘/，
+ *   见 `features/command-palette/register.tsx`）——面板组件同样迁入该域（overlays 插槽）。
  */
 import { t } from '@/i18n';
 
@@ -99,7 +101,7 @@ export function builtinCommands(): Command[] {
       id: 'help.shortcuts',
       title: t('editor.action.shortcuts'),
       group: t('editor.group.help'),
-      shortcut: '⌘/',
+      // 不占键位：⌘/ 归命令面板（工单 08，features/command-palette/register 注册）
       run: () => {
         useEditorUi.getState().setShortcutsOpen(true);
       },

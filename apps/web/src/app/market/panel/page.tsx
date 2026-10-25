@@ -13,21 +13,19 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   bumpFeedback,
   classifyMarketOutcome,
-  darkPageStyle,
   FEEDBACK_KEY,
   type FeedbackEntry,
-  hintStyle,
   MarketEmptyState,
   MarketErrorState,
   MarketPanel,
   readFeedback,
-  titleStyle,
-  toolbarStyle,
   useLoadRecords,
   useMarketQuery,
 } from '@/features/market';
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
+
+import '@/features/market/market.css';
 
 /** 面板取数参数：默认综合评分前 8（面板是速览，不做完整检索）。 */
 const PANEL_LIMIT = 8;
@@ -74,14 +72,14 @@ export default function MarketPanelPage() {
   const outcome = response === null ? null : classifyMarketOutcome(response);
 
   return (
-    <div style={darkPageStyle}>
-      <header style={{ display: 'grid', gap: 'var(--dfg-space-1)', textAlign: 'center' }}>
-        <h1 style={titleStyle}>{t('market.panel.pageTitle')}</h1>
-        <p style={hintStyle}>{t('market.panel.pageHint')}</p>
+    <div className="dfg-market__dark-page">
+      <header className="dfg-market__head-center">
+        <h1 className="dfg-market__title">{t('market.panel.pageTitle')}</h1>
+        <p className="dfg-market__hint">{t('market.panel.pageHint')}</p>
       </header>
 
       {status === 'loading' ? (
-        <p style={hintStyle} data-df-state="loading" data-df-loading="panel">
+        <p className="dfg-market__hint" data-df-state="loading" data-df-loading="panel">
           {t('market.loading')}
         </p>
       ) : null}
@@ -115,8 +113,8 @@ export default function MarketPanelPage() {
         />
       ) : null}
 
-      <div style={toolbarStyle}>
-        <span style={hintStyle} data-df-market="panel-feedback-key">
+      <div className="dfg-market__toolbar">
+        <span className="dfg-market__hint" data-df-market="panel-feedback-key">
           {t('market.panel.feedbackKey', { key: FEEDBACK_KEY })}
         </span>
       </div>

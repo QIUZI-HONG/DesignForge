@@ -15,7 +15,9 @@ import { Button, EmptyState, ErrorState, InfoIcon } from '@dforge/ui';
 import { t } from '@/i18n';
 
 import { MARKET_COLLECT_COMMAND } from '../api';
-import { badgeRowStyle, badgeStyle, codeStyle } from '../styles';
+import { badgeClassName } from '../badge-classes';
+
+import '../market.css';
 
 /** 空态种类。 */
 export type MarketEmptyKind = 'no-result' | 'index-missing' | 'index-invalid' | 'installed-empty';
@@ -53,7 +55,7 @@ export function MarketEmptyState({
               : t('market.empty.indexInvalid.desc')
           }
           action={
-            <code style={codeStyle} data-df-market="collect-hint">
+            <code className="dfg-market__code" data-df-market="collect-hint">
               {`$ ${MARKET_COLLECT_COMMAND}`}
             </code>
           }
@@ -137,8 +139,8 @@ export function MarketErrorState({
 /** 部分失败提示条（借 WorkBuddy「部分社区结果加载失败」语义，研究 #3 §3.4）。 */
 export function MarketWarningBanner({ message }: { message: string }) {
   return (
-    <div style={badgeRowStyle} role="status" data-df-market="warning">
-      <span style={badgeStyle('warn')}>
+    <div className="dfg-market__badge-row" role="status" data-df-market="warning">
+      <span className={badgeClassName('warn')}>
         <InfoIcon size={12} /> {message}
       </span>
     </div>

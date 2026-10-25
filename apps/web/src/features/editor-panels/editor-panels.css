@@ -1,0 +1,209 @@
+/*
+ * 编辑器面板共享样式（工单 06 · 样式单轨；深色编辑器族）。
+ *
+ * 纪律（_shared §3）：**禁裸值**——颜色/间距/圆角/字号一律 `var(--dfg-…)` 令牌引用
+ * （`scripts/guard-tokens.mjs` 会扫本文件）；几何适配用 calc/百分比，不算裸值。
+ * RW-13 起，图层行的交互态（悬停/选中/焦点环/拖拽中/禁用）由 @dforge/ui Tree 的
+ * `.dfg-tree__node` 规则承接（组件真源，这里不重复声明）；本文件只保留面板骨架、
+ * 树容器的渲染窗口化（content-visibility）与类型图标着色挂点。
+ */
+
+/* ---------- 面板骨架（资产/图层等左右栏面板共用） ---------- */
+
+.dfg-panels__panel {
+  display: flex;
+  flex-direction: column;
+  width: var(--dfg-size-sidebar);
+  height: 100%;
+  min-height: 0;
+  background-color: var(--dfg-color-surface);
+  border-inline: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  line-height: var(--dfg-line-height-base);
+}
+
+.dfg-panels__header {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-panels__header-title {
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-panels__header-spacer {
+  flex: 1 1 auto;
+}
+
+.dfg-panels__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* ---------- 图层树（C3，RW-13：接入 @dforge/ui Tree） ---------- */
+
+/*
+ * 树容器：排版沿用面板正文字号 --dfg-font-size-12（Tree 组件默认字号是控件档），上下留半档呼吸；
+ * 选中/悬停/禁用/焦点环/拖拽中的行状态全部由 @dforge/ui 的 .dfg-tree__node 规则承接，
+ * 这里不重复声明（单轨：状态样式只有一份真源）。
+ */
+.dfg-panels__tree {
+  font-size: var(--dfg-font-size-12);
+  padding-block: var(--dfg-space-1);
+}
+
+/*
+ * 千级图层的渲染窗口化（零依赖取舍，登记在 RW-13）：
+ * 全量 DOM 挂载（树结构/折叠/键盘漫游语义完整），屏外行的**渲染**交给浏览器
+ * `content-visibility: auto` 跳过——行高锚定 `contain-intrinsic-size`，滚动条不塌陷。
+ * 不做 JS 窗口化：那需要切片 Tree 的嵌套 group 结构，破坏键盘漫游与 aria 语义。
+ */
+.dfg-panels__tree .dfg-tree__node {
+  height: var(--dfg-row-height-md);
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--dfg-row-height-md);
+}
+
+/* 类型图标着色：组件族（component/component_set/instance）用组件紫，其余次级前景 */
+.dfg-panels__layer-type-icon {
+  display: inline-flex;
+  color: var(--dfg-color-icon-secondary);
+}
+
+.dfg-panels__layer-type-icon[data-df-layer-type="component"],
+.dfg-panels__layer-type-icon[data-df-layer-type="component_set"],
+.dfg-panels__layer-type-icon[data-df-layer-type="instance"] {
+  color: var(--dfg-color-component);
+}
+
+/* 骨架行（加载态） */
+.dfg-panels__skeleton-row {
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+}
+
+/* ---------- 左栏组合（EditorPanels：图层 / 资产双页签，工单 06 单轨化迁移） ---------- */
+
+.dfg-panels__group {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--dfg-color-surface);
+  border-inline: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+}
+
+.dfg-panels__tab-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+/* ---------- 资产面板（C4） ---------- */
+
+.dfg-panels__asset-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-panels__asset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-3);
+}
+
+.dfg-panels__asset-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  padding: var(--dfg-space-1);
+  text-align: left;
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-md);
+  cursor: pointer;
+}
+
+.dfg-panels__asset-card[aria-pressed="true"] {
+  border-color: var(--dfg-color-primary);
+}
+
+.dfg-panels__asset-thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3 / 2;
+  background-color: var(--dfg-color-surface-raised);
+  border-radius: var(--dfg-radius-sm);
+  color: var(--dfg-color-component);
+}
+
+.dfg-panels__asset-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-panels__asset-card-meta {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* ---------- 令牌清单 ---------- */
+
+.dfg-panels__token-group {
+  padding: var(--dfg-space-2) var(--dfg-space-3) 0;
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+  text-transform: none;
+}
+
+.dfg-panels__token-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  min-height: var(--dfg-row-height-md);
+  padding-inline: var(--dfg-space-3);
+}
+
+/* 色块底色缺省取骨架灰；颜色令牌的解析值由行内注入（文档数据，动态值豁免） */
+.dfg-panels__token-swatch {
+  flex: 0 0 auto;
+  width: var(--dfg-icon-size-md);
+  height: var(--dfg-icon-size-md);
+  border-radius: var(--dfg-radius-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  background-color: var(--dfg-color-skeleton);
+}
+
+.dfg-panels__token-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-panels__token-value {
+  flex: 0 0 auto;
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}

@@ -1,37 +1,37 @@
-// FE-06 宿主接线（画布 + 面板 + Inspector + 检查/导出 + AI/MCP 的挂载入口）。
-// 为什么用组件而不是「顶层 import 即注册」：`'use client'` 模块在服务端渲染时顶层代码不执行，
-// 顶层注册会造成「服务端空槽 / 客户端有槽」的 hydration 不匹配（整棵树停在空槽形态）。
-// 引导组件在挂载后注册插槽与命令，服务端/客户端首帧一致。
-import { WorkspaceBootstrap } from '@/features/canvas/register';
-import { ReviewBootstrap } from '@/features/editor-review/register';
+// FE-06 宿主接线（工单 02 引导收口）：编辑器页只挂「壳层 + 唯一客户端引导件」。
+//
+// 为什么引导是「渲染出来的客户端组件」而不是裸 import：Next App Router 里仅被 import、
+// 未被渲染的客户端模块不进首屏客户端图（实测入口仍是禁用态）；引导在挂载后（effect）
+// 才注册插槽与命令，服务端/客户端首帧一致（服务端空槽形态 = 客户端首帧形态），
+// hydration 不匹配由此消除。此前散点 `return null` 引导件（WorkspaceBootstrap /
+// ReviewBootstrap）与模块顶层注册的职责，全部收进 `./editor-bootstrap`。
+//
+// 插槽（`left-panel` / `canvas` / `right-panel` / `topbar-*` / `toolbar` / `overlays`）
+// 与命令注册全部声明在 `./editor-bootstrap` 的注册表里：
+//
+// - FE-04 图层面板 + 资产面板 → `left-panel`（`fe-04-panels`，经 FE-06 装配同源）
+// - FE-05 Inspector → `right-panel`（`fe-06-right` 装配的下半区）
+// - FE-06 画布与编辑行为 → `canvas` 等（HUD 用 `useCanvasHud()`）
+// - FE-07 评论 / Present / 版本 → `canvas` / `right-panel` / `overlays` + 顶栏命令
+// - FE-08 组件交互 + 检查导出 → `right-panel` 页签（FE-06 装配）
+// - FE-10 AI/MCP → `toolbar` / `overlays`
+//
+// 新增插槽 = 注册表加一条声明（纯增量），不再需要改本页。
 import { EditorShell } from '@/features/editor-shell';
+
+import { EditorBootstrap } from './editor-bootstrap';
 
 /**
  * 编辑器页（`/editor`，清单 C 区对标页族的外围骨架）。
  *
- * 本页只做一件事：把壳层挂到路由上。壳层内部的插槽
- * （`left-panel` / `canvas` / `right-panel` / `topbar-*` / `toolbar` / `overlays`）
- * 由后续票以 `registerEditorSlotItem(...)` 挂载实现：
- *
- * - FE-04 图层面板 + 资产面板 → `left-panel`
- * - FE-05 Inspector → `right-panel`
- * - FE-06 画布与编辑行为 → `canvas`（HUD 用 `useCanvasHud()`）
- * - FE-07 评论 / Present / 版本 → `topbar-right`、`overlays`、`toolbar`
- * - FE-08 组件交互 + 检查导出 → `toolbar` / `right-panel` / `overlays`
- *
- * 各票在自己的 `features/<id>/` 目录里写挂载模块，并在本文件里挂一次
- * （纯增量，见 `features/editor-shell/slots/registry.ts` 头注释）——
- * 已接线：FE-07 评审（命令 + canvas/right-panel/overlays 插槽，见 `features/editor-review/register.tsx`）。
- * 注：客户端模块**必须被渲染**才会进首屏客户端图（裸 import 不加载，实测入口仍禁用），
- * 因此 FE-07 用 `return null` 的 `<ReviewBootstrap />` 引导一次。
- * 注意：本页是服务端组件，不直接用浏览器 API；壳层与插槽宿主都是客户端组件。
+ * 注意：本页是服务端组件，不直接用浏览器 API；壳层、插槽宿主与本页唯一渲染的
+ * 客户端引导件都是客户端组件。
  */
 export default function EditorPage() {
   return (
     <>
       <EditorShell />
-      <WorkspaceBootstrap />
-      <ReviewBootstrap />
+      <EditorBootstrap />
     </>
   );
 }

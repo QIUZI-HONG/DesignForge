@@ -14,6 +14,8 @@ import {
   createText,
   defaultAutoLayout,
   defaultTextContent,
+  dropShadow,
+  type Effect,
   type ScenePage,
 } from '@dforge/engine';
 import { describe, expect, it } from 'vitest';
@@ -22,6 +24,7 @@ import {
   activeFieldValue,
   readAutoLayoutField,
   readBlendMode,
+  readEffects,
   readField,
   readFillColor,
   readFillOpacity,
@@ -171,6 +174,63 @@ describe('具体字段读取', () => {
       kind: 'single',
       value: 'normal',
     });
+  });
+});
+
+describe('readEffects（效果分区 · RW-10）', () => {
+  const shadowA: Effect = dropShadow('#000000', 0, 4, 10);
+  const shadowB: Effect = dropShadow('#000000', 0, 8, 10);
+
+  it('单选：返回该节点的效果列表（含空列表——分区仍可见，给「添加」入口）', () => {
+    const page = fixture();
+    expect(readEffects(page, createSelection(['r1']))).toEqual({ kind: 'single', value: [] });
+  });
+
+  it('多选且效果列表结构一致：single（Effect 数组按结构比较，不看引用）', () => {
+    const page = fixture();
+    const a = page.nodes.r1;
+    const b = page.nodes.r2;
+    if (a === undefined || b === undefined) throw new Error('夹具缺失');
+    const withEffects = createPage({
+      id: 'p2',
+      nodes: {
+        r1: { ...a, effects: [shadowA] },
+        r2: { ...b, effects: [{ ...shadowA }] }, // 同结构不同引用
+      },
+      rootIds: ['r1', 'r2'],
+    });
+    expect(readEffects(withEffects, createSelection(['r1', 'r2']))).toEqual({
+      kind: 'single',
+      value: [shadowA],
+    });
+  });
+
+  it('多选且效果不一致（参数或长度不同）：mixed', () => {
+    const page = fixture();
+    const a = page.nodes.r1;
+    const b = page.nodes.r2;
+    if (a === undefined || b === undefined) throw new Error('夹具缺失');
+    const diverged = createPage({
+      id: 'p3',
+      nodes: {
+        r1: { ...a, effects: [shadowA] },
+        r2: { ...b, effects: [shadowB] },
+      },
+      rootIds: ['r1', 'r2'],
+    });
+    expect(readEffects(diverged, createSelection(['r1', 'r2']))).toEqual({ kind: 'mixed' });
+
+    const lengthDiverged = createPage({
+      id: 'p4',
+      nodes: { r1: { ...a, effects: [shadowA] }, r2: { ...b, effects: [] } },
+      rootIds: ['r1', 'r2'],
+    });
+    expect(readEffects(lengthDiverged, createSelection(['r1', 'r2']))).toEqual({ kind: 'mixed' });
+  });
+
+  it('空选择：absent', () => {
+    const page = fixture();
+    expect(readEffects(page, createSelection([]))).toEqual({ kind: 'absent' });
   });
 });
 

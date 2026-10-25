@@ -12,18 +12,16 @@ import { useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 import { DashboardView } from '@/features/dashboard';
 import {
-  badgeRowStyle,
   classifyMarketOutcome,
-  headerStyle,
-  hintStyle,
   MarketErrorState,
   MarketWarningBanner,
-  subtitleStyle,
-  titleStyle,
   useMarketQuery,
 } from '@/features/market';
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
+
+// 版式类复用 market.css（工单 06 · 样式单轨：两域共用同一套页面排版基线，见 market.css 头注释）
+import '@/features/market/market.css';
 
 /** 看板样本上限（索引规模在首批 40 仓量级，200 足够覆盖；截断时看板如实标注）。 */
 const DASHBOARD_LIMIT = 200;
@@ -37,15 +35,15 @@ export default function DashboardPage() {
 
   return (
     <>
-      <header style={headerStyle}>
-        <h1 style={titleStyle} data-df-page="dashboard">
+      <header className="dfg-market__header">
+        <h1 className="dfg-market__title" data-df-page="dashboard">
           {t('dashboard.title')}
         </h1>
-        <p style={subtitleStyle}>{t('dashboard.subtitle')}</p>
-        <p style={hintStyle} data-df-market="dashboard-hint">
+        <p className="dfg-market__subtitle">{t('dashboard.subtitle')}</p>
+        <p className="dfg-market__hint" data-df-market="dashboard-hint">
           {t('dashboard.hint')}
         </p>
-        <div style={badgeRowStyle}>
+        <div className="dfg-market__badge-row">
           <Button
             variant="secondary"
             size="sm"
@@ -63,7 +61,7 @@ export default function DashboardPage() {
       </header>
 
       {status === 'loading' ? (
-        <p style={hintStyle} data-df-state="loading" data-df-loading="dashboard">
+        <p className="dfg-market__hint" data-df-state="loading" data-df-loading="dashboard">
           {t('market.loading')}
         </p>
       ) : null}

@@ -1,0 +1,133 @@
+/*
+ * 设计系统预览页样式（`/_design`，内部工具；工单 06 · 样式单轨）。
+ *
+ * 口径（_shared §3 禁裸值）：颜色/间距/圆角/字号一律 `var(--dfg-*)` 令牌引用
+ * （`scripts/guard-tokens.mjs` 扫本文件）。色样/圆角样的**取值**是运行时枚举的令牌变量
+ * （`var(--dfg-…)` 由数据给出），仍由组件行内注入——动态值豁免，登记在工单 06。
+ */
+
+.dfg-design__page {
+  min-height: 100vh;
+  display: grid;
+  gap: var(--dfg-space-8);
+  padding: var(--dfg-space-8);
+  background-color: var(--dfg-color-canvas);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-13);
+}
+
+.dfg-design__header {
+  display: grid;
+  gap: var(--dfg-space-3);
+}
+
+.dfg-design__title {
+  margin: 0;
+  font-size: var(--dfg-font-size-24);
+  font-weight: var(--dfg-font-weight-bold);
+}
+
+.dfg-design__subtitle {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  line-height: var(--dfg-line-height-relaxed);
+}
+
+.dfg-design__tip {
+  margin: 0;
+  color: var(--dfg-color-text-disabled);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-design__section {
+  display: grid;
+  gap: var(--dfg-space-4);
+  padding: var(--dfg-space-5);
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+}
+
+.dfg-design__section-title {
+  margin: 0;
+  font-size: var(--dfg-font-size-15);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-design__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dfg-space-3);
+  align-items: flex-start;
+}
+
+.dfg-design__cell {
+  display: grid;
+  gap: var(--dfg-space-1);
+  justify-items: start;
+  padding: var(--dfg-space-2);
+  border: var(--dfg-border-width-hairline) dashed var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+}
+
+.dfg-design__cell-label {
+  color: var(--dfg-color-text-disabled);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-design__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dfg-space-2);
+  align-items: center;
+}
+
+.dfg-design__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  padding-block: var(--dfg-space-1);
+  padding-inline: var(--dfg-space-2);
+  background-color: var(--dfg-color-surface-subtle);
+  border-radius: var(--dfg-radius-sm);
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-design__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-design__th {
+  text-align: left;
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-design__td {
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+/* 令牌色样底座（取值由组件按枚举到的变量行内注入） */
+.dfg-design__swatch {
+  width: var(--dfg-space-12);
+  height: var(--dfg-space-6);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+}
+
+.dfg-design__overlay-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: var(--dfg-space-16);
+  padding: var(--dfg-space-4);
+  background-color: var(--dfg-color-surface-subtle);
+  border-radius: var(--dfg-radius-md);
+}

@@ -15,6 +15,7 @@ import {
   type Command,
   type DesignDocument,
   defaultAutoLayout,
+  type Effect,
   getPage,
   type NodeId,
   type NodePatch,
@@ -154,6 +155,93 @@ export function setBlendModeCommands(
   return batchPatchCommands(page, pageId, ids, (node) =>
     node.blendMode === mode ? null : { blendMode: mode },
   );
+}
+
+/* ------------------------------------------------------------------------ *
+ * 效果分区（RW-10）：效果列表的增/删/改，全部落 node.update（画布实时联动）。
+ * 序号口径：效果编辑只针对「选中集共有的第 index 个效果」（三态为 single 时成立）；
+ * 越界/不适用节点跳过，无变化不出命令（避免空历史）。
+ * ------------------------------------------------------------------------ */
+
+/** 效果类型（引擎 P0 三种）。 */
+export type EffectType = Effect['type'];
+
+/** 新效果的默认参数（对齐 Figma 常用初值；色值是文档数据，非界面令牌）。 */
+export function defaultEffect(type: EffectType): Effect {
+  switch (type) {
+    case 'drop_shadow':
+    case 'inner_shadow':
+      return {
+        type,
+        color: '#000000', // guard-tokens:allow 文档数据色，非界面令牌
+        offsetX: 0,
+        offsetY: 4,
+        blur: 10,
+        spread: 0,
+        visible: true,
+      };
+    case 'layer_blur':
+      return {
+        type,
+        color: '#000000', // guard-tokens:allow 文档数据色，非界面令牌
+        offsetX: 0,
+        offsetY: 0,
+        blur: 10,
+        spread: 0,
+        visible: true,
+      };
+  }
+}
+
+/** 批量追加效果（各节点从自身现状追加同一效果定义）。 */
+export function addEffectCommands(
+  page: ScenePage,
+  pageId: PageId,
+  ids: readonly NodeId[],
+  effect: Effect,
+): Command[] {
+  return batchPatchCommands(page, pageId, ids, (node) => ({
+    effects: [...node.effects, effect],
+  }));
+}
+
+/** 批量按序号移除效果（越界节点跳过）。 */
+export function removeEffectCommands(
+  page: ScenePage,
+  pageId: PageId,
+  ids: readonly NodeId[],
+  index: number,
+): Command[] {
+  return batchPatchCommands(page, pageId, ids, (node) => {
+    if (index < 0 || index >= node.effects.length) return null;
+    return { effects: node.effects.filter((_, at) => at !== index) };
+  });
+}
+
+/** 批量改第 index 个效果的参数（部分补丁；未涉及参数保留；无变化/越界跳过）。 */
+export function updateEffectCommands(
+  page: ScenePage,
+  pageId: PageId,
+  ids: readonly NodeId[],
+  index: number,
+  patch: Partial<Omit<Effect, 'type'>>,
+): Command[] {
+  return batchPatchCommands(page, pageId, ids, (node) => {
+    const current = node.effects[index];
+    if (current === undefined) return null;
+    const next: Effect = { ...current, ...patch };
+    if (
+      next.color === current.color &&
+      next.offsetX === current.offsetX &&
+      next.offsetY === current.offsetY &&
+      next.blur === current.blur &&
+      next.spread === current.spread &&
+      next.visible === current.visible
+    ) {
+      return null;
+    }
+    return { effects: node.effects.map((effect, at) => (at === index ? next : effect)) };
+  });
 }
 
 /**

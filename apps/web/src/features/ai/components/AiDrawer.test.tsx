@@ -4,7 +4,12 @@
  *
  * 断言口径：可见文案（i18n 真源）、可访问角色、`data-df-*` 状态挂点（门禁取样契约）；
  * 流式细节由 stream.test.ts 负责，这里只验「界面是否如实呈现状态机的状态」。
+ * 样式单轨（工单 06）：样式断言走**类名挂载 + ai.css 文本**（External CSS 在 jsdom
+ * 不计算，内联样式对象已收敛为域内 CSS——先例：`verify/a11y-keyboard.test.tsx` 注入 CSS）。
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -164,5 +169,54 @@ describe('AI 抽屉（F4）', () => {
     render(<AiDrawer port={port} defaultOpen />);
     expect(await screen.findByText(/未配置 DeepSeek key/)).toBeTruthy();
     expect(port.statusCalls).toBe(1);
+  });
+});
+
+/** 读域内 CSS 文本（jsdom 不计算 External CSS，类规则只能对文件文本断言）。 */
+const aiCss = (): string =>
+  readFileSync(resolve(process.cwd(), 'src/features/ai/components/ai.css'), 'utf8');
+
+/** 断言 CSS 里有 `.类名 { … }` 规则块，并返回该块文本。 */
+function cssRule(css: string, className: string): string {
+  const at = css.indexOf(`.${className} {`);
+  expect(at, `ai.css 缺少 .${className} 规则`).toBeGreaterThanOrEqual(0);
+  const end = css.indexOf('}', at);
+  return css.slice(at, end);
+}
+
+describe('AI 抽屉 · 样式单轨（工单 06）', () => {
+  it('样式挂类不挂内联：抽屉内容树不产生 style 属性', () => {
+    render(<AiDrawer port={fakeAiPort({ runs: [] })} defaultOpen />);
+    const root = document.querySelector('[data-df-panel="ai"]');
+    expect(root?.classList.contains('dfg-ai__body')).toBe(true);
+    // 本域无几何算式场景：整个内容树不允许任何内联样式（豁免登记表在工单 06）
+    expect(root?.querySelector('[style]')).toBeNull();
+  });
+
+  it('步骤强调色由 data-df-step-status 状态选择器承接（不再 JS 算色）', () => {
+    const css = aiCss();
+    // 缺省（queued）= 文字禁用色；active/done/failed 各自覆盖——与原 stepAccent 同语义
+    expect(cssRule(css, 'dfg-ai__step-label')).toContain('var(--dfg-color-text-disabled)');
+    expect(css).toContain('[data-df-step-status="active"] .dfg-ai__step-label');
+    expect(css).toContain('var(--dfg-color-primary)');
+    expect(css).toContain('[data-df-step-status="done"] .dfg-ai__step-label');
+    expect(css).toContain('var(--dfg-color-success)');
+    expect(css).toContain('[data-df-step-status="failed"] .dfg-ai__step-label');
+    expect(css).toContain('var(--dfg-color-danger)');
+  });
+
+  it('关键规则块落盘：提示条/角标/文本域的颜色与几何全部引用令牌', () => {
+    const css = aiCss();
+    expect(cssRule(css, 'dfg-ai__hint')).toContain('var(--dfg-color-warning-subtle)');
+    expect(cssRule(css, 'dfg-ai__badge')).toContain('var(--dfg-color-component)');
+    expect(cssRule(css, 'dfg-ai__textarea')).toContain('var(--dfg-size-textarea-min-height)');
+    // 类挂载抽查：步骤行与建议清单挂预期类
+    render(<AiDrawer port={fakeAiPort({ runs: [] })} defaultOpen />);
+    expect(document.querySelector('[data-df-step="queued"]')?.className).toContain(
+      'dfg-ai__step-row',
+    );
+    expect(document.querySelector('[data-df-panel="ai"] textarea')?.className).toContain(
+      'dfg-ai__textarea',
+    );
   });
 });

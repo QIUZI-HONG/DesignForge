@@ -18,18 +18,8 @@ import { useState } from 'react';
 import { t } from '@/i18n';
 
 import { buildSourceUrl } from '../api';
+import { badgeClassName } from '../badge-classes';
 import { describeInstallButton } from '../capabilities';
-import {
-  badgeRowStyle,
-  badgeStyle,
-  cardHoverExtraStyle,
-  cardNameStyle,
-  cardStyle,
-  cardSubNameStyle,
-  cardSummaryStyle,
-  cardTitleStyle,
-  thumbStyle,
-} from '../styles';
 import {
   assetPrimaryName,
   assetSecondaryName,
@@ -42,6 +32,8 @@ import {
   SourceBadge,
 } from './Badges';
 import { HighlightedText } from './HighlightedText';
+
+import '../market.css';
 
 /** 卡片 props（回调由页面给：打开详情、进入装载确认、卸载）。 */
 export interface MarketCardProps {
@@ -74,7 +66,7 @@ export function MarketCard({
 
   return (
     <article
-      style={{ ...cardStyle, ...(hovered ? cardHoverExtraStyle : {}) }}
+      className="dfg-market__card"
       data-df-market="card"
       data-df-asset={asset.id}
       data-df-kind={asset.kind}
@@ -87,34 +79,36 @@ export function MarketCard({
         setHovered(false);
       }}
     >
-      <div style={thumbStyle} aria-hidden>
+      <div className="dfg-market__thumb" aria-hidden>
         {kindIcon(asset.kind, 32)}
       </div>
 
-      <div style={cardTitleStyle}>
+      <div className="dfg-market__card-title">
         <div>
-          <h3 style={cardNameStyle}>
+          <h3 className="dfg-market__card-name">
             <button
               type="button"
               onClick={() => {
                 onOpen(asset.id);
               }}
-              style={cardOpenStyle}
+              className="dfg-market__card-open"
               data-df-market="card-open"
             >
               <HighlightedText text={assetPrimaryName(asset)} query={query} />
             </button>
           </h3>
-          {secondaryName.length > 0 ? <p style={cardSubNameStyle}>{secondaryName}</p> : null}
+          {secondaryName.length > 0 ? (
+            <p className="dfg-market__card-sub-name">{secondaryName}</p>
+          ) : null}
         </div>
         <ScoreBadge score={asset.quality.score} />
       </div>
 
-      <p style={cardSummaryStyle} data-df-market="card-summary">
+      <p className="dfg-market__card-summary" data-df-market="card-summary">
         <HighlightedText text={asset.summary['zh-CN'] ?? asset.summary.en ?? ''} query={query} />
       </p>
 
-      <div style={badgeRowStyle}>
+      <div className="dfg-market__badge-row">
         <KindBadge kind={asset.kind} />
         <SourceBadge
           repo={asset.source.repo}
@@ -123,17 +117,17 @@ export function MarketCard({
         />
         <LicenseBadge gate={asset.source.license.gate} />
         {loaded ? (
-          <span style={badgeStyle('ok')} data-df-market="badge" data-df-badge="loaded">
+          <span className={badgeClassName('ok')} data-df-market="badge" data-df-badge="loaded">
             {t('market.card.loadedBadge')}
           </span>
         ) : null}
         {updateAvailable ? (
-          <span style={badgeStyle('warn')} data-df-market="badge" data-df-badge="update">
+          <span className={badgeClassName('warn')} data-df-market="badge" data-df-badge="update">
             {t('market.card.updateBadge')}
           </span>
         ) : null}
         {asset.yanked !== null ? (
-          <span style={badgeStyle('danger')} data-df-market="badge" data-df-badge="yanked">
+          <span className={badgeClassName('danger')} data-df-market="badge" data-df-badge="yanked">
             {t('market.card.yankedBadge', { reason: asset.yanked.reason })}
           </span>
         ) : null}
@@ -142,7 +136,7 @@ export function MarketCard({
       <MetricRow asset={asset} />
       <RequirementTags capabilities={asset.capabilities} />
 
-      <div style={badgeRowStyle} data-df-market="card-actions">
+      <div className="dfg-market__badge-row" data-df-market="card-actions">
         <Button
           variant={asset.installGate.mode === 'loadable' && !loaded ? 'primary' : 'secondary'}
           size="sm"
@@ -221,14 +215,3 @@ export function MarketCard({
     </article>
   );
 }
-
-/** 卡片主名的按钮化样式（保持标题排版，行为是按钮——键盘可达）。 */
-const cardOpenStyle = {
-  background: 'none',
-  border: 'none',
-  padding: 'var(--dfg-space-0)',
-  font: 'inherit',
-  color: 'inherit',
-  cursor: 'pointer',
-  textAlign: 'left',
-} as const;

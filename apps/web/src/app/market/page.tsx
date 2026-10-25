@@ -18,15 +18,12 @@ import { type ReactElement, useMemo, useState } from 'react';
 import {
   activeFilterCount,
   applyClientFilters,
-  badgeRowStyle,
   CardGrid,
   classifyMarketOutcome,
   clientFilterOf,
   collectScenes,
   FilterBar,
   hasMorePages,
-  headerStyle,
-  hintStyle,
   INITIAL_MARKET_FILTERS,
   isSearchDegraded,
   isUpdateAvailable,
@@ -36,12 +33,7 @@ import {
   type MarketFilters,
   MarketSkeletonGrid,
   MarketWarningBanner,
-  paginationErrorStyle,
-  paginationStyle,
   selectFeatured,
-  subtitleStyle,
-  titleStyle,
-  toolbarStyle,
   toQueryParams,
   useLoadPlan,
   useLoadRecords,
@@ -49,6 +41,8 @@ import {
 } from '@/features/market';
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
+
+import '@/features/market/market.css';
 
 /** 市场首页。 */
 export default function MarketHomePage() {
@@ -180,8 +174,8 @@ export default function MarketHomePage() {
     const total = response.total;
     if (total <= 0) return null;
     return (
-      <div data-df-market="pagination" style={paginationStyle}>
-        <span style={hintStyle}>{t('market.list.progress', { shown, total })}</span>
+      <div data-df-market="pagination" className="dfg-market__pagination">
+        <span className="dfg-market__hint">{t('market.list.progress', { shown, total })}</span>
         {hasMorePages(shown, total) ? (
           <Button
             size="sm"
@@ -192,10 +186,10 @@ export default function MarketHomePage() {
             {loadMoreState === 'loading' ? t('market.list.loadingMore') : t('market.list.loadMore')}
           </Button>
         ) : (
-          <span style={hintStyle}>{t('market.list.allShown', { total })}</span>
+          <span className="dfg-market__hint">{t('market.list.allShown', { total })}</span>
         )}
         {loadMoreState === 'error' ? (
-          <span style={paginationErrorStyle}>
+          <span className="dfg-market__pagination-error">
             {t('market.list.loadMoreFailed', { message: loadMoreError ?? '' })}
           </span>
         ) : null}
@@ -205,11 +199,11 @@ export default function MarketHomePage() {
 
   return (
     <>
-      <header style={headerStyle}>
-        <h1 style={titleStyle} data-df-page="market-home">
+      <header className="dfg-market__header">
+        <h1 className="dfg-market__title" data-df-page="market-home">
           {t('market.title')}
         </h1>
-        <p style={subtitleStyle}>{t('market.subtitle')}</p>
+        <p className="dfg-market__subtitle">{t('market.subtitle')}</p>
       </header>
 
       <FilterBar
@@ -227,7 +221,7 @@ export default function MarketHomePage() {
         onClear={clearFilters}
       />
 
-      <div style={toolbarStyle} data-df-market="discover">
+      <div className="dfg-market__toolbar" data-df-market="discover">
         <Button
           size="sm"
           variant={featuredOnly ? 'primary' : 'secondary'}
@@ -238,7 +232,7 @@ export default function MarketHomePage() {
         >
           {t('market.featured')}
         </Button>
-        <span style={hintStyle}>{t('market.featuredHint', { count: 6 })}</span>
+        <span className="dfg-market__hint">{t('market.featuredHint', { count: 6 })}</span>
       </div>
 
       {warningMessage === null ? null : <MarketWarningBanner message={warningMessage} />}
@@ -269,8 +263,8 @@ export default function MarketHomePage() {
         />
       ) : null}
 
-      <footer style={badgeRowStyle} data-df-market="page-foot">
-        <span style={hintStyle} data-df-market="client-filter-note">
+      <footer className="dfg-market__badge-row" data-df-market="page-foot">
+        <span className="dfg-market__hint" data-df-market="client-filter-note">
           {t('market.clientFilterNote', { count: activeFilterCount(filters) })}
         </span>
       </footer>

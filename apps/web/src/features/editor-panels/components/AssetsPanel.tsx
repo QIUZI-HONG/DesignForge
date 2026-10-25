@@ -19,13 +19,14 @@ import {
   SegmentedControl,
   Skeleton,
 } from '@dforge/ui';
-import { type CSSProperties, useMemo } from 'react';
+import { useMemo } from 'react';
 
 import { t } from '@/i18n';
 
 import { usePanelsDocument, usePanelsUi } from '../state/hooks';
 import { usePanelsSession } from './panels-context';
-import { assetStyles, panelStyles } from './styles';
+
+import '../editor-panels.css';
 
 /** 资产面板 props（loading/error 状态挂点由壳层喂）。 */
 export interface AssetsPanelProps {
@@ -72,17 +73,16 @@ export function AssetsPanel({
       aria-busy={loading}
       data-df-panel="assets"
       data-df-segment={segment}
-      className={className}
-      style={panelStyles.panel}
+      className={className === undefined ? 'dfg-panels__panel' : `${className} dfg-panels__panel`}
     >
       {hideHeader ? null : (
-        <header style={panelStyles.header}>
-          <span style={panelStyles.headerTitle}>{t('panels.assets.title')}</span>
-          <span style={panelStyles.headerSpacer} />
+        <header className="dfg-panels__header">
+          <span className="dfg-panels__header-title">{t('panels.assets.title')}</span>
+          <span className="dfg-panels__header-spacer" />
         </header>
       )}
 
-      <div style={assetStyles.toolbar}>
+      <div className="dfg-panels__asset-toolbar">
         <SegmentedControl
           label={t('panels.assets.segment.label')}
           size="sm"
@@ -107,7 +107,7 @@ export function AssetsPanel({
       </div>
 
       {error !== null ? (
-        <div data-df-sample="assets/error" style={panelStyles.body}>
+        <div data-df-sample="assets/error" className="dfg-panels__body">
           <ErrorState
             title={t('panels.assets.error.title')}
             description={t('panels.assets.error.desc')}
@@ -116,11 +116,11 @@ export function AssetsPanel({
           />
         </div>
       ) : loading ? (
-        <div data-df-sample="assets/loading" style={panelStyles.body}>
+        <div data-df-sample="assets/loading" className="dfg-panels__body">
           <span className="dfg-visually-hidden" role="status">
             {t('panels.assets.loading')}
           </span>
-          <div style={assetStyles.grid}>
+          <div className="dfg-panels__asset-grid">
             {Array.from({ length: 4 }, (_, index) => (
               <Skeleton key={`card-${String(index)}`} height="var(--dfg-size-drawer-sm)" />
             ))}
@@ -129,7 +129,7 @@ export function AssetsPanel({
       ) : segment === 'components' ? (
         <div
           data-df-sample={componentsEmpty ? 'assets/empty' : 'assets/components'}
-          style={panelStyles.body}
+          className="dfg-panels__body"
         >
           {componentsEmpty ? (
             <EmptyState
@@ -144,7 +144,7 @@ export function AssetsPanel({
               />
             </div>
           ) : (
-            <div style={assetStyles.grid}>
+            <div className="dfg-panels__asset-grid">
               {visibleComponents.map((entry) => {
                 const selected = selection.ids.includes(entry.id);
                 return (
@@ -155,21 +155,16 @@ export function AssetsPanel({
                     aria-label={entry.name}
                     data-df-asset-component={entry.id}
                     data-df-state={selected ? 'selected' : 'default'}
-                    style={
-                      {
-                        ...assetStyles.card,
-                        ...(selected ? assetStyles.cardSelected : null),
-                      } as CSSProperties
-                    }
+                    className="dfg-panels__asset-card"
                     onClick={() => {
                       session.ui.getState().selectLayer(entry.id);
                     }}
                   >
-                    <span aria-hidden style={assetStyles.thumb}>
+                    <span aria-hidden className="dfg-panels__asset-thumb">
                       <ComponentIcon size={24} />
                     </span>
-                    <span style={assetStyles.cardName}>{entry.name}</span>
-                    <span style={assetStyles.cardMeta}>
+                    <span className="dfg-panels__asset-card-name">{entry.name}</span>
+                    <span className="dfg-panels__asset-card-meta">
                       {t('panels.assets.component.instances', { count: entry.instanceCount })}
                     </span>
                   </button>
@@ -179,44 +174,40 @@ export function AssetsPanel({
           )}
         </div>
       ) : tokenPaths.length === 0 ? (
-        <div data-df-sample="assets/tokens-empty" style={panelStyles.body}>
+        <div data-df-sample="assets/tokens-empty" className="dfg-panels__body">
           <EmptyState
             title={t('panels.assets.tokens.empty.title')}
             description={t('panels.assets.tokens.empty.desc')}
           />
         </div>
       ) : visibleTokenPaths.length === 0 ? (
-        <div data-df-sample="assets/no-results" style={panelStyles.body}>
+        <div data-df-sample="assets/no-results" className="dfg-panels__body">
           <EmptyState
             title={t('panels.assets.noResults.title')}
             description={t('panels.assets.noResults.desc')}
           />
         </div>
       ) : (
-        <div data-df-sample="assets/tokens" style={panelStyles.body}>
+        <div data-df-sample="assets/tokens" className="dfg-panels__body">
           {Object.entries(tokenGroups).map(([group, paths]) => (
             <div key={group}>
-              <div style={assetStyles.tokenGroup}>{group}</div>
+              <div className="dfg-panels__token-group">{group}</div>
               {paths.map((path) => {
                 const token = tokenSet.resolved[path];
                 const value = token === undefined ? '' : String(token.value);
                 const isColor = token !== undefined && token.type === 'color';
                 return (
-                  <div key={path} data-df-asset-token={path} style={assetStyles.tokenRow}>
+                  <div key={path} data-df-asset-token={path} className="dfg-panels__token-row">
                     <span
                       aria-hidden
                       title={isColor ? t('panels.assets.token.color') : undefined}
                       data-df-token-swatch={isColor ? 'color' : 'plain'}
-                      style={{
-                        ...assetStyles.swatch,
-                        // 颜色令牌的色块取文档里的解析值（文档数据，不是设计令牌裸值）
-                        ...(isColor
-                          ? { background: value }
-                          : { background: 'var(--dfg-color-skeleton)' }),
-                      }}
+                      className="dfg-panels__token-swatch"
+                      // 颜色令牌的色块取文档里的解析值（文档数据，动态值豁免——工单 06 登记表）
+                      style={isColor ? { background: value } : undefined}
                     />
-                    <span style={assetStyles.tokenName}>{path}</span>
-                    <span style={assetStyles.tokenValue}>{value}</span>
+                    <span className="dfg-panels__token-name">{path}</span>
+                    <span className="dfg-panels__token-value">{value}</span>
                   </div>
                 );
               })}

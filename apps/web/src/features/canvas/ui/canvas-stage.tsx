@@ -17,7 +17,6 @@
 import type { Size } from '@dforge/engine';
 import type { ThemeName } from '@dforge/ui';
 import type { CanvasKit, FontMgr } from 'canvaskit-wasm';
-import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
@@ -26,6 +25,7 @@ import { selectionFrameOf } from '../input/hit';
 import { dispatchKeyDown, handleSpaceDown, handleSpaceUp } from '../input/keyboard';
 import { attachPointerAdapter } from '../input/pointer';
 import { createFrameLoop, type FrameLoop } from '../render/frame-loop';
+import type { FrameTiming } from '../render/frame-perf';
 import { type CanvasPalette, canvasPalette } from '../render/palette';
 import { createSceneRenderer, type SceneRenderer, type SceneRenderStats } from '../render/renderer';
 import { loadCanvasKit } from '../runtime/canvaskit-loader';
@@ -57,8 +57,8 @@ export interface CanvasStageProps {
   session: CanvasSession;
   /** 主题（编辑器族默认深色）。 */
   theme?: ThemeName;
-  /** 每帧回调（调试/门禁统计；每帧调用，勿在其中 setState）。 */
-  onFrame?: (stats: SceneRenderStats) => void;
+  /** 每帧回调（调试/门禁统计；每帧调用，勿在其中 setState。第二参数为本帧计时——渲染观测 seam）。 */
+  onFrame?: (stats: SceneRenderStats, timing: FrameTiming) => void;
   /** 运行时状态变化回调（只在状态跃迁时触发）。 */
   onStatus?: (status: CanvasRuntimeStatus) => void;
   /**
@@ -71,7 +71,6 @@ export interface CanvasStageProps {
    * 避免「画布与壳层各执行一遍」（例如 ⌘Z 撤销两次）。
    */
   coveredShortcutIds?: readonly string[];
-  style?: CSSProperties;
   className?: string;
 }
 
@@ -93,7 +92,6 @@ export function CanvasStage({
   onStatus,
   hud,
   coveredShortcutIds,
-  style,
   className,
 }: CanvasStageProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -182,6 +180,8 @@ export function CanvasStage({
           },
         });
         rendererRef.current = renderer;
+        // 上一帧帧回调开始时刻（帧间隔的基准；仅在下方帧闭包内读写，随会话换代重建）
+        let lastFrameStart: number | null = null;
 
         const shell = shellRef.current;
         const size = {
@@ -194,6 +194,9 @@ export function CanvasStage({
         renderer.resize(size, dpr);
 
         const loop = createFrameLoop(() => {
+          // 帧计时（渲染观测 seam）：帧回调开始 → 绘制完成；间隔 = 距上一帧帧回调开始。
+          // 只在帧闭包内读写，每帧只多两个数字（零分配压力），不逐帧上行。
+          const frameStart = frameNow();
           const input = session.frameInput();
           const stats = renderer.render(
             {
@@ -216,6 +219,11 @@ export function CanvasStage({
               snap: input.interaction.kind === 'move' ? session.store.getState().snap : null,
             },
           );
+          const timing: FrameTiming = {
+            durationMs: frameNow() - frameStart,
+            intervalMs: lastFrameStart === null ? null : frameStart - lastFrameStart,
+          };
+          lastFrameStart = frameStart;
           const previous = statusRef.current;
           const next = syncStatus({
             frameCount: previous.frameCount + 1,
@@ -226,7 +234,7 @@ export function CanvasStage({
             setStatus(next);
             onStatusRef.current?.(next);
           }
-          onFrameRef.current?.(stats);
+          onFrameRef.current?.(stats, timing);
         });
         loopRef.current = loop;
         loop.request();
@@ -387,7 +395,6 @@ export function CanvasStage({
     <div
       ref={shellRef}
       className={className === undefined ? 'dfc-canvas-shell' : `dfc-canvas-shell ${className}`}
-      style={style}
       // 键盘事件挂在 document（点过工具条/菜单后仍可用），因此这里不需要 tabIndex
       role="application"
       aria-label={t('canvas.stage.label')}
@@ -427,4 +434,9 @@ function selectionLabels(session: CanvasSession): string[] {
 /** 错误消息。 */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** 帧计时钟（performance.now 优先；无 performance 的环境退化为 Date.now——渲染循环只在客户端跑）。 */
+function frameNow(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }

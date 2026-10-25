@@ -17,7 +17,7 @@ import {
   type DesignDocument,
   type Selection,
 } from '@dforge/engine';
-import { act, render, screen } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -170,14 +170,14 @@ describe('选择集同源（画布 ↔ 图层面板）', () => {
     expect(() => canvas.group()).not.toThrow();
   });
 
-  it('组件级：画布改选择 → 图层行高亮跟随（真实渲染）', () => {
+  it('组件级：画布改选择 → 图层行高亮跟随（真实渲染；RW-13 起 Tree 行挂点是 data-node-id）', () => {
     render(
       <PanelsProvider session={panels}>
         <LayersPanel />
       </PanelsProvider>,
     );
     const rowOf = (id: string): Element => {
-      const row = document.querySelector(`[data-df-layer-row="${id}"]`);
+      const row = document.querySelector(`[data-node-id="${id}"]`);
       if (row === null) throw new Error(`图层行不存在：${id}`);
       return row;
     };
@@ -187,7 +187,8 @@ describe('选择集同源（画布 ↔ 图层面板）', () => {
       canvas.setSelection(['n_rect'], 'n_rect');
     });
     expect(rowOf('n_rect').getAttribute('aria-selected')).toBe('true');
-    expect(rowOf('n_rect').getAttribute('data-df-state')).toBe('selected');
+    // 选中视觉由 Tree 的修饰类承接（@dforge/ui 真源；旧版 data-df-state 挂点随 LayerRow 退役）
+    expect(rowOf('n_rect').className).toContain('dfg-tree__node--selected');
     expect(rowOf('n_frame').getAttribute('aria-selected')).toBe('false');
   });
 
@@ -198,10 +199,10 @@ describe('选择集同源（画布 ↔ 图层面板）', () => {
         <LayersPanel />
       </PanelsProvider>,
     );
-    await user.click(document.querySelector('[data-df-layer-row="n_rect"]') as Element);
+    await user.click(document.querySelector('[data-node-id="n_rect"]') as Element);
     expect(canvas.selection().ids).toEqual(['n_rect']);
 
-    await user.click(document.querySelector('[data-df-layer-row="n_frame"]') as Element);
+    await user.click(document.querySelector('[data-node-id="n_frame"]') as Element);
     expect(canvas.selection().ids).toEqual(['n_frame']);
   });
 });

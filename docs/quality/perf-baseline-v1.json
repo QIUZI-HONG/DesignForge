@@ -1,0 +1,52 @@
+{
+  "schema": "df.perf.baseline/v1",
+  "provisional": true,
+  "note": "模板（工单 14）：thresholds 全部为对标报告 §4.4 的初始目标值【判断·待校准】，provisional=true 期间门禁恒阻塞（exit 2）。dev 机跑两轮 `pnpm verify:perf`（真链路采集，证据即实采产物），把实测 p95 校准入表并置 provisional:false 后，门禁才进入 0/1 判定。null = 记录性指标（该档不设通过线，数据随证据留存）。",
+  "machine": {
+    "os": null,
+    "cpu": null,
+    "memoryGb": null,
+    "browser": "Chromium（playwright 缓存，BENCH_CHROME_EXECUTABLE 可指定）",
+    "viewport": "1440x900",
+    "dpr": 1.5,
+    "note": "dev 机基线轮填写；跨机比对必须连同 machine 一起看"
+  },
+  "thresholds": {
+    "1k": {
+      "m1FirstFrameMs": 1000,
+      "m2IntervalP95Ms": 16.7,
+      "m2DurationP95Ms": 16.7,
+      "m3SelectPanelMs": 100,
+      "m4UndoMs": 50,
+      "m5SaveRoundTripMs": 300
+    },
+    "5k": {
+      "m1FirstFrameMs": 1500,
+      "m2IntervalP95Ms": 16.7,
+      "m2DurationP95Ms": 16.7,
+      "m3SelectPanelMs": 100,
+      "m4UndoMs": 50,
+      "m5SaveRoundTripMs": 300
+    },
+    "20k": {
+      "m1FirstFrameMs": null,
+      "m2IntervalP95Ms": null,
+      "m2DurationP95Ms": null,
+      "m3SelectPanelMs": null,
+      "m4UndoMs": null,
+      "m5SaveRoundTripMs": null
+    }
+  },
+  "minFrames": 240,
+  "minSamples": {
+    "m2Interval": 120,
+    "m3": 8,
+    "m4": 8,
+    "m5": 3
+  },
+  "recordOnly": {
+    "m6HeapSampledBytes": "20k 档记录：CDP HeapProfiler 采样树 selfSize 汇总（GC 后），无通过线",
+    "m7ClipRate": "20k 档记录：clipped/nodesDrawn（注意：当前渲染无视口剔除，clipped 语义=应用 clipsContent 的画板数，非视口剔除率——见 verify-perf.mjs computeClipRate 注释；若实测远低于预期，正是 E-7 空间索引的立项依据）。**口径变更登记（2026-10 修复批）**：nodesDrawn 分母 = 实际绘制节点数，opacity=0 的节点不计（draw-scene.ts 头注释登记）——与旧口径「本帧访问的节点数」相比分母收窄，跨期比对 M7 时须同口径"
+  },
+  "rounds": []
+}

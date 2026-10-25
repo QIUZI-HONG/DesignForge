@@ -11,7 +11,8 @@
 import { Fragment } from 'react';
 
 import { highlightSegments } from '../filters';
-import { markStyle } from '../styles';
+
+import '../market.css';
 
 /** 高亮文本。 */
 export function HighlightedText({ text, query }: { text: string; query: string }) {
@@ -21,7 +22,7 @@ export function HighlightedText({ text, query }: { text: string; query: string }
     <>
       {segments.map((segment, index) =>
         segment.hit ? (
-          <mark key={`hit-${String(index)}`} style={markStyle} data-df-market="hit">
+          <mark key={`hit-${String(index)}`} className="dfg-market__mark" data-df-market="hit">
             {segment.text}
           </mark>
         ) : (

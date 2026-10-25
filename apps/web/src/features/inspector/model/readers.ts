@@ -12,6 +12,7 @@
 import {
   type AutoLayoutConfig,
   type BlendMode,
+  type Effect,
   resolveNode,
   type SceneNode,
   type ScenePage,
@@ -124,6 +125,42 @@ export function readStrokeColor(page: ScenePage, selection: Selection) {
 /** 第一层描边宽度。 */
 export function readStrokeWidth(page: ScenePage, selection: Selection) {
   return readField<number>(page, selection, (node) => node.strokes[0]?.width);
+}
+
+/** 效果列表是否结构一致（逐字段比较——Effect 是纯数据，引用不等不代表值不等）。 */
+export function sameEffects(a: readonly Effect[], b: readonly Effect[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((effect, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      effect.type === other.type &&
+      effect.color === other.color &&
+      effect.offsetX === other.offsetX &&
+      effect.offsetY === other.offsetY &&
+      effect.blur === other.blur &&
+      effect.spread === other.spread &&
+      effect.visible === other.visible
+    );
+  });
+}
+
+/**
+ * 读效果列表三态（RW-10 效果分区）。
+ *
+ * 效果是节点基础属性（`NodeBase.effects`），对所有节点适用；**空列表也是合法单值**
+ * （分区仍可见，给「添加效果」入口）——这与「无适用节点 → absent」不同。
+ * 多选按结构比较：列表一致才 single，否则 mixed（界面显示「—」，只留添加入口）。
+ */
+export function readEffects(page: ScenePage, selection: Selection): FieldValue<readonly Effect[]> {
+  const lists: (readonly Effect[])[] = [];
+  for (const node of selectionNodes(page, selection)) lists.push(node.effects);
+  if (lists.length === 0) return { kind: 'absent' };
+  const first = lists[0] as readonly Effect[];
+  for (const list of lists.slice(1)) {
+    if (!sameEffects(first, list)) return { kind: 'mixed' };
+  }
+  return { kind: 'single', value: first };
 }
 
 /** 读文本字段（仅文本节点适用）；投影函数直接消费 `TextContent`。 */

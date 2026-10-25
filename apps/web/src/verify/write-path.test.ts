@@ -63,8 +63,10 @@ describe('写路径唯一性', () => {
   it('开 freeze 时同一手法必须抛错，且文档/历史不变', () => {
     const stack = new CommandStack(makeDocument(), { freeze: true });
     const before = serializeDocument(stack.getSnapshot());
+    const page0 = stack.getSnapshot().pages[0];
+    if (page0 === undefined) throw new Error('fixture: pages[0] must exist');
     expect(() => {
-      (stack.getSnapshot().pages[0]!.nodes.n_rect as { x: number }).x = 999;
+      (page0.nodes.n_rect as { x: number }).x = 999;
     }).toThrow();
     expect(serializeDocument(stack.getSnapshot())).toBe(before);
     expect(stack.canUndo).toBe(false);
@@ -141,8 +143,10 @@ describe('写路径唯一性', () => {
     const stack = new CommandStack(makeDocument());
     // 坏文档（页面 nodes 表里挂着一个不存在的子 id）触发 document.replace 的结构校验
     const broken = makeDocument();
-    (broken.pages[0]! as { nodes: Record<string, unknown> }).nodes = {
-      n_rect: { ...broken.pages[0]!.nodes.n_rect, children: ['幽灵'] },
+    const brokenPage = broken.pages[0];
+    if (brokenPage === undefined) throw new Error('fixture: pages[0] must exist');
+    (brokenPage as { nodes: Record<string, unknown> }).nodes = {
+      n_rect: { ...brokenPage.nodes.n_rect, children: ['幽灵'] },
     };
     try {
       stack.dispatch([

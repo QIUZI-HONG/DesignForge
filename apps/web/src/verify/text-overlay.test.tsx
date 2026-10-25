@@ -153,19 +153,14 @@ describe('文本覆盖层 · 与渲染层同口径（祖先链）', () => {
     const expectedWorld = localPointToWorld(page, 'n_inner', { x: 0, y: 0 });
     expect(expectedWorld).not.toBeNull();
     expect(expectedWorld).toEqual({ x: 1010, y: 510 });
+    const world = expectedWorld as NonNullable<typeof expectedWorld>;
 
     session.beginTextEditing('n_inner', { selectAll: true });
     render(<TextOverlay session={session} />);
     const geometry = overlayGeometry();
     // 渲染层（draw-scene）按祖先链 translate；覆盖层必须同口径
-    expect(geometry.left, '覆盖层 left 未含父级偏移 → 与画布字形错位').toBeCloseTo(
-      expectedWorld!.x,
-      6,
-    );
-    expect(geometry.top, '覆盖层 top 未含父级偏移 → 与画布字形错位').toBeCloseTo(
-      expectedWorld!.y,
-      6,
-    );
+    expect(geometry.left, '覆盖层 left 未含父级偏移 → 与画布字形错位').toBeCloseTo(world.x, 6);
+    expect(geometry.top, '覆盖层 top 未含父级偏移 → 与画布字形错位').toBeCloseTo(world.y, 6);
   });
 
   it('[缺陷] 父级旋转 30°：覆盖层旋转角必须含祖先旋转（当前只取自身 rotation）', () => {
@@ -255,12 +250,14 @@ describe('文本覆盖层 · 与渲染层同口径（祖先链）', () => {
     // ② 带旋转的祖先链（10° + 20° = 30°）：位置必须等于**引擎真值**（不是简单相加，更不是局部坐标）
     const rotated = makeDeep((level) => (level === 2 ? 10 : 20));
     const expectedWorld = localPointToWorld(rotated.page(), 'n_deep', { x: 0, y: 0 });
+    expect(expectedWorld).not.toBeNull();
+    const deepWorld = expectedWorld as NonNullable<typeof expectedWorld>;
     rotated.beginTextEditing('n_deep', { selectAll: true });
     render(<TextOverlay session={rotated} />);
     const rotatedGeometry = overlayGeometry();
     const worldScreen = {
-      x: expectedWorld!.x * 2 + 10,
-      y: expectedWorld!.y * 2 + 20,
+      x: deepWorld.x * 2 + 10,
+      y: deepWorld.y * 2 + 20,
     };
     expect(rotatedGeometry.left).toBeCloseTo(worldScreen.x, 6);
     expect(rotatedGeometry.top).toBeCloseTo(worldScreen.y, 6);

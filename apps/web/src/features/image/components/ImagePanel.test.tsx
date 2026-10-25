@@ -3,7 +3,12 @@
  * 出图面板组件测试（seam：用户可观察的界面行为——提交、进度、取消、失败动作）。
  *
  * 用 fake timers 推轮询（不真等）；断言口径 = 可见文案 + 可访问角色 + data-df-* 挂点。
+ * 样式单轨（工单 06）：样式断言走**类名挂载 + image.css 文本**（External CSS 在 jsdom
+ * 不计算，先例 verify/a11y-keyboard.test.tsx 注入 CSS）。
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -156,6 +161,42 @@ describe('出图面板（F5）', () => {
     expect(screen.getByText('检查服务地址')).toBeTruthy();
     expect((screen.getByRole('textbox', { name: '提示词' }) as HTMLTextAreaElement).value).toBe(
       'wasteland gear icon',
+    );
+  });
+});
+
+/** 读域内 CSS 文本（jsdom 不计算 External CSS，类规则只能对文件文本断言）。 */
+const imageCss = (): string =>
+  readFileSync(resolve(process.cwd(), 'src/features/image/components/image.css'), 'utf8');
+
+/** 断言 CSS 里有 `.类名 { … }` 规则块，并返回该块文本。 */
+function cssRule(css: string, className: string): string {
+  const at = css.indexOf(`.${className} {`);
+  expect(at, `image.css 缺少 .${className} 规则`).toBeGreaterThanOrEqual(0);
+  const end = css.indexOf('}', at);
+  return css.slice(at, end);
+}
+
+describe('出图面板 · 样式单轨（工单 06）', () => {
+  it('样式挂类不挂内联：面板内容树不产生 style 属性', () => {
+    render(<ImagePanel port={fakeImagePort({})} defaultOpen />);
+    const root = document.querySelector('[data-df-panel="image"]');
+    expect(root?.classList.contains('dfg-image__body')).toBe(true);
+    // 本域无几何算式场景：整个内容树不允许任何内联样式（豁免登记表在工单 06）
+    expect(root?.querySelector('[style]')).toBeNull();
+  });
+
+  it('关键规则块落盘：失败横幅/参数行/chip 的颜色与几何全部引用令牌', () => {
+    const css = imageCss();
+    expect(cssRule(css, 'dfg-image__failure-box')).toContain('var(--dfg-color-danger-subtle)');
+    expect(cssRule(css, 'dfg-image__banner')).toContain('var(--dfg-color-warning-subtle)');
+    expect(cssRule(css, 'dfg-image__param-row')).toContain('repeat(3, minmax(0, 1fr))');
+    expect(cssRule(css, 'dfg-image__textarea')).toContain('var(--dfg-size-textarea-min-height)');
+    expect(cssRule(css, 'dfg-image__chip')).toContain('var(--dfg-control-height-sm)');
+    // 类挂载抽查：面板根与失败盒挂预期类
+    render(<ImagePanel port={fakeImagePort({})} defaultOpen />);
+    expect(document.querySelector('[data-df-panel="image"] textarea')?.className).toContain(
+      'dfg-image__textarea',
     );
   });
 });
