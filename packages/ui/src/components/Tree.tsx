@@ -243,11 +243,7 @@ export function Tree({
       }
       case 'ArrowRight':
         event.preventDefault();
-        if (
-          current.hasChildren &&
-          current.node.loading !== true &&
-          current.node.error !== true
-        ) {
+        if (current.hasChildren && current.node.loading !== true && current.node.error !== true) {
           if (!current.expanded) {
             toggleExpanded(current.node.id);
           } else {
@@ -456,9 +452,7 @@ export function Tree({
       {nodes.length === 0 && emptyContent !== undefined ? (
         <div className="dfg-tree__empty">{emptyContent}</div>
       ) : (
-        visibleRows
-          .filter((row) => row.level === 1)
-          .map((row) => renderWithChildren(row))
+        visibleRows.filter((row) => row.level === 1).map((row) => renderWithChildren(row))
       )}
     </div>
   );

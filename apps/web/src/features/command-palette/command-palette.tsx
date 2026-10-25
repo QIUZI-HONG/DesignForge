@@ -23,7 +23,15 @@
  * - **本期不做「最近使用 / 常用」默认态**（后续票做）——空查询即全命令分组清单，不撒谎。
  */
 import { ChevronDownIcon, ChevronUpIcon, Overlay, SearchIcon } from '@dforge/ui';
-import { type KeyboardEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { t } from '@/i18n';
 

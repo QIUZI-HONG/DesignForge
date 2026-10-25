@@ -31,8 +31,20 @@ afterEach(() => {
 /** 注册两条键位形态不同的命令（单键 V vs 修饰键 ⌘Z）。 */
 function seedCommands(): void {
   act(() => {
-    registerCommand({ id: 'tool.move', title: '移动工具', group: '工具', shortcut: 'V', run: () => undefined });
-    registerCommand({ id: 'edit.undo', title: '撤销', group: '编辑', shortcut: '⌘Z', run: () => undefined });
+    registerCommand({
+      id: 'tool.move',
+      title: '移动工具',
+      group: '工具',
+      shortcut: 'V',
+      run: () => undefined,
+    });
+    registerCommand({
+      id: 'edit.undo',
+      title: '撤销',
+      group: '编辑',
+      shortcut: '⌘Z',
+      run: () => undefined,
+    });
   });
 }
 

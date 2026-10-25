@@ -110,7 +110,9 @@ export function DashboardView({ response, nowIso }: DashboardViewProps) {
                 <td className="dfg-market__td">
                   {layer.entries === null ? notReported : String(layer.entries)}
                 </td>
-                <td className="dfg-market__td">{layer.rebuiltAt === null ? notReported : layer.rebuiltAt}</td>
+                <td className="dfg-market__td">
+                  {layer.rebuiltAt === null ? notReported : layer.rebuiltAt}
+                </td>
                 <td className="dfg-market__td">
                   <span className="dfg-market__hint">{t(layer.noteKey)}</span>
                 </td>

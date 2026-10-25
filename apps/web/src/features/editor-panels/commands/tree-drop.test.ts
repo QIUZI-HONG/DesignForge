@@ -121,11 +121,15 @@ describe('resolveTreeDropPlacement · 落位约定（上/下各半）', () => {
 
 describe('resolveTreeDropPlacement · 无效落点拒绝', () => {
   it('source 落到自身 → null', () => {
-    expect(resolveTreeDropPlacement(page, 'r1', 'r1', { y: 0, rowTop: 0, rowBottom: 28 })).toBeNull();
+    expect(
+      resolveTreeDropPlacement(page, 'r1', 'r1', { y: 0, rowTop: 0, rowBottom: 28 }),
+    ).toBeNull();
   });
 
   it('target 在 source 子树内（会成环）→ null', () => {
-    expect(resolveTreeDropPlacement(page, 'f1', 't1', { y: 0, rowTop: 0, rowBottom: 28 })).toBeNull();
+    expect(
+      resolveTreeDropPlacement(page, 'f1', 't1', { y: 0, rowTop: 0, rowBottom: 28 }),
+    ).toBeNull();
   });
 
   it('实例虚节点参与结构移动 → null（source 或 target 皆拒）', () => {

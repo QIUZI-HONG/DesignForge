@@ -49,7 +49,7 @@ import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 import { type CanvasDebugHandle, installCanvasDebugHandle } from '../debug/canvas-debug';
 import { createDocumentsClient, type DocumentsClient } from '../persistence/documents-client';
-import { type FramePerfRecorder, createFramePerfRecorder } from '../render/frame-perf';
+import { createFramePerfRecorder, type FramePerfRecorder } from '../render/frame-perf';
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasSession, type CanvasTool, createCanvasSession } from '../state/session';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';

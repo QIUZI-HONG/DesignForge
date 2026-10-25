@@ -39,9 +39,7 @@ describe('Tree · 树语义与渲染', () => {
   it('树容器/节点行具备 tree 语义与可访问名', () => {
     render(<Tree label="图层" nodes={nodes} />);
     expect(screen.getByRole('tree', { name: '图层' })).toBeTruthy();
-    expect(screen.getByRole('treeitem', { name: '首页画板' }).getAttribute('aria-level')).toBe(
-      '1',
-    );
+    expect(screen.getByRole('treeitem', { name: '首页画板' }).getAttribute('aria-level')).toBe('1');
     expect(screen.getByRole('treeitem', { name: '首页画板' }).getAttribute('aria-expanded')).toBe(
       'false',
     );
@@ -59,9 +57,7 @@ describe('Tree · 树语义与渲染', () => {
     const item = screen.getByRole('treeitem', { name: '首页画板' });
     await user.click(toggleOf('首页画板'));
     expect(item.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('treeitem', { name: '背景矩形' }).getAttribute('aria-level')).toBe(
-      '2',
-    );
+    expect(screen.getByRole('treeitem', { name: '背景矩形' }).getAttribute('aria-level')).toBe('2');
 
     await user.click(toggleOf('首页画板'));
     expect(item.getAttribute('aria-expanded')).toBe('false');
@@ -114,9 +110,9 @@ describe('Tree · 选中与键盘', () => {
     expect(screen.getByRole('treeitem', { name: '导航组' }).getAttribute('aria-selected')).toBe(
       'true',
     );
-    expect(
-      screen.getByRole('treeitem', { name: '首页画板' }).getAttribute('aria-selected'),
-    ).toBe('false');
+    expect(screen.getByRole('treeitem', { name: '首页画板' }).getAttribute('aria-selected')).toBe(
+      'false',
+    );
   });
 
   it('键盘 Enter/Space 选中，方向键在可见行间漫游', async () => {

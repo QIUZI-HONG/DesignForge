@@ -76,7 +76,7 @@ export function ColorField({
   const isInvalid = invalid || parseInvalid;
   const describedBy =
     errorMessage !== undefined ? errorId : hint !== undefined ? hintId : undefined;
-  const display = draft ?? (committed ?? '');
+  const display = draft ?? committed ?? '';
 
   const emit = (next: string | null): void => {
     if (!controlled) setInnerValue(next);

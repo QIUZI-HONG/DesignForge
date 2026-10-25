@@ -25,7 +25,7 @@ import './market.css';
 /** 测试夹具命名空间（**仅供 `*.test.*`**；理由见文件头）。 */
 export * as marketFixtures from './__fixtures__/market';
 export { classifyMarketOutcome, isSearchDegraded, type MarketOutcome } from './api';
-export { badgeClassName, meterFillClassName, type BadgeTone } from './badge-classes';
+export { type BadgeTone, badgeClassName, meterFillClassName } from './badge-classes';
 export * from './components';
 export * from './feedback';
 export * from './filters';

@@ -55,8 +55,8 @@ export { Swatch, type SwatchProps } from './Swatch';
 export {
   TabPanel,
   type TabPanelProps,
-  Tabs,
   type TabSpec,
+  Tabs,
   type TabsProps,
 } from './Tabs';
 export {

@@ -16,8 +16,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CanvasHudProvider,
   EditorShell,
-  registerEditorSlotItem,
   registerCommand,
+  registerEditorSlotItem,
   resetCommandRegistry,
   resetEditorSlots,
   useEditorUi,

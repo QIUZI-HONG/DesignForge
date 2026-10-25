@@ -67,11 +67,7 @@ export function Collapse({
         {expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
         <span className="dfg-collapse__title">{title}</span>
       </button>
-      <div
-        id={contentId}
-        className="dfg-collapse__content"
-        hidden={expanded ? undefined : true}
-      >
+      <div id={contentId} className="dfg-collapse__content" hidden={expanded ? undefined : true}>
         {children}
       </div>
     </div>

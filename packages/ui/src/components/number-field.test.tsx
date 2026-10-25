@@ -98,7 +98,14 @@ describe('NumberField · 步进', () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const { rerender } = render(
-      <NumberField fieldLabel="X" defaultValue={10} step={2} min={0} max={12} onChange={onChange} />,
+      <NumberField
+        fieldLabel="X"
+        defaultValue={10}
+        step={2}
+        min={0}
+        max={12}
+        onChange={onChange}
+      />,
     );
     const input = screen.getByRole('spinbutton', { name: 'X' });
     input.focus();
@@ -227,7 +234,11 @@ describe('Scrubber（独立抓手：Inspector 标签等场景复用）', () => {
     const onDelta = vi.fn();
     const onScrubStart = vi.fn();
     const onScrubEnd = vi.fn();
-    render(<Scrubber label="宽度" onDelta={onDelta} onScrubStart={onScrubStart} onScrubEnd={onScrubEnd}>宽</Scrubber>);
+    render(
+      <Scrubber label="宽度" onDelta={onDelta} onScrubStart={onScrubStart} onScrubEnd={onScrubEnd}>
+        宽
+      </Scrubber>,
+    );
     const scrubber = screen.getByRole('button', { name: '宽度' });
     fireEvent.mouseDown(scrubber, { button: 0, clientX: 10 });
     fireEvent.mouseMove(document, { clientX: 18 });

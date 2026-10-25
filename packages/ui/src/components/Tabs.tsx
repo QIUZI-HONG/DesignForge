@@ -127,12 +127,7 @@ export function Tabs({
   return (
     <TabsContext.Provider value={{ idPrefix, value }}>
       <div className={cx('dfg-tabs', className)}>
-        <div
-          role="tablist"
-          aria-label={label}
-          className="dfg-tabs__list"
-          onKeyDown={handleKeyDown}
-        >
+        <div role="tablist" aria-label={label} className="dfg-tabs__list" onKeyDown={handleKeyDown}>
           {tabs.map((tab, index) => {
             const selected = tab.id === value;
             const tabButton = (

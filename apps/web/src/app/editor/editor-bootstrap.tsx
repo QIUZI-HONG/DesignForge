@@ -40,11 +40,11 @@ import {
   ShortcutCheatSheetSlot,
 } from '@/features/command-palette/register';
 import {
-  registerEditorReview,
   ReviewCommentLayerSlot,
   ReviewCommentsPanelSlot,
   ReviewPresenterSlot,
   ReviewVersionsDrawerSlot,
+  registerEditorReview,
 } from '@/features/editor-review/register';
 import {
   type EditorBootstrapEntry,
@@ -93,7 +93,12 @@ export const EDITOR_SLOT_DECLARATIONS: readonly EditorSlotDeclaration[] = [
   { slot: 'overlays', id: 'fe-07-presenter', order: 10, render: () => <ReviewPresenterSlot /> },
   { slot: 'overlays', id: 'fe-07-versions', order: 11, render: () => <ReviewVersionsDrawerSlot /> },
   // —— 工单 08 命令面板 + 快捷键速查（⌘/ 面板 · 长按修饰键速查卡；portal 到 body，槽位仅作挂载点）——
-  { slot: 'overlays', id: 'rw-08-command-palette', order: 20, render: () => <CommandPaletteSlot /> },
+  {
+    slot: 'overlays',
+    id: 'rw-08-command-palette',
+    order: 20,
+    render: () => <CommandPaletteSlot />,
+  },
   {
     slot: 'overlays',
     id: 'rw-08-shortcut-cheatsheet',

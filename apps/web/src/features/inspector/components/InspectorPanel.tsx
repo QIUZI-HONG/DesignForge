@@ -42,10 +42,10 @@ import { useDocumentSnapshot } from '../hooks/useDocumentSnapshot';
 import { setBlendModeCommands, setNumberCommands } from '../model/patches';
 import {
   activeFieldValue,
+  type FieldValue,
   readBlendMode,
   readNumberField,
   selectionHasText,
-  type FieldValue,
 } from '../model/readers';
 import { createScrubSession } from '../model/scrub-session';
 import { AlignRow } from './AlignRow';
@@ -57,11 +57,11 @@ import {
   CornerSection,
   EffectsSection,
   FillSection,
+  type InspectorSectionId,
+  type SectionActions,
   SizeSection,
   StrokeSection,
   TextSection,
-  type InspectorSectionId,
-  type SectionActions,
 } from './sections';
 
 /** 面板 props。 */

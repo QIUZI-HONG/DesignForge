@@ -30,7 +30,7 @@ import { t } from '@/i18n';
 
 import { installCanvasDebugHandle, sessionDebugHandle } from '../debug/canvas-debug';
 import { daemonPageId } from '../persistence/documents-client';
-import { type FramePerfRecorder, createFramePerfRecorder } from '../render/frame-perf';
+import { createFramePerfRecorder, type FramePerfRecorder } from '../render/frame-perf';
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
 import { AiEntryIcon } from './icons';

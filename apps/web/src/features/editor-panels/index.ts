@@ -10,9 +10,9 @@
  */
 
 export {
+  resolveTreeDropPlacement,
   type TreeDropPlacement,
   type TreeDropPointer,
-  resolveTreeDropPlacement,
 } from './commands/tree-drop';
 export {
   bringToFrontCommands,

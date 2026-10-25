@@ -19,7 +19,7 @@
  * `packages/ui/src/tools/guard-tokens-core.test.ts` 就近覆盖，本测试不跨包引 `.mjs`）。
  * 先例：`features/market/state-coverage.test.ts`（读真实源码文件逐字断言，不 mock）。
  */
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
 import { describe, expect, it } from 'vitest';

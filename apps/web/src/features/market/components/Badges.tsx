@@ -82,7 +82,11 @@ export function SourceBadge({
 export function LicenseBadge({ gate }: { gate: MarketAsset['source']['license']['gate'] }) {
   const descriptor = describeLicenseGate(gate);
   return (
-    <span className={badgeClassName(descriptor.tone)} data-df-market="badge" data-df-badge="license">
+    <span
+      className={badgeClassName(descriptor.tone)}
+      data-df-market="badge"
+      data-df-badge="license"
+    >
       {t('market.badge.license', { tier: t(descriptor.labelKey) })}
     </span>
   );

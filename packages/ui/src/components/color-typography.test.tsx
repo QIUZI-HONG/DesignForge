@@ -103,16 +103,14 @@ describe('ColorField（颜色输入 + 色块预览）', () => {
   it('allowEmpty：清空提交上报 null，预览转无色', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(
-      <ColorField fieldLabel="填充" defaultValue="#0d99ff" allowEmpty onChange={onChange} />,
-    );
+    render(<ColorField fieldLabel="填充" defaultValue="#0d99ff" allowEmpty onChange={onChange} />);
     const input = screen.getByRole('textbox', { name: '填充' }) as HTMLInputElement;
     await user.clear(input);
     await user.keyboard('{Enter}');
     expect(onChange).toHaveBeenCalledWith(null);
-    expect(
-      document.querySelector('.dfg-colorfield .dfg-swatch__fill')?.className,
-    ).toContain('dfg-swatch__fill--empty');
+    expect(document.querySelector('.dfg-colorfield .dfg-swatch__fill')?.className).toContain(
+      'dfg-swatch__fill--empty',
+    );
   });
 
   it('未开 allowEmpty：清空提交标错', async () => {
@@ -128,9 +126,7 @@ describe('ColorField（颜色输入 + 色块预览）', () => {
 
   it('禁用：输入不可用', () => {
     render(<ColorField fieldLabel="填充" value="#0d99ff" disabled onChange={() => {}} />);
-    expect((screen.getByRole('textbox', { name: '填充' }) as HTMLInputElement).disabled).toBe(
-      true,
-    );
+    expect((screen.getByRole('textbox', { name: '填充' }) as HTMLInputElement).disabled).toBe(true);
   });
 });
 
@@ -232,12 +228,12 @@ describe('TypographyField（字号/字重最小集）', () => {
         onChange={onChange}
       />,
     );
-    expect(
-      (screen.getByRole('combobox', { name: '字号' }) as HTMLSelectElement).disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByRole('combobox', { name: '字重' }) as HTMLSelectElement).disabled,
-    ).toBe(true);
+    expect((screen.getByRole('combobox', { name: '字号' }) as HTMLSelectElement).disabled).toBe(
+      true,
+    );
+    expect((screen.getByRole('combobox', { name: '字重' }) as HTMLSelectElement).disabled).toBe(
+      true,
+    );
   });
 
   it('错误文案经 alert 播报并关联 aria-describedby', () => {

@@ -65,7 +65,8 @@ export const ALLOWLIST = [
   },
   {
     pattern: /^packages\/ui\/src\/tokens\.css$/,
-    reason: '令牌定义文件：CSS 变量落盘（R1-R3 豁免；R4 单位合法性、R5 语义档登记照查——时长 px 病灶在此检出）',
+    reason:
+      '令牌定义文件：CSS 变量落盘（R1-R3 豁免；R4 单位合法性、R5 语义档登记照查——时长 px 病灶在此检出）',
   },
   {
     pattern: /\.test\.[cm]?[jt]sx?$/,
@@ -543,18 +544,24 @@ function semanticViolations(file, scanned) {
       };
       const registered = family.names.find((entry) => name === `${family.prefix}${entry.name}`);
       if (registered === undefined) {
-        fail('未登记的语义档名：先在 guard-tokens-core.mjs SEMANTIC_TOKEN_FAMILIES 登记语义名与引用源（登记制）');
+        fail(
+          '未登记的语义档名：先在 guard-tokens-core.mjs SEMANTIC_TOKEN_FAMILIES 登记语义名与引用源（登记制）',
+        );
         continue;
       }
       if (SEMANTIC_NONE_VALUE.test(value)) {
         if (!registered.allowNone) {
-          fail(`语义档 ${registered.name} 不允许 none（仅登记 allowNone 的档位可空，例外走登记表）`);
+          fail(
+            `语义档 ${registered.name} 不允许 none（仅登记 allowNone 的档位可空，例外走登记表）`,
+          );
         }
         continue;
       }
       const ref = SEMANTIC_ALIAS_VALUE.exec(value)?.[1];
       if (ref === undefined) {
-        fail('语义档值必须是 none 或单个 var(--dfg-…) 别名引用（语义层只做映射，不重造值；组合值须先放宽登记）');
+        fail(
+          '语义档值必须是 none 或单个 var(--dfg-…) 别名引用（语义层只做映射，不重造值；组合值须先放宽登记）',
+        );
         continue;
       }
       if (!registered.sources.some((prefix) => ref.startsWith(prefix))) {

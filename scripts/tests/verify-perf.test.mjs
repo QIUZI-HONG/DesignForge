@@ -24,8 +24,8 @@ import {
   evaluatePerf,
   evaluatePerfRun,
   nearestRankPercentile,
-  sumSamplingProfileSelfBytes,
   summarizeLatencySamples,
+  sumSamplingProfileSelfBytes,
   validateBaseline,
 } from '../verify-perf.mjs';
 

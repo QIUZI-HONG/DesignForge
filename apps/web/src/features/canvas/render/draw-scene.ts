@@ -30,10 +30,10 @@ import { parseColor, withAlpha } from './color';
 import {
   blurMaskFilter,
   buildEffectPlan,
+  type EffectPlan,
   inflatedCornerRadius,
   inflateRect,
   visibleEffects,
-  type EffectPlan,
 } from './effects';
 import type { SceneFrame } from './frame';
 import type { CanvasPalette } from './palette';

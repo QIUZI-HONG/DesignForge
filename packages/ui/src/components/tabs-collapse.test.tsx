@@ -174,8 +174,6 @@ describe('Collapse（折叠面板）', () => {
         内容
       </Collapse>,
     );
-    expect(screen.getByRole('button', { name: '布局' }).getAttribute('aria-expanded')).toBe(
-      'true',
-    );
+    expect(screen.getByRole('button', { name: '布局' }).getAttribute('aria-expanded')).toBe('true');
   });
 });

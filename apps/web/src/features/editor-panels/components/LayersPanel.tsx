@@ -176,7 +176,10 @@ export function LayersPanel({
     (id: string, label: string) => {
       const current = currentPage();
       if (current === undefined) return;
-      run(renameLayerCommands(current, session.pageId, id as NodeId, label), 'panels.history.rename');
+      run(
+        renameLayerCommands(current, session.pageId, id as NodeId, label),
+        'panels.history.rename',
+      );
     },
     [currentPage, run, session],
   );
@@ -200,7 +203,13 @@ export function LayersPanel({
       );
       if (placement === null) return;
       run(
-        moveLayerCommands(current, session.pageId, sourceId as NodeId, placement.parentId, placement.index),
+        moveLayerCommands(
+          current,
+          session.pageId,
+          sourceId as NodeId,
+          placement.parentId,
+          placement.index,
+        ),
         'panels.history.move',
       );
     },
@@ -223,7 +232,10 @@ export function LayersPanel({
 
   const emptyContent: ReactNode = (
     <div data-df-sample="layers/empty">
-      <EmptyState title={t('panels.layers.empty.title')} description={t('panels.layers.empty.desc')} />
+      <EmptyState
+        title={t('panels.layers.empty.title')}
+        description={t('panels.layers.empty.desc')}
+      />
     </div>
   );
 

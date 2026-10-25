@@ -117,7 +117,10 @@ describe('诊断面板（F8）', () => {
 
 /** 读域内 CSS 文本（jsdom 不计算 External CSS，类规则只能对文件文本断言）。 */
 const diagnosticsCss = (): string =>
-  readFileSync(resolve(process.cwd(), 'src/features/diagnostics/components/diagnostics.css'), 'utf8');
+  readFileSync(
+    resolve(process.cwd(), 'src/features/diagnostics/components/diagnostics.css'),
+    'utf8',
+  );
 
 /** 断言 CSS 里有 `.类名 { … }` 规则块，并返回该块文本。 */
 function cssRule(css: string, className: string): string {

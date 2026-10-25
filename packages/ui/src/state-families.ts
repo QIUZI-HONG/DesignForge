@@ -118,7 +118,8 @@ export const STATE_FAMILIES: StateFamilyEntry[] = [
   {
     id: 'F16',
     name: '树族',
-    owner: 'RW-07 基础件（Tree：行 hover/键盘焦点/禁用行/子树加载/空树/子树失败重试）；图层树接入归 RW-13',
+    owner:
+      'RW-07 基础件（Tree：行 hover/键盘焦点/禁用行/子树加载/空树/子树失败重试）；图层树接入归 RW-13',
     components: ['Tree'],
     states: ['hover', 'active', 'disabled', 'loading', 'empty', 'error'],
     icon: 'RectangleIcon',
@@ -144,7 +145,8 @@ export const STATE_FAMILIES: StateFamilyEntry[] = [
   {
     id: 'F19',
     name: '页签与折叠族',
-    owner: 'RW-07 基础件（Tabs/TabPanel/Collapse：页签选中与漫游、禁用原因、折叠开合）；页面分区消费归各页票',
+    owner:
+      'RW-07 基础件（Tabs/TabPanel/Collapse：页签选中与漫游、禁用原因、折叠开合）；页面分区消费归各页票',
     components: ['Tabs', 'TabPanel', 'Collapse'],
     states: ['hover', 'active', 'disabled'],
     icon: 'ChevronDownIcon',

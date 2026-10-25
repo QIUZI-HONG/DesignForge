@@ -141,7 +141,9 @@ export function AssetDetailView({
                 <span className="dfg-market__hint"> {t(license.noticeKey)}</span>
               </dd>
               <dt className="dfg-market__kv-key">{t('market.detail.version')}</dt>
-              <dd className="dfg-market__kv-value">{asset.version ?? t('market.detail.versionUnknown')}</dd>
+              <dd className="dfg-market__kv-value">
+                {asset.version ?? t('market.detail.versionUnknown')}
+              </dd>
               <dt className="dfg-market__kv-key">{t('market.detail.id')}</dt>
               <dd className="dfg-market__kv-value" data-df-market="detail-id">
                 {asset.id}
@@ -232,7 +234,9 @@ export function AssetDetailView({
               <dt className="dfg-market__kv-key">{t('market.detail.lane')}</dt>
               <dd className="dfg-market__kv-value">{asset.facets.lane}</dd>
               <dt className="dfg-market__kv-key">{t('market.detail.mode')}</dt>
-              <dd className="dfg-market__kv-value">{asset.facets.mode ?? t('market.detail.modeUnknown')}</dd>
+              <dd className="dfg-market__kv-value">
+                {asset.facets.mode ?? t('market.detail.modeUnknown')}
+              </dd>
               <dt className="dfg-market__kv-key">{t('market.detail.fetchedAt')}</dt>
               <dd className="dfg-market__kv-value">{asset.source.fetchedAt}</dd>
               {loaded && loadedAt !== null ? (

@@ -21,7 +21,7 @@ import { createPortal } from 'react-dom';
 import { t } from '@/i18n';
 
 import { useCommandList, useEditorUi } from '../editor-shell';
-import { buildCheatGroups, resolveCheatContext, type CheatContext } from './cheat-model';
+import { buildCheatGroups, type CheatContext, resolveCheatContext } from './cheat-model';
 
 /** 长按判定阈值（ms；guard:tokens 口径：时长一律毫秒）。 */
 export const SHORTCUT_HOLD_REVEAL_MS = 400;

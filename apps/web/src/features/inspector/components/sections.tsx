@@ -40,13 +40,13 @@ import {
   addEffectCommands,
   applyAutoLayoutToSelectionCommands,
   defaultEffect,
+  type EffectType,
   removeEffectCommands,
   setFillColorCommands,
   setFillOpacityCommands,
   setNumberCommands,
   setStrokeCommands,
   setTextCommands,
-  type EffectType,
   updateEffectCommands,
 } from '../model/patches';
 import {
@@ -54,13 +54,13 @@ import {
   type FieldValue,
   readAutoLayoutEnabled,
   readAutoLayoutField,
+  readEffects,
   readFillColor,
   readFillOpacity,
   readNumberField,
   readStrokeColor,
   readStrokeWidth,
   readTextField,
-  readEffects,
 } from '../model/readers';
 import { ColorFieldRow, FieldRow, SelectField, SwitchField } from './controls';
 import { NumberField, type NumberFieldProps } from './NumberField';

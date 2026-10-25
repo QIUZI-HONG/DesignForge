@@ -26,9 +26,9 @@
  *    其「高频写入合并为一个事务」的语义不受影响。
  */
 import {
-  type NodeId,
   getChildrenIds,
   isDescendantOf,
+  type NodeId,
   parentIdOf,
   parseVirtualNodeId,
   resolveNode,
