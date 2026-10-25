@@ -40,111 +40,21 @@ import {
  *
  * 文案：本页 UI 文案与产品页同样走 ICU 消息（zh-CN 唯一真源），不硬编码中文字面量。
  */
-import { type CSSProperties, type ReactNode, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import { t } from '@/i18n';
 
 import { ThemeToggle } from './theme-toggle';
 
-/* ---------- 预览页版式（内联样式全走令牌变量；禁裸值守卫生效） ---------- */
+import './design.css';
 
-const styles = {
-  page: {
-    minHeight: '100vh',
-    display: 'grid',
-    gap: 'var(--dfg-space-8)',
-    padding: 'var(--dfg-space-8)',
-    background: 'var(--dfg-color-canvas)',
-    color: 'var(--dfg-color-text-primary)',
-    fontFamily: 'var(--dfg-font-sans)',
-    fontSize: 'var(--dfg-font-size-13)',
-  },
-  header: { display: 'grid', gap: 'var(--dfg-space-3)' },
-  title: {
-    margin: 0,
-    fontSize: 'var(--dfg-font-size-24)',
-    fontWeight: 'var(--dfg-font-weight-bold)',
-  },
-  subtitle: {
-    margin: 0,
-    color: 'var(--dfg-color-text-secondary)',
-    lineHeight: 'var(--dfg-line-height-relaxed)',
-  },
-  tip: { margin: 0, color: 'var(--dfg-color-text-disabled)', fontSize: 'var(--dfg-font-size-11)' },
-  section: {
-    display: 'grid',
-    gap: 'var(--dfg-space-4)',
-    padding: 'var(--dfg-space-5)',
-    background: 'var(--dfg-color-surface)',
-    border: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
-    borderRadius: 'var(--dfg-radius-lg)',
-  },
-  sectionTitle: {
-    margin: 0,
-    fontSize: 'var(--dfg-font-size-15)',
-    fontWeight: 'var(--dfg-font-weight-medium)',
-  },
-  grid: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 'var(--dfg-space-3)',
-    alignItems: 'flex-start',
-  },
-  cell: {
-    display: 'grid',
-    gap: 'var(--dfg-space-1)',
-    justifyItems: 'start',
-    padding: 'var(--dfg-space-2)',
-    border: 'var(--dfg-border-width-hairline) dashed var(--dfg-color-border)',
-    borderRadius: 'var(--dfg-radius-sm)',
-  },
-  cellLabel: { color: 'var(--dfg-color-text-disabled)', fontSize: 'var(--dfg-font-size-11)' },
-  row: { display: 'flex', flexWrap: 'wrap', gap: 'var(--dfg-space-2)', alignItems: 'center' },
-  chip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-1)',
-    paddingBlock: 'var(--dfg-space-1)',
-    paddingInline: 'var(--dfg-space-2)',
-    background: 'var(--dfg-color-surface-subtle)',
-    borderRadius: 'var(--dfg-radius-sm)',
-    fontSize: 'var(--dfg-font-size-11)',
-    color: 'var(--dfg-color-text-secondary)',
-  },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--dfg-font-size-12)' },
-  th: {
-    textAlign: 'left',
-    padding: 'var(--dfg-space-1) var(--dfg-space-2)',
-    color: 'var(--dfg-color-text-secondary)',
-    borderBottom: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
-    fontWeight: 'var(--dfg-font-weight-medium)',
-  },
-  td: {
-    padding: 'var(--dfg-space-1) var(--dfg-space-2)',
-    borderBottom: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
-  },
-  swatch: {
-    width: 'var(--dfg-space-12)',
-    height: 'var(--dfg-space-6)',
-    border: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
-    borderRadius: 'var(--dfg-radius-sm)',
-  },
-  overlayStage: {
-    position: 'relative',
-    display: 'grid',
-    placeItems: 'center',
-    minHeight: 'var(--dfg-space-16)',
-    padding: 'var(--dfg-space-4)',
-    background: 'var(--dfg-color-surface-subtle)',
-    borderRadius: 'var(--dfg-radius-md)',
-  },
-} satisfies Record<string, CSSProperties>;
+/* ---------- 预览页版式（内联样式全走令牌变量；禁裸值守卫生效） ---------- */
 
 /** 预览单元：带门禁取样名的容器。 */
 function Cell({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   return (
-    <div style={styles.cell} data-df-preview={id}>
-      <span style={styles.cellLabel}>{label}</span>
+    <div className="dfg-design__cell" data-df-preview={id}>
+      <span className="dfg-design__cell-label">{label}</span>
       {children}
     </div>
   );
@@ -153,18 +63,18 @@ function Cell({ id, label, children }: { id: string; label: string; children: Re
 /** 分区外壳。 */
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section style={styles.section} data-df-section={id}>
-      <h2 style={styles.sectionTitle}>{title}</h2>
+    <section className="dfg-design__section" data-df-section={id}>
+      <h2 className="dfg-design__section-title">{title}</h2>
       {children}
     </section>
   );
 }
 
-/** 令牌色样（键名即变量名，人工校色用）。 */
+/** 令牌色样（键名即变量名，人工校色用；取值是动态令牌引用，行内注入——工单 06 豁免）。 */
 function ColorSwatch({ name, varPath }: { name: string; varPath: string }) {
   return (
     <Cell id={`token/${name}`} label={name}>
-      <span style={{ ...styles.swatch, background: `var(${varPath})` }} />
+      <span className="dfg-design__swatch" style={{ background: `var(${varPath})` }} />
     </Cell>
   );
 }
@@ -208,42 +118,43 @@ export default function DesignPreviewPage() {
 
   return (
     <ToastProvider>
-      <div style={styles.page}>
-        <header style={styles.header}>
-          <h1 style={styles.title}>{t('design.title')}</h1>
-          <p style={styles.subtitle}>{t('design.subtitle')}</p>
-          <div style={styles.row}>
+      <div className="dfg-design__page">
+        <header className="dfg-design__header">
+          <h1 className="dfg-design__title">{t('design.title')}</h1>
+          <p className="dfg-design__subtitle">{t('design.subtitle')}</p>
+          <div className="dfg-design__row">
             <ThemeToggle />
-            <span style={styles.chip}>{t('design.theme.label')}</span>
+            <span className="dfg-design__chip">{t('design.theme.label')}</span>
           </div>
-          <p style={styles.tip}>{t('design.tip')}</p>
+          <p className="dfg-design__tip">{t('design.tip')}</p>
         </header>
 
         <Section id="tokens" title={t('design.section.tokens')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             {COLOR_TOKENS.map(([name, variable]) => (
               <ColorSwatch key={name} name={name} varPath={variable} />
             ))}
           </div>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             {RADIUS_TOKENS.map(([name, variable]) => (
               <Cell key={name} id={`token/${name}`} label={name}>
                 <span
-                  style={{ ...styles.swatch, borderRadius: `var(${variable})` }}
+                  className="dfg-design__swatch"
                   // 圆角预览：色块本身用主色描边，便于肉眼对比档位
+                  style={{ borderRadius: `var(${variable})` }}
                 />
               </Cell>
             ))}
           </div>
-          <div style={styles.row}>
-            <span style={styles.chip}>{t('design.token.controlHeight')}</span>
-            <span style={styles.chip}>{t('design.token.radius')}</span>
-            <span style={styles.chip}>{t('design.token.spacing')}</span>
+          <div className="dfg-design__row">
+            <span className="dfg-design__chip">{t('design.token.controlHeight')}</span>
+            <span className="dfg-design__chip">{t('design.token.radius')}</span>
+            <span className="dfg-design__chip">{t('design.token.spacing')}</span>
           </div>
         </Section>
 
         <Section id="icons" title={t('design.section.icons')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             {(Object.keys(ICONS) as IconName[]).map((name) => {
               const Icon = ICONS[name];
               return (
@@ -256,13 +167,13 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="families" title={t('design.section.families')}>
-          <table style={styles.table}>
+          <table className="dfg-design__table">
             <thead>
               <tr>
-                <th style={styles.th}>族</th>
-                <th style={styles.th}>承载组件</th>
+                <th className="dfg-design__th">族</th>
+                <th className="dfg-design__th">承载组件</th>
                 {INTERACTION_STATES.map((state) => (
-                  <th key={state} style={styles.th}>
+                  <th key={state} className="dfg-design__th">
                     {state}
                   </th>
                 ))}
@@ -271,12 +182,12 @@ export default function DesignPreviewPage() {
             <tbody>
               {STATE_FAMILIES.map((family) => (
                 <tr key={family.id} data-df-preview={`family/${family.id}`}>
-                  <td style={styles.td}>
+                  <td className="dfg-design__td">
                     {family.id} · {family.name}
                   </td>
-                  <td style={styles.td}>{family.components.join(' / ')}</td>
+                  <td className="dfg-design__td">{family.components.join(' / ')}</td>
                   {INTERACTION_STATES.map((state) => (
-                    <td key={state} style={styles.td}>
+                    <td key={state} className="dfg-design__td">
                       {family.states.includes(state) ? '✓' : '—'}
                     </td>
                   ))}
@@ -287,7 +198,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="buttons" title={t('design.section.buttons')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             {BUTTON_VARIANTS.map((variant) => (
               <Cell
                 key={`${variant}-default`}
@@ -354,7 +265,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="icon-buttons" title={t('design.section.iconButtons')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             {(['ghost', 'secondary', 'primary', 'danger'] as const).map((variant) => (
               <Cell
                 key={variant}
@@ -393,7 +304,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="segmented" title={t('design.section.segmented')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             <Cell id="segmented/default" label="默认（网格选中）">
               <SegmentedControl
                 label="视图"
@@ -415,7 +326,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="inputs" title={t('design.section.inputs')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             <Cell id="input/text/default" label="text · default">
               <Input fieldLabel={t('design.field.name')} defaultValue="矩形 1" />
             </Cell>
@@ -451,7 +362,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="tooltip" title={t('design.section.tooltip')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             <Cell id="tooltip/top" label="tooltip · top（悬停或聚焦）">
               <Tooltip content={t('design.tooltip.content')} delay={0}>
                 <Button>{t('design.tooltip.anchor')}</Button>
@@ -461,7 +372,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="menu" title={t('design.section.menu')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             <Cell id="menu/default" label="menu · 展开（含两条禁用项与分隔线）">
               <DropdownMenu
                 label={t('design.action.menu')}
@@ -519,7 +430,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="modal" title={t('design.section.modal')}>
-          <div style={styles.row}>
+          <div className="dfg-design__row">
             <Button variant="primary" onClick={() => setModalOpen(true)}>
               {t('design.action.openModal')}
             </Button>
@@ -546,7 +457,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="drawer" title={t('design.section.drawer')}>
-          <div style={styles.row}>
+          <div className="dfg-design__row">
             <Button variant="primary" onClick={() => setDrawerOpen(true)}>
               {t('design.action.openDrawer')}
             </Button>
@@ -568,7 +479,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="empty" title={t('design.section.empty')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             <Cell id="empty/default" label="空态 · 默认插图">
               <EmptyState
                 title={t('design.state.empty.title')}
@@ -580,7 +491,7 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="error" title={t('design.section.error')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             <Cell id="error/default" label="错误态 · 重试 + 错误码">
               <ErrorState
                 title={t('design.state.error.title')}
@@ -603,9 +514,9 @@ export default function DesignPreviewPage() {
         </Section>
 
         <Section id="loading" title={t('design.section.loading')}>
-          <div style={styles.grid}>
+          <div className="dfg-design__grid">
             <Cell id="loading/spinner" label="spinner（sm/md/lg）">
-              <span style={styles.row}>
+              <span className="dfg-design__row">
                 <Spinner size="sm" label="小转圈" />
                 <Spinner label="中转圈" />
                 <Spinner size="lg" label="大转圈" />
@@ -627,8 +538,8 @@ export default function DesignPreviewPage() {
               <Progress label="准备中" />
             </Cell>
             <Cell id="loading/overlay" label="阻塞遮罩">
-              <span style={styles.overlayStage}>
-                <span style={styles.row}>
+              <span className="dfg-design__overlay-stage">
+                <span className="dfg-design__row">
                   <Skeleton width="var(--dfg-space-16)" />
                   <Skeleton width="var(--dfg-space-10)" />
                 </span>
@@ -652,7 +563,7 @@ export default function DesignPreviewPage() {
 function ToastDemo() {
   const toast = useToast();
   return (
-    <div style={styles.row}>
+    <div className="dfg-design__row">
       <Button
         onClick={() => {
           const id = toast.show({

@@ -14,7 +14,7 @@
  * `hover` / `active` / `disabled` 归设置页与保存脚（挂点全 feature 可达即可，见门禁脚本）。
  */
 import { Button, ErrorState, ICONS, Spinner } from '@dforge/ui';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 
 import { t } from '@/i18n';
@@ -38,128 +38,27 @@ import { useSettingsSession } from '../model/use-settings-session';
 import { SaveFooter } from './save-footer';
 import { SettingsSectionForm } from './section-form';
 
-const styles = {
-  page: {
-    display: 'grid',
-    // alignContent: start —— 行按内容高度排布，避免 minHeight:100vh 把页头行撑开
-    alignContent: 'start',
-    gap: 'var(--dfg-space-6)',
-    padding: 'var(--dfg-space-8)',
-    minHeight: '100vh',
-    background: 'var(--dfg-color-surface)',
-    color: 'var(--dfg-color-text-primary)',
-    fontFamily: 'var(--dfg-font-sans)',
-    fontSize: 'var(--dfg-font-size-13)',
-  },
-  header: { display: 'grid', gap: 'var(--dfg-space-2)' },
-  title: {
-    margin: 0,
-    fontSize: 'var(--dfg-font-size-24)',
-    fontWeight: 'var(--dfg-font-weight-bold)',
-  },
-  subtitle: {
-    margin: 0,
-    color: 'var(--dfg-color-text-secondary)',
-    lineHeight: 'var(--dfg-line-height-relaxed)',
-  },
-  progress: {
-    margin: 0,
-    color: 'var(--dfg-color-text-secondary)',
-    fontSize: 'var(--dfg-font-size-12)',
-  },
-  loading: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-2)',
-    color: 'var(--dfg-color-text-secondary)',
-  },
-  body: { display: 'flex', gap: 'var(--dfg-space-8)', alignItems: 'flex-start' },
-  steps: {
-    display: 'grid',
-    gap: 'var(--dfg-space-1)',
-    width: 'var(--dfg-size-sidebar)',
-    flexShrink: 0,
-    margin: 0,
-    padding: 0,
-    listStyle: 'none',
-  },
-  stepItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-2)',
-    minHeight: 'var(--dfg-control-height-md)',
-    paddingInline: 'var(--dfg-space-3)',
-    borderRadius: 'var(--dfg-radius-md)',
-    color: 'var(--dfg-color-text-secondary)',
-  },
-  stepItemCurrent: {
-    background: 'var(--dfg-color-selection)',
-    color: 'var(--dfg-color-selection-text)',
-    fontWeight: 'var(--dfg-font-weight-medium)',
-  },
-  stepName: { flex: 1 },
-  stepDone: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-1)',
-    color: 'var(--dfg-color-success)',
-    fontSize: 'var(--dfg-font-size-11)',
-  },
-  stepSkipped: { color: 'var(--dfg-color-text-disabled)', fontSize: 'var(--dfg-font-size-11)' },
-  panel: {
-    display: 'grid',
-    gap: 'var(--dfg-space-5)',
-    flex: 1,
-    minWidth: 0,
-    padding: 'var(--dfg-space-6)',
-    background: 'var(--dfg-color-surface)',
-    border: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
-    borderRadius: 'var(--dfg-radius-lg)',
-  },
-  panelTitle: {
-    margin: 0,
-    fontSize: 'var(--dfg-font-size-18)',
-    fontWeight: 'var(--dfg-font-weight-medium)',
-  },
-  panelDesc: {
-    margin: 0,
-    color: 'var(--dfg-color-text-secondary)',
-    fontSize: 'var(--dfg-font-size-12)',
-  },
-  errorLine: { margin: 0, color: 'var(--dfg-color-danger)', fontSize: 'var(--dfg-font-size-12)' },
-  panelWrap: { flex: 1, minWidth: 0 },
-  done: {
-    display: 'grid',
-    gap: 'var(--dfg-space-4)',
-    justifyItems: 'center',
-    padding: 'var(--dfg-space-8)',
-    textAlign: 'center',
-  },
-  doneTitle: { fontSize: 'var(--dfg-font-size-18)', fontWeight: 'var(--dfg-font-weight-medium)' },
-} satisfies Record<string, CSSProperties>;
+import './settings.css';
 
-/** 步骤条单步（勾选 / 跳过 / 当前高亮由状态机给态）。 */
+/** 步骤条单步（勾选 / 跳过 / 当前高亮由状态机给态；当前步走 aria-current 在 CSS 承接）。 */
 function StepItem({ id, status }: { id: SettingsSectionId; status: OnboardingStepStatus }) {
   const section = settingsSection(id);
   const Icon = ICONS[section.icon];
   return (
     <li
       aria-current={status === 'current' ? 'step' : undefined}
-      style={{
-        ...styles.stepItem,
-        ...(status === 'current' ? styles.stepItemCurrent : null),
-      }}
+      className="dfg-settings__step-item"
     >
       <Icon />
-      <span style={styles.stepName}>{t(section.titleKey)}</span>
+      <span className="dfg-settings__step-name">{t(section.titleKey)}</span>
       {status === 'done' ? (
-        <span style={styles.stepDone}>
+        <span className="dfg-settings__step-done">
           <ICONS.CheckIcon />
           {t('onboarding.status.done')}
         </span>
       ) : null}
       {status === 'skipped' ? (
-        <span style={styles.stepSkipped}>{t('onboarding.status.skipped')}</span>
+        <span className="dfg-settings__step-skipped">{t('onboarding.status.skipped')}</span>
       ) : null}
     </li>
   );
@@ -203,29 +102,31 @@ export function OnboardingWizard({ api, onFinish }: OnboardingWizardProps) {
   let content: ReactNode = null;
   if (session.loadPhase === 'loading') {
     content = (
-      <div style={styles.loading} data-df-state="loading">
+      <div className="dfg-settings__loading" data-df-state="loading">
         <Spinner label={t('settings.loading')} />
         <span>{t('settings.loading')}</span>
       </div>
     );
   } else if (session.loadPhase === 'error') {
     content = (
-      <div data-df-state="error" style={{ display: 'grid', gap: 'var(--dfg-space-2)' }}>
+      <div data-df-state="error" className="dfg-settings__stack">
         <ErrorState
           title={t('settings.loadError.title')}
           description={t('settings.loadError.description')}
           retryLabel={t('settings.action.reload')}
           onRetry={session.reload}
         />
-        {session.loadError === null ? null : <p style={styles.errorLine}>{session.loadError}</p>}
+        {session.loadError === null ? null : (
+          <p className="dfg-settings__error-line">{session.loadError}</p>
+        )}
       </div>
     );
   } else if (machine.finished) {
     content = (
-      <div style={styles.done}>
+      <div className="dfg-settings__done">
         <ICONS.CheckCircleIcon size={48} />
-        <div style={styles.doneTitle}>{t('onboarding.done.title')}</div>
-        <p style={styles.panelDesc}>{t('onboarding.done.desc')}</p>
+        <div className="dfg-settings__done-title">{t('onboarding.done.title')}</div>
+        <p className="dfg-settings__panel-desc">{t('onboarding.done.desc')}</p>
         <Button
           variant="primary"
           onClick={() => {
@@ -238,9 +139,9 @@ export function OnboardingWizard({ api, onFinish }: OnboardingWizardProps) {
     );
   } else if (section !== undefined) {
     content = (
-      <section style={styles.panel}>
-        <h2 style={styles.panelTitle}>{t(section.titleKey)}</h2>
-        <p style={styles.panelDesc}>{t(section.descriptionKey)}</p>
+      <section className="dfg-settings__panel">
+        <h2 className="dfg-settings__panel-title">{t(section.titleKey)}</h2>
+        <p className="dfg-settings__panel-desc">{t(section.descriptionKey)}</p>
         <SettingsSectionForm id={section.id} session={session} />
         <SaveFooter
           saveLabel={isLast ? t('onboarding.action.finish') : t('onboarding.action.next')}
@@ -275,22 +176,22 @@ export function OnboardingWizard({ api, onFinish }: OnboardingWizardProps) {
   }
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <h1 style={styles.title}>{t('onboarding.title')}</h1>
-        <p style={styles.subtitle}>{t('onboarding.subtitle')}</p>
-        <p style={styles.progress}>
+    <div className="dfg-settings__page">
+      <header className="dfg-settings__header">
+        <h1 className="dfg-settings__title">{t('onboarding.title')}</h1>
+        <p className="dfg-settings__subtitle">{t('onboarding.subtitle')}</p>
+        <p className="dfg-settings__progress">
           {t('onboarding.progress', { completed: progress.completed, total: progress.total })}
         </p>
       </header>
 
-      <div style={styles.body}>
-        <ol aria-label={t('onboarding.stepsLabel')} style={styles.steps}>
+      <div className="dfg-settings__body">
+        <ol aria-label={t('onboarding.stepsLabel')} className="dfg-settings__steps">
           {ONBOARDING_STEP_IDS.map((id) => (
             <StepItem key={id} id={id} status={stepStatus(machine, id)} />
           ))}
         </ol>
-        <div style={styles.panelWrap}>{content}</div>
+        <div className="dfg-settings__panel-wrap">{content}</div>
       </div>
     </div>
   );

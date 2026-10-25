@@ -1,0 +1,330 @@
+/**
+ * 设置域特性样式（工单 06 · 样式单轨；浅色首页族）。
+ *
+ * 覆盖：设置页（E3）+ 四步引导（E4）+ 空库冷启动（E6）+ 保存脚 + 分区表单共享版式。
+ * 口径（_shared §3 禁裸值）：颜色/间距/圆角/字号一律 `var(--dfg-*)` 令牌引用
+ * （`scripts/guard-tokens.mjs` 扫本文件）；本域无几何算式场景，不存在内联 style
+ * （豁免登记表在工单 06）。交互态由 DOM 事实承接：导航项 :hover / aria-current，
+ * 引导步骤 aria-current='step'，连通性状态片 data-df-connectivity。
+ */
+
+/* ---------- 页面骨架（设置页 / 引导 / 冷启动共用） ---------- */
+
+.dfg-settings__page {
+  display: grid;
+  /* align-content: start —— 行按内容高度排布，避免 minHeight:100vh 把页头行撑开 */
+  align-content: start;
+  gap: var(--dfg-space-6);
+  padding: var(--dfg-space-8);
+  min-height: 100vh;
+  background-color: var(--dfg-color-surface);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-13);
+}
+
+.dfg-settings__header {
+  display: grid;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-settings__title {
+  margin: 0;
+  font-size: var(--dfg-font-size-24);
+  font-weight: var(--dfg-font-weight-bold);
+}
+
+.dfg-settings__subtitle {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  line-height: var(--dfg-line-height-relaxed);
+}
+
+.dfg-settings__progress {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-settings__loading {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* 纵向栈（错误/空态包装层；gap 按修饰档） */
+.dfg-settings__stack {
+  display: grid;
+  gap: var(--dfg-space-2);
+}
+
+.dfg-settings__stack--gap-3 {
+  gap: var(--dfg-space-3);
+}
+
+.dfg-settings__error-line {
+  margin: 0;
+  color: var(--dfg-color-danger);
+  font-size: var(--dfg-font-size-12);
+}
+
+/* ---------- 设置页：左导航 + 右面板 ---------- */
+
+.dfg-settings__body {
+  display: flex;
+  gap: var(--dfg-space-8);
+  align-items: flex-start;
+}
+
+.dfg-settings__nav {
+  display: grid;
+  gap: var(--dfg-space-1);
+  width: var(--dfg-size-sidebar);
+  flex-shrink: 0;
+}
+
+.dfg-settings__nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  height: var(--dfg-control-height-md);
+  padding-inline: var(--dfg-space-3);
+  border: none;
+  border-radius: var(--dfg-radius-md);
+  background: transparent;
+  color: var(--dfg-color-text-secondary);
+  font-family: inherit;
+  font-size: var(--dfg-font-size-13);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 悬停底色（工单 06 起走 CSS 伪类——域内已有样式文件，不再需要 React 态显式驱动） */
+.dfg-settings__nav-item:hover:not([aria-current='true']) {
+  background-color: var(--dfg-color-hover);
+}
+
+.dfg-settings__nav-item[aria-current='true'] {
+  background-color: var(--dfg-color-selection);
+  color: var(--dfg-color-selection-text);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-settings__panel {
+  display: grid;
+  gap: var(--dfg-space-5);
+  flex: 1;
+  min-width: 0;
+  padding: var(--dfg-space-6);
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+}
+
+.dfg-settings__panel-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.dfg-settings__panel-title {
+  margin: 0;
+  font-size: var(--dfg-font-size-18);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-settings__panel-desc {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+}
+
+/* ---------- 引导步骤条（E4） ---------- */
+
+.dfg-settings__steps {
+  display: grid;
+  gap: var(--dfg-space-1);
+  width: var(--dfg-size-sidebar);
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfg-settings__step-item {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  min-height: var(--dfg-control-height-md);
+  padding-inline: var(--dfg-space-3);
+  border-radius: var(--dfg-radius-md);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* 当前步高亮（aria-current 是状态机投射的对外语义） */
+.dfg-settings__step-item[aria-current='step'] {
+  background-color: var(--dfg-color-selection);
+  color: var(--dfg-color-selection-text);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-settings__step-name {
+  flex: 1;
+}
+
+.dfg-settings__step-done {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  color: var(--dfg-color-success);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-settings__step-skipped {
+  color: var(--dfg-color-text-disabled);
+  font-size: var(--dfg-font-size-11);
+}
+
+/* 完成卡 */
+.dfg-settings__done {
+  display: grid;
+  gap: var(--dfg-space-4);
+  justify-items: center;
+  padding: var(--dfg-space-8);
+  text-align: center;
+}
+
+.dfg-settings__done-title {
+  font-size: var(--dfg-font-size-18);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+/* ---------- 冷启动舞台（E6） ---------- */
+
+.dfg-settings__stage {
+  display: grid;
+  gap: var(--dfg-space-4);
+  place-items: center;
+  padding: var(--dfg-space-8);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-lg);
+}
+
+/* 「返回首页」链接按钮 */
+.dfg-settings__link {
+  display: inline-flex;
+  align-items: center;
+  height: var(--dfg-control-height-md);
+  padding-inline: var(--dfg-control-padding-x-md);
+  background-color: var(--dfg-color-primary);
+  color: var(--dfg-color-on-primary);
+  border-radius: var(--dfg-radius-md);
+  text-decoration: none;
+}
+
+/* ---------- 分区表单共享版式（设置页与引导同一组分区组件） ---------- */
+
+.dfg-settings__form {
+  display: grid;
+  gap: var(--dfg-space-4);
+}
+
+.dfg-settings__hint {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-settings__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  flex-wrap: wrap;
+}
+
+.dfg-settings__status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  flex-wrap: wrap;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+}
+
+/* 连通性状态片（色调由 data-df-connectivity 状态承接；--neutral 给动作片） */
+.dfg-settings__chip {
+  display: inline-flex;
+  align-items: center;
+  padding-inline: var(--dfg-space-2);
+  padding-block: var(--dfg-space-1);
+  border-radius: var(--dfg-radius-sm);
+  font-size: var(--dfg-font-size-11);
+}
+
+.dfg-settings__chip--neutral {
+  background-color: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-settings__chip[data-df-connectivity='ok'] {
+  background-color: var(--dfg-color-success-subtle);
+  color: var(--dfg-color-success);
+}
+
+.dfg-settings__chip[data-df-connectivity='degraded'] {
+  background-color: var(--dfg-color-warning-subtle);
+  color: var(--dfg-color-text-primary);
+}
+
+.dfg-settings__chip[data-df-connectivity='unavailable'] {
+  background-color: var(--dfg-color-danger-subtle);
+  color: var(--dfg-color-danger);
+}
+
+.dfg-settings__chip[data-df-connectivity='not-configured'] {
+  background-color: var(--dfg-color-surface-subtle);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-settings__path {
+  padding-inline: var(--dfg-space-2);
+  padding-block: var(--dfg-space-1);
+  background-color: var(--dfg-color-surface-subtle);
+  border-radius: var(--dfg-radius-sm);
+  font-size: var(--dfg-font-size-12);
+  word-break: break-all;
+}
+
+.dfg-settings__error {
+  color: var(--dfg-color-danger);
+  font-size: var(--dfg-font-size-12);
+}
+
+/* ---------- 保存脚 ---------- */
+
+.dfg-settings__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-3);
+  flex-wrap: wrap;
+}
+
+.dfg-settings__save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-12);
+}
+
+.dfg-settings__failure {
+  display: flex;
+  align-items: center;
+  gap: var(--dfg-space-2);
+  padding-block: var(--dfg-space-2);
+  padding-inline: var(--dfg-space-3);
+  background-color: var(--dfg-color-danger-subtle);
+  border-radius: var(--dfg-radius-md);
+  color: var(--dfg-color-text-primary);
+  font-size: var(--dfg-font-size-12);
+}

@@ -12,11 +12,10 @@
  * - 本组件：`loading`（读取配置中）/ `error`（读配置失败，可重新加载）/ `hover`（左导航项）；
  * - 冷启动页：`empty`；保存脚：`active` / `disabled`（见各自组件注释）。
  *
- * 为什么导航项 hover 用 React 态而不是 CSS 伪类：内联令牌样式里没有伪类通道，
- * 本票不新增样式文件（避免与 FE-01/FE-11 的样式面重叠），故用 enter/leave 显式驱动。
+ * 导航项 hover 由 CSS 伪类承接（工单 06 样式单轨：域内 settings.css 已有伪类通道；
+ * `data-df-state="hover"` 静态挂点保留给截图门禁取样）。
  */
 import { Button, ErrorState, ICONS, Spinner } from '@dforge/ui';
-import type { CSSProperties } from 'react';
 import { useState } from 'react';
 
 import { DiagnosticsPanel } from '@/features/diagnostics';
@@ -34,88 +33,9 @@ import { useSettingsSession } from '../model/use-settings-session';
 import { SaveFooter } from './save-footer';
 import { SettingsSectionForm } from './section-form';
 
-const styles = {
-  page: {
-    display: 'grid',
-    // alignContent: start —— 行按内容高度排布，避免 minHeight:100vh 把页头行撑开
-    alignContent: 'start',
-    gap: 'var(--dfg-space-6)',
-    padding: 'var(--dfg-space-8)',
-    minHeight: '100vh',
-    background: 'var(--dfg-color-surface)',
-    color: 'var(--dfg-color-text-primary)',
-    fontFamily: 'var(--dfg-font-sans)',
-    fontSize: 'var(--dfg-font-size-13)',
-  },
-  header: { display: 'grid', gap: 'var(--dfg-space-2)' },
-  title: {
-    margin: 0,
-    fontSize: 'var(--dfg-font-size-24)',
-    fontWeight: 'var(--dfg-font-weight-bold)',
-  },
-  subtitle: {
-    margin: 0,
-    color: 'var(--dfg-color-text-secondary)',
-    lineHeight: 'var(--dfg-line-height-relaxed)',
-  },
-  loading: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-2)',
-    color: 'var(--dfg-color-text-secondary)',
-  },
-  body: { display: 'flex', gap: 'var(--dfg-space-8)', alignItems: 'flex-start' },
-  nav: {
-    display: 'grid',
-    gap: 'var(--dfg-space-1)',
-    width: 'var(--dfg-size-sidebar)',
-    flexShrink: 0,
-  },
-  navItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-2)',
-    height: 'var(--dfg-control-height-md)',
-    paddingInline: 'var(--dfg-space-3)',
-    border: 'none',
-    borderRadius: 'var(--dfg-radius-md)',
-    background: 'transparent',
-    color: 'var(--dfg-color-text-secondary)',
-    fontFamily: 'inherit',
-    fontSize: 'var(--dfg-font-size-13)',
-    textAlign: 'left',
-    cursor: 'pointer',
-  },
-  navItemActive: {
-    background: 'var(--dfg-color-selection)',
-    color: 'var(--dfg-color-selection-text)',
-    fontWeight: 'var(--dfg-font-weight-medium)',
-  },
-  navItemHover: { background: 'var(--dfg-color-hover)' },
-  panel: {
-    display: 'grid',
-    gap: 'var(--dfg-space-5)',
-    flex: 1,
-    minWidth: 0,
-    padding: 'var(--dfg-space-6)',
-    background: 'var(--dfg-color-surface)',
-    border: 'var(--dfg-border-width-hairline) solid var(--dfg-color-border)',
-    borderRadius: 'var(--dfg-radius-lg)',
-  },
-  panelTitle: {
-    margin: 0,
-    fontSize: 'var(--dfg-font-size-18)',
-    fontWeight: 'var(--dfg-font-weight-medium)',
-  },
-  panelDesc: {
-    margin: 0,
-    color: 'var(--dfg-color-text-secondary)',
-    fontSize: 'var(--dfg-font-size-12)',
-  },
-  errorLine: { margin: 0, color: 'var(--dfg-color-danger)', fontSize: 'var(--dfg-font-size-12)' },
-} satisfies Record<string, CSSProperties>;
+import './settings.css';
 
-/** 左导航项（hover 由 React 态驱动，见模块头注释）。 */
+/** 左导航项（激活态走 aria-current；hover 走 CSS 伪类）。 */
 function NavItem({
   active,
   icon,
@@ -127,31 +47,14 @@ function NavItem({
   label: string;
   onClick: () => void;
 }) {
-  const [hovered, setHovered] = useState(false);
   const Icon = ICONS[icon];
   return (
     <button
       type="button"
-      // 六态挂点：hover —— 导航项悬停底色证据
+      // 六态挂点：hover —— 导航项悬停底色证据（截图门禁复现非默认态用）
       data-df-state="hover"
       aria-current={active ? 'true' : undefined}
-      style={{
-        ...styles.navItem,
-        ...(active ? styles.navItemActive : null),
-        ...(!active && hovered ? styles.navItemHover : null),
-      }}
-      onMouseEnter={() => {
-        setHovered(true);
-      }}
-      onMouseLeave={() => {
-        setHovered(false);
-      }}
-      onFocus={() => {
-        setHovered(true);
-      }}
-      onBlur={() => {
-        setHovered(false);
-      }}
+      className="dfg-settings__nav-item"
       onClick={onClick}
     >
       <Icon />
@@ -181,34 +84,36 @@ export function SettingsPage({ api }: SettingsPageProps) {
     section === null ? t(SETTINGS_DIAGNOSTICS_NAV.descriptionKey) : t(section.descriptionKey);
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <h1 style={styles.title}>{t('settings.title')}</h1>
-        <p style={styles.subtitle}>{t('settings.subtitle')}</p>
+    <div className="dfg-settings__page">
+      <header className="dfg-settings__header">
+        <h1 className="dfg-settings__title">{t('settings.title')}</h1>
+        <p className="dfg-settings__subtitle">{t('settings.subtitle')}</p>
       </header>
 
       {session.loadPhase === 'loading' ? (
-        <div style={styles.loading} data-df-state="loading">
+        <div className="dfg-settings__loading" data-df-state="loading">
           <Spinner label={t('settings.loading')} />
           <span>{t('settings.loading')}</span>
         </div>
       ) : null}
 
       {session.loadPhase === 'error' ? (
-        <div data-df-state="error" style={{ display: 'grid', gap: 'var(--dfg-space-2)' }}>
+        <div data-df-state="error" className="dfg-settings__stack">
           <ErrorState
             title={t('settings.loadError.title')}
             description={t('settings.loadError.description')}
             retryLabel={t('settings.action.reload')}
             onRetry={session.reload}
           />
-          {session.loadError === null ? null : <p style={styles.errorLine}>{session.loadError}</p>}
+          {session.loadError === null ? null : (
+            <p className="dfg-settings__error-line">{session.loadError}</p>
+          )}
         </div>
       ) : null}
 
       {session.loadPhase === 'ready' && session.config !== null && session.credentials !== null ? (
-        <div style={styles.body}>
-          <nav aria-label={t('settings.nav.label')} style={styles.nav}>
+        <div className="dfg-settings__body">
+          <nav aria-label={t('settings.nav.label')} className="dfg-settings__nav">
             {SETTINGS_SECTIONS.map((item) => (
               <NavItem
                 key={item.id}
@@ -233,9 +138,9 @@ export function SettingsPage({ api }: SettingsPageProps) {
             />
           </nav>
 
-          <section style={styles.panel} data-df-settings-section={activeSection}>
-            <h2 style={styles.panelTitle}>{sectionTitle}</h2>
-            <p style={styles.panelDesc}>{sectionDescription}</p>
+          <section className="dfg-settings__panel" data-df-settings-section={activeSection}>
+            <h2 className="dfg-settings__panel-title">{sectionTitle}</h2>
+            <p className="dfg-settings__panel-desc">{sectionDescription}</p>
 
             {isDiagnostics ? (
               <>

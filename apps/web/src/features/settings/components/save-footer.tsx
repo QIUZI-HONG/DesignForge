@@ -18,6 +18,8 @@ import { t } from '@/i18n';
 
 import type { SaveState } from '../model/save-state';
 
+import './settings.css';
+
 /** SaveFooter props。 */
 export interface SaveFooterProps {
   /** 主按钮文案（保存 / 保存密钥 / 下一步 / 完成）。 */
@@ -30,33 +32,6 @@ export interface SaveFooterProps {
   extraActions?: ReactNode;
 }
 
-const styles = {
-  footer: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-3)',
-    flexWrap: 'wrap',
-  },
-  status: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-1)',
-    color: 'var(--dfg-color-text-secondary)',
-    fontSize: 'var(--dfg-font-size-12)',
-  },
-  failure: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--dfg-space-2)',
-    paddingBlock: 'var(--dfg-space-2)',
-    paddingInline: 'var(--dfg-space-3)',
-    background: 'var(--dfg-color-danger-subtle)',
-    borderRadius: 'var(--dfg-radius-md)',
-    color: 'var(--dfg-color-text-primary)',
-    fontSize: 'var(--dfg-font-size-12)',
-  },
-} satisfies Record<string, React.CSSProperties>;
-
 /** 保存脚。 */
 export function SaveFooter({
   saveLabel,
@@ -67,8 +42,8 @@ export function SaveFooter({
 }: SaveFooterProps) {
   const saving = saveState.phase === 'saving';
   return (
-    <div style={{ display: 'grid', gap: 'var(--dfg-space-2)' }}>
-      <div style={styles.footer}>
+    <div className="dfg-settings__stack">
+      <div className="dfg-settings__footer">
         {extraActions}
         <span data-df-state={disabled || saving ? 'disabled' : undefined}>
           <Button
@@ -82,7 +57,7 @@ export function SaveFooter({
             {saveLabel}
           </Button>
         </span>
-        <span style={styles.status} role="status" aria-live="polite">
+        <span className="dfg-settings__save-status" role="status" aria-live="polite">
           {saveState.phase === 'saved' ? (
             <>
               <CheckCircleIcon />
@@ -92,7 +67,7 @@ export function SaveFooter({
         </span>
       </div>
       {saveState.phase === 'failed' ? (
-        <div style={styles.failure} role="alert">
+        <div className="dfg-settings__failure" role="alert">
           <AlertCircleIcon />
           <span>{saveState.message}</span>
           <Button size="sm" onClick={onSave}>
