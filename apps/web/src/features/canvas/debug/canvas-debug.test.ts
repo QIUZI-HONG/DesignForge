@@ -8,11 +8,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-
-import { sessionDebugHandle } from './canvas-debug';
 import type { FramePerfSnapshot } from '../render/frame-perf';
 import type { CanvasSession } from '../state/session';
 import type { CanvasRuntimeStatus } from '../ui/canvas-stage';
+import { sessionDebugHandle } from './canvas-debug';
 
 /** 最小会话桩（sessionDebugHandle 用到的公开方法签名）。 */
 function fakeSession(): CanvasSession {

@@ -216,7 +216,8 @@ describe('画布边界 · 旋转节点的手柄命中', () => {
     expect(hit?.id).toBe('se');
 
     // 反向：旋转后的 AABB 左下角**不是**手柄（若手柄没跟着旋转，这里会命中）
-    const aabbCorner = { x: bounds!.x, y: bounds!.y + bounds!.height };
+    const aabb = bounds as NonNullable<typeof bounds>;
+    const aabbCorner = { x: aabb.x, y: aabb.y + aabb.height };
     const miss = handleHitAt(page, ['n_rect'], aabbCorner, 1);
     expect(miss).toBeNull();
   });
@@ -224,7 +225,9 @@ describe('画布边界 · 旋转节点的手柄命中', () => {
   it('角手柄外侧的环带命中旋转区（半径与缩放无关：12px 屏幕 → 世界换算）', () => {
     const rect = createRect({ id: 'n_rect', x: 0, y: 0, width: 100, height: 100, rotation: 30 });
     const page = createPage({ id: 'page_1', rootIds: ['n_rect'], nodes: { n_rect: rect } });
-    const bounds = worldBoundsOfNode(page, 'n_rect')!;
+    const boundsMaybe = worldBoundsOfNode(page, 'n_rect');
+    expect(boundsMaybe).not.toBeNull();
+    const bounds = boundsMaybe as NonNullable<typeof boundsMaybe>;
     const points = rotatedHandlePoints(bounds, 30);
     const outside = { x: points.nw.x - 8, y: points.nw.y - 8 };
     const hit = handleHitAt(page, ['n_rect'], outside, 1);

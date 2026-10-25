@@ -96,15 +96,15 @@
   color: var(--dfg-color-text-disabled);
 }
 
-.dfg-ai__step-row[data-df-step-status='active'] .dfg-ai__step-label {
+.dfg-ai__step-row[data-df-step-status="active"] .dfg-ai__step-label {
   color: var(--dfg-color-primary);
 }
 
-.dfg-ai__step-row[data-df-step-status='done'] .dfg-ai__step-label {
+.dfg-ai__step-row[data-df-step-status="done"] .dfg-ai__step-label {
   color: var(--dfg-color-success);
 }
 
-.dfg-ai__step-row[data-df-step-status='failed'] .dfg-ai__step-label {
+.dfg-ai__step-row[data-df-step-status="failed"] .dfg-ai__step-label {
   color: var(--dfg-color-danger);
 }
 

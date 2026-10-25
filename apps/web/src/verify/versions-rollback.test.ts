@@ -13,10 +13,9 @@ import {
   createDocument,
   createPage,
   createRect,
-  getPage,
   isCommandError,
 } from '@dforge/engine';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   createMemoryBackend,
   isVersionSnapshot,

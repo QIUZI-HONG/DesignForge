@@ -29,10 +29,7 @@ const repoRoot = resolve(process.cwd(), '../..');
 /** 应用层源码根。 */
 const webSrcRoot = resolve(process.cwd(), 'src');
 /** 豁免登记表（常驻真源；原载工单 06，2026-10 修复批迁 docs/quality）。 */
-const registryPath = resolve(
-  repoRoot,
-  'docs/quality/style-single-track-registry-v1.md',
-);
+const registryPath = resolve(repoRoot, 'docs/quality/style-single-track-registry-v1.md');
 
 /** 递归收集源码文件（.ts/.tsx；跳过测试与无关目录）。 */
 function collectSourceFiles(root: string): string[] {
