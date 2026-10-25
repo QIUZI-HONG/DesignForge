@@ -53,6 +53,13 @@ export {
 export { Spinner, type SpinnerProps, type SpinnerSize } from './Spinner';
 export { Swatch, type SwatchProps } from './Swatch';
 export {
+  TabPanel,
+  type TabPanelProps,
+  Tabs,
+  type TabSpec,
+  type TabsProps,
+} from './Tabs';
+export {
   type ToastAction,
   type ToastHandle,
   type ToastOptions,
@@ -61,17 +68,10 @@ export {
   type ToastTone,
   useToast,
 } from './Toast';
-export {
-  TabPanel,
-  type TabPanelProps,
-  Tabs,
-  type TabsProps,
-  type TabSpec,
-} from './Tabs';
+export { Tooltip, type TooltipPlacement, type TooltipProps } from './Tooltip';
 export { Tree, type TreeNodeSpec, type TreeProps } from './Tree';
 export {
   TypographyField,
   type TypographyFieldProps,
   type TypographyOption,
 } from './TypographyField';
-export { Tooltip, type TooltipPlacement, type TooltipProps } from './Tooltip';

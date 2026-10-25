@@ -97,6 +97,7 @@ export function TypographyField({
   );
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: 分组容器语义是 role=group（两个下拉属同一命名字段组）；等价语义元素 fieldset 自带默认边框/内边距，会引入视觉回归
     <div role="group" aria-label={label} className={cx('dfg-field', 'dfg-typography', className)}>
       <div className="dfg-typography__controls">
         {renderSelect(sizeLabel, size, sizes, (value) => onChange({ size: value }))}

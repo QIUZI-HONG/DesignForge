@@ -33,6 +33,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -155,6 +156,12 @@ export function Tree({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 进入重命名即程序化聚焦输入框（autoFocus 的副作用等价替代，biome noAutofocus）
+  useEffect(() => {
+    if (renamingId !== null) renameInputRef.current?.focus();
+  }, [renamingId]);
 
   const focusRow = useCallback((id: string): void => {
     rowRefs.current.get(id)?.focus();
@@ -212,7 +219,7 @@ export function Tree({
     // 重命名编辑态由输入框自理（Enter/Escape 在输入框上 stopPropagation）
     if (renamingId !== null) return;
     const item = (event.target as HTMLElement).closest<HTMLElement>('[data-node-id]');
-    const id = item?.dataset['nodeId'];
+    const id = item?.dataset.nodeId;
     if (id === undefined) return;
     const index = visibleRows.findIndex((row) => row.node.id === id);
     const current = visibleRows[index];
@@ -277,7 +284,7 @@ export function Tree({
   const isOwnRowClick = (node: TreeNodeSpec, event: ReactMouseEvent<HTMLDivElement>): boolean => {
     if ((event.target as HTMLElement).closest('.dfg-tree__toggle') !== null) return false;
     const hit = (event.target as HTMLElement).closest<HTMLElement>('[data-node-id]');
-    return hit?.dataset['nodeId'] === node.id;
+    return hit?.dataset.nodeId === node.id;
   };
 
   /** 渲染单行（行即 treeitem；展开钮是纯视觉 affordance，键盘等价路径是方向键）。 */
@@ -317,6 +324,14 @@ export function Tree({
         tabIndex={node.disabled === true || node.id !== activeId ? -1 : 0}
         onClick={(event) => {
           if (isRenaming || !isOwnRowClick(node, event)) return;
+          activate(node);
+        }}
+        onKeyDown={(event) => {
+          // 点击激活的键盘等价路径（Enter/Space，useKeyWithClickEvents）：就地激活并
+          // 拦截冒泡，避免容器级 onKeyDown 对同一击再激活一次（onRetry 会重放两次）
+          if (isRenaming || (event.key !== 'Enter' && event.key !== ' ')) return;
+          event.preventDefault();
+          event.stopPropagation();
           activate(node);
         }}
         draggable={draggable}
@@ -380,9 +395,9 @@ export function Tree({
         {isRenaming ? (
           <input
             className="dfg-tree__rename"
+            ref={renameInputRef}
             value={draft}
             aria-label={node.label}
-            autoFocus
             onChange={(event) => setDraft(event.target.value)}
             onClick={(event) => event.stopPropagation()}
             onBlur={() => finishRename(true)}
@@ -413,6 +428,7 @@ export function Tree({
       <Fragment key={node.id}>
         {renderNode(row)}
         {children === undefined ? null : (
+          // biome-ignore lint/a11y/useSemanticElements: 子层容器是 WAI-ARIA tree 模式固定结构 role=group；等价语义元素 fieldset 自带默认边框/内边距，会引入视觉回归
           <div role="group" className="dfg-tree__group">
             {children.map((child) =>
               renderWithChildren(rowFor(child, row.level + 1, node.id, expandedSet)),

@@ -11,7 +11,7 @@
  * （可达性不只鼠标）；数值本体与展示由调用方承载（如旁边的 NumberField）。
  * 抓手渲染为按钮（原生焦点 + 具名 `aria-label`，名称由调用方给）。
  */
-import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 
 import { cx } from '../utils/class-names';
 import { useHorizontalScrub } from '../utils/use-scrub';
