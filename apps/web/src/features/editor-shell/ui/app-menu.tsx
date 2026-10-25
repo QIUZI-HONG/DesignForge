@@ -63,7 +63,7 @@ export function AppMenu() {
         {
           id: 'help.shortcuts',
           label: t('editor.action.shortcuts'),
-          shortcut: '⌘/',
+          // 快捷键串由命令注册表给（工单 08 起说明表不再占 ⌘/——面板改版后 ⌘/ 归命令面板）
           disabled: !registered.has('help.shortcuts'),
           disabledReason: pending,
           onSelect: () => {

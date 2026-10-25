@@ -35,6 +35,11 @@ import {
   RightPanelSlot,
 } from '@/features/canvas/workspace/slots';
 import {
+  CommandPaletteSlot,
+  registerCommandPalette,
+  ShortcutCheatSheetSlot,
+} from '@/features/command-palette/register';
+import {
   registerEditorReview,
   ReviewCommentLayerSlot,
   ReviewCommentsPanelSlot,
@@ -84,6 +89,14 @@ const EDITOR_SLOT_DECLARATIONS: readonly EditorSlotDeclaration[] = [
   },
   { slot: 'overlays', id: 'fe-07-presenter', order: 10, render: () => <ReviewPresenterSlot /> },
   { slot: 'overlays', id: 'fe-07-versions', order: 11, render: () => <ReviewVersionsDrawerSlot /> },
+  // —— 工单 08 命令面板 + 快捷键速查（⌘/ 面板 · 长按修饰键速查卡；portal 到 body，槽位仅作挂载点）——
+  { slot: 'overlays', id: 'rw-08-command-palette', order: 20, render: () => <CommandPaletteSlot /> },
+  {
+    slot: 'overlays',
+    id: 'rw-08-shortcut-cheatsheet',
+    order: 21,
+    render: () => <ShortcutCheatSheetSlot />,
+  },
 ];
 
 /** 域登记项（按声明顺序执行；id 约定 `<ticket>-<domain>`）。 */
@@ -93,6 +106,8 @@ const EDITOR_BOOTSTRAP_ENTRIES: readonly EditorBootstrapEntry[] = [
   { id: 'fe-06-workspace', setup: mountEditorWorkspace },
   // FE-07 评审：评论 / Present / 版本命令（顶栏预留入口据此点亮）
   { id: 'fe-07-review', setup: registerEditorReview },
+  // 工单 08 命令面板：`view.commandPalette` 接管注册（键位 ⌘K → 规格故事 14 的 ⌘/）
+  { id: 'rw-08-command-palette', setup: registerCommandPalette },
 ];
 
 /** 编辑器唯一客户端引导件（`app/editor/page.tsx` 渲染；不产生 DOM）。 */

@@ -8,7 +8,7 @@
  * import { registerCommand, commandRegistry, useCommandList, executeCommand } from '@/features/editor-shell';
  * registerCommand({ id, title, group, shortcut?, enabled?, run });   // 同 id 后注册者覆盖（位置不跳）
  * ```
- * 命令注册进表后自动获得：命令面板条目（⌘K）、快捷键说明条目（E8）、**全局键盘派发**。
+ * 命令注册进表后自动获得：命令面板条目（工单 08 起面板键位 ⌘/）、快捷键说明条目（E8）、**全局键盘派发**。
  *
  * 二、画布 HUD（冻结接口 ②）
  * ```ts
@@ -93,7 +93,20 @@ export {
   mountEditorSlotDeclarations,
   runEditorBootstrapEntries,
 } from './bootstrap/registry';
-export { type EditorUiState, isEditorOverlayOpen, useEditorUi } from './state/ui';
+// 快捷键解析/判定（冻结接口的配套纯函数；工单 08 速查卡消费同一条规则——
+// 「卡上展示的键位 = 此刻派发真会生效的键位」）
+export {
+  hasModifier,
+  isEditableTarget,
+  type ParsedShortcut,
+  parseShortcut,
+  type ShortcutEventLike,
+} from './shortcuts/matching';
+export {
+  type EditorUiState,
+  isEditorOverlayOpen,
+  useEditorUi,
+} from './state/ui';
 // UI 态
 export {
   currentZoomPercent,
