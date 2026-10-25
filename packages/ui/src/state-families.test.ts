@@ -1,8 +1,8 @@
 /**
  * 状态族登记表测试（「逐项打勾」的机器校验）。
  *
- * 断言：族号名单齐备（F1/F2/F3/F11–F15）、承载组件真的从包入口可解析、
- * 六态被各族覆盖（验收标准 §5：缺项 = 缺陷）。
+ * 断言：族号名单齐备（F1/F2/F3/F11–F19，F16–F19 为 RW-07 编辑器组件补齐）、
+ * 承载组件真的从包入口可解析、六态被各族覆盖（验收标准 §5：缺项 = 缺陷）。
  */
 import { describe, expect, it } from 'vitest';
 
@@ -10,7 +10,7 @@ import * as UI from './index';
 import { INTERACTION_STATES, STATE_FAMILIES } from './state-families';
 
 describe('状态族登记表', () => {
-  it('族号名单与票面范围一致（F1/F2/F3/F11–F15）', () => {
+  it('族号名单与票面范围一致（F1/F2/F3/F11–F19）', () => {
     expect(STATE_FAMILIES.map((family) => family.id)).toEqual([
       'F1',
       'F2',
@@ -20,6 +20,10 @@ describe('状态族登记表', () => {
       'F13',
       'F14',
       'F15',
+      'F16',
+      'F17',
+      'F18',
+      'F19',
     ]);
   });
 

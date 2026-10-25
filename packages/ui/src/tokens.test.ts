@@ -1,12 +1,14 @@
 /**
  * 双基准令牌测试（FE-01 · 令牌模块）。
  *
- * 断言三类不变量：
+ * 断言四类不变量：
  * 1. 规格硬值——浅色（首页族）/ 深色（编辑器族）的关键色与控件高直接对齐
  *    《前端实现规格 v1》§一.3 与清单 §1.0 两套基准规范；
  * 2. 结构不变量——两套主题键集一致、间距刻度为 4 的倍数（8px 栅格）、圆角/字号/动效档位齐备；
  * 3. 落地同步——`tokens.css` 的 CSS 变量集合与值与 TS 展平结果逐项一致（含两套主题），
- *    且组件样式表引用的每个 `--dfg-*` 变量都真实存在（防改名漂移）。
+ *    且组件样式表引用的每个 `--dfg-*` 变量都真实存在（防改名漂移）；
+ * 4. 单位合法（F-1 回归守卫，RW-01 起）与语义档登记（令牌 v2：海拔/焦点环/动效
+ *    是既有刻度上的别名层，值只能是 none 或 var 引用）。
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -168,6 +170,11 @@ describe('令牌 · 单位合法性（F-1 缺陷回归守卫）', () => {
       ['--dfg-control-height-', 'px'],
       ['--dfg-control-padding-x-', 'px'],
       ['--dfg-row-height-', 'px'],
+      // 令牌 v2 动效语义档的时长子令牌（值当前是别名引用，见语义档断言；
+      // 一旦被改成裸数字，本表按 ms 接住——与 guard R4 的单位登记同口径）
+      ['--dfg-motion-enter-duration', 'ms'],
+      ['--dfg-motion-exit-duration', 'ms'],
+      ['--dfg-motion-emphasized-duration', 'ms'],
     ];
     const all: TokenVars = {
       ...flattenPrimitives(),
@@ -175,8 +182,11 @@ describe('令牌 · 单位合法性（F-1 缺陷回归守卫）', () => {
       ...flattenTheme(dark),
     };
     for (const [name, value] of Object.entries(all)) {
+      // 语义别名（none / var(--dfg-…) 引用）不参与单位断言——别名纪律由语义档
+      // 断言（上方 describe）与 guard R5 把关；非数值令牌（色/影/缓动/字体栈）同理。
+      if (value === 'none' || value.startsWith('var(')) continue;
       const family = familyUnits.find(([prefix]) => name.startsWith(prefix));
-      if (family === undefined) continue; // 非数值令牌（色/影/缓动/字体栈）不参与单位断言
+      if (family === undefined) continue;
       const suffix = { ms: 'ms', px: 'px', em: 'em', none: '' }[family[1]];
       const pattern = suffix === '' ? /^\d+(?:\.\d+)?$/ : new RegExp(`${suffix}$`);
       expect(`${name}=${value}`).toMatch(pattern);
@@ -185,9 +195,11 @@ describe('令牌 · 单位合法性（F-1 缺陷回归守卫）', () => {
 });
 
 describe('令牌 · 结构不变量', () => {
-  it('两套主题键集完全一致（颜色/阴影结构可互换）', () => {
+  it('两套主题键集完全一致（颜色/阴影/海拔/焦点环结构可互换）', () => {
     expect(collectPaths(light.colors).sort()).toEqual(collectPaths(dark.colors).sort());
     expect(collectPaths(light.shadows).sort()).toEqual(collectPaths(dark.shadows).sort());
+    expect(collectPaths(light.elevation).sort()).toEqual(collectPaths(dark.elevation).sort());
+    expect(collectPaths(light.focusRing).sort()).toEqual(collectPaths(dark.focusRing).sort());
   });
 
   it('间距刻度全部为 4 的倍数，且含 8px 栅格档', () => {
@@ -218,6 +230,150 @@ describe('令牌 · 结构不变量', () => {
         expect(name.startsWith('--dfg-')).toBe(true);
         expect(value).toMatch(/^#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/);
       }
+    }
+  });
+});
+
+describe('令牌 · 语义档 v2（海拔/焦点环/动效，R-5 增量层）', () => {
+  // 语义档 = 既有物理刻度之上的**别名层**：语义名 → 实际令牌引用，不重造值
+  // （R-5 口径：「词汇已有一半，先修 F-1 再扩」；计划 §5.2：浮层统一 shadow-popover、
+  // 弹层 shadow-lg）。登记制在 guard 侧（guard-tokens-core.mjs 的
+  // SEMANTIC_TOKEN_FAMILIES，R5），本块断言映射关系、引用可达与词汇铺满；
+  // 组件迁移不在本票（后续票消费本档，既有 19 组件继续用物理刻度）。
+
+  /** 从别名值里取出被引用的 `--dfg-*` 变量名（`none` 无引用）。 */
+  function aliasRef(value: string): string | undefined {
+    return /^var\((--dfg-[a-z0-9-]+)\)$/.exec(value)?.[1];
+  }
+
+  it('海拔三档：页面无影 / 浮层→shadow-popover / 弹层→shadow-lg（两主题同构）', () => {
+    const expected = {
+      page: 'none',
+      overlay: 'var(--dfg-shadow-popover)',
+      modal: 'var(--dfg-shadow-lg)',
+    };
+    expect(light.elevation).toEqual(expected);
+    expect(dark.elevation).toEqual(expected);
+  });
+
+  it('海拔引用的阴影令牌真实存在，且只有 page 档允许 none（别名不得悬空）', () => {
+    // 引用可达的全集 = 原语(:root) + 两主题块——别名可能指向任一层
+    const known = new Set([
+      ...Object.keys(flattenPrimitives()),
+      ...Object.keys(flattenTheme(light)),
+      ...Object.keys(flattenTheme(dark)),
+    ]);
+    for (const theme of [light, dark] as Theme[]) {
+      for (const [tier, value] of Object.entries(theme.elevation)) {
+        if (value === 'none') {
+          expect(tier).toBe('page');
+          continue;
+        }
+        const ref = aliasRef(value);
+        expect(ref).toBeDefined();
+        expect(known.has(ref as string)).toBe(true);
+      }
+    }
+  });
+
+  it('焦点环令牌：色/宽/偏移三键双主题齐备，引用既有颜色与描边宽刻度', () => {
+    for (const theme of [light, dark] as Theme[]) {
+      expect(Object.keys(theme.focusRing).sort()).toEqual(['color', 'offset', 'width']);
+      expect(theme.focusRing.color).toBe('var(--dfg-color-focus-ring)');
+      expect(theme.focusRing.width).toBe('var(--dfg-border-width-focus)');
+      expect(theme.focusRing.offset).toBe('var(--dfg-border-width-focus)');
+    }
+  });
+
+  it('焦点环引用的物理令牌真实存在（别名不得悬空）', () => {
+    // width/offset 引用的是 :root 原语（--dfg-border-width-focus），全集须含原语层
+    const known = new Set([
+      ...Object.keys(flattenPrimitives()),
+      ...Object.keys(flattenTheme(light)),
+      ...Object.keys(flattenTheme(dark)),
+    ]);
+    for (const theme of [light, dark] as Theme[]) {
+      for (const value of Object.values(theme.focusRing)) {
+        const ref = aliasRef(value);
+        expect(ref).toBeDefined();
+        expect(known.has(ref as string)).toBe(true);
+      }
+    }
+  });
+
+  it('动效三档：进入/退出/强调 = 时长+缓动组合，落在既有 duration/easing 刻度上', () => {
+    const { motion } = PRIMITIVES;
+    expect(motion.enter).toEqual({
+      duration: 'var(--dfg-duration-base)',
+      easing: 'var(--dfg-easing-standard)',
+    });
+    expect(motion.exit).toEqual({
+      duration: 'var(--dfg-duration-fast)',
+      easing: 'var(--dfg-easing-exit)',
+    });
+    expect(motion.emphasized).toEqual({
+      duration: 'var(--dfg-duration-slow)',
+      easing: 'var(--dfg-easing-emphasized)',
+    });
+  });
+
+  it('动效三档铺满既有词汇：时长 fast/base/slow 各用一次，缓动 standard/exit/emphasized 各用一次', () => {
+    const tiers = [PRIMITIVES.motion.enter, PRIMITIVES.motion.exit, PRIMITIVES.motion.emphasized];
+    expect(tiers.map((tier) => tier.duration).sort()).toEqual([
+      'var(--dfg-duration-base)',
+      'var(--dfg-duration-fast)',
+      'var(--dfg-duration-slow)',
+    ]);
+    expect(tiers.map((tier) => tier.easing).sort()).toEqual([
+      'var(--dfg-easing-emphasized)',
+      'var(--dfg-easing-exit)',
+      'var(--dfg-easing-standard)',
+    ]);
+  });
+
+  it('语义档值形登记制：值只能是 none 或单个 var(--dfg-…) 别名引用（不重造值）', () => {
+    const values = [
+      ...Object.values(PRIMITIVES.motion).flatMap((tier) => Object.values(tier)),
+      ...([light, dark] as Theme[]).flatMap((theme) => [
+        ...Object.values(theme.elevation),
+        ...Object.values(theme.focusRing),
+      ]),
+    ];
+    expect(values.length).toBeGreaterThan(0);
+    for (const value of values) {
+      expect(value === 'none' || aliasRef(value) !== undefined).toBe(true);
+    }
+  });
+
+  it('tokens.css 落盘新档：:root 含动效六变量，主题块含海拔/焦点环变量（同步显式锚点）', () => {
+    const shared = parseBlock(tokensCss, /:root\s*\{([^}]*)\}/);
+    expect(
+      Object.keys(shared)
+        .filter((name) => name.startsWith('--dfg-motion-'))
+        .sort(),
+    ).toEqual([
+      '--dfg-motion-emphasized-duration',
+      '--dfg-motion-emphasized-easing',
+      '--dfg-motion-enter-duration',
+      '--dfg-motion-enter-easing',
+      '--dfg-motion-exit-duration',
+      '--dfg-motion-exit-easing',
+    ]);
+    for (const theme of ['light', 'dark'] as const) {
+      const block = parseBlock(
+        tokensCss,
+        new RegExp(`:root\\[data-theme="${theme}"\\]\\s*\\{([^}]*)\\}`),
+      );
+      expect(
+        Object.keys(block)
+          .filter((name) => name.startsWith('--dfg-elevation-'))
+          .sort(),
+      ).toEqual(['--dfg-elevation-modal', '--dfg-elevation-overlay', '--dfg-elevation-page']);
+      expect(
+        Object.keys(block)
+          .filter((name) => name.startsWith('--dfg-focus-ring-'))
+          .sort(),
+      ).toEqual(['--dfg-focus-ring-color', '--dfg-focus-ring-offset', '--dfg-focus-ring-width']);
     }
   });
 });
