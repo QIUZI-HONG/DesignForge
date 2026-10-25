@@ -155,7 +155,9 @@ describe('令牌 · 单位合法性（F-1 缺陷回归守卫）', () => {
   it('全部数值令牌单位合法：时长 ms / 长度 px / 无单位族裸数字 / 字距 em（两套主题含密度几何）', () => {
     // 分类表是测试侧对规格口径的独立表达（不 import 实现），防「按实现的写法复述实现」。
     // familyUnits: [令牌前缀, 单位]；单位合法性由 R4 规则表逐一断言
-    const familyUnits: Array<[string, 'ms' | 'px' | 'em' | 'none'>] = [
+    type TokenUnit = 'ms' | 'px' | 'em' | 'none';
+    type FamilyUnit = [prefix: string, unit: TokenUnit];
+    const familyUnits: FamilyUnit[] = [
       ['--dfg-duration-', 'ms'],
       ['--dfg-font-weight-', 'none'],
       ['--dfg-line-height-', 'none'],
