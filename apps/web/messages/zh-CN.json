@@ -1025,6 +1025,8 @@
   "editor.save.dirty": "未保存",
   "editor.save.saving": "保存中…",
   "editor.save.failed": "保存失败：{message}",
+  "editor.save.failed.network": "保存失败——无法连接本地服务，请确认 daemon 已启动后重新保存。",
+  "editor.load.failed.network": "载入失败——无法连接本地服务，请确认 daemon 已启动后重试。",
   "editor.load.failed": "文档载入失败：{message}",
   "editor.export.needSave": "请先保存文档，再导出",
   "editor.group.tools": "工具",
