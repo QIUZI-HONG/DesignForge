@@ -14,7 +14,14 @@
 
 ## 工程启动
 
-环境：Node ≥ 22（开发机 node 24）+ pnpm 10.33.2（由根 `packageManager` 锁定，建议 `corepack enable`）。
+环境：Node ≥ 22 + pnpm 10.33.2（由根 `packageManager` 锁定，建议 `corepack enable`）。
+
+> **Node 版本与 daemon 启动（票 10 · 巡检实测）**：Node 22.6–22.17 直跑 `.ts` 会报
+> `ERR_UNKNOWN_FILE_EXTENSION`——需显式开启类型剥离 `--experimental-strip-types`；
+> Node 22.18+（含 23.6+）已默认开启，该旗标仍被接受（no-op）。daemon 的 `dev`/`start`
+> 脚本已带上此旗标，故 `pnpm --filter @dforge/daemon dev` 在两代 Node 上开箱即用
+> （裁决口径：本机与验收环境是 22.16，文档路径必须在其上可复现，故选「显式旗标」而非
+> 「声明 ≥22.18」）。
 
 ```bash
 pnpm install                 # 工作区安装（版本统一走 pnpm-workspace.yaml 的 catalog:）
@@ -34,8 +41,10 @@ pnpm verify                  # 逐包 lint+typecheck+test 串跑（CI 同链）�
 # 1) 取 Electron 二进制（幂等；GitHub 直连不通时走镜像，见 docs/agents/implementation-workflow.md）
 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node apps/desktop/tools/fetch-electron.cjs
 # 2) 构建主/预载进程，并以 dev server 为装载目标启动
+#    装载地址必须用 localhost（票 10 · 巡检实测：127.0.0.1 下页面不水合——HMR 握手
+#    ERR_INVALID_HTTP_RESPONSE；dev 服务器开发来源白名单见 apps/web/next.config.ts）
 pnpm --filter @dforge/desktop build
-DFORGE_SHELL_URL=http://127.0.0.1:3000 pnpm --filter @dforge/desktop start
+DFORGE_SHELL_URL=http://localhost:3000 pnpm --filter @dforge/desktop start
 # 门禁：壳冒烟 + 浏览器/壳一致性对照（参照集未冻结时对照段 exit 2 = 阻塞，禁假绿）
 pnpm verify:shell-parity
 ```

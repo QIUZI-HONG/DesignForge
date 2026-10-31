@@ -97,11 +97,13 @@ describe('诊断 · 日志尾部', () => {
     },
   ];
 
-  it('取最后 N 条且保持时间序（尾部语义：最新在最后）', () => {
-    const lines = logTail(events, 2);
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toContain('ai.degraded');
-    expect(lines[1]).toContain('mcp.ack');
+  it('取最后 N 条且保持时间序（尾部语义：最新在最后；行带唯一事件 id——票 10 key 口径）', () => {
+    const rows = logTail(events, 2);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.id).toBe('e2');
+    expect(rows[0]?.line).toContain('ai.degraded');
+    expect(rows[1]?.id).toBe('e3');
+    expect(rows[1]?.line).toContain('mcp.ack');
   });
 
   it('单行格式：UTC 时间 + 事件名 + 载荷摘要（含关键字段）', () => {

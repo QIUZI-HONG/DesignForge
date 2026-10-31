@@ -257,9 +257,11 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
             <span className="dfg-diagnostics__muted">{t('diagnostics.logs.empty')}</span>
           ) : (
             <ul className="dfg-diagnostics__log-list">
-              {lines.map((line) => (
-                <li key={line} className="dfg-diagnostics__log-line">
-                  {line}
+              {/* key 用 daemon 事件 id（唯一）：格式化行在重复事件（同秒同名同载荷）下相同，
+                  以行文本作 key 会触发重复 key 告警（票 10 · spec P1-6） */}
+              {lines.map((row) => (
+                <li key={row.id} className="dfg-diagnostics__log-line">
+                  {row.line}
                 </li>
               ))}
             </ul>
