@@ -206,6 +206,26 @@ describe('快捷键说明（E8）', () => {
     expect(within(table).queryByText('命令面板')).toBeNull();
   });
 
+  it('附加键位（shortcutAliases）随主键位并列渲染（票 04：说明表与实际键位一致）', async () => {
+    act(() => {
+      registerCommand({
+        id: 'view.commandPalette',
+        title: '命令面板',
+        group: '视图',
+        shortcut: '⌘K',
+        shortcutAliases: ['⌘/'],
+        run: () => undefined,
+      });
+    });
+    renderShell();
+    fireEvent.click(screen.getByRole('button', { name: '键盘快捷键' }));
+    const dialog = await screen.findByRole('dialog');
+
+    const row = within(dialog).getByRole('row', { name: /命令面板/ });
+    const keys = within(row).getAllByText(/⌘/);
+    expect(keys.map((node) => node.textContent)).toEqual(['⌘K', '⌘/']);
+  });
+
   it('工具条「?」入口也能打开（入口与命令同一实现）', async () => {
     renderShell();
     fireEvent.click(screen.getByRole('button', { name: '键盘快捷键' }));
