@@ -687,6 +687,7 @@
   "panels.assets.tokenAdd.type.typography": "排版",
   "panels.history.tokenAdd": "添加令牌",
   "panels.tabs.label": "左面板页签",
+  "panels.extension.close": "关闭",
   "panels.history.rename": "重命名图层",
   "panels.history.delete": "删除图层",
   "panels.history.group": "编组",

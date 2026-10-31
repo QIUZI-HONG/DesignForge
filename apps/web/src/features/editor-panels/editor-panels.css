@@ -111,6 +111,34 @@
   border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
 }
 
+/* 扩展页签打开时的「关闭」入口（票 16）：贴页签条右缘，语义是回到打开前的原页签 */
+.dfg-panels__tab-close {
+  margin-inline-start: auto;
+  flex: none;
+  padding: var(--dfg-space-1) var(--dfg-space-2);
+  font-family: var(--dfg-font-sans);
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-secondary);
+  background-color: transparent;
+  border: none;
+  border-radius: var(--dfg-radius-sm);
+  cursor: pointer;
+}
+
+.dfg-panels__tab-close:hover {
+  background-color: var(--dfg-color-surface-raised);
+  color: var(--dfg-color-text-primary);
+}
+
+/* 扩展页签体（如市场面板）：占满页签条以下区域，滚动收在自身内部 */
+.dfg-panels__extension-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* ---------- 资产面板（C4） ---------- */
 
 .dfg-panels__asset-toolbar {
