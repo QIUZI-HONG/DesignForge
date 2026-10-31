@@ -16,8 +16,9 @@ import {
   createPage,
   createText,
   resolveNode,
+  TEXT_CHARACTERS_MAX_LENGTH,
 } from '@dforge/engine';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -169,5 +170,14 @@ describe('文本编辑进入路径（票 13）', () => {
     disposeAdapter();
     doubleClickAt({ x: 200 * 2 + 40, y: 62 * 2 + 30 });
     expect(session.store.getState().editing).toBeNull();
+  });
+
+  it('超长输入钳制：覆盖层 onChange 通道（整段替换）不越过字符数上限（票 13）', () => {
+    doubleClickAt({ x: 200 * 2 + 40, y: 62 * 2 + 30 });
+    const overlay = screen.getByRole('textbox') as HTMLTextAreaElement;
+    // 粘贴/输入法上屏在 DOM 里落到 value，onChange 即覆盖层的整段替换通道
+    fireEvent.change(overlay, { target: { value: '超'.repeat(TEXT_CHARACTERS_MAX_LENGTH + 50) } });
+    const editing = session.store.getState().editing;
+    expect(editing?.content.characters.length).toBe(TEXT_CHARACTERS_MAX_LENGTH);
   });
 });

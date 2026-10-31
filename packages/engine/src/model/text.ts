@@ -5,6 +5,22 @@
  * （插入/删除/选区替换），保证编辑结果可经命令栈提交与撤销。
  */
 
+/**
+ * 单文本节点字符数上限（UTF-16 码元口径，与 `string.length` 一致）。
+ *
+ * 依据（票 13 / spec P2「超长输入钳制」）：UX 巡检以 5000 字探针实测各输入位，
+ * 与架构规模族（5000 节点可打开）同数量级——超过后文档体积与段落布局都进入
+ * 病态区间，故在编辑会话的写入点（`insertText`）钳制，UI 与命令栈同源受益。
+ */
+export const TEXT_CHARACTERS_MAX_LENGTH = 5000;
+
+/** 把任意输入钳到字符数上限内（截断尾部的超出部分）。 */
+export function clampTextCharacters(value: string): string {
+  return value.length > TEXT_CHARACTERS_MAX_LENGTH
+    ? value.slice(0, TEXT_CHARACTERS_MAX_LENGTH)
+    : value;
+}
+
 /** 文本水平对齐（Inspector「文字」分区）。 */
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 

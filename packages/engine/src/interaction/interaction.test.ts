@@ -8,6 +8,7 @@ import {
   createRect,
   createText,
   type ScenePage,
+  TEXT_CHARACTERS_MAX_LENGTH,
 } from '../model/index';
 import { getPage, insertNode, insertNodes, requireNode } from '../scene/index';
 import {
@@ -434,5 +435,25 @@ describe('interaction · 文本编辑会话（C10）', () => {
     const session = beginTextEdit(page, 'p1', 'txt');
     expect(commitTextEdit(session)).toEqual([]);
     expect(selectAllText(session).selection).toEqual({ start: 0, end: 0 });
+  });
+
+  it('超长输入钳制：插入与整段替换都不越过 TEXT_CHARACTERS_MAX_LENGTH（票 13）', () => {
+    const page = textPage();
+    const fill = '字'.repeat(TEXT_CHARACTERS_MAX_LENGTH);
+    // 逐段插入到上限后，继续输入被钳掉（内容不再增长，光标停在末尾）
+    let session = insertText(beginTextEdit(page, 'p1', 'txt'), fill);
+    expect(session.content.characters.length).toBe(TEXT_CHARACTERS_MAX_LENGTH);
+    session = insertText(session, '超出');
+    expect(session.content.characters.length).toBe(TEXT_CHARACTERS_MAX_LENGTH);
+    expect(session.content.characters.startsWith(fill.slice(0, 10))).toBe(true);
+    // 有余量时只吃到余量（部分钳制，不整段丢弃）
+    const trimmed = session.content.characters.slice(0, TEXT_CHARACTERS_MAX_LENGTH - 2);
+    session = setTextSelection(session, { start: trimmed.length, end: session.content.characters.length });
+    session = insertText(session, 'ab超长');
+    expect(session.content.characters.length).toBe(TEXT_CHARACTERS_MAX_LENGTH);
+    expect(session.content.characters.endsWith('ab')).toBe(true);
+    // 整段替换（覆盖层 onChange 的通道）同样钳制
+    const replaced = insertText(session, { ...session.content, characters: `${fill}尾随` });
+    expect(replaced.content.characters.length).toBe(TEXT_CHARACTERS_MAX_LENGTH);
   });
 });
