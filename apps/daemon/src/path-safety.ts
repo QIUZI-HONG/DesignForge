@@ -155,6 +155,13 @@ export function isRemovableDocDirectory(options: {
 }
 
 /**
+ * JSON 嵌套深度统一上限（documents 正文 / telemetry payload / MCP args 同口径）。
+ * `JSON.parse` 在 V8 是迭代实现、耐受深度远高于此；但 `JSON.stringify` 与各处
+ * 递归 walk 在数千层即栈溢出（RangeError → 500）——各入口在消费前按此拒为 4xx。
+ */
+export const MAX_JSON_DEPTH = 1024;
+
+/**
  * JSON 嵌套深度是否超过 `maxDepth`（**迭代**实现，不吃调用栈）。
  * 用途：opaque 正文落盘前把关——`JSON.stringify` 是递归的，
  * 20 万层嵌套会栈溢出 → 500；这里在序列化前把这类输入判为 4xx。
