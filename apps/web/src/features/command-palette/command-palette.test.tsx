@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 /**
- * 命令面板集成测试（工单 08）。
+ * 命令面板集成测试（工单 08 建域；票 04 · spec P0-4 全局化后行为）。
  *
- * seam：**真实接线形态**——壳层（全局键盘派发 + 内置命令）+ 本域登记项（⌘/ 接管
- * `view.commandPalette`）+ overlays 插槽挂面板，与 `app/editor/editor-bootstrap.tsx`
- * 的声明一一对应。断言走可观测行为：键位开关、角色（dialog/combobox/listbox/option）、
- * 过滤结果、aria-activedescendant 漫游、执行后的 store 变化与焦点落点。
+ * seam：**真实接线形态**——编辑器 = 壳层（全局键盘派发，主键位与别名都消费）+
+ * 本域全局宿主（`GlobalCommandPalette`：注册 `view.commandPalette` ⌘K + ⌘/ 别名、
+ * 渲染面板），与根布局 + 编辑器页的真实组合一致。断言走可观测行为：键位开关、
+ * 角色（dialog/combobox/listbox/option）、过滤结果、aria-activedescendant 漫游、
+ * 执行后的 store 变化与焦点落点。
  *
- * 键位口径（规格 §3-14）：改版后面板开关是 **⌘/**（经 shortcuts 惯例注册全局键），
- * ⌘K 不再是面板键位。
+ * 键位口径（票 04）：**⌘K 全局**（首页/设置/编辑器均可呼出——首页/设置页的接线
+ * 断言在 `app/global-command-palette.test.tsx`），⌘/ 保留为编辑器别名。
  */
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -16,30 +17,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CanvasHudProvider,
   EditorShell,
+  getCommand,
   registerCommand,
-  registerEditorSlotItem,
   resetCommandRegistry,
-  resetEditorSlots,
   useEditorUi,
   useEditorView,
 } from '../editor-shell';
-import { CommandPaletteSlot, registerCommandPalette } from './register';
+import { GlobalCommandPalette } from './register';
 
-/** 挂真实接线：壳层 + 本域命令接管 + overlays 插槽（引导声明表的测试等价物）。 */
+/** 挂真实接线：编辑器壳层（全局派发器）+ 根布局全局宿主（注册 + 面板）。 */
 function mountPalette() {
-  const view = render(
+  return render(
     <CanvasHudProvider>
       <EditorShell />
+      <GlobalCommandPalette />
     </CanvasHudProvider>,
   );
-  act(() => {
-    registerCommandPalette();
-    registerEditorSlotItem('overlays', {
-      id: 'rw-08-command-palette',
-      render: () => <CommandPaletteSlot />,
-    });
-  });
-  return view;
 }
 
 /** 在 window 上按一次键（全局派发的入口）。 */
@@ -49,20 +42,20 @@ function press(key: string, options: KeyboardEventInit = {}): void {
 
 beforeEach(() => {
   resetCommandRegistry();
-  resetEditorSlots();
   useEditorView.setState({ zoom: 1, activeTool: 'move' });
   useEditorUi.setState({ commandPaletteOpen: false, shortcutsOpen: false });
+  window.localStorage.clear();
 });
 
 afterEach(() => {
   resetCommandRegistry();
-  resetEditorSlots();
   useEditorView.setState({ zoom: 1, activeTool: 'move' });
   useEditorUi.setState({ commandPaletteOpen: false, shortcutsOpen: false });
+  window.localStorage.clear();
 });
 
-describe('开关（⌘/，经 shortcuts 惯例注册全局键）', () => {
-  it('⌘/ 打开命令面板，焦点落入搜索框', async () => {
+describe('开关（⌘K 全局主键位 + ⌘/ 编辑器别名，经 shortcuts 惯例注册）', () => {
+  it('⌘/ 打开命令面板（编辑器别名），焦点落入搜索框', async () => {
     mountPalette();
     press('/', { metaKey: true });
 
@@ -71,10 +64,17 @@ describe('开关（⌘/，经 shortcuts 惯例注册全局键）', () => {
     expect(document.activeElement).toBe(input);
   });
 
-  it('⌘K 不再是面板键位（改版后无命令占用 ⌘K）', async () => {
+  it('⌘K 同样呼出（票 04：全局主键位，别名共用同一命令）', async () => {
     mountPalette();
     press('k', { metaKey: true });
-    expect(screen.queryByRole('dialog', { name: '命令面板' })).toBeNull();
+    expect(await screen.findByRole('dialog', { name: '命令面板' })).toBeDefined();
+  });
+
+  it('注册形状：主键位 ⌘K，附加键位 ⌘/', () => {
+    mountPalette();
+    const command = getCommand('view.commandPalette');
+    expect(command?.shortcut).toBe('⌘K');
+    expect(command?.shortcutAliases).toEqual(['⌘/']);
   });
 
   it('Esc 关闭面板（浮层栈语义，焦点回落原焦点元素）', async () => {

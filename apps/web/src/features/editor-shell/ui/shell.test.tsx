@@ -180,18 +180,18 @@ describe('缩放菜单（C16）', () => {
   });
 });
 
-describe('命令面板（工单 08 迁移说明）', () => {
-  it('壳层不再自带面板：面板组件与行为断言归 features/command-palette 域', () => {
+describe('命令面板（工单 08 建域；票 04 全局化）', () => {
+  it('壳层不注册面板命令（票 04：view.commandPalette 归命令面板域的全局宿主）', () => {
     renderShell();
-    // ⌘K 是壳层内置的默认实现（键位会被面板域的 ⌘/ 接管）；此处只断言命令已注册
-    expect(getCommand('view.commandPalette')).toBeDefined();
-    // 面板 UI 不在壳层里挂（editor-bootstrap 经 overlays 插槽挂新域组件）
+    // 注册收口在根布局挂载的全局宿主（features/command-palette/register），壳层不占 id
+    expect(getCommand('view.commandPalette')).toBeUndefined();
+    // 面板 UI 也不在壳层里挂（全局宿主渲染，关着时无可见 DOM）
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 
 describe('快捷键说明（E8）', () => {
-  it('两栏对照表内容由命令表派生（经工具条「?」入口打开；⌘/ 已归命令面板）', async () => {
+  it('两栏对照表内容由命令表派生（经工具条「?」入口打开）', async () => {
     renderShell();
     fireEvent.click(screen.getByRole('button', { name: '键盘快捷键' }));
     const dialog = await screen.findByRole('dialog');
@@ -200,10 +200,10 @@ describe('快捷键说明（E8）', () => {
     expect(within(dialog).getByRole('columnheader', { name: '快捷键' })).toBeDefined();
 
     const table = within(dialog).getByRole('table');
-    // 工具行：移动工具 ↔ V；视图行：命令面板（内置默认实现仍标 ⌘K，被面板域 ⌘/ 接管后随注册表更新）
+    // 工具行：移动工具 ↔ V（命令面板命令已全局化，壳层内置表里不再有视图组面板行）
     expect(within(table).getByText('移动工具')).toBeDefined();
     expect(within(table).getByText('V')).toBeDefined();
-    expect(within(table).getByText('命令面板')).toBeDefined();
+    expect(within(table).queryByText('命令面板')).toBeNull();
   });
 
   it('工具条「?」入口也能打开（入口与命令同一实现）', async () => {

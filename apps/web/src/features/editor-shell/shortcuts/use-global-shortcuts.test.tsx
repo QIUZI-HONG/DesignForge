@@ -68,6 +68,24 @@ describe('useGlobalShortcuts', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it('附加键位（shortcutAliases）同样派发（票 04：⌘/ 作为 ⌘K 的编辑器别名）', async () => {
+    const run = vi.fn();
+    registerCommand({
+      id: 'view.commandPalette',
+      title: '命令面板',
+      group: '视图',
+      shortcut: '⌘K',
+      shortcutAliases: ['⌘/'],
+      run,
+    });
+    render(<Dispatcher />);
+
+    const event = press('/', { metaKey: true });
+    await settle();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it('单键工具在输入区内不派发（搜索框里打 v 只能是输入 v）', async () => {
     const run = vi.fn();
     registerCommand({ id: 'tool.move', title: '移动工具', group: '工具', shortcut: 'V', run });

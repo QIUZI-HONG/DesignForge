@@ -86,6 +86,7 @@ export {
 export {
   hasModifier,
   isEditableTarget,
+  matchesShortcut,
   type ParsedShortcut,
   parseShortcut,
   type ShortcutEventLike,

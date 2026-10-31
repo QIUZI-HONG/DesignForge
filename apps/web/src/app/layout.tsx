@@ -13,6 +13,7 @@ import '@fontsource/noto-sans-sc/400.css';
 import '@fontsource/noto-sans-sc/500.css';
 import '@fontsource/noto-sans-sc/700.css';
 
+import { GlobalCommandPalette } from '@/features/command-palette/register';
 import { t } from '@/i18n';
 
 import './globals.css';
@@ -27,7 +28,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN" data-theme="light">
       <body>
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          {children}
+          {/* 命令面板全局宿主（票 04 · spec P0-4）：任意页 ⌘K 呼出——注册与面板随本宿主
+              全路由可用；⌘/ 编辑器别名经 shortcutAliases 由编辑器壳的派发器消费 */}
+          <GlobalCommandPalette />
+        </ToastProvider>
       </body>
     </html>
   );

@@ -116,11 +116,11 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
         'fe-07-comments-panel',
       ]);
       expect(listEditorSlotItems('toolbar').map((item) => item.id)).toEqual(['fe-10-ai-entry']);
+      // 票 04：命令面板全局化（随根布局宿主挂载），overlays 槽只剩速查卡
       expect(listEditorSlotItems('overlays').map((item) => item.id)).toEqual([
         'fe-10-overlays',
         'fe-07-presenter',
         'fe-07-versions',
-        'rw-08-command-palette',
         'rw-08-shortcut-cheatsheet',
       ]);
 
@@ -153,7 +153,7 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
     );
     const slotCount = listEditorSlotItems('overlays').length;
     const commandCount = getCommandsSnapshot().length;
-    expect(slotCount).toBe(5); // fe-10-overlays + fe-07-presenter/versions + rw-08 面板/速查卡
+    expect(slotCount).toBe(4); // fe-10-overlays + fe-07-presenter/versions + rw-08 速查卡（面板已全局化，票 04）
     first.unmount();
 
     render(
@@ -167,7 +167,6 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
       'fe-10-overlays',
       'fe-07-presenter',
       'fe-07-versions',
-      'rw-08-command-palette',
       'rw-08-shortcut-cheatsheet',
     ]);
     expect(listEditorSlotItems('canvas').map((item) => item.id)).toEqual([

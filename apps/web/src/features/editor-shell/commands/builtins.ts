@@ -3,13 +3,14 @@
  *
  * 归属与接管规则（对后续票的合同）：
  * - 工具命令 `tool.<id>`（V/F/R/T/H）与视图命令 `view.zoomIn|zoomOut|zoom100`、帮助命令
- *   `help.shortcuts`、面板命令 `view.commandPalette` 由本票注册为**默认实现**（作用于壳层 UI 态）；
+ *   `help.shortcuts` 由本票注册为**默认实现**（作用于壳层 UI 态）；
  * - 需要画布真值的命令**不由本票注册**：`view.zoomFit`（需画布尺寸/包围盒）、`edit.undo`
  *   / `edit.redo`（引擎命令栈）、`review.*`、`share.open`、`file.*`——入口在壳层渲染为
  *   **禁用 + 原因提示**，对应票用同 id 注册后自动点亮（注册表 last wins，见 `registry.ts`）；
  * - 想接管默认缩放实现（例如让 ⌘+ 直接改引擎视口）也用同 id 覆盖，无需改本文件；
- * - `view.commandPalette` 的键位由工单 08 的命令面板域接管（⌘K → 规格故事 14 的 ⌘/，
- *   见 `features/command-palette/register.tsx`）——面板组件同样迁入该域（overlays 插槽）。
+ * - `view.commandPalette` **不再由壳层注册**（票 04 · spec P0-4）：命令面板是全局入口
+ *   （任意页 ⌘K，⌘/ 编辑器别名），注册收口到命令面板域的全局宿主
+ *   （`features/command-palette/register.tsx`，根布局挂载）——面板组件随宿主全路由可用。
  */
 import { t } from '@/i18n';
 
@@ -52,15 +53,6 @@ export function builtinCommands(): Command[] {
 
   const viewGroup = t('editor.group.view');
   const viewCommands: Command[] = [
-    {
-      id: 'view.commandPalette',
-      title: t('editor.command.palette'),
-      group: viewGroup,
-      shortcut: '⌘K',
-      run: () => {
-        useEditorUi.getState().setCommandPaletteOpen(true);
-      },
-    },
     {
       id: 'view.zoomIn',
       title: t('editor.command.zoomIn'),
