@@ -688,6 +688,7 @@
   "panels.history.tokenAdd": "Add token",
   "panels.tabs.label": "Left panel tabs",
   "panels.extension.close": "Close",
+  "panels.market.title": "Market",
   "panels.history.rename": "Rename layer",
   "panels.history.delete": "Delete layers",
   "panels.history.group": "Group",
