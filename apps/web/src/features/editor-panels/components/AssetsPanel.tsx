@@ -10,23 +10,58 @@
  * 状态覆盖（验收标准 §5）：loading（骨架卡）/ empty（无组件、无令牌）/ no-results（搜索无果）/
  * error（加载失败 + 重试）/ hover（卡片悬停）/ active（选中组件）各有挂点属性供截图门禁取样。
  */
-import { findPage, groupTokenPaths, listComponents, resolveAllTokens } from '@dforge/engine';
 import {
+  findPage,
+  groupTokenPaths,
+  listComponents,
+  resolveAllTokens,
+  TOKEN_NAME_MAX_LENGTH,
+  type TokenNameProblemCode,
+  type TokenType,
+  validateTokenName,
+} from '@dforge/engine';
+import {
+  Button,
   ComponentIcon,
   EmptyState,
   ErrorState,
   Input,
+  PlusIcon,
   SegmentedControl,
   Skeleton,
 } from '@dforge/ui';
-import { useMemo } from 'react';
+import { type ChangeEvent, type FormEvent, useMemo, useState } from 'react';
 
 import { t } from '@/i18n';
-
+import { addTokenCommands } from '../commands/token-commands';
 import { usePanelsDocument, usePanelsUi } from '../state/hooks';
 import { usePanelsSession } from './panels-context';
 
 import '../editor-panels.css';
+
+/** 新建令牌可选的类型（DTCG `$type` 全集，与引擎 `TokenType` 同一清单）。 */
+const TOKEN_TYPES: readonly TokenType[] = [
+  'color',
+  'dimension',
+  'fontFamily',
+  'fontWeight',
+  'number',
+  'string',
+  'shadow',
+  'typography',
+];
+
+/** 类型 → i18n 键（显式罗列，禁动态拼键：可检索、漏译即裸键可见）。 */
+const TOKEN_TYPE_LABEL_KEYS: Record<TokenType, string> = {
+  color: 'panels.assets.tokenAdd.type.color',
+  dimension: 'panels.assets.tokenAdd.type.dimension',
+  fontFamily: 'panels.assets.tokenAdd.type.fontFamily',
+  fontWeight: 'panels.assets.tokenAdd.type.fontWeight',
+  number: 'panels.assets.tokenAdd.type.number',
+  string: 'panels.assets.tokenAdd.type.string',
+  shadow: 'panels.assets.tokenAdd.type.shadow',
+  typography: 'panels.assets.tokenAdd.type.typography',
+};
 
 /** 资产面板 props（loading/error 状态挂点由壳层喂）。 */
 export interface AssetsPanelProps {
@@ -55,6 +90,64 @@ export function AssetsPanel({
   const page = findPage(doc, session.pageId);
   const components = useMemo(() => (page === undefined ? [] : listComponents(page)), [page]);
   const tokenSet = useMemo(() => resolveAllTokens(doc.tokens), [doc.tokens]);
+
+  // 令牌添加表单（票 14）：UI 态留在组件内，文档真值只经命令栈写入
+  const [addOpen, setAddOpen] = useState(false);
+  const [addName, setAddName] = useState('');
+  const [addValue, setAddValue] = useState('');
+  const [addType, setAddType] = useState<TokenType>('color');
+  const [addProblem, setAddProblem] = useState<TokenNameProblemCode | null>(null);
+
+  const openAddForm = (): void => {
+    setAddName('');
+    setAddValue('');
+    setAddType('color');
+    setAddProblem(null);
+    setAddOpen(true);
+  };
+
+  const closeAddForm = (): void => {
+    setAddOpen(false);
+    setAddName('');
+    setAddValue('');
+    setAddType('color');
+    setAddProblem(null);
+  };
+
+  /** 名称变更即清错误分因（提示对应的是提交时的名字，不追着旧错打新输入）。 */
+  const onAddNameChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    setAddName(event.currentTarget.value);
+    if (addProblem !== null) setAddProblem(null);
+  };
+
+  /** 提交：先校验分因（不写文档），合法才构造命令交给命令栈（一条事务，可撤销）。 */
+  const onAddSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const problemCode = validateTokenName(doc.tokens, addName);
+    if (problemCode !== null) {
+      setAddProblem(problemCode);
+      return;
+    }
+    session.run(
+      addTokenCommands(doc.tokens, { name: addName, value: addValue, $type: addType }),
+      t('panels.history.tokenAdd'),
+    );
+    closeAddForm();
+  };
+
+  /** 错误分因 → i18n 文案（键显式罗列，可检索；禁动态拼键）。 */
+  const addProblemMessage = (code: TokenNameProblemCode): string => {
+    switch (code) {
+      case 'empty':
+        return t('panels.assets.tokenAdd.error.empty');
+      case 'too-long':
+        return t('panels.assets.tokenAdd.error.tooLong', { count: TOKEN_NAME_MAX_LENGTH });
+      case 'illegal-char':
+        return t('panels.assets.tokenAdd.error.illegalChar');
+      case 'duplicate':
+        return t('panels.assets.tokenAdd.error.duplicate');
+    }
+  };
 
   const normalized = query.trim().toLowerCase();
   const matches = (text: string): boolean =>
@@ -105,6 +198,86 @@ export function AssetsPanel({
           }}
         />
       </div>
+
+      {segment === 'tokens' && !loading && error === null ? (
+        addOpen ? (
+          <form
+            className="dfg-panels__token-add"
+            data-df-asset-token-add-form="open"
+            onSubmit={onAddSubmit}
+          >
+            <Input
+              size="sm"
+              fieldLabel={t('panels.assets.tokenAdd.name')}
+              placeholder={t('panels.assets.tokenAdd.namePlaceholder')}
+              value={addName}
+              invalid={addProblem !== null}
+              onChange={onAddNameChange}
+            />
+            {addProblem === null ? null : (
+              <p
+                className="dfg-panels__token-add-error"
+                role="alert"
+                data-df-asset-token-add-error={addProblem}
+              >
+                {addProblemMessage(addProblem)}
+              </p>
+            )}
+            <div className="dfg-panels__token-add-row">
+              <label className="dfg-panels__token-add-field">
+                <span className="dfg-panels__token-add-label">
+                  {t('panels.assets.tokenAdd.type')}
+                </span>
+                <select
+                  className="dfg-panels__token-add-select"
+                  aria-label={t('panels.assets.tokenAdd.type')}
+                  value={addType}
+                  onChange={(event) => {
+                    setAddType(event.currentTarget.value as TokenType);
+                  }}
+                >
+                  {TOKEN_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {t(TOKEN_TYPE_LABEL_KEYS[type])}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Input
+                size="sm"
+                fieldLabel={t('panels.assets.tokenAdd.value')}
+                placeholder={t('panels.assets.tokenAdd.valuePlaceholder')}
+                value={addValue}
+                onChange={(event) => {
+                  setAddValue(event.currentTarget.value);
+                }}
+              />
+            </div>
+            <div className="dfg-panels__token-add-actions">
+              <Button type="submit" size="sm" variant="primary">
+                {t('panels.assets.tokenAdd.submit')}
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={closeAddForm}>
+                {t('panels.assets.tokenAdd.cancel')}
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div className="dfg-panels__token-add-entry">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              fullWidth
+              icon={<PlusIcon />}
+              data-df-asset-panel-token-add="open"
+              onClick={openAddForm}
+            >
+              {t('panels.assets.tokenAdd.open')}
+            </Button>
+          </div>
+        )
+      ) : null}
 
       {error !== null ? (
         <div data-df-sample="assets/error" className="dfg-panels__body">
