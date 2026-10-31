@@ -23,8 +23,8 @@ import {
   type PageId,
 } from '@dforge/engine';
 import { describe, expect, it } from 'vitest';
-import { commentsKey, createMemoryBackend, versionsKey } from './storage';
 import { createReviewSession, type ReviewDocumentPort } from './session';
+import { commentsKey, createMemoryBackend, versionsKey } from './storage';
 
 /** 造一份最小可编辑文档（id 即持久化桶的隔离键）。 */
 function doc(id: string): DesignDocument {
@@ -130,9 +130,7 @@ describe('评审会话 · 版本快照跨文档隔离（#03：恢复即整文档
 
     // 切回 A：快照原样回来，恢复自己的快照是合法路径（整文档替换后仍是 doc-a）
     loadDocument(stack, 'doc-a');
-    expect(session.versions.getState().snapshots.map((item) => item.label)).toEqual([
-      'A 的第一版',
-    ]);
+    expect(session.versions.getState().snapshots.map((item) => item.label)).toEqual(['A 的第一版']);
     session.versions.getState().beginCompare(snapshot.id);
     expect(session.versions.getState().compareId).toBe(snapshot.id);
     session.versions.getState().confirmRestore();
