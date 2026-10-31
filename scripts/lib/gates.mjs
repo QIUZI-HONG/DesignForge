@@ -102,6 +102,21 @@ export async function startSameOriginGateway({ webUrl, daemonUrl, port }) {
 }
 
 /**
+ * daemon 子进程的 node 参数（直接跑 `src/main.ts` 需要的类型剥离开关）。
+ *
+ * 开发机 node 24 默认剥离 TypeScript 类型；`engines.node` 只要求 `>= 22`，而 node 22.16
+ * 尚需显式 `--experimental-strip-types`（否则 `ERR_UNKNOWN_FILE_EXTENSION: .ts`）。
+ * 按主版本判定：高版本不加旗标（避免无谓告警），低版本补上——门禁在两种 node 上同一口径。
+ *
+ * @param {string} mainPath daemon 入口（`apps/daemon/src/main.ts` 的绝对路径）
+ * @returns {string[]}
+ */
+export function daemonNodeArgs(mainPath) {
+  const major = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
+  return major >= 23 ? [mainPath] : ['--experimental-strip-types', mainPath];
+}
+
+/**
  * 起一个夹具 daemon（真子进程）：数据根与工作目录可指定，端口自动取空闲值。
  *
  * @param {{ dataRoot: string, workspaceDir: string, timeoutMs?: number }} options
@@ -109,7 +124,8 @@ export async function startSameOriginGateway({ webUrl, daemonUrl, port }) {
  */
 export async function startFixtureDaemon({ dataRoot, workspaceDir, timeoutMs = 20_000 }) {
   const port = await freePort();
-  const child = spawn(process.execPath, [join(repoRoot, 'apps/daemon/src/main.ts')], {
+  const mainPath = join(repoRoot, 'apps/daemon/src/main.ts');
+  const child = spawn(process.execPath, daemonNodeArgs(mainPath), {
     cwd: repoRoot,
     env: {
       ...process.env,

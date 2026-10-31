@@ -62,6 +62,7 @@ import {
   forwardDaemonRequests,
   resolveChromeExecutable,
 } from './lib/browser-toolchain.mjs';
+import { daemonNodeArgs } from './lib/gates.mjs';
 import { bboxOfDiff } from './lib/pixels.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -406,16 +407,20 @@ async function ensureDaemon(webPort) {
   dataRootDir = await mkdtemp(join(EVIDENCE_DIR, 'data-'));
   // 端口纪律：远离 3000（Next 缺省）与 4318（daemon 缺省端口窗起点），扫描段整体上移
   const port = await freePort(14318);
-  const started = startProcess(process.execPath, [join(REPO_ROOT, 'apps/daemon/src/main.ts')], {
-    env: {
-      DF_WORKSPACE_DIR: workspaceDir,
-      DF_DATA_ROOT: dataRootDir,
-      DF_PORT: String(port),
-      DF_HOST: '127.0.0.1',
-      // 受控 CORS：只放行本次站点来源（daemon 默认白名单不含随机端口）
-      DFORGE_CORS_ORIGINS: origins,
+  const started = startProcess(
+    process.execPath,
+    daemonNodeArgs(join(REPO_ROOT, 'apps/daemon/src/main.ts')),
+    {
+      env: {
+        DF_WORKSPACE_DIR: workspaceDir,
+        DF_DATA_ROOT: dataRootDir,
+        DF_PORT: String(port),
+        DF_HOST: '127.0.0.1',
+        // 受控 CORS：只放行本次站点来源（daemon 默认白名单不含随机端口）
+        DFORGE_CORS_ORIGINS: origins,
+      },
     },
-  });
+  );
   daemonProcess = track(started.child);
   const url = await waitFor(
     () => {
