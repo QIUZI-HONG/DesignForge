@@ -129,6 +129,55 @@ describe('MCP 确认状态机', () => {
     expect(isAckable(back)).toBe(true);
   });
 
+  it('终态稳定（P1-1 留存语义）：ack 成功落 approved 后，tick 越过 expiresAt 仍是终态，不被清空/翻转', () => {
+    const submitting = beginAck(createConfirmation(proposal(), T0), T0);
+    const settled = settleAck(submitting, {
+      proposalId: 'prop_1',
+      applied: false,
+      decision: 'approved',
+      auditId: 'audit_1',
+      note: '桩实现：已确认，真实写入由 P5 网关执行（本段不改动文档）',
+    });
+
+    // 越过 TTL 走表：终态不受影响（宿主依据 expiresAt 撤条，状态机自身不吞终态）
+    const afterExpiry = tick(settled, T0 + 120_001);
+    expect(afterExpiry).toBe(settled);
+    expect(afterExpiry.phase).toBe('approved');
+    expect(afterExpiry.decision).toBe('approved');
+    expect(afterExpiry.result?.auditId).toBe('audit_1');
+
+    // rejected 同理：决策过的终态不会被 TTL 翻成 expired
+    const rejected = settleAck(submitting, {
+      proposalId: 'prop_1',
+      applied: false,
+      decision: 'rejected',
+      auditId: 'audit_1',
+      note: '用户拒绝该提案，未产生任何写入',
+    });
+    expect(tick(rejected, T0 + 300_000).phase).toBe('rejected');
+  });
+
+  it('新提案替换即重置（既有语义）：对已决策的终态 createConfirmation 得到全新 pending', () => {
+    const submitting = beginAck(createConfirmation(proposal(), T0), T0);
+    const settled = settleAck(submitting, {
+      proposalId: 'prop_1',
+      applied: false,
+      decision: 'approved',
+      auditId: 'audit_1',
+      note: '桩实现：已确认，真实写入由 P5 网关执行（本段不改动文档）',
+    });
+
+    const replaced = createConfirmation(proposal('2026-10-15T00:04:00.000Z'), T0 + 1000);
+    expect(replaced.phase).toBe('pending');
+    expect(isAckable(replaced)).toBe(true);
+    expect(replaced.decision).toBeNull();
+    expect(replaced.result).toBeNull();
+    expect(replaced.error).toBeNull();
+    expect(remainingMs(replaced, T0 + 1000)).toBe(239_000);
+    // 旧终态原对象不动（不可变转移，宿主替换靠新对象）
+    expect(settled.phase).toBe('approved');
+  });
+
   it('diff 展开状态在状态里可测（逐项 diff 审批的展示单位）', () => {
     const state: McpConfirmationState = createConfirmation(proposal(), T0);
     expect(state.proposal.diff.ops).toHaveLength(1);

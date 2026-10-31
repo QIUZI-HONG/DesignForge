@@ -1,14 +1,17 @@
 /**
- * 命令面板数据模型（工单 08）：搜索 → 分组 → 铺平 → 漫游——纯函数，视图只管交互。
+ * 命令面板数据模型（工单 08 建模；票 04 增「最近使用」置顶分组）：搜索 → 分组 → 铺平
+ * → 漫游——纯函数，视图只管交互。
  *
  * 口径：
  * - **命令源唯一**：全部条目来自命令注册表快照（`useCommandList()`），面板不自持清单；
- * - 空查询 = 全命令按分组归并（组序 = 注册顺序里首次出现的顺序）。**本期不做
- *   「最近使用 / 常用」默认态**（后续票做）——面板不渲染这类分组，不撒谎；
+ * - 空查询 = 全命令按分组归并（组序 = 注册顺序里首次出现的顺序）；有本地最近记录
+ *   （`recent`，最近序）时**置顶一个「最近使用」组**——组内只含仍注册的命令
+ *   （id 失效的不解释，不撒谎），记录为空不出组；
  * - 有查询 = `searchCommands` 的相关性排序结果按组归并：组的先后 = 组内最优命中
- *   首次出现的顺序，组内保持排序序；
+ *   首次出现的顺序，组内保持排序序；搜索态**不掺**最近分组（最近组是空查询的默认态）；
  * - 置灰：`enabled()` 判否的条目仍然展示（可解释「为什么不能点」），但**不可运行**
- *   且键盘漫游跳过（`nextEnabledIndex`）——置灰判定在建模时求值一次，避免渲染期多次调用。
+ *   且键盘漫游跳过（`nextEnabledIndex`）——置灰判定在建模时求值一次，避免渲染期多次调用；
+ *   最近组与常规组同一口径（最近执行过、此刻置灰的命令照常展示）。
  */
 import type { Command } from '../editor-shell';
 
@@ -35,10 +38,22 @@ export interface PaletteModelOptions {
   commands: Command[];
   /** 搜索词（空串 = 未搜索）。 */
   query: string;
+  /** 最近执行的命令 id（最近序；本地记录，见 `editor-shell` 的 `loadRecentCommands`）。 */
+  recent: readonly string[];
+  /** 「最近使用」组的展示名（组件层经 i18n 组装；模型不产文案）。 */
+  recentGroupLabel: string;
 }
 
-/** 建模：得到面板的分组结构（空查询=全量分组；无命中=空数组）。 */
-export function buildPaletteGroups({ commands, query }: PaletteModelOptions): PaletteGroup[] {
+/** 「最近使用」组的稳定 id（与 `group:<分组名>` 命名空间区分开）。 */
+const RECENT_GROUP_ID = 'group:recent';
+
+/** 建模：得到面板的分组结构（空查询=全量分组 + 最近置顶组；无命中=空数组）。 */
+export function buildPaletteGroups({
+  commands,
+  query,
+  recent,
+  recentGroupLabel,
+}: PaletteModelOptions): PaletteGroup[] {
   const hits = searchCommands(commands, query);
 
   const order: string[] = [];
@@ -57,7 +72,24 @@ export function buildPaletteGroups({ commands, query }: PaletteModelOptions): Pa
       bucket.push(item);
     }
   }
-  return order.map((label) => ({ id: `group:${label}`, label, items: buckets.get(label) ?? [] }));
+  const groups: PaletteGroup[] = order.map((label) => ({
+    id: `group:${label}`,
+    label,
+    items: buckets.get(label) ?? [],
+  }));
+
+  // 空查询默认态置顶「最近使用」：按最近序取仍注册的命令；无有效条目不出组（不撒谎）
+  if (query.trim() === '' && recent.length > 0) {
+    const byId = new Map(commands.map((command) => [command.id, command]));
+    const items: PaletteItem[] = [];
+    for (const id of recent) {
+      const command = byId.get(id);
+      if (command === undefined) continue;
+      items.push({ command, disabled: command.enabled?.() === false, ranges: [] });
+    }
+    if (items.length > 0) groups.unshift({ id: RECENT_GROUP_ID, label: recentGroupLabel, items });
+  }
+  return groups;
 }
 
 /** 逐项铺平（键盘漫游的下标空间；含置灰项，便于 aria-activedescendant 对齐 DOM 顺序）。 */

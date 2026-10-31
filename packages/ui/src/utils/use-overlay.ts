@@ -155,7 +155,32 @@ export function useOverlayBehavior({
     // 焦点入层只作用于栈顶：嵌套同时挂载时内层效果先跑（子先于父），
     // 非栈顶层（外层）若照旧聚焦，就会把焦点从最内层夺回去
     if (topLayer() === layer) focusIntoLayer(layer);
+
+    /**
+     * 焦点守卫（票 09）：真实浏览器里「禁用正在聚焦的提交键」会把焦点静默交回 body
+     * （此时 blur 事件照发，但 activeElement 已不在层内），此后 Esc 的 keydown 落在
+     * body 上、不再经过 React 根——对话框从此关不掉，只能点「取消」。守卫在 blur
+     * 之后（微任务里等焦点落定）发现焦点无着落，就把它请回层内，Esc 与 Tab 回环
+     * 由此始终可用。只对栈顶层生效：嵌套浮层入层/出层的焦点交接不经此路径
+     * （非栈顶直接让位，栈顶交接发生在本层已出栈之后，守卫自然不拦）。
+     */
+    const guardFocus = (): void => {
+      queueMicrotask(() => {
+        const container = layer.containerRef.current;
+        // 已出栈（关闭/卸载交接进行中）或容器已摘除：不再争焦点，交给关闭还原路径
+        if (topLayer() !== layer || container === null || !container.isConnected) return;
+        const active = document.activeElement;
+        if (active === container) return;
+        if (active instanceof HTMLElement && container.contains(active)) return;
+        focusIntoLayer(layer);
+      });
+    };
+    // blur 不冒泡，用捕获在 document 上收全部失焦（focusout 在 jsdom 不派发，不可依赖）
+    document.addEventListener('blur', guardFocus, true);
+
     return () => {
+      // 先摘守卫再还原焦点：关闭路径的 restoreFocus / 交接 focus() 不得被守卫截回
+      document.removeEventListener('blur', guardFocus, true);
       const wasTop = topLayer() === layer;
       const container = layer.containerRef.current;
       const active = document.activeElement;

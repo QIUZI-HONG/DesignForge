@@ -10,12 +10,15 @@
  * 成功才前进；「跳过」= 不落库、记 skipped 并前进。末步完成后进入完成卡，
  * 「进入工作台」跳冷启动页（缺省整页跳转；测试注入 onFinish）。
  *
+ * 进度持久化（票 17 · spec P2）：状态机每次变化后落本地（localStorage，本地优先纪律：
+ * 不联网、不上云），刷新/后退后从原进度续作，不回第 1 步、进度不归零。
+ *
  * 六态挂点：本组件带 `loading` / `error`（读配置失败）；`empty` 归冷启动页；
  * `hover` / `active` / `disabled` 归设置页与保存脚（挂点全 feature 可达即可，见门禁脚本）。
  */
 import { Button, ErrorState, ICONS, Spinner } from '@dforge/ui';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
@@ -32,6 +35,7 @@ import {
   onboardingProgress,
   stepStatus,
 } from '../model/onboarding';
+import { createOnboardingPersistence } from '../model/onboarding-storage';
 import { type SettingsSectionId, settingsSection } from '../model/sections';
 import { useSettingsSession } from '../model/use-settings-session';
 
@@ -83,6 +87,24 @@ export interface OnboardingWizardProps {
 export function OnboardingWizard({ api, onFinish }: OnboardingWizardProps) {
   const session = useSettingsSession(api);
   const [machine, setMachine] = useState<OnboardingState>(createOnboardingState);
+  // 进度本地持久化（票 17 · spec P2）：刷新/后退后从原进度续作，不回第 1 步。
+  // 后端省略时走浏览器 localStorage（SSR 下为空操作）；坏数据/写失败不炸界面（见 storage 模块契约）。
+  const [persistence] = useState(() => createOnboardingPersistence());
+  // 恢复完成前不写本地：否则挂载首帧的初始态会把已存进度盖掉。
+  const [hydrated, setHydrated] = useState(false);
+
+  // 挂载后恢复本地进度（SSR 不读 localStorage，避免水合不一致；口径同 theme-toggle 先例）。
+  useEffect(() => {
+    const stored = persistence.load();
+    if (stored !== null) setMachine(stored);
+    setHydrated(true);
+  }, [persistence]);
+
+  // 状态机每次变化（前进/回退/完成/续作）后落本地；保存失败只丢持久化，不影响本次会话。
+  useEffect(() => {
+    if (!hydrated) return;
+    persistence.save(machine);
+  }, [hydrated, machine, persistence]);
 
   const currentId = ONBOARDING_STEP_IDS[machine.index];
   const section = currentId === undefined ? undefined : settingsSection(currentId);
