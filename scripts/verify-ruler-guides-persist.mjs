@@ -13,7 +13,8 @@
  *   ② 参考线渲染：`stats().guides === 1`（常驻线真实落像素）；
  *   ③ 吸附生效：拖矩形使底缘落到参考线 6px 阈值内 → 松手后底缘**精确贴线**（阈值吸附）；
  *   ④ 删除——拖回标尺：把参考线拖回顶标尺松手 → guides() 清空（undo 可恢复）；
- *   ⑤ 删除——右键菜单：再拖出一条 → 右键线上 → 菜单「删除参考线」→ guides() 清空；
+ *   ⑤ 删除——右键菜单：在另一位置再拖出一条 → 右键线上 → 菜单「删除参考线」→ 该线清空
+ *     （undo 恢复的那条原样保留）；
  *   ⑥ 保存（file.save）→ `[data-df-save-state="saved"]`；刷新后 guides() 与保存前一致
  *     （daemon 落盘 → 载入回读的全链持久）。
  *
@@ -41,6 +42,7 @@ import {
   readlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +60,8 @@ const verbose = args.includes('--verbose');
 let webUrl = args.includes('--web-url')
   ? args[args.indexOf('--web-url') + 1]
   : (process.env.DF_WEB_URL ?? null);
+/** 复用外部已起站点（DF_WEB_URL / --web-url）→ 跳过本脚本的 build + start。 */
+const reuseSite = webUrl !== null;
 
 const startedAt = new Date();
 const stamp = startedAt.toISOString().replaceAll(':', '-').replace(/\..+$/, '');
@@ -217,6 +221,24 @@ async function freePort() {
   throw new Error('找不到空闲端口');
 }
 
+/**
+ * 先选定并**占住**端口，返回释放函数：站点端口在夹具 daemon 之前选定（daemon 的 CORS
+ * 白名单要写站点源），但 next start 要等构建后才绑定——不占住的话 daemon 的 freePort
+ * 会撞同一个号（实测：daemon 与站点同抢 4470，「站点就绪」探测到的是 daemon）。
+ */
+async function holdPort(port) {
+  const server = createServer();
+  await new Promise((settle, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', settle);
+  });
+  server.unref();
+  return () =>
+    new Promise((settle) => {
+      server.close(() => settle());
+    });
+}
+
 /** HTTP 探测（轮询到站点就绪）。 */
 async function waitForHttp(url, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -246,7 +268,7 @@ async function waitFor(page, predicateBody, { timeout = 20000, label = '' } = {}
 }
 
 /** 起夹具 daemon（--experimental-strip-types；临时数据根，不碰 ~/.dforge）。 */
-async function startFixtureDaemonStripTypes() {
+async function startFixtureDaemonStripTypes(corsOrigins) {
   const port = await freePort();
   dataRoot = join(EVIDENCE_DIR, 'runs', stamp);
   const workspaceDir = join(dataRoot, 'workspace');
@@ -263,6 +285,9 @@ async function startFixtureDaemonStripTypes() {
           DF_WORKSPACE_DIR: workspaceDir,
           DF_PORT: String(port),
           DF_HOST: '127.0.0.1',
+          // 编辑器以查询参数里的绝对地址跨源直连 daemon；CORS 白名单（INF-01，daemon 侧
+          // 职责）不放行站点源时，save/加载请求会被浏览器整批拦掉——save-persisted 假红。
+          ...(corsOrigins === undefined ? {} : { DF_CORS_ORIGINS: corsOrigins.join(',') }),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
@@ -305,21 +330,37 @@ async function startFixtureDaemonStripTypes() {
   };
 }
 
-/** 参考线读点：`__dforgeCanvas.guides()`（id/axis/position）。 */
-const GUIDES_SNIPPET = `() => (globalThis.__dforgeCanvas?.guides?.() ?? [])`;
+/**
+ * 参考线读点：`__dforgeCanvas.guides()`（id/axis/position）。
+ *
+ * 必须是**值表达式**而不是「箭头函数字符串」：Playwright 对 `page.evaluate(字符串)`
+ * 只求值不回调——箭头函数串求值结果是一个**不可序列化的函数值**，会被静默丢成
+ * `undefined`（实测 chromium-1243 + playwright-core 1.63.0），下游 `.length` 直接
+ * TypeError。值表达式直取数组；需要调用处的 `waitFor` 谓词体内也直接拼该表达式
+ * （不再 `GUIDES_SNIPPET()` 二次调用——那会把谓词变成「返回函数的函数」同样丢值）。
+ */
+const GUIDES_SNIPPET = `(globalThis.__dforgeCanvas?.guides?.() ?? [])`;
 
 try {
+  // 站点端口先定（复用 DF_WEB_URL 时不重复选）：夹具 daemon 的 CORS 白名单要把站点源
+  // 放进去——编辑器跨源直连 daemon，白名单外浏览器会拦掉 save/加载请求。
+  let releaseWebPort = null;
+  if (webUrl === null) {
+    webUrl = `http://127.0.0.1:${await freePort()}`;
+    releaseWebPort = await holdPort(Number(new URL(webUrl).port));
+  }
+
   // --- 夹具 daemon（参考线要落盘回读，必须有真 daemon） ---
-  daemon = await startFixtureDaemonStripTypes();
+  daemon = await startFixtureDaemonStripTypes([webUrl]);
+  await releaseWebPort?.();
   console.log(`夹具 daemon 就绪：${daemon.url}`);
   if (!(await waitForHttp(`${daemon.url}/health`, 15_000))) {
     await finish(2, '阻塞：夹具 daemon /health 不可达。');
   }
 
-  // --- 站点：复用 DF_WEB_URL，或生产构建 + 起服务（禁 next dev） ---
-  if (webUrl === null) {
-    const webPort = await freePort();
-    webUrl = `http://127.0.0.1:${webPort}`;
+  // --- 站点：生产构建 + 起服务（禁 next dev）；端口已在 daemon 前选定（CORS 白名单用） ---
+  if (!reuseSite) {
+    const webPort = Number(new URL(webUrl).port);
     const canvasKitScript = join(
       REPO_ROOT,
       'apps/web/src/features/canvas/tools/copy-canvaskit-assets.mjs',
@@ -399,7 +440,7 @@ try {
   await page.mouse.up();
   await waitFor(
     page,
-    `() => ${GUIDES_SNIPPET}().some((g) => g.axis === 'y' && g.position === ${GUIDE_Y})`,
+    `() => ${GUIDES_SNIPPET}.some((g) => g.axis === 'y' && g.position === ${GUIDE_Y})`,
     { timeout: 10_000, label: '松手后参考线入页面数据' },
   ).catch(() => undefined);
   const afterDrag = await page.evaluate(GUIDES_SNIPPET);
@@ -415,13 +456,13 @@ try {
 
   // undo / redo（命令栈历史：撤销清空、重做复现）
   await page.keyboard.press('Control+z');
-  await waitFor(page, `() => ${GUIDES_SNIPPET}().length === 0`, {
+  await waitFor(page, `() => ${GUIDES_SNIPPET}.length === 0`, {
     timeout: 10_000,
     label: '撤销清空参考线',
   }).catch(() => undefined);
   const undone = await page.evaluate(GUIDES_SNIPPET);
   await page.keyboard.press('Control+Shift+z');
-  await waitFor(page, `() => ${GUIDES_SNIPPET}().length === 1`, {
+  await waitFor(page, `() => ${GUIDES_SNIPPET}.length === 1`, {
     timeout: 10_000,
     label: '重做复现参考线',
   }).catch(() => undefined);
@@ -439,10 +480,11 @@ try {
   if (typeof rectId !== 'string' || rectId === '') {
     await finish(2, '阻塞：createRect 未返回 id。');
   }
-  // 矩形 (80,60,80,60)：底缘 140。在矩形中心 (120,100) 按下向下拖 100px：底缘 240？——
-  // 目标是「松手前底缘 204」（落进 6px 阈值）：拖 104px；吸附修正 -4 → 底缘精确 200。
+  // 矩形 (80,60,80,60)：底缘 120。在矩形内 (120,100) 按下向下拖 84px（指针到 y=184）：
+  // 松手前底缘 204（距参考线 4px，落进 6px 阈值；顶缘 144/中心 174 均在阈值外——
+  // 只有底缘命中，断言无歧义）→ 阈值吸附 -4 → 底缘精确 200。
   const grab = at(120, 100);
-  const drop = at(120, 100 + 104);
+  const drop = at(120, 184);
   await page.mouse.move(grab.x, grab.y);
   await page.mouse.down();
   await page.mouse.move(drop.x, drop.y, { steps: 8 });
@@ -455,7 +497,7 @@ try {
   record(
     'guides.snap-aligns-bottom',
     bottom === GUIDE_Y,
-    `拖 104px 后底缘=${String(bottom)}（应 ${GUIDE_Y}：阈值吸附把 204 拉回 200）`,
+    `拖 84px 后底缘=${String(bottom)}（应 ${GUIDE_Y}：阈值吸附把 204 拉回 200）`,
   );
 
   // --- ④ 删除：拖回标尺 ---
@@ -465,7 +507,7 @@ try {
   to = at(GUIDE_X, 8);
   await page.mouse.move(to.x, to.y, { steps: 6 });
   await page.mouse.up();
-  await waitFor(page, `() => ${GUIDES_SNIPPET}().length === 0`, {
+  await waitFor(page, `() => ${GUIDES_SNIPPET}.length === 0`, {
     timeout: 10_000,
     label: '拖回标尺删除',
   }).catch(() => undefined);
@@ -478,44 +520,49 @@ try {
     `拖回标尺后=${JSON.stringify(afterDragBack)}（应空），undo 恢复=${afterUndoDelete.length} 条（应 1）`,
   );
 
-  // --- ⑤ 删除：右键菜单 ---
-  await page.mouse.move(at(GUIDE_X, 8));
+  // --- ⑤ 删除：右键菜单（在无歧义的新位置 y=300 再拖出一条：④ 的 undo 恢复了 y=200
+  //     那条，同点再拖会叠出两条线、菜单删的是「后建在上」的新线，断言会假红） ---
+  const MENU_GUIDE_Y = 300;
+  const rulerFrom = at(GUIDE_X, 8);
+  await page.mouse.move(rulerFrom.x, rulerFrom.y);
   await page.mouse.down();
-  await page.mouse.move(at(GUIDE_X, GUIDE_Y), { steps: 6 });
+  const menuDrop = at(GUIDE_X, MENU_GUIDE_Y);
+  await page.mouse.move(menuDrop.x, menuDrop.y, { steps: 6 });
   await page.mouse.up();
-  await waitFor(page, `() => ${GUIDES_SNIPPET}().length === 1`, {
-    timeout: 10_000,
-    label: '再拖出一条参考线',
-  }).catch(() => undefined);
-  const menuAt = at(GUIDE_X, GUIDE_Y);
+  await waitFor(
+    page,
+    `() => ${GUIDES_SNIPPET}.some((g) => g.axis === 'y' && g.position === ${MENU_GUIDE_Y})`,
+    { timeout: 10_000, label: `再拖出一条参考线（y=${MENU_GUIDE_Y}）` },
+  ).catch(() => undefined);
+  const menuAt = at(GUIDE_X, MENU_GUIDE_Y);
   await page.mouse.click(menuAt.x, menuAt.y, { button: 'right' });
   const deleteItem = page.getByText('删除参考线');
   await deleteItem.click({ timeout: 10_000 }).catch(() => undefined);
-  await waitFor(page, `() => ${GUIDES_SNIPPET}().length === 0`, {
+  await waitFor(page, `() => ${GUIDES_SNIPPET}.every((g) => g.position !== ${MENU_GUIDE_Y})`, {
     timeout: 10_000,
     label: '右键删除参考线',
   }).catch(() => undefined);
   const afterContextMenu = await page.evaluate(GUIDES_SNIPPET);
   record(
     'guides.context-menu-deletes',
-    afterContextMenu.length === 0,
-    `右键菜单删除后=${JSON.stringify(afterContextMenu)}（应空）`,
+    afterContextMenu.length === 1 && afterContextMenu[0]?.position === GUIDE_Y,
+    `右键菜单删除后=${JSON.stringify(afterContextMenu)}（应只剩 undo 恢复的 y=${GUIDE_Y} 那条）`,
   );
   await page.keyboard.press('Escape');
 
-  // --- ⑥ 保存 → 刷新 → 参考线仍在（再加一条垂直线一起验持久） ---
-  await page.mouse.move(at(300, 8));
+  // --- ⑥ 保存 → 刷新 → 参考线仍在（再从左标尺拖出一条垂直线一起验持久） ---
+  // 从**左**标尺（x=8 < 20）起手才是垂直线（axis 'x'，位置 = 指针世界 x）；从顶条起手
+  // 拖出的是第二条水平线，axis==='x' 的等待会被吞成超时假绿（实测踩过）。
+  const rulerXFrom = at(8, 400);
+  await page.mouse.move(rulerXFrom.x, rulerXFrom.y);
   await page.mouse.down();
-  await page.mouse.move(at(300, 120), { steps: 6 });
+  const verticalDrop = at(120, 400);
+  await page.mouse.move(verticalDrop.x, verticalDrop.y, { steps: 6 });
   await page.mouse.up();
-  await waitFor(
-    page,
-    `() => ${GUIDES_SNIPPET}().some((g) => g.axis === 'x' && g.position === 120)`,
-    {
-      timeout: 10_000,
-      label: '拖出垂直参考线',
-    },
-  ).catch(() => undefined);
+  await waitFor(page, `() => ${GUIDES_SNIPPET}.some((g) => g.axis === 'x' && g.position === 120)`, {
+    timeout: 10_000,
+    label: '拖出垂直参考线',
+  }).catch(() => undefined);
   const beforeSave = await page.evaluate(GUIDES_SNIPPET);
 
   await page.click('[data-df-save-action="save"]');
@@ -542,7 +589,7 @@ try {
   });
   await waitFor(
     page,
-    `() => JSON.stringify(${GUIDES_SNIPPET}()) === JSON.stringify(${JSON.stringify(beforeSave)})`,
+    `() => JSON.stringify(${GUIDES_SNIPPET}) === JSON.stringify(${JSON.stringify(beforeSave)})`,
     { timeout: 20_000, label: '刷新后参考线保持' },
   ).catch(() => undefined);
   const afterReload = await page.evaluate(GUIDES_SNIPPET);

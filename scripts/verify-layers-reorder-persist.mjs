@@ -41,6 +41,7 @@ import {
   readlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +59,8 @@ const verbose = args.includes('--verbose');
 let webUrl = args.includes('--web-url')
   ? args[args.indexOf('--web-url') + 1]
   : (process.env.DF_WEB_URL ?? null);
+/** 复用外部已起站点（DF_WEB_URL / --web-url）→ 跳过本脚本的 build + start。 */
+const reuseSite = webUrl !== null;
 
 const startedAt = new Date();
 const stamp = startedAt.toISOString().replaceAll(':', '-').replace(/\..+$/, '');
@@ -251,10 +254,28 @@ async function waitFor(page, predicateBody, { timeout = 20000, label = '' } = {}
 }
 
 /**
+ * 先选定并**占住**端口，返回释放函数：站点端口在夹具 daemon 之前选定（daemon 的 CORS
+ * 白名单要写站点源），但 next start 要等构建后才绑定——不占住的话 daemon 的 freePort
+ * 会撞同一个号（同 verify-ruler-guides 的实测）。
+ */
+async function holdPort(port) {
+  const server = createServer();
+  await new Promise((settle, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', settle);
+  });
+  server.unref();
+  return () =>
+    new Promise((settle) => {
+      server.close(() => settle());
+    });
+}
+
+/**
  * 起夹具 daemon（自带 --experimental-strip-types，本机 node 22.16 事实；临时数据根）。
  * 与 lib/gates.mjs 的 startFixtureDaemon 同形，但不在共享件上动刀（票 10 收口前）。
  */
-async function startFixtureDaemonStripTypes() {
+async function startFixtureDaemonStripTypes(corsOrigins) {
   const port = await freePort();
   // 数据根落证据目录（铁律：禁用 /tmp 当工作树/缓存；e2e-smoke 的 runDir 同口径）
   dataRoot = join(EVIDENCE_DIR, 'runs', stamp);
@@ -272,6 +293,9 @@ async function startFixtureDaemonStripTypes() {
           DF_WORKSPACE_DIR: workspaceDir,
           DF_PORT: String(port),
           DF_HOST: '127.0.0.1',
+          // 编辑器以查询参数里的绝对地址跨源直连 daemon；CORS 白名单（INF-01，daemon 侧
+          // 职责）不放行站点源时，save/加载请求会被浏览器整批拦掉——持久化断言假红。
+          ...(corsOrigins === undefined ? {} : { DF_CORS_ORIGINS: corsOrigins.join(',') }),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
@@ -318,20 +342,30 @@ async function startFixtureDaemonStripTypes() {
 const ORDER_EXPR = `Array.from(
   document.querySelectorAll('[data-df-panel="layers"] [data-node-id]'),
 ).map((element) => element.getAttribute('data-node-id'))`;
-const ORDER_SNIPPET = `() => ${ORDER_EXPR}`;
+// 读点必须是**值表达式**：`page.evaluate(字符串)` 只求值不回调，「箭头函数串」会被当成
+// 不可序列化的函数值静默丢成 undefined（同 verify-ruler-guides 的 GUIDES_SNIPPET 修法）。
+const ORDER_SNIPPET = ORDER_EXPR;
 
 try {
+  // 站点端口先定（复用 DF_WEB_URL 时不重复选）：夹具 daemon 的 CORS 白名单要把站点源
+  // 放进去——编辑器跨源直连 daemon，白名单外浏览器会拦掉 save/加载请求。
+  let releaseWebPort = null;
+  if (webUrl === null) {
+    webUrl = `http://127.0.0.1:${await freePort()}`;
+    releaseWebPort = await holdPort(Number(new URL(webUrl).port));
+  }
+
   // --- 夹具 daemon（临时数据根；拖拽重排要落盘回读，必须有真 daemon） ---
-  daemon = await startFixtureDaemonStripTypes();
+  daemon = await startFixtureDaemonStripTypes([webUrl]);
+  await releaseWebPort?.();
   console.log(`夹具 daemon 就绪：${daemon.url}`);
   if (!(await waitForHttp(`${daemon.url}/health`, 15_000))) {
     await finish(2, '阻塞：夹具 daemon /health 不可达。');
   }
 
-  // --- 站点：复用 DF_WEB_URL，或生产构建 + 起服务（禁 next dev，见 implementation-workflow） ---
-  if (webUrl === null) {
-    const webPort = await freePort();
-    webUrl = `http://127.0.0.1:${webPort}`;
+  // --- 站点：生产构建 + 起服务（禁 next dev）；端口已在 daemon 前选定（CORS 白名单用） ---
+  if (!reuseSite) {
+    const webPort = Number(new URL(webUrl).port);
     // CanvasKit 运行时资产（/editor 依赖；生成物不入库，fresh worktree 需要）
     const canvasKitScript = join(
       REPO_ROOT,
