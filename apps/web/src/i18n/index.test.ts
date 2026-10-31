@@ -78,3 +78,37 @@ describe('票 02 · AI 承诺文案与实际交付一致（spec P0-3）', () => 
     expect(enCatalog['ai.subtitle']).not.toContain('local template');
   });
 });
+
+describe('票 10 · Inspector 效果区键名经 i18n（spec P1-6）', () => {
+  // 引擎 Effect 契约值（snake_case）——面板按 `inspector.effect.${effect.type}` 取词，
+  // 目录曾有 camelCase 旧键（dropShadow 等），UI 取不到 → 原始键直出（巡检实测）。
+  const EFFECT_TYPES = ['drop_shadow', 'inner_shadow', 'layer_blur'] as const;
+
+  it('引擎效果类型在 zh-CN 目录有映射，t() 不回键（不裸键直出）', () => {
+    for (const type of EFFECT_TYPES) {
+      expect(t(`inspector.effect.${type}`)).not.toBe(`inspector.effect.${type}`);
+    }
+  });
+
+  it('en 兜底目录同键集映射（键集一致性用例之上，钉词面）', () => {
+    const enCatalogLocal = en as unknown as Record<string, string>;
+    for (const type of EFFECT_TYPES) {
+      expect(enCatalogLocal[`inspector.effect.${type}`]).toBeTruthy();
+    }
+  });
+
+  it('zh-CN 词面与 Figma 本体术语表一致（投影/内阴影/层模糊）', () => {
+    expect(t('inspector.effect.drop_shadow')).toBe('投影');
+    expect(t('inspector.effect.inner_shadow')).toBe('内阴影');
+    expect(t('inspector.effect.layer_blur')).toBe('层模糊');
+  });
+
+  it('camelCase 旧键退场（无引用的死键不留在目录）', () => {
+    const zhLocal = zhCN as unknown as Record<string, string>;
+    const enCatalogLocal = en as unknown as Record<string, string>;
+    for (const old of ['dropShadow', 'innerShadow', 'layerBlur']) {
+      expect(zhLocal[`inspector.effect.${old}`]).toBeUndefined();
+      expect(enCatalogLocal[`inspector.effect.${old}`]).toBeUndefined();
+    }
+  });
+});

@@ -860,9 +860,6 @@
   "inspector.section.corner": "Corner",
   "inspector.section.effects": "Effects",
   "inspector.section.text": "Text",
-  "inspector.effect.dropShadow": "Drop shadow",
-  "inspector.effect.innerShadow": "Inner shadow",
-  "inspector.effect.layerBlur": "Layer blur",
   "inspector.effect.type": "Effect type",
   "inspector.effect.color": "Color",
   "inspector.effect.offsetX": "Offset X",
@@ -1129,5 +1126,8 @@
   "canvas.ws.tab.inspect": "Inspect",
   "canvas.ws.tab.code": "Code",
   "canvas.ws.tab.export": "Export",
-  "canvas.ws.tab.image": "Generate"
+  "canvas.ws.tab.image": "Generate",
+  "inspector.effect.drop_shadow": "Drop shadow",
+  "inspector.effect.inner_shadow": "Inner shadow",
+  "inspector.effect.layer_blur": "Layer blur"
 }

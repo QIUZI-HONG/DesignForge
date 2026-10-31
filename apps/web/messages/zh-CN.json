@@ -860,9 +860,6 @@
   "inspector.section.corner": "圆角",
   "inspector.section.effects": "效果",
   "inspector.section.text": "文字",
-  "inspector.effect.dropShadow": "投影",
-  "inspector.effect.innerShadow": "内阴影",
-  "inspector.effect.layerBlur": "层模糊",
   "inspector.effect.type": "效果类型",
   "inspector.effect.color": "颜色",
   "inspector.effect.offsetX": "X 偏移",
@@ -1129,5 +1126,8 @@
   "canvas.ws.tab.inspect": "检查",
   "canvas.ws.tab.code": "代码",
   "canvas.ws.tab.export": "导出",
-  "canvas.ws.tab.image": "出图"
+  "canvas.ws.tab.image": "出图",
+  "inspector.effect.drop_shadow": "投影",
+  "inspector.effect.inner_shadow": "内阴影",
+  "inspector.effect.layer_blur": "层模糊"
 }
