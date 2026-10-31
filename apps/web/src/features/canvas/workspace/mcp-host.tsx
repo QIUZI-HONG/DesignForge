@@ -18,7 +18,7 @@
 
 import type { McpProposalResponse } from '@dforge/contracts';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { McpConfirmBar, type McpConfirmationState } from '@/features/mcp';
+import { type McpConfirmationState, McpConfirmBar } from '@/features/mcp';
 
 /** 提案事件名（跨票契约：谁拿到 dryRun 响应谁投递）。 */
 export const MCP_PROPOSAL_EVENT = 'dforge:mcp-proposal';

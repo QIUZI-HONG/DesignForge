@@ -117,9 +117,9 @@ describe('MCP 确认条宿主位（终态留存）', () => {
     await waitFor(() => {
       expect(screen.getByText('已确认')).toBeTruthy();
     });
-    expect(document.querySelector('[data-df-mcp-confirm]')?.getAttribute('data-df-mcp-confirm')).toBe(
-      'approved',
-    );
+    expect(
+      document.querySelector('[data-df-mcp-confirm]')?.getAttribute('data-df-mcp-confirm'),
+    ).toBe('approved');
 
     // 留存：在提案 TTL 窗口内持续推进，终态文案与桩注始终可见
     // （既有缺陷在落定瞬间已整体撤条）
@@ -212,8 +212,8 @@ describe('MCP 确认条宿主位（终态留存）', () => {
     await vi.advanceTimersByTimeAsync(121_000);
     expect(screen.getByText('已失效（超时未确认）')).toBeTruthy();
     expect(screen.getByText('需重新发起 dryRun 提案')).toBeTruthy();
-    expect(document.querySelector('[data-df-mcp-confirm]')?.getAttribute('data-df-mcp-confirm')).toBe(
-      'expired',
-    );
+    expect(
+      document.querySelector('[data-df-mcp-confirm]')?.getAttribute('data-df-mcp-confirm'),
+    ).toBe('expired');
   });
 });
