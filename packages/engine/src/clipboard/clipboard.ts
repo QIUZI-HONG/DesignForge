@@ -9,7 +9,15 @@
 
 import { parentIdOf, siblingIndexOf } from '../commands/helpers';
 import type { Command } from '../commands/types';
-import type { Point } from '../geometry/types';
+import {
+  applyToPoint,
+  identity,
+  invert,
+  rotateVector,
+  worldMatrix,
+  worldRotation,
+} from '../geometry/index';
+import type { Matrix, Point } from '../geometry/types';
 import { ID_PREFIX, type IdFactory, systemIdFactory } from '../model/ids';
 import type { ComponentId, NodeId, PageId, SceneNode, ScenePage } from '../model/index';
 import { childrenOf, isContainer } from '../model/index';
@@ -20,8 +28,25 @@ import { collectNonFiniteNumbers, type DocumentIssue, validateNodeShape } from '
 /** 载荷格式标识（版本化，便于后续演进）。 */
 export const CLIPBOARD_FORMAT = 'dforge.clipboard' as const;
 
-/** 剪贴板版本。 */
-export const CLIPBOARD_VERSION = 1;
+/**
+ * 剪贴板版本。
+ *
+ * v2：新增可选 `rootOrigins`（顶层节点的复制时原级快照）——跨父级选区的再制/同文档粘贴
+ * 据此「各归各父级」。字段可选，v1 载荷照常解析（走单目标旧路径）。
+ */
+export const CLIPBOARD_VERSION = 2;
+
+/** 顶层节点的复制时原级信息（v2+）：各归各父级与跨父级回退换算的依据。 */
+export interface ClipboardRootOrigin {
+  /** 对应 rootIds 中的顶层节点 id。 */
+  id: NodeId;
+  /** 复制时的原父级（页面顶层为 null）。 */
+  parentId: NodeId | null;
+  /** 复制时父级坐标系（其子节点 x/y 所处坐标系）的世界矩阵快照。 */
+  frame: Matrix;
+  /** 复制时父级坐标系的旋转累计（度；与 frame 同源 worldRotation，避免从矩阵反解的三角误差）。 */
+  frameRotation: number;
+}
 
 /** 剪贴板载荷。 */
 export interface ClipboardPayload {
@@ -33,6 +58,8 @@ export interface ClipboardPayload {
   rootIds: NodeId[];
   /** 扁平节点快照（前序：父先于子）。 */
   nodes: SceneNode[];
+  /** 顶层节点的复制时原级信息（v2+；与 rootIds 一一对应）。 */
+  rootOrigins?: ClipboardRootOrigin[];
 }
 
 /** 默认粘贴偏移（Figma 粘贴手感）。 */
@@ -82,12 +109,24 @@ export function copyNodes(
       nodes.push(node);
     }
   }
+  // 顶层节点的复制时原级快照：原父级 + 其坐标系的世界矩阵/旋转
+  // （再制/同文档粘贴据此各归各父级；父级不在时据此把局部坐标换算回世界位置——B4）
+  const rootOrigins: ClipboardRootOrigin[] = roots.map((rootId) => {
+    const parentId = parentIdOf(page, rootId);
+    return {
+      id: rootId,
+      parentId,
+      frame: parentId === null ? identity() : worldMatrix(page, parentId),
+      frameRotation: parentId === null ? 0 : worldRotation(page, parentId),
+    };
+  });
   return {
     $format: CLIPBOARD_FORMAT,
     $version: CLIPBOARD_VERSION,
     sourcePageId: pageId,
     rootIds: roots,
     nodes,
+    rootOrigins,
   };
 }
 
@@ -232,6 +271,55 @@ function validateClipboardPayload(payload: ClipboardPayload): DocumentIssue[] {
     rootSeen.add(rootId);
   });
 
+  // rootOrigins（v2+ 可选）：参与粘贴时的坐标换算，形状/非有限数同样整包拒收；
+  // id 不在节点表内的条目无害（粘贴时按缺省回退处理），不做强校验
+  if (payload.rootOrigins !== undefined) {
+    const origins = payload.rootOrigins;
+    if (!Array.isArray(origins)) {
+      issues.push({
+        code: 'missing-field',
+        message: 'rootOrigins 不是数组',
+        path: 'rootOrigins',
+      });
+    } else {
+      origins.forEach((origin, index) => {
+        const path = `rootOrigins[${index}]`;
+        if (
+          !origin ||
+          typeof origin.id !== 'string' ||
+          (origin.parentId !== null && typeof origin.parentId !== 'string')
+        ) {
+          issues.push({ code: 'missing-field', message: `${path} 形状不合法`, path });
+          return;
+        }
+        const frame = (origin as { frame?: unknown }).frame;
+        if (!frame || typeof frame !== 'object') {
+          issues.push({ code: 'missing-field', message: `${path}.frame 缺失`, path: `${path}.frame` });
+          return;
+        }
+        const matrix = frame as Record<string, unknown>;
+        for (const key of ['a', 'b', 'c', 'd', 'e', 'f'] as const) {
+          const value = matrix[key];
+          if (typeof value !== 'number' || !Number.isFinite(value)) {
+            issues.push({
+              code: 'non-finite-number',
+              message: `${path}.frame.${key} 不是有限数：${String(value)}`,
+              path: `${path}.frame.${key}`,
+            });
+          }
+        }
+        const frameRotation = (origin as { frameRotation?: unknown }).frameRotation;
+        if (typeof frameRotation !== 'number' || !Number.isFinite(frameRotation)) {
+          issues.push({
+            code: 'non-finite-number',
+            message: `${path}.frameRotation 不是有限数：${String(frameRotation)}`,
+            path: `${path}.frameRotation`,
+          });
+        }
+      });
+    }
+  }
+
   // 环：粘贴会产出「节点以自身为父」的命令 → 与文档校验同口径拒收
   const cyclicId = findPayloadCycle(childrenById, ids);
   if (cyclicId !== null) {
@@ -344,15 +432,22 @@ export function clipboardIds(payload: ClipboardPayload): NodeId[] {
 /** 重映射选项。 */
 export interface PasteOptions {
   pageId: PageId;
-  /** 目标父级（null = 页面顶层）。 */
+  /**
+   * 目标父级（null = 页面顶层）。**显式给定（非空）时优先于 restoreParents**：
+   * 所有根节点经世界位置换算落入该容器（「粘贴进容器」语义）。
+   */
   parentId?: NodeId | null;
   index?: number | undefined;
-  /** 世界偏移（相对坐标，父坐标系）。 */
+  /** 世界偏移（世界增量；父坐标系被旋转时按各父级坐标系换算，未旋转父级下与旧局部语义一致）。 */
   offset?: Point;
   /** id 工厂（测试注入确定性工厂）。 */
   ids?: IdFactory;
   /** 载荷内引用的**外部主组件**替换表（跨页面粘贴时使用）。 */
   componentRemap?: Record<ComponentId, ComponentId>;
+  /** 目标页面快照（同文档粘贴/再制时传入）：判定记录的原父级是否仍在、换算目标父级坐标系。 */
+  page?: ScenePage;
+  /** 恢复各根节点的复制时原父级（再制 / 同文档粘贴语义，B4）；缺省 false = 单目标旧行为。 */
+  restoreParents?: boolean;
 }
 
 /** 建立旧 id → 新 id 映射。 */
@@ -409,17 +504,39 @@ export function remapNode(
   return next as unknown as SceneNode;
 }
 
+/** 单个根节点的落位决策（粘贴/再制共用的中间表示）。 */
+interface RootPlacement {
+  parentId: NodeId | null;
+  index: number | undefined;
+  x: number;
+  y: number;
+  /** undefined = 保持载荷原值（坐标未跨坐标系，无需改写）。 */
+  rotation?: number;
+  /** 恢复原父级且原节点仍在位：其在父级中的现下标（位移记账用）；undefined = 追加。 */
+  anchorIndex?: number;
+}
+
 /**
  * 把载荷翻译成粘贴命令。
  *
  * 结构还原方式：每个节点都以**空 children** 插入，子节点按「原父级 children 下标」依次插入，
  * 这样 `scene/mutate.insertNode` 会精确重建树形与绘制顺序。
+ *
+ * 根节点落位（B4 跨父级选区）分三条路径：
+ * - **各归各父级**（`restoreParents` 且记录的原父级仍在目标页面）：坐标保持原父级局部语义
+ *   （副本与原节点同位），世界偏移按各父级坐标系的旋转换算；原节点仍在位时紧随其后插入。
+ * - **跨父级回退**（restore 开启但记录的原父级已不在 / 显式 `parentId` 容器）：以复制时
+ *   记录的父级坐标系快照换算出世界中心，再落入实际插入父级的坐标系——世界位置保持语义
+ *   （与 `frameTransformPatch` 保世界坐标重挂同一套数学）。
+ * - **单目标旧行为**（未开 restore / 旧载荷无原级记录）：全部根节点落 `parentId`，
+ *   坐标原样 + 偏移（跨文档粘贴路径）。
  */
 export function pasteCommands(payload: ClipboardPayload, options: PasteOptions): Command[] {
   const ids = options.ids ?? systemIdFactory;
   const offset = options.offset ?? PASTE_OFFSET;
   const targetParentId = options.parentId ?? null;
   const map = remapIds(payload, ids);
+  const page = options.page;
 
   // 原始父子关系与下标（载荷自带前序，故插入顺序天然「父先于子」）
   const oldParentOf = new Map<NodeId, NodeId | null>();
@@ -432,38 +549,198 @@ export function pasteCommands(payload: ClipboardPayload, options: PasteOptions):
     });
   }
 
-  const commands: Command[] = [];
+  // 复制时原级信息（旧载荷没有 → 全部走单目标路径）
+  const originOf = new Map<NodeId, ClipboardRootOrigin>();
+  if (options.restoreParents) {
+    for (const origin of payload.rootOrigins ?? []) {
+      if (!originOf.has(origin.id)) originOf.set(origin.id, origin);
+    }
+  }
+
+  const nodeById = new Map(payload.nodes.map((node) => [node.id, node]));
+
+  /** 父级坐标系的旋转累计（页面顶层为 0；无页面快照时按 0 处理）。 */
+  const frameRotationOf = (parentId: NodeId | null): number =>
+    parentId === null || page === undefined ? 0 : worldRotation(page, parentId);
+
+  /** 父级坐标系的世界矩阵（页面顶层 / 无页面快照为单位阵）。 */
+  const frameMatrixOf = (parentId: NodeId | null): Matrix =>
+    parentId === null || page === undefined ? identity() : worldMatrix(page, parentId);
+
+  /** 世界偏移 → 父级局部偏移（父坐标系被旋转时增量需反向旋转）。 */
+  const localOffsetInto = (parentId: NodeId | null): Point =>
+    rotateVector(offset, -frameRotationOf(parentId));
+
+  /** 旧行为的根节点下标（显式 index + 载荷内序）。 */
+  const legacyRootIndex = (rootId: NodeId): number | undefined =>
+    options.index === undefined
+      ? undefined
+      : options.index + Math.max(0, payload.rootIds.indexOf(rootId));
+
+  // 能否做世界位置换算：目标是页面顶层（单位阵）或持有目标页面快照
+  const canConvert = targetParentId === null || page !== undefined;
+
+  const placements = new Map<NodeId, RootPlacement>();
+  for (const rootId of payload.rootIds) {
+    const node = nodeById.get(rootId);
+    if (!node) continue;
+    const origin = originOf.get(rootId);
+    const restoreHit =
+      origin !== undefined &&
+      targetParentId === null &&
+      (origin.parentId === null ||
+        (page !== undefined && page.nodes[origin.parentId] !== undefined));
+    if (restoreHit && origin) {
+      // 各归各父级：坐标保持原父级局部语义（副本与原节点同位），偏移按该父级坐标系换算
+      const local = localOffsetInto(origin.parentId);
+      const anchored =
+        origin.parentId !== null &&
+        page !== undefined &&
+        page.nodes[origin.parentId] !== undefined &&
+        parentIdOf(page, rootId) === origin.parentId;
+      placements.set(rootId, {
+        parentId: origin.parentId,
+        index: undefined,
+        x: node.x + local.x,
+        y: node.y + local.y,
+        anchorIndex: anchored ? siblingIndexOf(page as ScenePage, rootId) : undefined,
+      });
+      continue;
+    }
+    if (origin && canConvert) {
+      // 跨父级回退 / 显式容器：经复制时父级坐标系快照换算世界中心，再落入实际插入父级
+      const worldCenter = applyToPoint(origin.frame, {
+        x: node.x + node.width / 2,
+        y: node.y + node.height / 2,
+      });
+      const localCenter = applyToPoint(invert(frameMatrixOf(targetParentId)), {
+        x: worldCenter.x + offset.x,
+        y: worldCenter.y + offset.y,
+      });
+      placements.set(rootId, {
+        parentId: targetParentId,
+        index: legacyRootIndex(rootId),
+        x: localCenter.x - node.width / 2,
+        y: localCenter.y - node.height / 2,
+        rotation: node.rotation + origin.frameRotation - frameRotationOf(targetParentId),
+      });
+      continue;
+    }
+    // 旧行为：无原级记录 / 未开 restore / 无页面快照且目标非顶层 → 单目标、坐标原样 + 偏移
+    placements.set(rootId, {
+      parentId: targetParentId,
+      index: legacyRootIndex(rootId),
+      x: node.x + offset.x,
+      y: node.y + offset.y,
+    });
+  }
+
+  // 锚定根的位移记账：同父级内按原节点现下标升序，第 k 个 → index = 现下标 + 1 + k
+  // （每个更早的同父锚点副本都插在其原节点之后、且在本原节点之前，恰好把本原节点推后 k 位）
+  const anchorGroups = new Map<NodeId | null, NodeId[]>();
+  for (const [rootId, placement] of placements) {
+    if (placement.anchorIndex === undefined) continue;
+    const group = anchorGroups.get(placement.parentId) ?? [];
+    group.push(rootId);
+    anchorGroups.set(placement.parentId, group);
+  }
+  for (const group of anchorGroups.values()) {
+    group.sort(
+      (a, b) =>
+        (placements.get(a)?.anchorIndex ?? 0) - (placements.get(b)?.anchorIndex ?? 0),
+    );
+    group.forEach((rootId, order) => {
+      const placement = placements.get(rootId);
+      if (placement) placement.index = (placement.anchorIndex as number) + 1 + order;
+    });
+  }
+
+  // 发射顺序：同父级的锚定根按记账升序整组发射，其余保持载荷顺序
+  const emission: NodeId[] = [];
+  const emitted = new Set<NodeId>();
+  for (const rootId of payload.rootIds) {
+    if (emitted.has(rootId)) continue;
+    const group =
+      placements.get(rootId)?.anchorIndex !== undefined
+        ? anchorGroups.get(placements.get(rootId)?.parentId ?? null)
+        : undefined;
+    if (group) {
+      for (const id of group) {
+        if (!emitted.has(id)) {
+          emission.push(id);
+          emitted.add(id);
+        }
+      }
+    } else {
+      emission.push(rootId);
+      emitted.add(rootId);
+    }
+  }
+
+  // 单遍把前序节点分桶到各自的根（桶内保持前序：根先于其后代）
+  const rootSet = new Set(payload.rootIds);
+  const nodesByRoot = new Map<NodeId, SceneNode[]>();
+  let currentRoot: NodeId | null = null;
   for (const node of payload.nodes) {
-    const newId = map.get(node.id);
-    if (!newId) continue;
-    const oldParent = oldParentOf.get(node.id) ?? null;
-    const remapped = remapNode(node, map, options.componentRemap ?? {});
-    // 容器插入时清空 children，交由子节点的插入重建（叶子节点不带 children 字段）
-    const insertNodeValue: SceneNode = isContainer(remapped)
-      ? { ...remapped, children: [] }
-      : remapped;
-    const isRoot = oldParent === null;
-    const withOffset = isRoot
-      ? { ...insertNodeValue, x: insertNodeValue.x + offset.x, y: insertNodeValue.y + offset.y }
-      : insertNodeValue;
-    const command: Command = {
-      type: 'node.insert',
-      pageId: options.pageId,
-      node: withOffset,
-      parentId: isRoot ? targetParentId : (map.get(oldParent) ?? targetParentId),
-    };
-    const index = isRoot
-      ? options.index === undefined
-        ? undefined
-        : options.index +
-          (payload.rootIds.indexOf(node.id) >= 0 ? payload.rootIds.indexOf(node.id) : 0)
-      : indexInParent.get(node.id);
-    commands.push(index === undefined ? command : { ...command, index });
+    if (rootSet.has(node.id)) currentRoot = node.id;
+    if (currentRoot === null) continue;
+    const bucket = nodesByRoot.get(currentRoot);
+    if (bucket) bucket.push(node);
+    else nodesByRoot.set(currentRoot, [node]);
+  }
+
+  const commands: Command[] = [];
+  for (const rootId of emission) {
+    const placement = placements.get(rootId);
+    const bucket = nodesByRoot.get(rootId);
+    if (!placement || !bucket) continue;
+    for (const node of bucket) {
+      const newId = map.get(node.id);
+      if (!newId) continue;
+      const oldParent = oldParentOf.get(node.id) ?? null;
+      const remapped = remapNode(node, map, options.componentRemap ?? {});
+      // 容器插入时清空 children，交由子节点的插入重建（叶子节点不带 children 字段）
+      const insertNodeValue: SceneNode = isContainer(remapped)
+        ? { ...remapped, children: [] }
+        : remapped;
+      const isPayloadRoot = node.id === rootId;
+      let commandNode = insertNodeValue;
+      let parentId: NodeId | null;
+      let index: number | undefined;
+      if (isPayloadRoot) {
+        commandNode =
+          placement.rotation === undefined
+            ? { ...insertNodeValue, x: placement.x, y: placement.y }
+            : {
+                ...insertNodeValue,
+                x: placement.x,
+                y: placement.y,
+                rotation: placement.rotation,
+              };
+        parentId = placement.parentId;
+        index = placement.index;
+      } else {
+        parentId = map.get(oldParent) ?? targetParentId;
+        index = indexInParent.get(node.id);
+      }
+      const command: Command = {
+        type: 'node.insert',
+        pageId: options.pageId,
+        node: commandNode,
+        parentId,
+      };
+      commands.push(index === undefined ? command : { ...command, index });
+    }
   }
   return commands;
 }
 
-/** 复制一份并偏移（Cmd+D）。 */
+/**
+ * 复制一份并偏移（Cmd+D）：副本**各归各父级**、紧随原节点、世界位置保持。
+ *
+ * 跨父级选区再制时，旧实现把全部副本塞进第一个节点的父级且坐标不改算，
+ * 画板外副本会被 `clipsContent` 裁剪成不可见（B4）；现走 restore 原父级路径。
+ */
 export function duplicateCommands(
   page: ScenePage,
   pageId: PageId,
@@ -472,11 +749,12 @@ export function duplicateCommands(
 ): Command[] {
   if (nodeIds.length === 0) return [];
   const payload = copyNodes(page, pageId, nodeIds);
-  const first = nodeIds[0] as NodeId;
-  const offset = options.offset ?? { x: 0, y: 0 };
-  const parentId = parentIdOf(page, first);
-  const index = siblingIndexOf(page, first) + 1;
-  const commandOptions: PasteOptions = { pageId, parentId, index, offset };
+  const commandOptions: PasteOptions = {
+    pageId,
+    offset: options.offset ?? { x: 0, y: 0 },
+    page,
+    restoreParents: true,
+  };
   if (options.ids) commandOptions.ids = options.ids;
   return pasteCommands(payload, commandOptions);
 }

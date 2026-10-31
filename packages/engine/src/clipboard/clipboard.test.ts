@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CommandStack } from '../commands/index';
+import { worldBoundsOfNode } from '../geometry/index';
 import { createIdFactory } from '../model/ids';
 import {
   createComponent,
@@ -191,5 +192,58 @@ describe('clipboard · 粘贴（id 重映射）', () => {
       const first = path.split('/')[0] as string;
       expect(copiedComponentChildren).toContain(first);
     }
+  });
+});
+
+describe('clipboard · 跨父级选区（B4）', () => {
+  /**
+   * 场景（证据 §B4）：画板 f1@(100,100) 内节点 n1（画板局部 20,30）+ 页面顶层 t1@(500,60)。
+   * 选中 [n1, t1] 复制/再制/粘贴——副本各归各父级、世界位置保持语义、不被画板裁剪吞掉。
+   */
+  function crossDoc(): DesignDocument {
+    let document = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+    document = insertNode(
+      document,
+      'p1',
+      createFrame({ id: 'f1', x: 100, y: 100, width: 200, height: 200 }),
+      null,
+    );
+    document = insertNode(
+      document,
+      'p1',
+      createRect({ id: 'n1', x: 20, y: 30, width: 40, height: 20 }),
+      'f1',
+    );
+    document = insertNode(
+      document,
+      'p1',
+      createRect({ id: 't1', x: 500, y: 60, width: 30, height: 30 }),
+      null,
+    );
+    return document;
+  }
+
+  it('再制（Cmd+D）：副本各归各父级、世界位置不变、层级紧随原节点', () => {
+    const document = crossDoc();
+    const page = getPage(document, 'p1');
+    const stack = new CommandStack(document);
+    stack.dispatch(duplicateCommands(page, 'p1', ['n1', 't1'], { ids: createIdFactory(600) }));
+
+    const after = getPage(stack.document, 'p1');
+    // 层级与原节点一致：n1 副本仍在画板内，t1 副本仍在页面顶层
+    const f1 = requireNode(after, 'f1');
+    if (f1.type !== 'frame') throw new Error('f1 不是画板');
+    const n1CopyId = f1.children.find((id) => id !== 'n1');
+    expect(n1CopyId).toBeDefined();
+    const t1CopyId = after.rootIds.find((id) => id !== 'f1' && id !== 't1');
+    expect(t1CopyId).toBeDefined();
+    // 世界位置保持：n1 副本世界 (120,130)（画板内，可见）；
+    // t1 副本世界 (500,60)——缺陷现场是它被塞进画板局部 (500,60)=世界 (600,160)，
+    // 落在 clipsContent:true 的裁剪区外直接不可见。
+    expect(worldBoundsOfNode(after, n1CopyId as string)).toMatchObject({ x: 120, y: 130 });
+    expect(worldBoundsOfNode(after, t1CopyId as string)).toMatchObject({ x: 500, y: 60 });
+    // 层级紧随原节点
+    expect(f1.children).toEqual(['n1', n1CopyId]);
+    expect(after.rootIds).toEqual(['f1', 't1', t1CopyId]);
   });
 });
