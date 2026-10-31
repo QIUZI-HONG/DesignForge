@@ -14,8 +14,10 @@
  * - **载入**：`load(id)` 走 `loadDesignDocument`（逐页读回 → 引擎 `parseDocument` 结构校验），
  *   交给宿主 `adopt(...)` **以 `document.replace` 命令**替换进共享命令栈（写路径唯一性），
  *   并清空历史（载入不该能被撤销回内存空文档）；
- * - **保存**：`save()` 走 `saveDesignDocument`（逐页 PUT，页面不存在时先建）；
- *   未落盘文档先按名**幂等**落盘——同名已存在则复用（两个宿主同一口径），不产生第二份；
+ * - **保存**：`save()` 走 `saveDesignDocument`（按 daemon manifest 页列表寻址逐页写，
+ *   超出当前页数的 daemon 页清理掉——缩页保存不留孤儿页）；
+ *   未落盘文档先按名**幂等**落盘——同名已存在**且正文为空**（空首页约定）才复用，
+ *   否则报冲突（daemon 文档 id 由名字派生，无法另建同名第二份；绝不静默覆盖别人的内容）；
  * - **本地替换**：`adoptLocal(document)` 供「导入 IR」这类**不落盘**的整文档替换（清掉落盘身份）；
  * - **保存态**：`dirty（未保存）/ saving（保存中…）/ saved（已保存）/ error（失败 + 原因）`；
  *   保存期间继续编辑不会谎报「已保存」（按保存起点与当前修订号比对，落后即回「未保存」）；
@@ -29,6 +31,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 
 import {
   type DocumentsClient,
+  isDocumentBodyEmpty,
   loadDesignDocument,
   saveDesignDocument,
 } from '../persistence/documents-client';
@@ -200,12 +203,22 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
       store.setState({ status: 'saving', error: null, errorKind: null });
       const document = host.document();
 
-      // 幂等落盘：未落盘文档先按名找/建（同名复用，两个宿主同一口径）
+      // 幂等落盘：未落盘文档先按名找/建（同名复用仅限**空**正文——空首页约定）
       let documentId = store.getState().documentId;
       if (documentId === null) {
         const existing = await client.findDocumentByName(document.name);
         if (!existing.ok) return fail('save', existing.error);
         if (existing.value !== null) {
+          // 按名复用仅当 daemon 文档正文为空（空首页约定）：含内容的同名文档绝不静默覆盖
+          // （daemon 的文档 id 由名字派生，同名无法另建一份——只能报冲突让用户改名）
+          const empty = await isDocumentBodyEmpty(client, existing.value.id);
+          if (!empty.ok) return fail('save', empty.error);
+          if (!empty.value) {
+            return fail(
+              'save',
+              `同名文档「${document.name}」已包含设计内容，未覆盖；请先重命名本文档再保存`,
+            );
+          }
           documentId = existing.value.id;
         } else {
           const created = await client.createDocument(document.name);
