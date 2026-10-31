@@ -306,7 +306,7 @@ describe('对抗 · 凭据纪律（哨兵值全链路无明文）', () => {
 });
 
 describe('对抗 · CORS 边界', () => {
-  it('白名单回显、非白名单不回 CORS 头、null 放行、伪造子域拒绝', async () => {
+  it('白名单回显、非白名单不回 CORS 头、null 不放行（沙箱 iframe 形态）、伪造子域拒绝', async () => {
     const daemon = await createTestDaemon();
     try {
       const allowed = await daemon.app.inject({
@@ -321,16 +321,11 @@ describe('对抗 · CORS 边界', () => {
         'http://evil.com',
         'http://localhost:3000.evil.tld',
         'http://localhost:3000.',
+        'null',
       ]) {
         const res = await daemon.app.inject({ method: 'GET', url: '/health', headers: { origin } });
         expect(res.headers['access-control-allow-origin'], origin).toBeUndefined();
       }
-      const nullOrigin = await daemon.app.inject({
-        method: 'GET',
-        url: '/health',
-        headers: { origin: 'null' },
-      });
-      expect(nullOrigin.headers['access-control-allow-origin']).toBe('null');
 
       const preflight = await daemon.app.inject({
         method: 'OPTIONS',
