@@ -78,7 +78,10 @@ function extractFill(node: Record<string, unknown>): string | null {
   if (Array.isArray(fills)) {
     for (const entry of fills) {
       if (typeof entry === 'object' && entry !== null) {
-        const color = normalizeColor((entry as Record<string, unknown>).color);
+        const paint = entry as Record<string, unknown>;
+        // 引擎 `SolidPaint.visible`：隐藏画刷不取色，继续找下一个可见填充
+        if (paint.visible === false) continue;
+        const color = normalizeColor(paint.color);
         if (color !== null) return color;
       }
     }
@@ -219,7 +222,10 @@ function extractEnvelopeScene(page: Record<string, unknown>): RenderScene {
     typeof page.nodes === 'object' && page.nodes !== null && !Array.isArray(page.nodes)
       ? (page.nodes as Record<string, unknown>)
       : {};
-  const roots: unknown[] = Array.isArray(page.rootIds) ? page.rootIds : [];
+  // rootIds 缺失/非数组时兜底：未被任何容器 children 引用的节点视为顶层（旧数据容错）
+  const roots: unknown[] = Array.isArray(page.rootIds)
+    ? page.rootIds
+    : deriveEnvelopeRootIds(nodesRecord);
 
   const budget = { skipped: 0, used: 0 };
   const bounds = { width: 0, height: 0 };
@@ -238,6 +244,20 @@ function extractEnvelopeScene(page: Record<string, unknown>): RenderScene {
     nodes,
     skippedNodes: budget.skipped,
   };
+}
+
+/** 信封 rootIds 缺失时兜底：收集被 children 引用的 id，剩下的即顶层节点。 */
+function deriveEnvelopeRootIds(nodesRecord: Record<string, unknown>): string[] {
+  const referenced = new Set<string>();
+  for (const value of Object.values(nodesRecord)) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
+    const children = (value as Record<string, unknown>).children;
+    if (!Array.isArray(children)) continue;
+    for (const childId of children) {
+      if (typeof childId === 'string') referenced.add(childId);
+    }
+  }
+  return Object.keys(nodesRecord).filter((id) => !referenced.has(id));
 }
 
 /** 引擎节点类型 → 最小渲染类型；无渲染语义且无法承载子树的返回 null（跳过）。 */
@@ -322,6 +342,17 @@ function extractEnvelopeNode(
   const rawCornerRadius = asFiniteNumber(node.cornerRadius) ?? 0;
   const rawOpacity = asFiniteNumber(node.opacity) ?? 1;
 
+  // 引擎 TextNode：characters/fontSize 嵌套在 `text: TextContent` 里
+  const textContent =
+    typeof node.text === 'object' && node.text !== null && !Array.isArray(node.text)
+      ? (node.text as Record<string, unknown>)
+      : null;
+  const rawText =
+    textContent !== null && typeof textContent.characters === 'string'
+      ? textContent.characters
+      : null;
+  const rawFontSize = textContent === null ? null : asFiniteNumber(textContent.fontSize);
+
   return {
     kind,
     x,
@@ -331,8 +362,8 @@ function extractEnvelopeNode(
     fill: extractFill(node),
     cornerRadius: Math.max(0, rawCornerRadius),
     opacity: Math.min(Math.max(0, rawOpacity), 1),
-    text: null,
-    fontSize: 16,
+    text: rawText,
+    fontSize: rawFontSize ?? 16,
     children,
   };
 }
