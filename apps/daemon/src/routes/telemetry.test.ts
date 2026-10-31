@@ -96,6 +96,65 @@ describe('telemetry · 本地 JSONL（默认仅本地）', () => {
     }
   });
 
+  // 证据 test-2026-10-31 §D2：深嵌套 payload 在脱敏 walk / JSON.stringify（递归）处栈溢出 → 500；
+  // 修复后与 documents 同口径：入口按深度拒为 4xx（字节量远小于 body 上限也拒）
+  it('深嵌套 payload（万层级、约 120KB）→ 400 telemetry_invalid_event 而不是 500；拒绝后浅事件照常落盘', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      // 手拼原始 JSON 字符串：测试进程自己 JSON.stringify 万层结构也会栈溢出
+      const deep = `{"name":"doc.created","payload":${'{"a":'.repeat(20_000)}1${'}'.repeat(20_000)}}`;
+      const res = await daemon.app.inject({
+        method: 'POST',
+        url: '/telemetry/events',
+        headers: { 'content-type': 'application/json' },
+        payload: deep,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ ok: false, error: { code: 'telemetry_invalid_event' } });
+
+      // 拒绝不污染 daemon 状态：浅事件照常写入
+      const shallow = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/telemetry/events',
+        payload: { name: 'doc.created', payload: { documentId: 'a' } },
+      });
+      expect(shallow.statusCode).toBe(200);
+      expect((shallow.payload as { result: { stored: boolean } }).result.stored).toBe(true);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('payload 深度恰好等于上限（与 documents 同口径 1024）照常落盘；超一层即拒', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const atLimit = `{"name":"doc.opened","payload":${'{"a":'.repeat(1_024)}1${'}'.repeat(1_024)}}`;
+      const ok = await daemon.app.inject({
+        method: 'POST',
+        url: '/telemetry/events',
+        headers: { 'content-type': 'application/json' },
+        payload: atLimit,
+      });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toMatchObject({ ok: true, result: { stored: true } });
+
+      const overLimit = `{"name":"doc.opened","payload":${'{"a":'.repeat(1_025)}1${'}'.repeat(1_025)}}`;
+      const rejected = await daemon.app.inject({
+        method: 'POST',
+        url: '/telemetry/events',
+        headers: { 'content-type': 'application/json' },
+        payload: overLimit,
+      });
+      expect(rejected.statusCode).toBe(400);
+      expect(rejected.json()).toMatchObject({
+        ok: false,
+        error: { code: 'telemetry_invalid_event' },
+      });
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('未知事件名 / payload 非对象 → 400 telemetry_invalid_event', async () => {
     const daemon = await createTestDaemon();
     try {
