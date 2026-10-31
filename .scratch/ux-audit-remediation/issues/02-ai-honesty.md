@@ -9,5 +9,5 @@
 - [x] 步骤状态机纯测：步骤收敛后时序单调、失败有落点、重试语义不变
 - [x] 组件测试：UI 不再出现「校验/编译」步骤；降级角标与五类 `degradedReason` 中文文案正确渲染
 - [x] 组件测试：首页 AI 区 / 抽屉副标题 / 设置页提示 / 角标说明四处新文案均来自 zh-CN 目录（ADR-0003）
-- [ ] verify-ai-two-state 门禁同步更新且通过（断言与用户所见一致）
+- [x] verify-ai-two-state 门禁同步更新且通过（断言与用户所见一致）（2026-10-31 集成分支真跑：17 步全过、失败 0、exit 0——含「校验/编译」不进时序断言（A.stream.no-fake-steps）与三段时序断言（queued > llm > done）；UI 段真浏览器过（抽屉降级提示 = /ai/status.degradedHint 同文）；证据 `~/df-evidence/fe-10/verify-ai-two-state.json` + 截图 `ui-ai-drawer.png`）
 - [ ] 浏览器实测：未配置 key 下提交，全程无任何与实际行为不符的声明
