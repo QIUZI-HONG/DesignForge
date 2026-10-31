@@ -207,3 +207,76 @@
   font-size: var(--dfg-font-size-11);
   color: var(--dfg-color-text-secondary);
 }
+
+/* ---------- 令牌添加（票 14：资产面板 Token 添加入口） ---------- */
+
+/* 入口行：与工具栏同一条底边分隔，按钮占满行宽（入口在任何令牌体状态下都可见） */
+.dfg-panels__token-add-entry {
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+/* 表单：字段纵排；类型 + 值一行两列（窄面板先保证名称可读） */
+.dfg-panels__token-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-2);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  border-bottom: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+}
+
+.dfg-panels__token-add-row {
+  display: flex;
+  gap: var(--dfg-space-2);
+  align-items: flex-end;
+}
+
+.dfg-panels__token-add-row > :first-child {
+  flex: 0 0 40%;
+}
+
+.dfg-panels__token-add-row > :last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dfg-panels__token-add-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+}
+
+.dfg-panels__token-add-label {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+/* 原生 select（本 feature 内既定做法）：控件外观走界面令牌，与 Input 同档 */
+.dfg-panels__token-add-select {
+  height: var(--dfg-control-height-sm);
+  padding-inline: var(--dfg-space-2);
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-text-primary);
+  background-color: var(--dfg-color-surface);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+}
+
+.dfg-panels__token-add-select:focus-visible {
+  outline: var(--dfg-focus-ring-width) solid var(--dfg-color-focus-ring);
+  outline-offset: var(--dfg-focus-ring-offset);
+}
+
+.dfg-panels__token-add-actions {
+  display: flex;
+  gap: var(--dfg-space-2);
+  justify-content: flex-end;
+}
+
+/* 分因提示：danger 色 + 小字号（与 Input errorMessage 同一语义色） */
+.dfg-panels__token-add-error {
+  margin: 0;
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-danger);
+}
