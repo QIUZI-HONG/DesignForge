@@ -915,6 +915,7 @@ function makeApi(page) {
     documentId: () => handle(() => globalThis.__dforgeCanvas.documentId()),
     textContent: (id) => handle((nodeId) => globalThis.__dforgeCanvas.textContent(nodeId), id),
     setSnap: (enabled) => handle((value) => globalThis.__dforgeCanvas.setSnap(value), enabled),
+    setViewport: (patch) => handle((value) => globalThis.__dforgeCanvas.setViewport(value), patch),
     select: (ids) => handle((value) => globalThis.__dforgeCanvas.select(value), ids),
     addToSelection: (id) =>
       handle((value) => globalThis.__dforgeCanvas.session().addNodeToSelection(value), id),
