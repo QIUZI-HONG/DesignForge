@@ -39,7 +39,7 @@
 ```
 
 - **两种运行形态，同一产物**：
-  - **canonical 形态**：`web:3000` + `daemon:4318`（README 工程启动；CORS 白名单覆盖 3000 两个来源）；
+  - **canonical 形态**：`web:3000` + `daemon:4318`（README 工程启动；CORS 显式白名单覆盖 3000 两个来源，另有回环任意端口规则——壳静态模式经内置静态服务以 `http://127.0.0.1:<随机端口>` 装载产物）；
   - **同源形态**：门禁与桌面壳用反向代理把站点与 daemon 还原为一个源（`/df/*` → daemon），或壳内以 `DFORGE_SHELL_URL`/内置静态服务装载。端点解析由**单点模块** `apps/web/src/lib/daemon-endpoint.ts` 裁决（ADR-0004 ①），批次 4 增加「站内导航续写 `?daemon=`」的传递单点（`withDaemonEndpoint`）。
 - **Electron 最小壳**：`apps/desktop` 只做「窗口 + 单工作区 + 与浏览器一致的渲染口径 + 安全基线断言」；不承载 webview，外链走系统浏览器白名单。
 

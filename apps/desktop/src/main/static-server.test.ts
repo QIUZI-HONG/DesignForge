@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -68,6 +69,33 @@ describe('内置静态服务的请求解析（web 产物装载口径）', () => 
     ).toEqual({
       status: 404,
     });
+  });
+});
+
+describe('内置静态服务 · 来源形状（daemon CORS 配对的前提，票 14 / §C1）', () => {
+  it('监听 127.0.0.1 的随机端口：返回来源即页面 Origin，daemon 须按回环任意端口放行', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'df-static-origin-'));
+    try {
+      await writeFile(join(root, 'index.html'), '<!doctype html>');
+      const { server, origin } = await startStaticServer(root);
+      try {
+        const address = server.address() as AddressInfo;
+        // 来源形状两侧同源：壳给出 http://127.0.0.1:<系统分配端口>，
+        // daemon 侧配对用例（apps/daemon/src/routes/cors.test.ts「壳静态模式配对」组）
+        // 用同一形状的随机端口验证放行——任何一侧改动绑定地址/端口口径都会在此翻红
+        expect(origin).toBe(`http://127.0.0.1:${String(address.port)}`);
+        expect(address.port).toBeGreaterThan(0);
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => {
+            if (error) reject(error);
+            else resolve();
+          });
+        });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

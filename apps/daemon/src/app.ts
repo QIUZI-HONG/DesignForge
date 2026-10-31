@@ -68,7 +68,10 @@ export interface DaemonAppOptions {
   aiRetryDelaysMs?: number[];
   /** MCP ackToken 时效（缺省 2 分钟；测试注入短时值）。 */
   mcpAckTtlMs?: number;
-  /** CORS 白名单覆盖（缺省读 `DFORGE_CORS_ORIGINS`/`DF_CORS_ORIGINS`，再回退本机默认）。 */
+  /**
+   * CORS **显式**白名单覆盖（缺省读 `DFORGE_CORS_ORIGINS`/`DF_CORS_ORIGINS`，再回退本机默认）；
+   * 回环主机任意端口（壳静态模式配对）是策略恒定规则，不受此覆盖影响。
+   */
   corsOrigins?: string[];
 }
 
@@ -165,7 +168,7 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
   // Host 校验（第一道，路由前）：仅接受本机回环 Host，其余 403——封 DNS rebinding，
   // 详见 access-control.ts 模块头注释
   registerHostValidation(app);
-  // 受控 CORS：web 开发态（localhost:3000）跨源直连；
+  // 受控 CORS：web 开发态（localhost:3000）与壳静态模式（127.0.0.1 随机端口）跨源直连；
   // 白名单外不放行（受控白名单，不通配）——详见 cors.ts 模块头注释
   registerCors(app, createCorsPolicy(options.corsOrigins ?? corsOriginsFromEnv(process.env)));
 

@@ -1,3 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -10,6 +15,32 @@ import {
 } from '../cors.ts';
 import type { TestDaemon } from '../testing/harness.ts';
 import { createTestDaemon } from '../testing/harness.ts';
+
+/** 壳内置静态服务的源码（票 14：静态模式来源形状须两侧同源，见「静态模式配对」组）。 */
+const SHELL_STATIC_SERVER_SOURCE = fileURLToPath(
+  new URL('../../../desktop/src/main/static-server.ts', import.meta.url),
+);
+
+/**
+ * 起一个与壳内置静态服务**同形**的真 http 服务：绑定 `127.0.0.1` + 系统分配端口
+ * （`listen(0, '127.0.0.1')`），返回其来源——壳装载页面后浏览器发出的 Origin 正是它。
+ */
+function startLoopbackStaticFixture(): Promise<{ origin: string; close: () => Promise<void> }> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html>');
+  });
+  return new Promise((resolveStart, rejectStart) => {
+    server.once('error', rejectStart);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address() as AddressInfo;
+      resolveStart({
+        origin: `http://127.0.0.1:${String(address.port)}`,
+        close: () => new Promise((resolveClose) => server.close(() => resolveClose())),
+      });
+    });
+  });
+}
 
 /** 取响应头（Fastify inject 头名小写）。 */
 function headerOf(response: { headers: Record<string, unknown> }, name: string): unknown {
@@ -61,6 +92,98 @@ describe('cors · 策略解析', () => {
     expect(policy.isAllowed('null')).toBe(false);
     expect(policy.isAllowed('http://evil.example.com')).toBe(false);
     expect(policy.isAllowed('http://localhost:3000.evil.example.com')).toBe(false);
+  });
+});
+
+describe('cors · 壳静态模式配对（回环任意端口，票 14 / 证据 §C1）', () => {
+  it('壳内置静态服务以 127.0.0.1:随机端口装载产物（静态模式的来源形状）', () => {
+    const source = readFileSync(SHELL_STATIC_SERVER_SOURCE, 'utf8');
+    // 端口 0 = 系统分配；绑定 127.0.0.1（壳静态模式不监听 0.0.0.0）
+    expect(source).toContain("server.listen(0, '127.0.0.1'");
+    expect(source).toMatch(/origin: `http:\/\/127\.0\.0\.1:\$\{address\.port\}`/);
+  });
+
+  it('策略放行 127.0.0.1 / localhost 任意端口；非回环主机仍拒绝（不放宽到任意 origin）', () => {
+    const policy = createCorsPolicy();
+    for (const origin of [
+      'http://127.0.0.1:53211',
+      'http://127.0.0.1',
+      'http://localhost:53211',
+      'https://localhost:8443',
+      'http://LOCALHOST:53211',
+    ]) {
+      expect(policy.isAllowed(origin), origin).toBe(true);
+    }
+    for (const origin of [
+      // 仅 127.0.0.1 / localhost：其余 127/8、子域伪装、内网与公网一律不放行
+      'http://127.0.0.2:53211',
+      'http://127.0.0.1.evil.example:53211',
+      'http://localhost.evil.example:53211',
+      'http://192.168.1.9:53211',
+      'http://evil.example.com',
+      'null',
+      'file:///opt/dforge/index.html',
+    ]) {
+      expect(policy.isAllowed(origin), origin).toBe(false);
+    }
+  });
+
+  it('静态随机端口来源 → inject 放行（GET 带 allow-origin + vary；预检 204）', async () => {
+    const fixture = await startLoopbackStaticFixture();
+    try {
+      await withDaemon(async (daemon) => {
+        const get = await daemon.app.inject({
+          method: 'GET',
+          url: '/health',
+          headers: { origin: fixture.origin },
+        });
+        expect(get.statusCode).toBe(200);
+        expect(headerOf(get, 'access-control-allow-origin')).toBe(fixture.origin);
+        expect(String(headerOf(get, 'vary')).toLowerCase()).toContain('origin');
+
+        const preflight = await daemon.app.inject({
+          method: 'OPTIONS',
+          url: '/documents',
+          headers: { origin: fixture.origin, 'access-control-request-method': 'POST' },
+        });
+        expect(preflight.statusCode).toBe(204);
+        expect(headerOf(preflight, 'access-control-allow-origin')).toBe(fixture.origin);
+        expect(headerOf(preflight, 'access-control-allow-methods')).toBe(
+          'GET,POST,PUT,PATCH,DELETE',
+        );
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('对抗面不回退：非回环 origin 无放行头；回环 origin + 非回环 Host 仍 403（钩子顺序）', async () => {
+    const fixture = await startLoopbackStaticFixture();
+    try {
+      await withDaemon(async (daemon) => {
+        for (const origin of ['http://evil.example.com', 'http://127.0.0.2:53211', 'null']) {
+          const response = await daemon.app.inject({
+            method: 'GET',
+            url: '/health',
+            headers: { origin },
+          });
+          // CORS 语义不变：服务端照常处理（200），但不回放行头（浏览器自行拒绝）
+          expect(response.statusCode).toBe(200);
+          expect(headerOf(response, 'access-control-allow-origin'), origin).toBeUndefined();
+        }
+
+        // Host 校验（票 02）先于 CORS：来源合法不代表 Host 合法（DNS rebinding 面不可回退）
+        const rebinding = await daemon.app.inject({
+          method: 'GET',
+          url: '/health',
+          headers: { origin: fixture.origin, host: 'evil.rebind.example' },
+        });
+        expect(rebinding.statusCode).toBe(403);
+        expect(headerOf(rebinding, 'access-control-allow-origin')).toBeUndefined();
+      });
+    } finally {
+      await fixture.close();
+    }
   });
 });
 
@@ -182,7 +305,7 @@ describe('cors · 预检（OPTIONS 短路）', () => {
 });
 
 describe('cors · 注入覆盖（测试/部署可配）', () => {
-  it('corsOrigins 选项替换默认白名单（本机来源不再放行）', async () => {
+  it('corsOrigins 选项替换显式白名单，但回环任意端口规则恒生效（壳静态配对的缺省语义）', async () => {
     const daemon = await createTestDaemon({ corsOrigins: ['http://design.test:8080'] });
     try {
       const allowed = await daemon.app.inject({
@@ -192,10 +315,19 @@ describe('cors · 注入覆盖（测试/部署可配）', () => {
       });
       expect(headerOf(allowed, 'access-control-allow-origin')).toBe('http://design.test:8080');
 
+      // 回环任意端口不受显式白名单影响：壳以系统分配的 127.0.0.1 随机端口装载产物，
+      // 端口不可预知、无人写入 DFORGE_CORS_ORIGINS（§C1）——这条规则必须是缺省语义
+      const loopback = await daemon.app.inject({
+        method: 'GET',
+        url: '/health',
+        headers: { origin: 'http://127.0.0.1:54321' },
+      });
+      expect(headerOf(loopback, 'access-control-allow-origin')).toBe('http://127.0.0.1:54321');
+
       const notAllowed = await daemon.app.inject({
         method: 'GET',
         url: '/health',
-        headers: { origin: 'http://localhost:3000' },
+        headers: { origin: 'http://evil.example.com' },
       });
       expect(headerOf(notAllowed, 'access-control-allow-origin')).toBeUndefined();
     } finally {

@@ -3,7 +3,8 @@
  *
  * 环境变量（缺省全部走 dataRoot 派生路径；显式 CLI 参数优先于环境变量）：
  * - `DF_DATA_ROOT`、`DF_WORKSPACE_DIR`、`DF_PORT`、`DF_HOST`、`DF_MARKET_INDEX`；
- * - `DFORGE_CORS_ORIGINS`（CORS 白名单，逗号分隔；缺省仅本机开发来源，别名 `DF_CORS_ORIGINS`）；
+ * - `DFORGE_CORS_ORIGINS`（CORS 显式白名单，逗号分隔；缺省本机开发来源 + 回环任意端口
+ *   （壳静态模式配对），别名 `DF_CORS_ORIGINS`）；
  * - `DF_DEEPSEEK_API_KEY`（凭据库只读回退源；AI 供应商/模型等改走 `PUT /config`）。
  * 启动成功后向 stdout 打印一行 `[daemon] listening on http://host:port`（脚本据此取端口）。
  */
