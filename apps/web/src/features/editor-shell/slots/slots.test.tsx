@@ -60,6 +60,18 @@ describe('插槽注册表', () => {
     expect(listEditorSlotItems('overlays')).toHaveLength(1);
   });
 
+  it('left-panel-tabs 槽：页签扩展项可注册，label 随条目存取（页签文案由消费方按需调用）', () => {
+    registerEditorSlotItem('left-panel-tabs', {
+      id: 'p2-market',
+      order: 0,
+      label: () => '市场',
+      render: () => null,
+    });
+    const items = listEditorSlotItems('left-panel-tabs');
+    expect(items.map((item) => item.id)).toEqual(['p2-market']);
+    expect(items[0]?.label?.()).toBe('市场');
+  });
+
   it('getEditorSlotSnapshot 引用稳定（React 快照契约）', () => {
     expect(getEditorSlotSnapshot('right-panel')).toBe(getEditorSlotSnapshot('right-panel'));
     const before = getEditorSlotSnapshot('right-panel');
