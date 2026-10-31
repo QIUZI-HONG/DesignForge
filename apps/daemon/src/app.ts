@@ -11,6 +11,7 @@
 import { apiFailure, DAEMON_ROUTES } from '@dforge/contracts';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import Fastify from 'fastify';
+import { registerHostValidation } from './access-control.ts';
 import type { AiClient } from './ai/client.ts';
 import { createAiClient } from './ai/client.ts';
 import type { ConfigStore } from './config/store.ts';
@@ -161,7 +162,10 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
 
   const app = Fastify({ logger: options.logger ?? false });
   registerErrorHandlers(app);
-  // 受控 CORS：web 开发态（localhost:3000）与打包壳（Origin: null）跨源直连；
+  // Host 校验（第一道，路由前）：仅接受本机回环 Host，其余 403——封 DNS rebinding，
+  // 详见 access-control.ts 模块头注释
+  registerHostValidation(app);
+  // 受控 CORS：web 开发态（localhost:3000）跨源直连；
   // 白名单外不放行（受控白名单，不通配）——详见 cors.ts 模块头注释
   registerCors(app, createCorsPolicy(options.corsOrigins ?? corsOriginsFromEnv(process.env)));
 
