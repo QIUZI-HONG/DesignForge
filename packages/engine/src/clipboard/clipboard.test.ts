@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CommandStack } from '../commands/index';
+import { worldBoundsOfNode } from '../geometry/index';
 import { createIdFactory } from '../model/ids';
 import {
   createComponent,
@@ -191,5 +192,256 @@ describe('clipboard · 粘贴（id 重映射）', () => {
       const first = path.split('/')[0] as string;
       expect(copiedComponentChildren).toContain(first);
     }
+  });
+});
+
+describe('clipboard · 跨父级选区（B4）', () => {
+  /**
+   * 场景（证据 §B4）：画板 f1@(100,100) 内节点 n1（画板局部 20,30）+ 页面顶层 t1@(500,60)。
+   * 选中 [n1, t1] 复制/再制/粘贴——副本各归各父级、世界位置保持语义、不被画板裁剪吞掉。
+   */
+  function crossDoc(): DesignDocument {
+    let document = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+    document = insertNode(
+      document,
+      'p1',
+      createFrame({ id: 'f1', x: 100, y: 100, width: 200, height: 200 }),
+      null,
+    );
+    document = insertNode(
+      document,
+      'p1',
+      createRect({ id: 'n1', x: 20, y: 30, width: 40, height: 20 }),
+      'f1',
+    );
+    document = insertNode(
+      document,
+      'p1',
+      createRect({ id: 't1', x: 500, y: 60, width: 30, height: 30 }),
+      null,
+    );
+    return document;
+  }
+
+  it('再制（Cmd+D）：副本各归各父级、世界位置不变、层级紧随原节点', () => {
+    const document = crossDoc();
+    const page = getPage(document, 'p1');
+    const stack = new CommandStack(document);
+    stack.dispatch(duplicateCommands(page, 'p1', ['n1', 't1'], { ids: createIdFactory(600) }));
+
+    const after = getPage(stack.document, 'p1');
+    // 层级与原节点一致：n1 副本仍在画板内，t1 副本仍在页面顶层
+    const f1 = requireNode(after, 'f1');
+    if (f1.type !== 'frame') throw new Error('f1 不是画板');
+    const n1CopyId = f1.children.find((id) => id !== 'n1');
+    expect(n1CopyId).toBeDefined();
+    const t1CopyId = after.rootIds.find((id) => id !== 'f1' && id !== 't1');
+    expect(t1CopyId).toBeDefined();
+    // 世界位置保持：n1 副本世界 (120,130)（画板内，可见）；
+    // t1 副本世界 (500,60)——缺陷现场是它被塞进画板局部 (500,60)=世界 (600,160)，
+    // 落在 clipsContent:true 的裁剪区外直接不可见。
+    expect(worldBoundsOfNode(after, n1CopyId as string)).toMatchObject({ x: 120, y: 130 });
+    expect(worldBoundsOfNode(after, t1CopyId as string)).toMatchObject({ x: 500, y: 60 });
+    // 层级紧随原节点
+    expect(f1.children).toEqual(['n1', n1CopyId]);
+    expect(after.rootIds).toEqual(['f1', 't1', t1CopyId]);
+  });
+
+  it('粘贴（同文档）：restoreParents 让副本各归各父级、层级紧随原节点', () => {
+    const document = crossDoc();
+    const page = getPage(document, 'p1');
+    const payload = copyNodes(page, 'p1', ['n1', 't1']);
+    const stack = new CommandStack(document);
+    stack.dispatch(
+      pasteCommands(payload, {
+        pageId: 'p1',
+        page,
+        restoreParents: true,
+        ids: createIdFactory(610),
+      }),
+    );
+
+    const after = getPage(stack.document, 'p1');
+    const f1 = requireNode(after, 'f1');
+    if (f1.type !== 'frame') throw new Error('f1 不是画板');
+    const n1CopyId = f1.children.find((id) => id !== 'n1');
+    const t1CopyId = after.rootIds.find((id) => id !== 'f1' && id !== 't1');
+    expect(n1CopyId).toBeDefined();
+    expect(t1CopyId).toBeDefined();
+    // 世界位置保持 + 默认粘贴偏移 (10,10)：n1 副本世界 (130,140)，t1 副本世界 (510,70)
+    expect(worldBoundsOfNode(after, n1CopyId as string)).toMatchObject({ x: 130, y: 140 });
+    expect(worldBoundsOfNode(after, t1CopyId as string)).toMatchObject({ x: 510, y: 70 });
+    // 层级与原节点一致：副本紧随各自原节点
+    expect(f1.children).toEqual(['n1', n1CopyId]);
+    expect(after.rootIds).toEqual(['f1', 't1', t1CopyId]);
+  });
+
+  it('粘贴（未开 restoreParents）：保持单目标旧行为（跨文档粘贴路径不受影响）', () => {
+    const document = crossDoc();
+    const page = getPage(document, 'p1');
+    const payload = copyNodes(page, 'p1', ['n1', 't1']);
+    const stack = new CommandStack(document);
+    stack.dispatch(pasteCommands(payload, { pageId: 'p1', ids: createIdFactory(620) }));
+
+    const after = getPage(stack.document, 'p1');
+    // 全部落页面顶层：n1 副本坐标原样 + 偏移（画板局部 20,30 → 顶层 30,40）
+    const newIds = after.rootIds.filter((id) => id !== 'f1' && id !== 't1');
+    expect(newIds).toHaveLength(2);
+    const positions = newIds.map((id) => worldBoundsOfNode(after, id));
+    expect(positions).toContainEqual(expect.objectContaining({ x: 30, y: 40 }));
+    expect(positions).toContainEqual(expect.objectContaining({ x: 510, y: 70 }));
+  });
+
+  it('粘贴（原父级已被删）：回退根经复制时坐标系快照换算，世界位置保持', () => {
+    const document = crossDoc();
+    const page = getPage(document, 'p1');
+    const payload = copyNodes(page, 'p1', ['n1', 't1']);
+    // 复制后删除画板（连 n1 一起删）：n1 的记录原父级 f1 不在了
+    const stack = new CommandStack(document);
+    stack.dispatch([{ type: 'node.remove', pageId: 'p1', nodeId: 'f1' }]);
+    stack.dispatch(
+      pasteCommands(payload, {
+        pageId: 'p1',
+        page: getPage(stack.document, 'p1'),
+        restoreParents: true,
+        ids: createIdFactory(630),
+      }),
+    );
+
+    const after = getPage(stack.document, 'p1');
+    // n1 副本回退到页面顶层，但世界位置按复制时快照换算：复制时世界 (120,130) + 偏移 (10,10)
+    // （无换算的旧行为会把画板局部 (20,30) 原样落顶层 → 世界 (30,40)，整体平移一个父偏移）
+    const newIds = after.rootIds.filter((id) => id !== 't1');
+    expect(newIds).toHaveLength(2);
+    const positions = newIds.map((id) => worldBoundsOfNode(after, id));
+    expect(positions).toContainEqual(
+      expect.objectContaining({ x: 130, y: 140, width: 40, height: 20 }),
+    );
+    expect(positions).toContainEqual(
+      expect.objectContaining({ x: 510, y: 70, width: 30, height: 30 }),
+    );
+  });
+
+  describe('旋转父级（坐标随父级语义换算）', () => {
+    /** 场景：画板 f2@(100,100) 旋转 90°，内节点 n2（画板局部 20,30，40×20）+ 页面顶层 t2@(500,60)。 */
+    function rotatedDoc(): DesignDocument {
+      let document = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+      document = insertNode(
+        document,
+        'p1',
+        createFrame({ id: 'f2', x: 100, y: 100, width: 200, height: 200, rotation: 90 }),
+        null,
+      );
+      document = insertNode(
+        document,
+        'p1',
+        createRect({ id: 'n2', x: 20, y: 30, width: 40, height: 20 }),
+        'f2',
+      );
+      document = insertNode(
+        document,
+        'p1',
+        createRect({ id: 't2', x: 500, y: 60, width: 30, height: 30 }),
+        null,
+      );
+      return document;
+    }
+
+    it('再制 + 世界偏移：副本世界位移 = 偏移本身（父级旋转不吞偏移）', () => {
+      const document = rotatedDoc();
+      const before = getPage(document, 'p1');
+      const n2World = worldBoundsOfNode(before, 'n2');
+      expect(n2World).not.toBeNull();
+      const stack = new CommandStack(document);
+      stack.dispatch(
+        duplicateCommands(before, 'p1', ['n2', 't2'], {
+          offset: { x: 10, y: 0 },
+          ids: createIdFactory(640),
+        }),
+      );
+
+      const after = getPage(stack.document, 'p1');
+      const f2 = requireNode(after, 'f2');
+      if (f2.type !== 'frame') throw new Error('f2 不是画板');
+      const n2CopyId = f2.children.find((id) => id !== 'n2');
+      expect(n2CopyId).toBeDefined();
+      // 世界偏移 (10,0) 原样体现在世界位移上（若把偏移当画板局部量，世界位移会被转成 (0,10)）
+      expect(worldBoundsOfNode(after, n2CopyId as string)).toMatchObject({
+        x: (n2World as { x: number }).x + 10,
+        y: (n2World as { y: number }).y,
+      });
+      // 页面顶层副本不受父级旋转影响
+      const t2CopyId = after.rootIds.find((id) => id !== 'f2' && id !== 't2');
+      expect(t2CopyId).toBeDefined();
+      expect(worldBoundsOfNode(after, t2CopyId as string)).toMatchObject({ x: 510, y: 60 });
+      // 层级与原节点一致
+      expect(f2.children).toEqual(['n2', n2CopyId]);
+      expect(after.rootIds).toEqual(['f2', 't2', t2CopyId]);
+    });
+
+    it('粘贴（原父级已被删）：世界位置与旋转一并保持（保世界坐标重挂同款数学）', () => {
+      const document = rotatedDoc();
+      const before = getPage(document, 'p1');
+      const n2World = worldBoundsOfNode(before, 'n2');
+      expect(n2World).not.toBeNull();
+      const payload = copyNodes(before, 'p1', ['n2', 't2']);
+      const stack = new CommandStack(document);
+      stack.dispatch([{ type: 'node.remove', pageId: 'p1', nodeId: 'f2' }]);
+      stack.dispatch(
+        pasteCommands(payload, {
+          pageId: 'p1',
+          page: getPage(stack.document, 'p1'),
+          restoreParents: true,
+          ids: createIdFactory(650),
+        }),
+      );
+
+      const after = getPage(stack.document, 'p1');
+      const newIds = after.rootIds.filter((id) => id !== 't2');
+      expect(newIds).toHaveLength(2);
+      const n2CopyId = newIds.find((id) => {
+        const node = after.nodes[id];
+        return node !== undefined && node.width === 40 && node.height === 20;
+      });
+      expect(n2CopyId).toBeDefined();
+      // 世界 AABB = 复制时世界 AABB + 默认偏移 (10,10)；父级旋转 90° 折进节点自身 rotation
+      expect(worldBoundsOfNode(after, n2CopyId as string)).toMatchObject({
+        x: (n2World as { x: number }).x + 10,
+        y: (n2World as { y: number }).y + 10,
+      });
+      expect(after.nodes[n2CopyId as string]?.rotation).toBe(90);
+    });
+  });
+
+  it('载荷自检：rootOrigins 形状/非有限数整包拒收（参与坐标换算的字段同口径）', () => {
+    const page = getPage(doc(), 'p1');
+    const payload = copyNodes(page, 'p1', ['cr1']);
+    const badFrame = JSON.parse(serializeClipboard(payload));
+    (badFrame.rootOrigins[0].frame as Record<string, unknown>).a = Number.NaN; // stringify 后为 null
+    expect(() => parseClipboard(JSON.stringify(badFrame))).toThrow('不是有限数');
+    const badShape = JSON.parse(serializeClipboard(payload));
+    badShape.rootOrigins = 'nope';
+    expect(() => parseClipboard(JSON.stringify(badShape))).toThrow('rootOrigins 不是数组');
+  });
+
+  it('旧载荷（无 rootOrigins）+ restoreParents：不崩、走单目标路径', () => {
+    const document = doc();
+    const page = getPage(document, 'p1');
+    const payload = JSON.parse(serializeClipboard(copyNodes(page, 'p1', ['cr1'])));
+    delete payload.rootOrigins;
+    const stack = new CommandStack(document);
+    stack.dispatch(
+      pasteCommands(parseClipboard(JSON.stringify(payload)), {
+        pageId: 'p1',
+        page,
+        restoreParents: true,
+        ids: createIdFactory(660),
+      }),
+    );
+    // 无原级记录 → 单目标旧行为：cr1 副本落页面顶层，坐标原样 + 偏移 (10,10)
+    const after = getPage(stack.document, 'p1');
+    const copyId = after.rootIds.find((id) => !['c1', 'top'].includes(id));
+    expect(copyId).toBeDefined();
+    expect(worldBoundsOfNode(after, copyId as string)).toMatchObject({ x: 20, y: 20 });
   });
 });
