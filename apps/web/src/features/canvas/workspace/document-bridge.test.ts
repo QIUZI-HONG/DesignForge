@@ -442,6 +442,49 @@ describe('保存（⌘S / 顶栏按钮）', () => {
     expect((await workspace.documents.save()).ok).toBe(true);
     expect(doc?.pages.size).toBe(2);
   });
+
+  it('同名两会话保存互不覆盖：daemon 同名文档已含内容 → 保存报冲突，原内容原样', async () => {
+    const daemon = createFakeDaemon();
+    // 会话 A：画一笔并落盘「未命名文件」（初始名两会话相同——这正是缺陷现场）
+    const sessionA = makeWorkspace(daemon);
+    const rectA = sessionA.canvas.createRect({ x: 10, y: 10, width: 30, height: 30 });
+    expect((await sessionA.documents.save()).ok).toBe(true);
+
+    // 会话 B：全新会话（同样叫「未命名文件」），画了不同的内容再保存
+    const sessionB = makeWorkspace(daemon);
+    const rectB = sessionB.canvas.createRect({ x: 50, y: 50, width: 20, height: 20 });
+    const saved = await sessionB.documents.save();
+
+    // 旧实现按名命中即复用 id：B 的内容静默写进 A 的文档（数据丢失）
+    expect(saved.ok).toBe(false);
+    if (!saved.ok) expect(saved.error).toContain('已包含设计内容');
+    expect(sessionB.documents.store.getState().status).toBe('error');
+    // B 未抢占落盘身份（不能让下一次保存悄悄写到 A 的文档里）
+    expect(sessionB.documents.store.getState().documentId).toBeNull();
+
+    // A 的文档原样：仍是 A 画的矩形，B 的矩形没有写进去，也没有多出第二份同名文档
+    expect(daemon.documents.size).toBe(1);
+    const bodies = [...(daemon.documents.get('未命名文件')?.pages.values() ?? [])];
+    const body = bodies[0]?.body as { page: { nodes: Record<string, unknown> } };
+    expect(body.page.nodes[rectA]).toBeDefined();
+    expect(body.page.nodes[rectB]).toBeUndefined();
+  });
+
+  it('空首页约定保持：daemon 同名文档正文为空（唯一页 `{}`）→ 按名复用，不产生第二份', async () => {
+    const daemon = createFakeDaemon();
+    // 首页「新建设计文件」留下的空文档（manifest 一页、正文 `{}`）
+    daemon.seedRaw('未命名文件', [{ id: 'page-1', name: '页面 1', body: {} }]);
+    const workspace = makeWorkspace(daemon);
+    workspace.canvas.createRect({ x: 10, y: 10, width: 30, height: 30 });
+
+    const saved = await workspace.documents.save();
+    expect(saved.ok).toBe(true);
+    expect(saved.documentId).toBe('未命名文件');
+    expect(daemon.documents.size).toBe(1);
+    const bodies = [...(daemon.documents.get('未命名文件')?.pages.values() ?? [])];
+    const body = bodies[0]?.body as { page: { nodes: Record<string, unknown> } };
+    expect(Object.keys(body.page.nodes).length).toBe(1);
+  });
 });
 
 describe('地址栏同步的参数名（宿主契约：编辑器 `?documentId=` / `_canvas` `?doc=`）', () => {
@@ -477,14 +520,16 @@ describe('地址栏同步的参数名（宿主契约：编辑器 `?documentId=` 
   }
 
   it('缺省写 `?documentId=`（编辑器契约）且保留其余参数；`syncUrlParam` 可改参数名（`_canvas` 的 `?doc=`）', async () => {
-    const daemon = createFakeDaemon();
-    const client = createDocumentsClient({
+    // 两个宿主各用独立 daemon：本用例只锁地址栏参数契约；同名互不覆盖的保存语义
+    // 由「保存」组专门回归（这里若共用 daemon，第二宿主会正确地撞上同名冲突）
+    const editorDaemon = createFakeDaemon();
+    const editorClient = createDocumentsClient({
       baseUrl: 'http://daemon.test',
-      fetchImpl: daemon.fetchImpl,
+      fetchImpl: editorDaemon.fetchImpl,
     });
 
     window.history.replaceState(null, '', '/editor?daemon=http%3A%2F%2Flocalhost%3A4318');
-    const bridge = makeBridge(client);
+    const bridge = makeBridge(editorClient);
     expect((await bridge.save()).ok).toBe(true);
     const url = new URL(window.location.href);
     expect(url.searchParams.get('documentId')).toBe('本地稿');
@@ -492,8 +537,13 @@ describe('地址栏同步的参数名（宿主契约：编辑器 `?documentId=` 
     expect(url.searchParams.get('daemon')).toBe('http://localhost:4318');
     bridge.dispose();
 
+    const studioDaemon = createFakeDaemon();
+    const studioClient = createDocumentsClient({
+      baseUrl: 'http://daemon.test',
+      fetchImpl: studioDaemon.fetchImpl,
+    });
     window.history.replaceState(null, '', '/_canvas');
-    const studioBridge = makeBridge(client, 'doc');
+    const studioBridge = makeBridge(studioClient, 'doc');
     expect((await studioBridge.save()).ok).toBe(true);
     const studioUrl = new URL(window.location.href);
     expect(studioUrl.searchParams.get('doc')).toBe('本地稿');

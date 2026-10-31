@@ -356,3 +356,26 @@ function isEmptyBody(body: unknown): boolean {
   if (typeof body !== 'object') return false;
   return Object.keys(body as Record<string, unknown>).length === 0;
 }
+
+/**
+ * daemon 文档是否「正文为空」（空首页约定）：0 页，或唯一页的正文是空对象/null。
+ *
+ * 用途：按名幂等落盘只允许复用**空**的同名文档——daemon 的文档 id 由名字派生
+ * （同名即同目录，无法新建第二份），复用含内容的同名文档 = 把新内容写进别人的
+ * 文档（数据丢失）。空判定读不到正文时按失败处理（fail-closed：宁可报错也不覆盖）。
+ */
+export async function isDocumentBodyEmpty(
+  client: DocumentsClient,
+  documentId: string,
+): Promise<ClientResult<boolean>> {
+  const detail = await client.getDocument(documentId);
+  if (!detail.ok) return detail;
+  const pages = detail.value.pages;
+  if (pages.length === 0) return { ok: true, value: true };
+  if (pages.length > 1) return { ok: true, value: false };
+  const first = pages[0];
+  if (first === undefined) return { ok: true, value: true };
+  const body = await client.readPage(documentId, first.id);
+  if (!body.ok) return body;
+  return { ok: true, value: isEmptyBody(body.value) };
+}
