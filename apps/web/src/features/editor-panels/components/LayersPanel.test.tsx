@@ -216,16 +216,45 @@ describe('图层面板 · 重命名（Tree 行内编辑 → node.update 命令�
     fireEvent.keyDown(row('卡片'), { key: 'F2' });
     expect(screen.getByRole('textbox')).toBeTruthy();
   });
+
+  it('空名提交：就地提示「名称不能为空」、名称回退不改文档，Esc 关闭（票 11）', () => {
+    const { session, page } = renderPanel();
+    fireEvent.doubleClick(row('卡片'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    // 提示就地呈现，编辑态保持；文档名未动（回退），无历史条目
+    expect(screen.getByRole('alert').textContent).toBe('名称不能为空');
+    expect(screen.queryByRole('textbox')).not.toBeNull();
+    expect(getNode(page(), 'r2')?.name).toBe('卡片');
+    expect(session.stack.history().undo).toHaveLength(0);
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(getNode(page(), 'r2')?.name).toBe('卡片');
+  });
+
+  it('超长名钳制到 64 字符：输入端 maxLength + 写入端兜底（与新建文件同源上限；票 11）', () => {
+    const { page } = renderPanel();
+    fireEvent.doubleClick(row('卡片'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    expect(input.maxLength).toBe(64);
+    fireEvent.change(input, { target: { value: '长'.repeat(5000) } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(getNode(page(), 'r2')?.name).toHaveLength(64);
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
 });
 
-describe('图层面板 · 拖拽落位约定（RW-13：上/下各半；跨父 = reparent）', () => {
-  it('同父重排：背景块落到「标题组」下半 → 移到同级末尾，世界位置不变', () => {
+describe('图层面板 · 拖拽落位约定（RW-13：面板显示序上/下各半；跨父 = reparent；票 11）', () => {
+  it('同父重排：背景块落到「标题组」下半 → 面板里紧贴标题组下方，世界位置不变', () => {
     const restore = stubRowRects();
     try {
       const { session, page } = renderPanel();
-      // g1 在可见行序 4：行带 [112, 140]，130 在下半
+      // g1 在可见行序 4：行带 [112, 140]，130 在下半；面板行序 = children 逆序
       dragOnto('背景块', 'g1', 4 * ROW_HEIGHT + 18);
-      expect(getChildrenIds(page(), 'f1')).toEqual(['r2', 'g1', 'r1']);
+      expect(getChildrenIds(page(), 'f1')).toEqual(['r2', 'r1', 'g1']);
       expect(getNode(page(), 'r1')?.x).toBe(0);
       expect(session.stack.history().undo.at(-1)).toBe('移动图层');
     } finally {
@@ -233,7 +262,20 @@ describe('图层面板 · 拖拽落位约定（RW-13：上/下各半；跨父 = 
     }
   });
 
-  it('跨父拖拽 = reparent：卡片落到第二屏的子行下半 → 改父进第二屏，世界位置保持', () => {
+  it('上移到面板最上：背景块落到「标题组」上半 → 面板顶（绘制序末尾），undo 还原', () => {
+    const restore = stubRowRects();
+    try {
+      const { session, page } = renderPanel();
+      dragOnto('背景块', 'g1', 4 * ROW_HEIGHT + 6);
+      expect(getChildrenIds(page(), 'f1')).toEqual(['r2', 'g1', 'r1']);
+      expect(session.stack.undo()).toBe(true);
+      expect(getChildrenIds(page(), 'f1')).toEqual(['r1', 'r2', 'g1']);
+    } finally {
+      restore();
+    }
+  });
+
+  it('跨父拖拽 = reparent：卡片落到第二屏的子行下半 → 改父进第二屏且在其下方，世界位置保持', () => {
     const restore = stubRowRects();
     try {
       let doc = panelsFixture();
@@ -246,7 +288,7 @@ describe('图层面板 · 拖拽落位约定（RW-13：上/下各半；跨父 = 
       const { session, page } = renderPanelDoc(doc);
       // 可见行序：c1(0) cr1(1) f2(2) f2c1(3) f1(4) g1(5) t1(6) r2(7) r1(8)；f2c1 行带 [84,112]
       dragOnto('卡片', 'f2c1', 3 * ROW_HEIGHT + 24);
-      expect(getChildrenIds(page(), 'f2')).toEqual(['f2c1', 'r2']);
+      expect(getChildrenIds(page(), 'f2')).toEqual(['r2', 'f2c1']);
       expect(getChildrenIds(page(), 'f1')).toEqual(['r1', 'g1']);
       // r2 世界位置 (70,0) → f2 局部 (70-400, 0)：保持世界位置的改父语义
       expect(getNode(page(), 'r2')?.x).toBe(70 - 400);
@@ -256,12 +298,12 @@ describe('图层面板 · 拖拽落位约定（RW-13：上/下各半；跨父 = 
     }
   });
 
-  it('落回原位 = 无操作：不产生历史条目（CommandStack 合并语义不被空事务污染）', () => {
+  it('已就位的落点 = 无操作：不产生历史条目（CommandStack 合并语义不被空事务污染）', () => {
     const restore = stubRowRects();
     try {
       const { session, page } = renderPanel();
-      // r1 在 f1 同级第 0 位；落到 r2 行上半 = 插到 index 0 = 原位
-      dragOnto('背景块', 'r2', 6 * ROW_HEIGHT + 6);
+      // 背景块落到「卡片」行下半：面板里已在卡片下方 → 原位
+      dragOnto('背景块', 'r2', 6 * ROW_HEIGHT + 18);
       expect(getChildrenIds(page(), 'f1')).toEqual(['r1', 'r2', 'g1']);
       expect(session.stack.history().undo).toHaveLength(0);
     } finally {
@@ -280,6 +322,94 @@ describe('图层面板 · 拖拽落位约定（RW-13：上/下各半；跨父 = 
     } finally {
       restore();
     }
+  });
+});
+
+describe('图层面板 · 行内显隐/锁定控件（票 11）', () => {
+  /** 取某行某个行级控件的按钮（span 挂点包着 IconButton；aria 语义在按钮上）。 */
+  function controlOf(id: string, action: 'visibility' | 'lock'): HTMLButtonElement {
+    const slot = nodeRow(id)?.querySelector(`[data-df-layer-action="${action}"]`);
+    expect(slot, `${id} 缺少 ${action} 控件`).not.toBeNull();
+    return (slot as HTMLElement).querySelector('button') as HTMLButtonElement;
+  }
+
+  /** 取控件的外层挂点（data-df-layer-* 状态值在这里）。 */
+  function controlSlotOf(id: string, action: 'visibility' | 'lock'): HTMLElement {
+    return nodeRow(id)?.querySelector(`[data-df-layer-action="${action}"]`) as HTMLElement;
+  }
+
+  it('每行渲染显隐/锁定控件：aria-pressed、data 挂点与可访问名随状态表达', () => {
+    renderPanel();
+    const eye = controlOf('r1', 'visibility');
+    expect(eye.getAttribute('aria-pressed')).toBe('false');
+    expect(controlSlotOf('r1', 'visibility').getAttribute('data-df-layer-visible')).toBe('true');
+    expect(eye.getAttribute('aria-label')).toBe('隐藏「背景块」');
+    const lock = controlOf('r1', 'lock');
+    expect(lock.getAttribute('aria-pressed')).toBe('false');
+    expect(controlSlotOf('r1', 'lock').getAttribute('data-df-layer-locked')).toBe('false');
+    expect(lock.getAttribute('aria-label')).toBe('锁定「背景块」');
+  });
+
+  it('点眼睛：可见性经命令栈翻转并可撤销；行选择集不受影响', () => {
+    const { session, page } = renderPanel();
+    fireEvent.click(row('卡片'));
+    expect(session.ui.getState().selection.ids).toEqual(['r2']);
+
+    fireEvent.click(controlOf('r1', 'visibility'));
+    expect(getNode(page(), 'r1')?.visible).toBe(false);
+    expect(session.stack.history().undo.at(-1)).toBe('切换可见性');
+    expect(session.ui.getState().selection.ids).toEqual(['r2']);
+
+    expect(session.stack.undo()).toBe(true);
+    expect(getNode(page(), 'r1')?.visible).toBe(true);
+  });
+
+  it('点锁：锁定经命令栈翻转并可撤销；控件状态随重渲染翻转（显示↔隐藏）', () => {
+    const { session, page } = renderPanel();
+    fireEvent.click(controlOf('r2', 'lock'));
+    expect(getNode(page(), 'r2')?.locked).toBe(true);
+    expect(session.stack.history().undo.at(-1)).toBe('切换锁定');
+    expect(controlOf('r2', 'lock').getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(controlOf('r1', 'visibility'));
+    expect(controlOf('r1', 'visibility').getAttribute('aria-pressed')).toBe('true');
+    expect(controlOf('r1', 'visibility').getAttribute('aria-label')).toBe('显示「背景块」');
+    expect(controlSlotOf('r1', 'visibility').getAttribute('data-df-layer-visible')).toBe('false');
+
+    expect(session.stack.undo()).toBe(true);
+    expect(getNode(page(), 'r1')?.visible).toBe(true);
+  });
+
+  it('实例子树的虚节点行（结构只读）也有显隐控件：走实例覆盖命令（instance.setOverride）', () => {
+    let doc = panelsFixture();
+    doc = insertNode(
+      doc,
+      'p1',
+      createInstance({ id: 'i1', name: '按钮实例', componentId: 'c1', x: 0, y: 500 }),
+      null,
+    );
+    const { session } = renderPanelDoc(doc);
+    const virtualChild = getChildrenIds(getPage(session.stack.document, session.pageId), 'i1')[0];
+    if (virtualChild === undefined) throw new Error('夹具缺失：实例 i1 必须有虚子节点');
+    fireEvent.click(controlOf(virtualChild, 'visibility'));
+    const inst = getPage(session.stack.document, session.pageId).nodes.i1;
+    expect(inst && inst.type === 'instance' ? inst.overrides.cr1 : undefined).toEqual({
+      visible: false,
+    });
+  });
+
+  it('行尾控件槽：hover/焦点/选中显现（样式单轨：CSS 规则文本）', () => {
+    renderPanel();
+    const css = readFileSync(
+      resolve(process.cwd(), '../../packages/ui/src/components.css'),
+      'utf8',
+    );
+    // 显现口径：行 hover / 行内焦点（含控件自身）/ 选中行
+    expect(css).toContain('.dfg-tree__node:hover .dfg-tree__actions');
+    expect(css).toContain('.dfg-tree__node:focus-within .dfg-tree__actions');
+    expect(css).toContain('.dfg-tree__node--selected .dfg-tree__actions');
+    const slot = cssRule('../../packages/ui/src/components.css', '.dfg-tree__actions');
+    expect(slot).toContain('opacity: 0');
   });
 });
 

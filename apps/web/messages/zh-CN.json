@@ -625,6 +625,7 @@
   "panels.layers.lockedByAncestor": "父级已锁定",
   "panels.layers.overridden": "实例内已覆盖",
   "panels.layers.renameInput": "重命名图层",
+  "panels.layers.renameEmpty": "名称不能为空",
   "panels.layers.empty.title": "还没有图层",
   "panels.layers.empty.desc": "在画布上绘制形状、文本或画板，图层会出现在这里。",
   "panels.layers.loading": "正在加载图层…",

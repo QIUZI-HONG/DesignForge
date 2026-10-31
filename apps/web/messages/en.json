@@ -625,6 +625,7 @@
   "panels.layers.lockedByAncestor": "Parent layer is locked",
   "panels.layers.overridden": "Overridden in instance",
   "panels.layers.renameInput": "Rename layer",
+  "panels.layers.renameEmpty": "Name cannot be empty",
   "panels.layers.empty.title": "No layers yet",
   "panels.layers.empty.desc": "Draw shapes, text or frames on the canvas and they will show up here.",
   "panels.layers.loading": "Loading layers…",
