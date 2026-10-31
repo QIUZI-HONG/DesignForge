@@ -44,8 +44,8 @@ export function resolveDaemonPaths(dataRoot: string): DaemonPaths {
     marketIndexCandidates: [
       join(dataRoot, 'market', 'df.marketplace.index.v1.json'),
       join(dataRoot, 'market', 'ads', 'df.marketplace.index.v1.json'),
-      // CLI `df market index` 的缺省落点（`<data>/ads/`，票 #15）：与 CLI 指向同一数据根
-      // （`DF_DATA_ROOT=<data>` / `--data-root <data>`）即可命中，无需复制。
+      // CLI `df market index` 的缺省落点（`<data>/ads/`，票 #15）：若 daemon 数据根本就
+      // 指向同一数据面目录（`DF_DATA_ROOT` / `--data-root`），无需复制即命中（检索索引同目录）。
       // 刻意**不**补裸 `process.cwd()` 候选：daemon 由壳/系统启动时 CWD 不可控，且本模块
       // 纪律是「所有持久化路径从 DataRoot 派生」——跨根接线由 CLI 输出指引承担（方案 2）。
       join(dataRoot, 'ads', 'df.marketplace.index.v1.json'),

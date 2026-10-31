@@ -123,5 +123,21 @@ describe('市场索引落点交接（CLI 缺省产物 → daemon 缺省探测）
     expect(result.warnings.map((warning) => warning.code)).not.toContain('index-missing');
     expect(result.state).toBe('ok');
     expect(result.items.length).toBeGreaterThan(0);
+
+    // 检索索引与市场索引同目录：同一次交接应让 BM25 检索也直接可用（不降级字面匹配）
+    const searched = await injectJson(app, {
+      method: 'GET',
+      url: '/market/query?q=palette',
+    });
+    expect(searched.statusCode).toBe(200);
+    const searchedResult = (
+      searched.payload as {
+        result: { items: unknown[]; warnings: { code: string }[] };
+      }
+    ).result;
+    expect(searchedResult.warnings.map((warning) => warning.code)).not.toContain(
+      'search-index-missing',
+    );
+    expect(searchedResult.items.length).toBeGreaterThan(0);
   }, 180_000);
 });
