@@ -155,6 +155,7 @@
       "theme": "dark",
       "sourceFiles": [
         "apps/web/src/features/market/panel/MarketPanel.tsx",
+        "apps/web/src/features/market/components/MarketPanelBody.tsx",
         "apps/web/src/app/market/panel/page.tsx",
         "apps/web/src/features/market/components/MarketStates.tsx"
       ],

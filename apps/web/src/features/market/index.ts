@@ -42,3 +42,4 @@ export {
   useMarketPagination,
   useMarketQuery,
 } from './use-market';
+export { type MarketPanelData, PANEL_LIMIT, useMarketPanelData } from './use-market-panel';
