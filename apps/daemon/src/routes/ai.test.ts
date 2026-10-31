@@ -277,6 +277,49 @@ describe('ai · 流式（SSE）', () => {
     }
   });
 
+  it('白名单 Origin：流式响应同样带 allow-origin 回显 + vary（与普通响应同一 CORS 策略）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const response = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:3000' },
+        payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toContain('text/event-stream');
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3000');
+      expect(String(response.headers.vary).toLowerCase()).toContain('origin');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('非白名单 Origin：流式响应不带放行头（API 语义不变）；`Origin: null` 带放行头', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const evil = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json', origin: 'http://evil.example.com' },
+        payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+      });
+      expect(evil.statusCode).toBe(200);
+      expect(evil.headers['content-type']).toContain('text/event-stream');
+      expect(evil.headers['access-control-allow-origin']).toBeUndefined();
+
+      const nullOrigin = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json', origin: 'null' },
+        payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+      });
+      expect(nullOrigin.headers['access-control-allow-origin']).toBe('null');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('有 key 流式：delta 增量 + done 汇总完整内容；帧内不含 key', async () => {
     const daemon = await createTestDaemon({
       envApiKey: FAKE_KEY,
