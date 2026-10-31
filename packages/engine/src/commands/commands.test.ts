@@ -442,7 +442,12 @@ describe('commands · node.update 键适用性（B5）', () => {
       const s = stack();
       const before = JSON.parse(JSON.stringify(s.document));
       const code = errorCodeOf(() =>
-        s.dispatch({ type: 'node.update', pageId: 'p1', nodeId: 'r1', patch: { ...patch } as never }),
+        s.dispatch({
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'r1',
+          patch: { ...patch } as never,
+        }),
       );
       expect(code, `补丁键 ${Object.keys(patch).join(',')} 应被拒绝`).toBe('invalid-argument');
       expect(JSON.parse(JSON.stringify(s.document))).toEqual(before);
@@ -500,9 +505,11 @@ describe('commands · node.update 键适用性（B5）', () => {
 
   it('证据原貌回归：对 group 发 autoLayout 补丁被拒绝（修前会留下自有键残留且 undo 不还原）', () => {
     const s = stack();
-    s.dispatch(groupNodesCommands(getPage(s.document, 'p1'), 'p1', ['r1', 'r2'], {
-      groupId: 'g9',
-    }));
+    s.dispatch(
+      groupNodesCommands(getPage(s.document, 'p1'), 'p1', ['r1', 'r2'], {
+        groupId: 'g9',
+      }),
+    );
     const withGroup = JSON.parse(JSON.stringify(s.document));
     const code = errorCodeOf(() =>
       s.dispatch({
@@ -566,30 +573,36 @@ describe('commands · node.update 键适用性（B5）', () => {
       null,
     );
     const s = new CommandStack(doc);
-    expect(errorCodeOf(() =>
-      s.dispatch({
-        type: 'node.update',
-        pageId: 'p1',
-        nodeId: 'tx',
-        patch: { text: { ...defaultTextContent(), characters: '你好' } },
-      }),
-    )).toBeNull();
-    expect(errorCodeOf(() =>
-      s.dispatch({
-        type: 'node.update',
-        pageId: 'p1',
-        nodeId: 'c1',
-        patch: { variantProperties: { size: 'large' } },
-      }),
-    )).toBeNull();
-    expect(errorCodeOf(() =>
-      s.dispatch({
-        type: 'node.update',
-        pageId: 'p1',
-        nodeId: 'f1',
-        patch: { clipsContent: false, autoLayout: defaultAutoLayout('horizontal') },
-      }),
-    )).toBeNull();
+    expect(
+      errorCodeOf(() =>
+        s.dispatch({
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'tx',
+          patch: { text: { ...defaultTextContent(), characters: '你好' } },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      errorCodeOf(() =>
+        s.dispatch({
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'c1',
+          patch: { variantProperties: { size: 'large' } },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      errorCodeOf(() =>
+        s.dispatch({
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'f1',
+          patch: { clipsContent: false, autoLayout: defaultAutoLayout('horizontal') },
+        }),
+      ),
+    ).toBeNull();
     expect(requireNode(getPage(s.document, 'p1'), 'f1')).toMatchObject({
       clipsContent: false,
       autoLayout: expect.objectContaining({ direction: 'horizontal' }),
