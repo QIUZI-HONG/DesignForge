@@ -425,14 +425,11 @@ try {
   }
 
   // --- ② 双击路径进入编辑 + 覆盖层世界坐标对齐 ---
-  const worldCenter = await page.evaluate(
-    (id) => {
-      const geometry = globalThis.__dforgeCanvas.geometry(id);
-      if (geometry === null) return null;
-      return { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 };
-    },
-    textId,
-  );
+  const worldCenter = await page.evaluate((id) => {
+    const geometry = globalThis.__dforgeCanvas.geometry(id);
+    if (geometry === null) return null;
+    return { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 };
+  }, textId);
   if (worldCenter === null) {
     await finish(
       2,
@@ -452,21 +449,18 @@ try {
   await page.waitForSelector(overlaySelector(textId), { timeout: 10_000 }).catch(() => {
     overlayAppeared = false;
   });
-  const screenBox = await page.evaluate(
-    (id) => {
-      const handle = globalThis.__dforgeCanvas;
-      const geometry = handle.geometry(id);
-      if (geometry === null) return null;
-      const viewport = handle.viewport();
-      return {
-        left: geometry.x * viewport.zoom + viewport.panX,
-        top: geometry.y * viewport.zoom + viewport.panY,
-        width: geometry.width * viewport.zoom,
-        height: geometry.height * viewport.zoom,
-      };
-    },
-    textId,
-  );
+  const screenBox = await page.evaluate((id) => {
+    const handle = globalThis.__dforgeCanvas;
+    const geometry = handle.geometry(id);
+    if (geometry === null) return null;
+    const viewport = handle.viewport();
+    return {
+      left: geometry.x * viewport.zoom + viewport.panX,
+      top: geometry.y * viewport.zoom + viewport.panY,
+      width: geometry.width * viewport.zoom,
+      height: geometry.height * viewport.zoom,
+    };
+  }, textId);
   if (screenBox === null) {
     await finish(2, `阻塞：双击前读不到文本节点屏幕几何（id=${textId}）。`);
   }
@@ -499,7 +493,9 @@ try {
 
   // --- ③ 编辑回灌（输入即所见；双击进入带全选，键入整段替换选区） ---
   await page.keyboard.type('改标题');
-  const typed = await page.evaluate(() => globalThis.__dforgeCanvas.editingText()?.characters ?? null);
+  const typed = await page.evaluate(
+    () => globalThis.__dforgeCanvas.editingText()?.characters ?? null,
+  );
   record(
     'text.editing-mirrors-input',
     typed === '改标题',
@@ -541,7 +537,10 @@ try {
     timeout: 10_000,
     label: 'Esc 关闭编辑会话',
   }).catch(() => undefined);
-  const afterEscape = await page.evaluate((id) => globalThis.__dforgeCanvas.textContent(id), textId);
+  const afterEscape = await page.evaluate(
+    (id) => globalThis.__dforgeCanvas.textContent(id),
+    textId,
+  );
   record(
     'text.esc-cancel-no-write',
     afterEscape === '改标题',
