@@ -175,6 +175,38 @@ describe('/market · 空态判定顺序（巡检缺口①②）', () => {
   });
 });
 
+describe('/market · 筛选语义一致（巡检缺口③）', () => {
+  it('选「最近更新」→ 查询计入 sort=updated 且清空筛选出现；清空后恢复 sort=score 且按钮消失', async () => {
+    const user = userEvent.setup();
+    // 每次请求都新建 Response（body 只能消费一次）
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true, result: marketFixtures.makeQueryResponse() }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getAllByRole('heading', { name: 'PDF 导出' }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: '清空筛选' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '排序：综合评分' }));
+    await user.click(screen.getByRole('menuitem', { name: '最近更新' }));
+    await waitFor(() => {
+      expect(String((fetchMock.mock.calls.at(-1) as unknown[])[0])).toContain('sort=updated');
+    });
+    expect(screen.getByRole('button', { name: '清空筛选' })).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '清空筛选' }));
+    await waitFor(() => {
+      expect(String((fetchMock.mock.calls.at(-1) as unknown[])[0])).toContain('sort=score');
+    });
+    expect(screen.queryByRole('button', { name: '清空筛选' })).toBeNull();
+  });
+});
+
 describe('/market · 空态与错误态（验收 §5）', () => {
   it('索引缺失 → 空态给「去跑采集」指引（不伪造数据）', async () => {
     respondWith(

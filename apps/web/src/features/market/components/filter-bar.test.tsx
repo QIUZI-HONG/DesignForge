@@ -116,6 +116,12 @@ describe('FilterBar · 清空与计数', () => {
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 
+  it('仅排序变化（非默认档）→ 清空筛选与计数同样出现（与分类/许可一致；巡检缺口③）', () => {
+    setup({ sort: 'updated' });
+    expect(screen.getByRole('button', { name: '清空筛选' })).toBeTruthy();
+    expect(screen.getByText('已选 1 项筛选')).toBeTruthy();
+  });
+
   it('总数与可装载数展示；索引缺失（total=null）时显示加载态而不是「0 个资源」', () => {
     setup();
     expect(screen.getByText('共 12 个资源 · 可装载 9 个')).toBeTruthy();
