@@ -27,10 +27,15 @@ import { createDocumentBridge } from './document-bridge';
 import { createEditorWorkspace, EMPTY_PRESET } from './workspace-session';
 
 /** 内存假 daemon（只实现 documents-client 消费的路由；id = 文档名，与真 daemon 同规则）。 */
+interface FakePage {
+  name: string;
+  body: unknown;
+}
+
 interface FakeDocument {
   name: string;
-  pages: Map<string, unknown>;
-  nextPageNumber: number;
+  /** manifest 页列表（插入顺序 = 页面顺序，与真 daemon 的 manifest 语义一致）。 */
+  pages: Map<string, FakePage>;
 }
 
 interface FakeDaemon {
@@ -79,8 +84,12 @@ function createFakeDaemon(): FakeDaemon {
     if (method === 'POST' && path === '/documents') {
       const name = String(body.name ?? '');
       if (documents.has(name)) return respond(409, apiFailure('doc_exists', '同名文档已存在'));
-      documents.set(name, { name, pages: new Map(), nextPageNumber: 1 });
-      return respond(201, apiSuccess({ document: { id: name, name, pageCount: 0 } }));
+      // 与真 daemon 同规则：新文档自带 page-1（正文 `{}` 空首页约定）
+      documents.set(name, {
+        name,
+        pages: new Map([['page-1', { name: '页面 1', body: {} }]]),
+      });
+      return respond(201, apiSuccess({ document: { id: name, name, pageCount: 1 } }));
     }
     const documentMatch = /^\/documents\/([^/]+)$/.exec(path);
     if (method === 'GET' && documentMatch !== null) {
@@ -91,6 +100,11 @@ function createFakeDaemon(): FakeDaemon {
         200,
         apiSuccess({
           document: { id, name: document.name, pageCount: document.pages.size },
+          // manifest 页列表（顺序 = 页面顺序）——保存/读取按此寻址
+          pages: [...document.pages.entries()].map(([pageId, page]) => ({
+            id: pageId,
+            name: page.name,
+          })),
         }),
       );
     }
@@ -101,17 +115,32 @@ function createFakeDaemon(): FakeDaemon {
       const document = documents.get(id);
       if (document === undefined) return respond(404, apiFailure('doc_not_found', '文档不存在'));
       if (method === 'GET') {
-        if (!document.pages.has(pageId)) {
+        const page = document.pages.get(pageId);
+        if (page === undefined) {
           return respond(404, apiFailure('not_found', '页面不存在'));
         }
-        return respond(200, apiSuccess({ page: { id: pageId }, body: document.pages.get(pageId) }));
+        return respond(200, apiSuccess({ page: { id: pageId }, body: page.body }));
       }
       if (method === 'PUT') {
         if (!document.pages.has(pageId)) {
+          // 与真 daemon 同规则：PUT 只覆盖 manifest 已有页，不给任意页 id 隐式建页
           return respond(404, apiFailure('not_found', '页面不存在'));
         }
-        document.pages.set(pageId, body.body);
+        document.pages.set(pageId, {
+          name: document.pages.get(pageId)?.name ?? '',
+          body: body.body,
+        });
         return respond(200, apiSuccess({ page: { id: pageId } }));
+      }
+      if (method === 'DELETE') {
+        if (!document.pages.has(pageId)) {
+          return respond(404, apiFailure('not_found', '页面不存在'));
+        }
+        if (document.pages.size <= 1) {
+          return respond(409, apiFailure('doc_last_page', '不允许删除最后一页（页面常驻 ≥1）'));
+        }
+        document.pages.delete(pageId);
+        return respond(200, apiSuccess({ documentId: id, pageId, deleted: true }));
       }
     }
     const pageCreateMatch = /^\/documents\/([^/]+)\/pages$/.exec(path);
@@ -119,9 +148,11 @@ function createFakeDaemon(): FakeDaemon {
       const id = decodeURIComponent(pageCreateMatch[1] as string);
       const document = documents.get(id);
       if (document === undefined) return respond(404, apiFailure('doc_not_found', '文档不存在'));
-      const pageId = `page-${String(document.nextPageNumber)}`;
-      document.nextPageNumber += 1;
-      document.pages.set(pageId, null);
+      // 与真 daemon 同规则：页 id 递增分配（page-N），跳过已占用编号
+      let counter = document.pages.size + 1;
+      while (document.pages.has(`page-${String(counter)}`)) counter += 1;
+      const pageId = `page-${String(counter)}`;
+      document.pages.set(pageId, { name: String(body.name ?? ''), body: {} });
       return respond(201, apiSuccess({ page: { id: pageId, name: String(body.name ?? '') } }));
     }
     return respond(404, apiFailure('not_found', `未实现的路由：${method} ${path}`));
@@ -131,12 +162,11 @@ function createFakeDaemon(): FakeDaemon {
     fetchImpl: fetchImpl as unknown as typeof fetch,
     documents,
     seed(documentId, pages) {
-      const target: FakeDocument = { name: documentId, pages: new Map(), nextPageNumber: 1 };
+      const target: FakeDocument = { name: documentId, pages: new Map() };
       const envelope = createDocument({ id: documentId, name: documentId, pages });
       pages.forEach((page, index) => {
         const pageId = `page-${String(index + 1)}`;
-        target.pages.set(pageId, encodePageBody(envelope, page));
-        target.nextPageNumber = index + 2;
+        target.pages.set(pageId, { name: page.name, body: encodePageBody(envelope, page) });
       });
       documents.set(documentId, target);
     },
@@ -206,8 +236,7 @@ describe('载入（?documentId= → daemon 文档）', () => {
     // 首页「新建设计文件」在 daemon 侧留下的就是这种文档：页面正文 `{}`（opaque 空 JSON）
     daemon.documents.set('刚建的文件', {
       name: '刚建的文件',
-      pages: new Map([['page-1', {}]]),
-      nextPageNumber: 2,
+      pages: new Map([['page-1', { name: '页面 1', body: {} }]]),
     });
     const workspace = makeWorkspace(daemon);
 
@@ -224,7 +253,7 @@ describe('载入（?documentId= → daemon 文档）', () => {
     const rectId = workspace.canvas.createRect({ x: 10, y: 10, width: 40, height: 30 });
     expect((await workspace.documents.save()).ok).toBe(true);
     expect(daemon.documents.size).toBe(1);
-    const stored = [...(daemon.documents.get('刚建的文件')?.pages.values() ?? [])][0] as {
+    const stored = [...(daemon.documents.get('刚建的文件')?.pages.values() ?? [])][0]?.body as {
       $format?: string;
       page: { nodes: Record<string, unknown> };
     };
@@ -264,7 +293,7 @@ describe('保存（⌘S / 顶栏按钮）', () => {
     expect(second.ok).toBe(true);
     expect(daemon.documents.size).toBe(1);
     const bodies = [...(daemon.documents.get('未命名文件')?.pages.values() ?? [])];
-    const firstBody = bodies[0] as { page: { nodes: Record<string, unknown> } };
+    const firstBody = bodies[0]?.body as { page: { nodes: Record<string, unknown> } };
     expect(firstBody.page.nodes[rectId]).toBeDefined();
     expect(workspace.documents.store.getState().status).toBe('saved');
 
@@ -302,6 +331,41 @@ describe('保存（⌘S / 顶栏按钮）', () => {
     expect(saved.documentId).toBe('验收演示稿');
     expect(daemon.documents.size).toBe(1);
     expect(workspace.documents.store.getState().status).toBe('saved');
+  });
+
+  it('缩页保存：daemon 侧多余页被清理（删除中间页后不留孤儿页，页数不再无界增长）', async () => {
+    const daemon = createFakeDaemon();
+    const workspace = makeWorkspace(daemon);
+    // 三页各有可辨识页名（页面名随信封正文落 daemon，是位置映射的可读证据）
+    workspace.panels.stack.dispatch({
+      type: 'page.add',
+      page: createPage({ id: 'page-two', name: '第二页' }),
+    });
+    workspace.panels.stack.dispatch({
+      type: 'page.add',
+      page: createPage({ id: 'page-three', name: '第三页' }),
+    });
+    expect((await workspace.documents.save()).ok).toBe(true);
+    expect(daemon.documents.get('未命名文件')?.pages.size).toBe(3);
+
+    // 真实用户路径：页面面板删除页 = page.remove 命令 → 缩页保存
+    workspace.panels.stack.dispatch({ type: 'page.remove', pageId: 'page-two' });
+    expect((await workspace.documents.save()).ok).toBe(true);
+
+    const doc = daemon.documents.get('未命名文件');
+    expect(doc?.pages.size).toBe(2);
+    const pageBodies = [...(doc?.pages.values() ?? [])].map(
+      (page) => page.body as { page: { name: string } },
+    );
+    // 内容按序对应：第 1 页=装配首 页（引擎缺省名）、第 2 页=第三页
+    // （旧实现按位置猜 page-{N}：把第三页写进 page-2、第二页留成孤儿页复活）
+    expect(pageBodies[0]?.page.name).toBe('页面 1');
+    expect(pageBodies[1]?.page.name).toBe('第三页');
+    expect(pageBodies.some((body) => body.page.name === '第二页')).toBe(false);
+
+    // 幂等：再次保存页数不反弹
+    expect((await workspace.documents.save()).ok).toBe(true);
+    expect(doc?.pages.size).toBe(2);
   });
 });
 
@@ -389,7 +453,7 @@ describe('本地替换（导入 IR：清落盘身份，不写回上一份文档�
     expect(saved.ok).toBe(true);
     expect(saved.documentId).toBe('导入稿');
     expect(daemon.documents.size).toBe(2);
-    const originalBody = [...(daemon.documents.get('原文档')?.pages.values() ?? [])][0] as {
+    const originalBody = [...(daemon.documents.get('原文档')?.pages.values() ?? [])][0]?.body as {
       page: { nodes: Record<string, unknown> };
     };
     expect(originalBody.page.nodes.n_original).toBeDefined();

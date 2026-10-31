@@ -35,18 +35,28 @@ export interface DocumentsClientOptions {
 /** 结果形状：调用方只需要「成功/失败 + 原因」。 */
 export type ClientResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
+/** daemon 汇报的页面元数据（manifest 页列表项；顺序 = 页面顺序）。 */
+export interface DaemonPageMeta {
+  id: string;
+  name: string;
+}
+
 /** 文档客户端。 */
 export interface DocumentsClient {
   readonly baseUrl: string;
   createDocument(name: string): Promise<ClientResult<{ id: string; name: string }>>;
   /** 按名查找（幂等保存：同名文档已存在时复用它，而不是报 doc_exists）。 */
   findDocumentByName(name: string): Promise<ClientResult<{ id: string; name: string } | null>>;
+  /** 单文档详情（含 manifest 页列表——保存/读取按此列表逐页寻址，禁止按位置猜 `page-{N}`）。 */
   getDocument(
     documentId: string,
-  ): Promise<ClientResult<{ id: string; name: string; pageCount: number }>>;
+  ): Promise<
+    ClientResult<{ id: string; name: string; pageCount: number; pages: DaemonPageMeta[] }>
+  >;
   readPage(documentId: string, pageId: string): Promise<ClientResult<unknown>>;
   savePage(documentId: string, pageId: string, body: unknown): Promise<ClientResult<void>>;
   createPage(documentId: string, name: string): Promise<ClientResult<{ id: string; name: string }>>;
+  deletePage(documentId: string, pageId: string): Promise<ClientResult<void>>;
 }
 
 /** 由路由模板与参数拼 URL。 */
@@ -153,8 +163,18 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
         routeUrl(base, DAEMON_ROUTES.documentGet.path, { documentId }),
       );
       if (!result.ok) return result;
-      const value = result.value as { document: { id: string; name: string; pageCount: number } };
-      return { ok: true, value: value.document };
+      const value = result.value as {
+        document: { id: string; name: string; pageCount: number };
+        pages?: DaemonPageMeta[];
+      };
+      return {
+        ok: true,
+        value: {
+          ...value.document,
+          // manifest 页列表（旧 daemon 无此字段时退回空列表：调用方按「无已知页」处理）
+          pages: Array.isArray(value.pages) ? value.pages : [],
+        },
+      };
     },
     async readPage(documentId, pageId) {
       const result = await request(
@@ -182,6 +202,13 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
       if (!result.ok) return result;
       const value = result.value as { page: { id: string; name: string } };
       return { ok: true, value: value.page };
+    },
+    async deletePage(documentId, pageId) {
+      const result = await request(
+        DAEMON_ROUTES.documentPageDelete.method,
+        routeUrl(base, DAEMON_ROUTES.documentPageDelete.path, { documentId, pageId }),
+      );
+      return result.ok ? { ok: true, value: undefined } : result;
     },
   };
 }
@@ -215,26 +242,50 @@ export function daemonPageId(index: number): string {
   return `page-${index + 1}`;
 }
 
-/** 保存整个设计文档（逐页 PUT；页面不存在时先创建）。 */
+/**
+ * 保存整个设计文档（以 daemon 的 manifest 页列表为寻址真值）。
+ *
+ * 口径（修复 test-remediation #04 · A4 孤儿页复活/页数无界增长）：
+ * - **按位置复用**：设计页 i ↔ daemon 页列表第 i 项的页 id（删页后页 id 跳号，不再与位置同名，
+ *   旧实现按位置猜 `page-{N}` 会把内容写错位、旧页留成孤儿）；
+ * - **超出即新建**：设计页数多于 daemon 现有页时逐个 createPage（daemon 追加到列表尾部，
+ *   位置恰与设计页序对齐）再写正文；
+ * - **孤儿页清理**：全部页面写成功后，daemon 页列表中不在保留集里的页（位置超出当前页数的
+ *   旧页）逐个删除——页数缩减的保存不留下会复活/无界增长的孤儿页；
+ * - 全部以 daemon 汇报的页 id 为准，本函数不做任何 `page-{N}` 猜测。
+ */
 export async function saveDesignDocument(
   client: DocumentsClient,
   documentId: string,
   document: DesignDocument,
 ): Promise<ClientResult<{ documentId: string; pageIds: string[] }>> {
+  const detail = await client.getDocument(documentId);
+  if (!detail.ok) return detail;
+  const daemonPages = detail.value.pages;
+
   const pageIds: string[] = [];
   for (const [index, page] of document.pages.entries()) {
-    let pageId = daemonPageId(index);
-    const body = encodePageBody(document, page);
-    let saved = await client.savePage(documentId, pageId, body);
-    if (!saved.ok) {
-      // 页面不存在（或首次保存）：按 daemon 的分配规则创建一页再写
+    const existing = daemonPages[index];
+    let pageId: string;
+    if (existing !== undefined) {
+      pageId = existing.id;
+    } else {
+      // daemon 页不够：新建（追加到列表尾部，位置与设计页序对齐）
       const created = await client.createPage(documentId, page.name);
       if (!created.ok) return created;
       pageId = created.value.id;
-      saved = await client.savePage(documentId, pageId, body);
-      if (!saved.ok) return saved;
     }
+    const saved = await client.savePage(documentId, pageId, encodePageBody(document, page));
+    if (!saved.ok) return saved;
     pageIds.push(pageId);
+  }
+
+  // 孤儿页清理放在全部页面写成功之后：中途失败不动 daemon 既有页，重试幂等
+  const kept = new Set(pageIds);
+  for (const daemonPage of daemonPages) {
+    if (kept.has(daemonPage.id)) continue;
+    const removed = await client.deletePage(documentId, daemonPage.id);
+    if (!removed.ok) return removed;
   }
   return { ok: true, value: { documentId, pageIds } };
 }
