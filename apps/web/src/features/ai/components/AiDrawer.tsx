@@ -1,12 +1,15 @@
 'use client';
 
 /**
- * AI 抽屉（F4）——自然语言输入 + 四步步骤流 + 结果区。
+ * AI 抽屉（F4）——自然语言输入 + 三段步骤流 + 结果区。
  *
- * 口径（清单 F4 / 架构 §4.5.1）：
- * - 步骤流 `queued → llm → validate → compile`，失败落在所在步并可重试；
- * - **降级角标「本地模板」**：无 key / 上游失败时 daemon 给出与真响应同构的降级响应，
+ * 口径（清单 F4 / 架构 §4.5.1 + 票 02 / spec P0-3）：
+ * - 可见步骤流 `排队 → 模型生成 → 完成`（AI_VISIBLE_STEPS）；「校验/编译」并未真实发生，
+ *   不再渲染——validate/compile 保留在机器时序（P5 扩展位），接入时恢复；
+ * - 失败落在所在步并可重试（完成段由 phase 派生，不承接失败）；
+ * - **降级角标「本地建议」**：无 key / 上游失败时 daemon 给出与真响应同构的降级响应，
  *   本组件只读 `degraded` 一个字段渲染角标，**不为降级写任何分支**；
+ * - 降级原因（degradedReason 五类）映射中文人话渲染（角标旁一行说明）；
  * - 建议清单按 kind 渲染动作（配置凭据 → 去设置；稍后重试 → 重试；手动修改 → 提示文案）。
  *
  * 依赖注入：`port` 不给时用真 daemon 端口（`NEXT_PUBLIC_DF_DAEMON_URL` / 回环缺省）。
@@ -17,7 +20,12 @@ import { useMemo, useState } from 'react';
 import { t } from '@/i18n';
 
 import { type AiPort, createAiPort } from '../client';
-import { AI_STEPS, type AiStepId, type AiStepStatus } from '../steps';
+import {
+  AI_VISIBLE_STEPS,
+  type AiStepStatus,
+  type AiVisibleStepId,
+  visibleAiStepStatus,
+} from '../steps';
 import { useAiRun } from './use-ai-run';
 
 import './ai.css';
@@ -43,7 +51,7 @@ function StepGlyph({ status }: { status: AiStepStatus }) {
 }
 
 /** 单步（`data-df-step` / `data-df-step-status` 是门禁与测试共用的挂点；强调色由 CSS 状态选择器承接）。 */
-function StepRow({ id, status }: { id: AiStepId; status: AiStepStatus }) {
+function StepRow({ id, status }: { id: AiVisibleStepId; status: AiStepStatus }) {
   return (
     <li
       data-df-step={id}
@@ -161,8 +169,8 @@ export function AiDrawer(props: AiDrawerProps) {
         <section aria-label={t('ai.steps.label')} className="dfg-ai__field">
           <span className="dfg-ai__section-title">{t('ai.steps.label')}</span>
           <ul aria-label={t('ai.steps.label')} className="dfg-ai__step-list">
-            {AI_STEPS.map((id) => (
-              <StepRow key={id} id={id} status={state.steps[id]} />
+            {AI_VISIBLE_STEPS.map((id) => (
+              <StepRow key={id} id={id} status={visibleAiStepStatus(state, id)} />
             ))}
           </ul>
         </section>
@@ -186,6 +194,15 @@ export function AiDrawer(props: AiDrawerProps) {
             ) : null}
           </div>
 
+          {state.phase === 'done' && state.degraded && state.degradedReason !== null ? (
+            <p
+              className="dfg-ai__suggestion-detail"
+              data-df-ai-degrade-reason={state.degradedReason}
+            >
+              {t(`ai.degrade.${state.degradedReason}`)}
+            </p>
+          ) : null}
+
           {state.phase === 'failed' && state.error !== null ? (
             <div className="dfg-ai__actions">
               <span className="dfg-ai__error-text">{state.error}</span>
@@ -199,7 +216,7 @@ export function AiDrawer(props: AiDrawerProps) {
           {state.content.length > 0 ? (
             <p className="dfg-ai__content">{state.content}</p>
           ) : state.phase === 'done' && state.degraded ? (
-            <p className="dfg-ai__suggestion-detail">{t('ai.badge.localTemplate.desc')}</p>
+            <p className="dfg-ai__suggestion-detail">{t('ai.result.degradedEmpty')}</p>
           ) : state.phase === 'idle' ? (
             <p className="dfg-ai__suggestion-detail">{t('ai.result.empty')}</p>
           ) : null}

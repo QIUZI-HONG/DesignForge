@@ -1,10 +1,13 @@
 /**
- * FE-10 · AI 流式适配（SSE 文本 → 四步状态更新序列）——**步骤时序的单一真源**。
+ * FE-10 · AI 流式适配（SSE 文本 → 步骤状态更新序列）——**步骤时序的单一真源**。
  *
  * 输入是 daemon `/ai/chat`（stream: true）原样吐出的 SSE 文本块（任意切分），
  * 输出是 `AiRunState` 的更新序列 + 步骤转移时间线。
  * React 抽屉（`use-ai-run`）与 `scripts/verify-ai-two-state.mjs` 都跑这一个模块：
  * 门禁断言的时序 = 用户看到的时序，降级/真态走同一条路径（UI 不分支）。
+ *
+ * 时序口径（票 02 / spec P0-3）：可见三段「排队 → 模型生成 → 完成收口」——
+ * done 帧直接以完整响应收口，不再推进 validate/compile（P5 扩展位，接入时恢复）。
  *
  * 帧格式与 daemon 一致（apps/daemon/src/routes/ai.ts）：`event: <type>` + `data: <JSON>` 双行 + 空行。
  */
@@ -17,7 +20,6 @@ import {
   beginAiRun,
   completeAiRun,
   failAiRun,
-  finishSteps,
   initialAiRun,
   retryAiRun,
   // 显式 `.ts` 后缀：本模块是门禁脚本（node 直跑 TS）的导入目标——node 的 ESM 解析
@@ -141,12 +143,8 @@ export function createAiRunReader(options: { now?: () => number } = {}): AiRunRe
           updates.push(update());
           continue;
         }
-        // done：先落到 validate → compile（校验与编译是收口前的两段），再以完整响应收口
-        const validate = stepTo('validate');
-        if (validate !== null) updates.push(validate);
-        const compile = stepTo('compile');
-        if (compile !== null) updates.push(compile);
-        state = finishSteps(state);
+        // done：以完整响应直接收口（「校验/编译」并未真实发生，UI 不再渲染；
+        // validate/compile 是 P5 扩展位——接入时在此恢复推进，见 finishSteps）
         state = completeAiRun(state, event.response);
         updates.push(update());
       }

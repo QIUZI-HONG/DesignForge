@@ -34,7 +34,7 @@ export default function HomePage() {
         router.push(withDaemonEndpoint(`/market?assetId=${encodeURIComponent(assetId)}`))
       }
       // AI 助手按钮（D3）：进编辑器并带 `?ai=1`——编辑器落地即打开 AI 抽屉（无 key 时为
-      // 「本地模板」降级态）；首页不再声称「暂未接入」
+      // 「本地建议」降级态，非 AI 生成）；首页不再声称「暂未接入」
       onOpenAi={() => router.push(withDaemonEndpoint('/editor?ai=1'))}
       autoOpenCreate={autoCreate}
     />

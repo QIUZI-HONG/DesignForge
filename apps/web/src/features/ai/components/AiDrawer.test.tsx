@@ -10,17 +10,23 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import type { AiDegradeReason } from '@dforge/contracts';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { t } from '@/i18n';
+import zhCN from '../../../../messages/zh-CN.json';
 import { controllableAiPort, degradedResponse, fakeAiPort, okResponse } from '../test-utils';
 import { AiDrawer } from './AiDrawer';
+
+/** zh-CN 目录（JSON 导入的键集是字面量并集，动态键索引需放宽为记录）。 */
+const catalog = zhCN as unknown as Record<string, string>;
 
 /** 步骤行（data-df-step 是门禁与测试共用的对外挂点）。 */
 const stepRow = (id: string) => document.querySelector(`[data-df-step="${id}"]`);
 
 describe('AI 抽屉（F4）', () => {
-  it('提交自然语言 → 四步流转并渲染结果（queued/llm/validate/compile 全程可见）', async () => {
+  it('提交自然语言 → 三段流转并渲染结果（排队 → 模型生成 → 完成；不再出现校验/编译）', async () => {
     const user = userEvent.setup();
     const port = fakeAiPort({
       runs: [
@@ -45,16 +51,24 @@ describe('AI 抽屉（F4）', () => {
     await waitFor(() => {
       expect(screen.getByText('按钮组已生成')).toBeTruthy();
     });
-    // 四步全部收敛为已完成的语义
-    for (const id of ['queued', 'llm', 'validate', 'compile']) {
+    // 三段全部收敛为已完成（票 02 / spec P0-3：可见流只有排队 → 模型生成 → 完成）
+    for (const id of ['queued', 'llm', 'done']) {
       expect(stepRow(id)?.getAttribute('data-df-step-status')).toBe('done');
     }
+    // 「校验/编译」并未真实发生——UI 不渲染（P5 扩展位接入时恢复）
+    expect(stepRow('validate')).toBeNull();
+    expect(stepRow('compile')).toBeNull();
     // 步骤文案是中文（ADR-0003），步骤 id 只做挂点
-    expect(within(screen.getByRole('list', { name: '生成步骤' })).getByText('排队')).toBeTruthy();
+    const stepList = within(screen.getByRole('list', { name: '生成步骤' }));
+    expect(stepList.getByText('排队')).toBeTruthy();
+    expect(stepList.getByText('模型生成')).toBeTruthy();
+    expect(stepList.getByText('完成')).toBeTruthy();
+    expect(stepList.queryByText('校验')).toBeNull();
+    expect(stepList.queryByText('编译')).toBeNull();
     expect(port.streamCalls).toBe(1);
   });
 
-  it('降级态：与真态同构渲染 + 显式角标「本地模板」+ 建议动作', async () => {
+  it('降级态：与真态同构渲染 + 显式角标「本地建议」+ 建议动作（文案均来自 zh-CN 目录）', async () => {
     const user = userEvent.setup();
     const port = fakeAiPort({
       runs: [
@@ -75,12 +89,23 @@ describe('AI 抽屉（F4）', () => {
     await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
     await user.click(screen.getByRole('button', { name: '生成' }));
 
-    const badge = await screen.findByText('本地模板');
+    const badge = await screen.findByText(t('ai.badge.localTemplate'));
     expect(badge.getAttribute('data-df-badge')).toBe('local-template');
-    // 降级也走完四步（同构），并且给出可操作建议
-    expect(stepRow('compile')?.getAttribute('data-df-step-status')).toBe('done');
+    // 角标说明同样来自目录（title 悬停文案），不再声称「由本地模板生成」
+    expect(badge.getAttribute('title')).toBe(t('ai.badge.localTemplate.desc'));
+    expect(catalog['ai.badge.localTemplate.desc']).not.toContain('本地模板');
+    // 降级且无内容时：说明「本次没有 AI 生成内容」（不假装有产出）
+    expect(await screen.findByText(t('ai.result.degradedEmpty'))).toBeTruthy();
+    // 降级也走完可见三段（同构：完成段同样打勾），并且给出可操作建议
+    expect(stepRow('done')?.getAttribute('data-df-step-status')).toBe('done');
     expect(screen.getByText('未配置 DeepSeek API key')).toBeTruthy();
     expect(screen.getByRole('button', { name: '去配置 key' })).toBeTruthy();
+  });
+
+  it('抽屉副标题来自 zh-CN 目录（票 02：不再暗示会修改文档）', async () => {
+    render(<AiDrawer port={fakeAiPort({ runs: [] })} defaultOpen />);
+    expect(screen.getByText(t('ai.subtitle'))).toBeTruthy();
+    expect(catalog['ai.subtitle']).toContain('不会改动文档');
   });
 
   it('真态不出角标（角标只由 degraded 决定）', async () => {
@@ -103,7 +128,7 @@ describe('AI 抽屉（F4）', () => {
     await user.type(screen.getByRole('textbox', { name: '描述修改' }), '画一个图标');
     await user.click(screen.getByRole('button', { name: '生成' }));
     await screen.findByText('已生成按钮组');
-    expect(screen.queryByText('本地模板')).toBeNull();
+    expect(screen.queryByText(t('ai.badge.localTemplate'))).toBeNull();
   });
 
   it('失败可重试：失败落在所在步上，点重试后重新从 queued 走完', async () => {
@@ -169,6 +194,71 @@ describe('AI 抽屉（F4）', () => {
     render(<AiDrawer port={port} defaultOpen />);
     expect(await screen.findByText(/未配置 DeepSeek key/)).toBeTruthy();
     expect(port.statusCalls).toBe(1);
+  });
+});
+
+describe('降级原因五类映射（票 02 / spec P0-3：degradedReason 渲染中文人话）', () => {
+  /** 提交一次指定原因的降级运行，返回结果区。 */
+  async function submitDegradedRun(reason: AiDegradeReason) {
+    const user = userEvent.setup();
+    const port = fakeAiPort({
+      runs: [
+        [
+          {
+            type: 'start',
+            runId: `ai_${reason}`,
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            degraded: true,
+          },
+          { type: 'done', response: degradedResponse(reason) },
+        ],
+      ],
+    });
+    render(<AiDrawer port={port} defaultOpen />);
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    await user.click(screen.getByRole('button', { name: '生成' }));
+  }
+
+  it.each<AiDegradeReason>([
+    'no-credentials',
+    'upstream-error',
+    'timeout',
+    'rate-limited',
+    'invalid-response',
+  ])('%s：结果区渲染 zh-CN 目录的人话文案（挂点携带原始原因）', async (reason) => {
+    await submitDegradedRun(reason);
+
+    const key = `ai.degrade.${reason}`;
+    const expected = t(key);
+    const line = await screen.findByText(expected);
+    expect(line.getAttribute('data-df-ai-degrade-reason')).toBe(reason);
+    // 文案确实来自 zh-CN 目录（不是键回退、不是组件硬编码——ADR-0003）
+    expect(catalog[key]).toBeTruthy();
+    expect(catalog[key]).not.toBe(key);
+  });
+
+  it('真态完成不渲染降级原因（原因行只在 degraded 时出现）', async () => {
+    const user = userEvent.setup();
+    const port = fakeAiPort({
+      runs: [
+        [
+          {
+            type: 'start',
+            runId: 'ai_ok',
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            degraded: false,
+          },
+          { type: 'done', response: okResponse('已生成按钮组') },
+        ],
+      ],
+    });
+    render(<AiDrawer port={port} defaultOpen />);
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    await user.click(screen.getByRole('button', { name: '生成' }));
+    await screen.findByText('已生成按钮组');
+    expect(document.querySelector('[data-df-ai-degrade-reason]')).toBeNull();
   });
 });
 
