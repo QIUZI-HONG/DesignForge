@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applicablePatchKeys,
   createComponent,
   createDocument,
   createFrame,
@@ -15,6 +16,7 @@ import {
   isDesignToken,
   isHittable,
   parseAliasReference,
+  PATCHABLE_KEYS,
   pickPatch,
   replaceTextRange,
   type SceneNode,
@@ -107,6 +109,26 @@ describe('model · 补丁提取（撤销的旧值来源）', () => {
     const rect: SceneNode = createRect({ id: 'r1', x: 5, y: 6 });
     const patch = pickPatch(rect, ['x', 'text']);
     expect(patch).toEqual({ x: 5 });
+  });
+
+  it('各节点类型适用键的并集恰为 PATCHABLE_KEYS（B5 键表全部分配到类型）', () => {
+    // NODE 类型清单与 PATCHABLE_KEYS 是两张手工维护的表：谁新增了补丁键/节点类型
+    // 却忘了登记适用集，这里立刻红（否则应用侧守门会出现「对谁都不适用」的悬空键）。
+    const types = [
+      'rect',
+      'ellipse',
+      'text',
+      'frame',
+      'group',
+      'component',
+      'component_set',
+      'instance',
+    ] as const;
+    const union = new Set<string>();
+    for (const type of types) {
+      for (const key of applicablePatchKeys(type)) union.add(key);
+    }
+    expect([...union].sort()).toEqual([...PATCHABLE_KEYS].sort());
   });
 });
 
