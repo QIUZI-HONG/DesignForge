@@ -72,7 +72,14 @@ export function TextOverlay({ session }: TextOverlayProps) {
 
   // 进入编辑：聚焦并把引擎会话的选区套到输入框（只在**进入时**跑一次，避免每次按键重置光标）
   useEffect(() => {
-    if (nodeId === null || lastNodeRef.current === nodeId) return;
+    if (nodeId === null) {
+      // 会话关闭即清「进入过」标记：同一节点再次进入（双击/Enter 重入）必须重新聚焦、
+      // 复位取消守卫——否则上一次 Esc 留下的 cancelledRef 会把下一次失焦提交吞掉
+      // （票 13：巡检「失焦提交未落盘」的根因），且输入框不会带上会话选区。
+      lastNodeRef.current = null;
+      return;
+    }
+    if (lastNodeRef.current === nodeId) return;
     const element = textareaRef.current;
     const current = session.store.getState().editing;
     if (element === null || current === null) return;

@@ -73,10 +73,12 @@ export type {
 export { dropShadow, isPaintVisible, paintKeyColor, solidPaint, strokeOf } from './paint';
 export type { TextAlign, TextAutoResize, TextContent, TextSelection } from './text';
 export {
+  clampTextCharacters,
   defaultTextContent,
   deleteTextRange,
   normalizeSelection,
   replaceTextRange,
+  TEXT_CHARACTERS_MAX_LENGTH,
 } from './text';
 
 export type { DesignToken, TokenGroup, TokenSet, TokenType, TokenValue } from './tokens';
