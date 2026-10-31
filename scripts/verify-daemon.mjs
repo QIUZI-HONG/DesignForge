@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,6 +89,34 @@ function expectOk(condition, id, detail) {
   return Boolean(condition);
 }
 
+/**
+ * 带自定义 Host 头的裸 HTTP 请求（undici fetch 视 Host 为禁改头，rebinding 形态必须
+ * 用 node:http 直发）。返回 { status, text }。
+ */
+function callWithHost(baseUrl, hostHeader, path) {
+  return new Promise((settle, reject) => {
+    const url = new URL(path, baseUrl);
+    const req = httpRequest(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: 'GET',
+        headers: { host: hostHeader },
+      },
+      (res) => {
+        let text = '';
+        res.on('data', (chunk) => {
+          text += chunk;
+        });
+        res.on('end', () => settle({ status: res.statusCode, text }));
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 async function runSmoke(baseUrl) {
   // ---- 基座 ----
   const health = await call(baseUrl, 'GET', '/health');
@@ -122,9 +151,26 @@ async function runSmoke(baseUrl) {
 
   const corsNull = await call(baseUrl, 'GET', '/health', undefined, { origin: 'null' });
   expectOk(
-    corsNull.headers.get('access-control-allow-origin') === 'null',
-    'cors.shell-null',
-    '打包壳 Origin: null → 放行（file:// 形态）',
+    corsNull.status === 200 &&
+      corsNull.headers.get('access-control-allow-origin') === null &&
+      corsNull.json?.ok === true,
+    'cors.null-denied',
+    'GET /health（Origin: null）→ 无放行头（沙箱 iframe/file:// 不放行，API 语义不变）',
+  );
+
+  // ---- 访问控制（Host 校验 + baseUrl 收敛，票 02）----
+  const hostRebind = await callWithHost(baseUrl, 'evil.rebind.example', '/health');
+  expectOk(
+    hostRebind.status === 403 && hostRebind.text.includes('forbidden'),
+    'access.host-rebind-denied',
+    `GET /health（Host: evil.rebind.example）→ ${hostRebind.status}（DNS rebinding 形态拒绝）`,
+  );
+
+  const hostLoopback = await callWithHost(baseUrl, 'localhost:4318', '/health');
+  expectOk(
+    hostLoopback.status === 200 && hostLoopback.text.includes('"ok":true'),
+    'access.host-loopback-allowed',
+    `GET /health（Host: localhost:4318）→ ${hostLoopback.status}（回环 Host 正常）`,
   );
 
   const preflight = await call(baseUrl, 'OPTIONS', '/documents', undefined, {
@@ -173,6 +219,33 @@ async function runSmoke(baseUrl) {
       goodConfig.json?.result?.config?.workspaceDir === resolve(goodWorkspace),
     'config.put.ok',
     `PUT /config（合法工作目录 + 出图指向死端口）→ ${goodConfig.status}`,
+  );
+
+  // baseUrl 收敛（票 02 · §A2-5c）：越界地址 4xx 拒绝且不改动内存配置
+  const badAiBase = await call(baseUrl, 'PUT', '/config', {
+    ai: { baseUrl: 'https://evil.example.com' },
+  });
+  expectOk(
+    badAiBase.status === 400 && badAiBase.json?.error?.code === 'config_invalid',
+    'access.ai-baseurl-denied',
+    `PUT /config（ai.baseUrl 越界）→ ${badAiBase.status}（仅 DeepSeek 官方域）`,
+  );
+
+  const badComfyBase = await call(baseUrl, 'PUT', '/config', {
+    comfy: { baseUrl: 'http://192.168.1.9:8188' },
+  });
+  expectOk(
+    badComfyBase.status === 400 && badComfyBase.json?.error?.code === 'config_invalid',
+    'access.comfy-baseurl-denied',
+    `PUT /config（comfy.baseUrl 非回环）→ ${badComfyBase.status}（仅回环网段）`,
+  );
+
+  const configAfterReject = await call(baseUrl, 'GET', '/config');
+  expectOk(
+    configAfterReject.json?.result?.config?.ai?.baseUrl === 'https://api.deepseek.com' &&
+      configAfterReject.json?.result?.config?.comfy?.baseUrl === DEAD_COMFY_URL,
+    'access.baseurl-memory-unchanged',
+    '被拒的 baseUrl 不改动内存配置（ai 仍官方域 / comfy 仍死端口原值）',
   );
 
   const badKey = await call(baseUrl, 'PUT', '/config/credentials', { apiKey: 'not-a-key' });

@@ -49,6 +49,10 @@ import { createWorkspaceDocumentPort } from './workspace-port';
  * 为什么不是模块求值期就建：装配要读画布工作区单例（`getWorkspace()` → `window.location.search`），
  * SSR 期求值会把「服务端的那一份」建出来；惰性化把创建时机锁死在浏览器首次使用，
  * 同时让「命令 run 闭包」与「插槽渲染」永远取同一份（单例）。
+ *
+ * 单例跨 SPA 导航存活的前提下，评论/版本仍按文档隔离：会话不传显式 `documentId`，
+ * 文档标识随工作区当前文档动态解析、换文档即重挂持久化桶（#03 / 证据 §A3，
+ * 见 `session.ts` 模块头「方案定案」）。
  */
 let session: ReviewSession | null = null;
 

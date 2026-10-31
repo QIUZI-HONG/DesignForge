@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { type Point, worldQuad } from '../geometry/index';
 import { createIdFactory } from '../model/ids';
 import {
   childrenOf,
@@ -9,18 +10,25 @@ import {
   createInstance,
   createPage,
   createRect,
+  createText,
   type DesignDocument,
+  defaultAutoLayout,
+  defaultTextContent,
+  solidPaint,
 } from '../model/index';
 import {
   getChildrenIds,
   getPage,
   insertNode,
   insertNodes,
+  nodeKeys,
   requireNode,
   validateDocument,
 } from '../scene/index';
+import { serializeDocument } from '../serialize/index';
 import {
   type Command,
+  CommandError,
   CommandStack,
   deleteNodesCommands,
   dissolveGroupCommands,
@@ -153,6 +161,16 @@ describe('commands · 撤销/重做往返恒等', () => {
       { type: 'node.insert', pageId: 'p1', node: createRect({ id: 'new1' }), parentId: 'f1' },
     ]);
     roundTrip([{ type: 'node.remove', pageId: 'p1', nodeId: 'f1' }]);
+  });
+
+  it('小数增量移动撤销逐字段还原（浮点相对量 (x+dx)-dx ≠ x → 逆命令必须由状态推导）', () => {
+    // 确定性漂移对：x=10 处 (10+6.1)-6.1 = 10.000000000000002（整数增量永测不出）
+    roundTrip([{ type: 'node.move', pageId: 'p1', nodeIds: ['r1'], dx: 6.1, dy: 6.4 }]);
+  });
+
+  it('跨父级多选小数增量移动同样满足 undo → redo 恒等', () => {
+    // r1 在 f1 内、t1 在页面顶层：多选跨父级，各自按父坐标系平移
+    roundTrip([{ type: 'node.move', pageId: 'p1', nodeIds: ['r1', 't1'], dx: 6.1, dy: 6.4 }]);
   });
 
   it('删除子树后撤销可完整还原（含后代与父级位置）', () => {
@@ -372,5 +390,408 @@ describe('commands · helpers（语义级构造）', () => {
     s2.undo();
     expect(JSON.parse(JSON.stringify(s2.document))).toEqual(before2);
     void createGroup;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B5（票 08 · 证据 §B5）：node.update 键适用性
+//
+// NodePatch 是全类型联合，类型系统挡不住「把 frame 的键发给 rect」；修前
+// setNodeProps 逐键赋值会在目标节点上留下未知自有键（undo 不还原、随序列化落盘）。
+// 定案：**拒绝**（invalid-argument），不用静默过滤——命令栈自称唯一写入口，
+// 对非法载荷的一贯处置是显式拒绝（NaN 载荷 / not-a-container 同族），
+// 且拒绝发生在写之前，「撤销到初始文档」不变式无条件成立。
+// ---------------------------------------------------------------------------
+
+/** 从命令栈捕获 CommandError 错误码（无错误时返回 null）。 */
+function errorCodeOf(dispatch: () => void): string | null {
+  try {
+    dispatch();
+  } catch (error) {
+    return error instanceof CommandError ? error.code : null;
+  }
+  return null;
+}
+
+describe('commands · node.update 键适用性（B5）', () => {
+  it('跨类型键被拒绝：对 rect 发 text 补丁 → invalid-argument，文档与历史不变', () => {
+    const s = stack();
+    const before = JSON.parse(JSON.stringify(s.document));
+    const code = errorCodeOf(() =>
+      s.dispatch({
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r1',
+        patch: { text: { ...defaultTextContent(), characters: '不该落在矩形上' } } as never,
+      }),
+    );
+    expect(code).toBe('invalid-argument');
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(before);
+    expect(s.history().undo).toHaveLength(0);
+    expect(validateDocument(s.document)).toEqual([]);
+  });
+
+  it('各类型的特有键发给别的类型都被拒绝（autoLayout/clipsContent/variantProperties/text）', () => {
+    // r1=rect：frame 的 autoLayout/clipsContent、component 的 variantProperties、text 的 text 全不适用
+    const patches = [
+      { autoLayout: defaultAutoLayout('vertical') },
+      { clipsContent: false },
+      { variantProperties: { size: 'large' } },
+      { text: defaultTextContent() },
+    ] as const;
+    for (const patch of patches) {
+      const s = stack();
+      const before = JSON.parse(JSON.stringify(s.document));
+      const code = errorCodeOf(() =>
+        s.dispatch({
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'r1',
+          patch: { ...patch } as never,
+        }),
+      );
+      expect(code, `补丁键 ${Object.keys(patch).join(',')} 应被拒绝`).toBe('invalid-argument');
+      expect(JSON.parse(JSON.stringify(s.document))).toEqual(before);
+    }
+  });
+
+  it('未知键被拒绝：Design IR 没有的字段不能经 node.update 落进节点', () => {
+    const s = stack();
+    const before = JSON.parse(JSON.stringify(s.document));
+    const code = errorCodeOf(() =>
+      s.dispatch({
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r1',
+        patch: { 自定义字段: 1 } as never,
+      }),
+    );
+    expect(code).toBe('invalid-argument');
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(before);
+  });
+
+  it('结构性键被拒绝：children/componentId/overrides 走专用命令，不经 node.update 改写', () => {
+    for (const key of ['children', 'componentId', 'overrides', 'id', 'type'] as const) {
+      const s = stack();
+      const before = JSON.parse(JSON.stringify(s.document));
+      const code = errorCodeOf(() =>
+        s.dispatch({
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'r1',
+          patch: { [key]: '篡改' } as never,
+        }),
+      );
+      expect(code, `结构性键 ${key} 应被拒绝`).toBe('invalid-argument');
+      expect(JSON.parse(JSON.stringify(s.document))).toEqual(before);
+    }
+  });
+
+  it('报告键名与节点类型，便于调用方定位补丁构造错误', () => {
+    const s = stack();
+    let message = '';
+    try {
+      s.dispatch({
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r1',
+        patch: { autoLayout: null } as never,
+      });
+    } catch (error) {
+      if (error instanceof CommandError) message = error.message;
+    }
+    expect(message).toContain('autoLayout');
+    expect(message).toContain('rect');
+  });
+
+  it('证据原貌回归：对 group 发 autoLayout 补丁被拒绝（修前会留下自有键残留且 undo 不还原）', () => {
+    const s = stack();
+    s.dispatch(
+      groupNodesCommands(getPage(s.document, 'p1'), 'p1', ['r1', 'r2'], {
+        groupId: 'g9',
+      }),
+    );
+    const withGroup = JSON.parse(JSON.stringify(s.document));
+    const code = errorCodeOf(() =>
+      s.dispatch({
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'g9',
+        patch: { autoLayout: null } as never,
+      }),
+    );
+    expect(code).toBe('invalid-argument');
+    // 拒绝路径：文档与历史零变动
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(withGroup);
+    expect(s.history().undo).toHaveLength(1);
+
+    // 对照组：同一键发给适用类型（frame）正常生效，撤销逐字段还原
+    const code2 = errorCodeOf(() =>
+      s.dispatch({ type: 'node.update', pageId: 'p1', nodeId: 'f1', patch: { autoLayout: null } }),
+    );
+    expect(code2).toBeNull();
+    expect(requireNode(getPage(s.document, 'p1'), 'f1')).toMatchObject({ autoLayout: null });
+    s.undo();
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(withGroup);
+  });
+
+  it('跨类型键混合序列下「撤销到初始文档」不变式成立（拒绝的不进历史，适用的全还原）', () => {
+    const s = stack();
+    const initial = JSON.parse(JSON.stringify(s.document));
+    // 混合：适用的（生效 + 进历史）与跨类型的（拒绝 + 不进历史）交错
+    const outcomes = [
+      { patch: { x: 11 } as never, applies: true },
+      { patch: { autoLayout: null } as never, applies: false },
+      { patch: { fills: [solidPaint('#112233')] } as never, applies: true },
+      { patch: { text: defaultTextContent() } as never, applies: false },
+      { patch: { name: '改名' } as never, applies: true },
+    ];
+    for (const { patch, applies } of outcomes) {
+      const code = errorCodeOf(() =>
+        s.dispatch({ type: 'node.update', pageId: 'p1', nodeId: 'r1', patch }),
+      );
+      expect(code ? 'rejected' : 'applied').toBe(applies ? 'applied' : 'rejected');
+    }
+    expect(s.history().undo).toHaveLength(3);
+    while (s.undo());
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(initial);
+    expect(validateDocument(s.document)).toEqual([]);
+  });
+
+  it('类型特有键发给适用类型照常生效（text→text、variantProperties→component、autoLayout→frame）', () => {
+    let doc = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+    doc = insertNode(doc, 'p1', createText({ id: 'tx', x: 0, y: 0, width: 80, height: 20 }), null);
+    doc = insertNode(
+      doc,
+      'p1',
+      createComponent({ id: 'c1', x: 100, y: 0, width: 80, height: 60 }),
+      null,
+    );
+    doc = insertNode(
+      doc,
+      'p1',
+      createFrame({ id: 'f1', x: 200, y: 0, width: 80, height: 60 }),
+      null,
+    );
+    const s = new CommandStack(doc);
+    expect(
+      errorCodeOf(() =>
+        s.dispatch({
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'tx',
+          patch: { text: { ...defaultTextContent(), characters: '你好' } },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      errorCodeOf(() =>
+        s.dispatch({
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'c1',
+          patch: { variantProperties: { size: 'large' } },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      errorCodeOf(() =>
+        s.dispatch({
+          type: 'node.update',
+          pageId: 'p1',
+          nodeId: 'f1',
+          patch: { clipsContent: false, autoLayout: defaultAutoLayout('horizontal') },
+        }),
+      ),
+    ).toBeNull();
+    expect(requireNode(getPage(s.document, 'p1'), 'f1')).toMatchObject({
+      clipsContent: false,
+      autoLayout: expect.objectContaining({ direction: 'horizontal' }),
+    });
+    // 适用键的写入同样满足撤销恒等
+    const applied = JSON.parse(JSON.stringify(s.document));
+    while (s.undo());
+    while (s.redo());
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(applied);
+  });
+
+  it('序列化往返无未知自有键残留（自有键集合是独立的字面清单，不随补丁漂移）', () => {
+    const s = stack();
+    const initialJson = serializeDocument(s.document);
+    // rect 的合法自有键——独立字面清单（与 NodeBase + type 对不上即红）
+    const rectKeys = [
+      'blendMode',
+      'cornerRadius',
+      'effects',
+      'fills',
+      'height',
+      'id',
+      'locked',
+      'name',
+      'opacity',
+      'rotation',
+      'strokes',
+      'type',
+      'visible',
+      'width',
+      'x',
+      'y',
+    ].sort();
+    const keysOf = (id: string): string[] => nodeKeys(requireNode(getPage(s.document, 'p1'), id));
+
+    // 拒绝路径：跨类型键不落节点（修前 autoLayout 会作为自有键残留并随序列化落盘）
+    errorCodeOf(() =>
+      s.dispatch({
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r1',
+        patch: { autoLayout: null } as never,
+      }),
+    );
+    expect(serializeDocument(s.document)).toBe(initialJson);
+    expect(keysOf('r1')).toEqual(rectKeys);
+
+    // 适用路径：写入只改值，不增删自有键
+    s.dispatch({
+      type: 'node.update',
+      pageId: 'p1',
+      nodeId: 'r1',
+      patch: { x: 12.5, fills: [solidPaint('#010203')] },
+    });
+    expect(keysOf('r1')).toEqual(rectKeys);
+
+    // 全撤销 → 序列化逐字节回到初始（无残留可进历史逆路径）
+    while (s.undo());
+    expect(serializeDocument(s.document)).toBe(initialJson);
+  });
+});
+
+/**
+ * 票 05 · 编组坐标系换算：容器定位与子项补丁一律经父坐标系逆换算。
+ * 现有夹具把父级画板全放在 (0,0)，掩盖了「世界 AABB 被直接当父相对坐标」的缺陷——
+ * 本组用例特意把父级画板放在非零坐标 / 带旋转，并与解组形成对称往返断言。
+ */
+describe('commands · 编组坐标系（父级非零偏移/旋转）', () => {
+  /** 父级非零坐标夹具：fe(100,80,200×200[,rot]) ⊃ [r1(10,10,50,50), r2(70,30,40,20[,rot])]。 */
+  function offsetDoc(frameRotation = 0, childRotation = 0): DesignDocument {
+    let doc = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+    doc = insertNode(
+      doc,
+      'p1',
+      createFrame({ id: 'fe', x: 100, y: 80, width: 200, height: 200, rotation: frameRotation }),
+      null,
+    );
+    doc = insertNodes(
+      doc,
+      'p1',
+      [
+        createRect({ id: 'r1', x: 10, y: 10, width: 50, height: 50 }),
+        createRect({ id: 'r2', x: 70, y: 30, width: 40, height: 20, rotation: childRotation }),
+      ],
+      'fe',
+    );
+    return doc;
+  }
+
+  /** 节点世界四角快照（世界形状不变断言用）。 */
+  function worldQuadsOf(doc: DesignDocument, ids: readonly string[]): Record<string, Point[]> {
+    const page = getPage(doc, 'p1');
+    return Object.fromEntries(ids.map((id) => [id, worldQuad(page, id) ?? []]));
+  }
+
+  /** 断言各节点世界四角与快照逐点一致（容差 1e-8，覆盖父级旋转下的矩阵逆换算浮点噪声）。 */
+  function expectWorldQuadsUnchanged(doc: DesignDocument, before: Record<string, Point[]>): void {
+    const page = getPage(doc, 'p1');
+    for (const [id, quad] of Object.entries(before)) {
+      const after = worldQuad(page, id) ?? [];
+      expect(after).toHaveLength(quad.length);
+      after.forEach((point, index) => {
+        const expected = quad[index];
+        if (!expected) return;
+        expect(point.x).toBeCloseTo(expected.x, 8);
+        expect(point.y).toBeCloseTo(expected.y, 8);
+      });
+    }
+  }
+
+  it('编组：容器落位与子项补丁经父坐标系逆换算（父级非零偏移时整组不瞬移）', () => {
+    const s = new CommandStack(offsetDoc());
+    const before = worldQuadsOf(s.document, ['r1', 'r2']);
+    const page = getPage(s.document, 'p1');
+    s.dispatch(groupNodesCommands(page, 'p1', ['r1', 'r2'], { groupId: 'g1' }));
+    const after = getPage(s.document, 'p1');
+    const group = requireNode(after, 'g1');
+    // 组 x/y 语义为相对父容器：应等于选中并集在 fe 局部坐标系的 AABB (10,10,100,50)，
+    // 而非世界 AABB (110,90,100,50)——后者会把整组瞬移一个父偏移
+    expect([group.x, group.y, group.width, group.height]).toEqual([10, 10, 100, 50]);
+    expect(getChildrenIds(after, 'g1')).toEqual(['r1', 'r2']);
+    // 子项补丁落在组局部坐标系：r1 → (0,0)、r2 → (60,20)，自转角保持
+    expect(requireNode(after, 'r1')).toMatchObject({ x: 0, y: 0, rotation: 0 });
+    expect(requireNode(after, 'r2')).toMatchObject({ x: 60, y: 20, rotation: 0 });
+    // 各子节点世界形状逐角不变
+    expectWorldQuadsUnchanged(s.document, before);
+  });
+
+  it('编组：父级带旋转时子项旋转补丁减去父系角，世界形状不变', () => {
+    const s = new CommandStack(offsetDoc(30, 20));
+    const initial = JSON.parse(JSON.stringify(s.document));
+    const before = worldQuadsOf(s.document, ['r1', 'r2']);
+    const page = getPage(s.document, 'p1');
+    s.dispatch(groupNodesCommands(page, 'p1', ['r1', 'r2'], { groupId: 'g1' }));
+    const after = getPage(s.document, 'p1');
+    // 旋转补丁 = 世界角 − 父系角：r2 应为 20（而非世界角 30+20=50）
+    expect(requireNode(after, 'r1').rotation).toBe(0);
+    expect(requireNode(after, 'r2').rotation).toBe(20);
+    // 子项世界形状逐角不变（位置与旋转都经父坐标系逆换算）
+    expectWorldQuadsUnchanged(s.document, before);
+    // 撤销精确还原
+    expect(s.undo()).toBe(true);
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(initial);
+  });
+
+  it('对称往返：成组→解组→成组逐字段恒等（父级非零偏移）', () => {
+    const s = new CommandStack(offsetDoc());
+    const page = getPage(s.document, 'p1');
+    s.dispatch(groupNodesCommands(page, 'p1', ['r1', 'r2'], { groupId: 'g1' }));
+    const afterFirstGroup = JSON.parse(JSON.stringify(s.document));
+    // 解组把子项精确送回 fe 局部原坐标（与编组互为逆运算）
+    s.dispatch(dissolveGroupCommands(getPage(s.document, 'p1'), 'p1', 'g1'));
+    const dissolved = getPage(s.document, 'p1');
+    expect(requireNode(dissolved, 'r1')).toMatchObject({ x: 10, y: 10, rotation: 0 });
+    expect(requireNode(dissolved, 'r2')).toMatchObject({ x: 70, y: 30, rotation: 0 });
+    // 再成组：与第一次成组结果逐字段恒等
+    s.dispatch(
+      groupNodesCommands(getPage(s.document, 'p1'), 'p1', ['r1', 'r2'], { groupId: 'g1' }),
+    );
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(afterFirstGroup);
+  });
+
+  it('对称往返：成组→解组→成组逐字段恒等（父级带旋转，浮点容差）', () => {
+    const s = new CommandStack(offsetDoc(30, 20));
+    const page = getPage(s.document, 'p1');
+    s.dispatch(groupNodesCommands(page, 'p1', ['r1', 'r2'], { groupId: 'g1' }));
+    const afterFirstGroup = JSON.parse(JSON.stringify(s.document));
+    s.dispatch(dissolveGroupCommands(getPage(s.document, 'p1'), 'p1', 'g1'));
+    const dissolved = getPage(s.document, 'p1');
+    // 解组把子项送回 fe 局部原坐标（旋转父系下坐标有 ~1e-13 矩阵逆换算噪声）
+    expect(requireNode(dissolved, 'r1').x).toBeCloseTo(10, 8);
+    expect(requireNode(dissolved, 'r1').y).toBeCloseTo(10, 8);
+    expect(requireNode(dissolved, 'r2').x).toBeCloseTo(70, 8);
+    expect(requireNode(dissolved, 'r2').y).toBeCloseTo(30, 8);
+    // 再成组：与第一次成组逐字段恒等（旋转角精确，坐标在浮点容差内）
+    s.dispatch(
+      groupNodesCommands(getPage(s.document, 'p1'), 'p1', ['r1', 'r2'], { groupId: 'g1' }),
+    );
+    const first = getPage(afterFirstGroup, 'p1');
+    const second = getPage(s.document, 'p1');
+    for (const id of ['g1', 'r1', 'r2']) {
+      const a = requireNode(first, id);
+      const b = requireNode(second, id);
+      expect(b.rotation).toBe(a.rotation);
+      expect(b.x).toBeCloseTo(a.x, 8);
+      expect(b.y).toBeCloseTo(a.y, 8);
+      expect(b.width).toBeCloseTo(a.width, 8);
+      expect(b.height).toBeCloseTo(a.height, 8);
+    }
   });
 });

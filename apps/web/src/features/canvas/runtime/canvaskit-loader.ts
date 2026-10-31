@@ -36,7 +36,15 @@ export function canvaskitScriptUrl(assetDir: string = DEFAULT_CANVASKIT_ASSET_DI
   return `${assetDir.replace(/\/$/, '')}/canvaskit.js`;
 }
 
-/** 默认脚本加载器：注入 `<script>` 并等 onload/onerror（幂等：同 src 只插一次）。 */
+/**
+ * 默认脚本加载器：注入 `<script>` 并等 onload/onerror（幂等：同 src 只插一次）。
+ *
+ * 标签生命周期（§E1 教训：失败标签残留会让重试误判「已就绪」直接放行，只有整页刷新能恢复）：
+ * - 失败：onerror 即摘除标签——DOM 里不留毒化残留，下一次调用注入全新标签；
+ * - 加载中：带 `data-df-canvaskit-status="loading"` 标记，重入调用跟随原标签的 load/error 结算
+ *   （不得提前放行——脚本未就绪时放行会让 `globalInit()` 读到 null 而误报资产损坏）；
+ * - 已就绪：标记 `"loaded"`，重入调用直接放行（「重新初始化」场景复用，不插重复标签）。
+ */
 function injectScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (typeof document === 'undefined') {
@@ -47,16 +55,35 @@ function injectScript(src: string): Promise<void> {
       `script[data-df-canvaskit="${src}"]`,
     );
     if (existing !== null) {
-      // 已有同源脚本：等到它加载完成（就绪或失败都已在 onload/onerror 处理过，这里直接放行）
-      resolve();
+      // 同源标签已在：全局初始化函数已就绪、或标签明确标记已加载 → 直接放行；
+      // 否则视为仍在加载，跟随该标签结算（它的 onload/onerror 同时服务首个调用方与这里）
+      if (globalInit() !== null || existing.dataset.dfCanvaskitStatus === 'loaded') {
+        resolve();
+        return;
+      }
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener(
+        'error',
+        () => reject(new Error(`CanvasKit 脚本加载失败：${src}`)),
+        { once: true },
+      );
       return;
     }
     const script = document.createElement('script');
     script.src = src;
     script.async = true;
     script.dataset.dfCanvaskit = src;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`CanvasKit 脚本加载失败：${src}`));
+    script.dataset.dfCanvaskitStatus = 'loading';
+    script.onload = () => {
+      script.dataset.dfCanvaskitStatus = 'loaded';
+      resolve();
+    };
+    script.onerror = () => {
+      // 失败即摘除：残留标签会让下一次注入误判「已就绪」直接放行 → globalInit() 为 null，
+      // 整页会话只有刷新才能恢复（§E1）
+      script.remove();
+      reject(new Error(`CanvasKit 脚本加载失败：${src}`));
+    };
     document.head.appendChild(script);
   });
 }

@@ -52,11 +52,13 @@ describe('cors · 策略解析', () => {
     expect(corsOriginsFromEnv({})).toEqual([...DEFAULT_CORS_ORIGINS]);
   });
 
-  it('策略：精确匹配大小写不敏感，`null`（打包壳）恒放行，不通配', () => {
+  it('策略：精确匹配大小写不敏感，`null`（沙箱 iframe/file://）不再放行，不通配', () => {
     const policy = createCorsPolicy(['http://localhost:3000']);
     expect(policy.isAllowed('http://localhost:3000')).toBe(true);
     expect(policy.isAllowed('http://LOCALHOST:3000')).toBe(true);
-    expect(policy.isAllowed('null')).toBe(true);
+    // Origin: null 是浏览器对沙箱 iframe / file:// 等不可信上下文的**真实**产出，
+    // 放行等于对任意网页开门（§A2-5a）；壳已弃用 file:// 装载，不再是无条件放行理由
+    expect(policy.isAllowed('null')).toBe(false);
     expect(policy.isAllowed('http://evil.example.com')).toBe(false);
     expect(policy.isAllowed('http://localhost:3000.evil.example.com')).toBe(false);
   });
@@ -100,15 +102,18 @@ describe('cors · 响应头（白名单受控放行）', () => {
     });
   });
 
-  it('打包壳 `Origin: null` 放行（file:// 形态）', async () => {
+  it('`Origin: null`（沙箱 iframe / file://）不再放行：无 allow-origin 头，API 语义不变', async () => {
     await withDaemon(async (daemon) => {
       const response = await daemon.app.inject({
         method: 'GET',
         url: '/health',
         headers: { origin: 'null' },
       });
+      // 服务端语义保持 200（真正的访问控制边界在回环监听 + Host 校验 + 未来令牌），
+      // 但**不回放行头**——浏览器据此拒绝跨源读取（§A2-5a）
       expect(response.statusCode).toBe(200);
-      expect(headerOf(response, 'access-control-allow-origin')).toBe('null');
+      expect(headerOf(response, 'access-control-allow-origin')).toBeUndefined();
+      expect((response.json() as { ok: boolean }).ok).toBe(true);
     });
   });
 

@@ -137,6 +137,30 @@ describe('版本 store · 两步确认回滚', () => {
   });
 });
 
+describe('版本 store · 换文档重挂（跨文档隔离，#03）', () => {
+  it('attachDocument 换桶重载：新桶为空、旧桶原样；对比态收摊', () => {
+    const { store, backend } = setup();
+    const snap = store.getState().capture('第一版');
+    store.getState().beginCompare(snap.id);
+    expect(store.getState().compareId).toBe(snap.id);
+
+    store.getState().attachDocument('doc-2');
+    expect(store.getState().snapshots).toEqual([]);
+    expect(store.getState().compareId).toBeNull();
+    // 桶按文档隔离：新桶为空，旧桶原样（切回原文档快照还在）
+    expect(backend.getItem(versionsKey('doc-2'))).toBeNull();
+    expect(backend.getItem(versionsKey('doc-1'))).toContain('第一版');
+
+    // 新桶上的 capture 落新桶（快照归属记录当前归属文档）
+    store.getState().capture('第二文档的版本');
+    expect(backend.getItem(versionsKey('doc-2'))).toContain('第二文档的版本');
+
+    // 同 id 重挂是空操作——恢复/撤销等 document.replace 触发的重挂不清当前列表
+    store.getState().attachDocument('doc-2');
+    expect(store.getState().snapshots.map((item) => item.label)).toEqual(['第二文档的版本']);
+  });
+});
+
 describe('版本 store · 只读语义', () => {
   it('回滚不直接改文档对象：命令交给命令栈（run 注入）', () => {
     const run = vi.fn();

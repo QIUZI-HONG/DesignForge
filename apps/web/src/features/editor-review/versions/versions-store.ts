@@ -8,7 +8,7 @@
  */
 import type { Command, DesignDocument } from '@dforge/engine';
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { KeyValueBackend } from '../storage';
+import type { KeyValueBackend, LocalStore } from '../storage';
 import { createLocalStore, isVersionSnapshot, versionsKey } from '../storage';
 import {
   appendSnapshot,
@@ -41,6 +41,12 @@ export interface VersionUiState {
   confirmRestore: (autoLabel?: string) => void;
   /** 读取对比数据（快照 vs 当前文档；无对比对象返回 null）。 */
   diffOf: (snapshotId: string) => DocumentDiff | null;
+  /**
+   * 换文档重挂（跨文档隔离，#03）：持久化桶换到新文档、快照列表从新桶重载；
+   * 对比态属于旧文档的快照列表，一并收摊（抽屉开合是用户级 UI 态，保留）。
+   * 同 id 重挂是空操作（恢复/撤销等 `document.replace` 不清列表）。
+   */
+  attachDocument: (documentId: string) => void;
 }
 
 /** 版本 store 句柄。 */
@@ -48,6 +54,7 @@ export type VersionStore = StoreApi<VersionUiState>;
 
 /** createVersionStore 选项。 */
 export interface VersionStoreOptions {
+  /** 初始归属文档（持久化键空间按文档隔离；换文档经 `attachDocument` 重挂桶）。 */
   documentId: string;
   /** 当前文档读法（命令栈快照；保存版本时抓取）。 */
   getDocument: () => DesignDocument;
@@ -65,13 +72,18 @@ export interface VersionStoreOptions {
 export function createVersionStore(options: VersionStoreOptions): VersionStore {
   const now = options.now ?? (() => new Date());
   const nextId = options.nextId ?? defaultSnapshotId();
-  const storageOptions: Parameters<typeof createLocalStore<VersionSnapshot>>[0] = {
-    key: versionsKey(options.documentId),
-    validate: isVersionSnapshot,
+  /** 当前归属文档（可变：`attachDocument` 换文档时重挂持久化桶）。 */
+  let documentId = options.documentId;
+  const buildStorage = (id: string): LocalStore<VersionSnapshot> => {
+    const storageOptions: Parameters<typeof createLocalStore<VersionSnapshot>>[0] = {
+      key: versionsKey(id),
+      validate: isVersionSnapshot,
+    };
+    if (options.backend !== undefined) storageOptions.backend = options.backend;
+    if (options.onWriteError !== undefined) storageOptions.onWriteError = options.onWriteError;
+    return createLocalStore<VersionSnapshot>(storageOptions);
   };
-  if (options.backend !== undefined) storageOptions.backend = options.backend;
-  if (options.onWriteError !== undefined) storageOptions.onWriteError = options.onWriteError;
-  const storage = createLocalStore<VersionSnapshot>(storageOptions);
+  let storage = buildStorage(documentId);
 
   return createStore<VersionUiState>((set, get) => ({
     open: false,
@@ -89,7 +101,8 @@ export function createVersionStore(options: VersionStoreOptions): VersionStore {
         id: nextId(),
         createdAt: now().toISOString(),
         document: options.getDocument(),
-        documentId: options.documentId,
+        // 快照归属 = 当时归属文档（换文档重挂后落新桶，见 attachDocument）
+        documentId,
         label: label ?? options.defaultLabel ?? '',
       });
       const snapshots = appendSnapshot(get().snapshots, snapshot);
@@ -132,7 +145,7 @@ export function createVersionStore(options: VersionStoreOptions): VersionStore {
         label: autoLabel ?? '',
         createdAt: now().toISOString(),
         document: options.getDocument(),
-        documentId: options.documentId,
+        documentId,
       });
       const snapshots = appendSnapshot(get().snapshots, auto);
       storage.save(snapshots);
@@ -144,6 +157,14 @@ export function createVersionStore(options: VersionStoreOptions): VersionStore {
       const snapshot = get().snapshots.find((item) => item.id === snapshotId);
       if (snapshot === undefined) return null;
       return diffDocuments(snapshot.document, options.getDocument());
+    },
+
+    attachDocument: (nextDocumentId) => {
+      if (nextDocumentId === documentId) return;
+      documentId = nextDocumentId;
+      storage = buildStorage(nextDocumentId);
+      // 快照列表从新桶重载；对比态属于旧文档的快照列表——一并收摊（抽屉开合保留）
+      set({ snapshots: storage.load(), compareId: null });
     },
   }));
 }
