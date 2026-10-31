@@ -1008,6 +1008,7 @@
   "editor.zoom.sectionLevels": "Zoom levels",
   "editor.palette.placeholder": "Search commands…",
   "editor.palette.empty": "No matching commands",
+  "editor.palette.recentGroup": "Recently used",
   "editor.palette.hint": "↑↓ select · Home/End ends · ↵ run · Esc close",
   "editor.palette.failed": "Command failed: {title}",
   "editor.palette.close": "Close command palette",

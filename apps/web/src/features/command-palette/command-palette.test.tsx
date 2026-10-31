@@ -126,7 +126,7 @@ describe('可达性与内容（命令源唯一）', () => {
     expect(within(dialog).getByRole('option', { name: /演示/ })).toBeDefined();
   });
 
-  it('空查询默认态：全命令按分组列出，不出现「最近使用」组（本期不做，不撒谎）', async () => {
+  it('空查询且无最近记录：全命令按分组列出，不出现「最近使用」组（记录为空不出组，不撒谎）', async () => {
     mountPalette();
     press('/', { metaKey: true });
     const dialog = await screen.findByRole('dialog', { name: '命令面板' });
@@ -268,9 +268,12 @@ describe('执行', () => {
     });
 
     // 再开面板：当前工具已是 text → 「文本工具」置灰，点击不产生变化
+    // （执行过一条 → 最近使用组与工具组各有一行「文本工具」，取第一行点击）
     press('/', { metaKey: true });
     const reopened = await screen.findByRole('dialog', { name: '命令面板' });
-    fireEvent.click(within(reopened).getByRole('option', { name: /文本工具/ }));
+    const textOptions = within(reopened).getAllByRole('option', { name: /文本工具/ });
+    expect(textOptions.length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(textOptions[0] as HTMLElement);
     expect(useEditorView.getState().activeTool).toBe('text');
   });
 
@@ -296,5 +299,89 @@ describe('执行', () => {
       expect(screen.getByRole('alert').textContent).toContain('会炸的命令');
     });
     expect(screen.queryByRole('dialog', { name: '命令面板' })).not.toBeNull();
+  });
+});
+
+describe('最近使用（票 04 · spec P0-4：本地记录最近执行的 5 条）', () => {
+  /** 搜到指定命令并以回车执行（面板关闭即执行完成）。 */
+  async function runBySearch(dialog: HTMLElement, term: string): Promise<void> {
+    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: term } });
+    fireEvent.keyDown(within(dialog).getByRole('combobox'), { key: 'Enter' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '命令面板' })).toBeNull();
+    });
+  }
+
+  it('执行过的命令在重开面板时进入「最近使用」置顶组，组内按最近序排列', async () => {
+    mountPalette();
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), '矩形');
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), '文本');
+
+    press('/', { metaKey: true });
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+
+    // 置顶组在前，组内最近序：文本工具（刚执行）→ 矩形工具
+    const recentGroup = within(dialog)
+      .getAllByRole('option')
+      .slice(0, 2)
+      .map((option) => option.getAttribute('data-df-command'));
+    expect(recentGroup).toEqual(['tool.text', 'tool.rect']);
+    expect(within(dialog).getByText('最近使用')).toBeDefined();
+  });
+
+  it('重复执行去重：同一命令在「最近使用」组里只出现一次', async () => {
+    mountPalette();
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), 'zoomIn');
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), 'zoomIn');
+
+    press('/', { metaKey: true });
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+    const zoomOptions = within(dialog).getAllByRole('option', { name: /放大/ });
+    // 去重后最近组只有一行「放大」；另一行来自常规「视图」组
+    expect(zoomOptions).toHaveLength(2);
+    expect(zoomOptions[0]?.getAttribute('data-df-command')).toBe('view.zoomIn');
+  });
+
+  it('上限 5 条：第 6 条执行后最旧的退出「最近使用」组', async () => {
+    mountPalette();
+    for (const term of ['zoomIn', 'zoomOut', 'zoom100', '画板', '抓手', '矩形']) {
+      press('/', { metaKey: true });
+      await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), term);
+    }
+
+    press('/', { metaKey: true });
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+    const recentIds = within(dialog)
+      .getAllByRole('option')
+      .slice(0, 5)
+      .map((option) => option.getAttribute('data-df-command'));
+    expect(recentIds).toEqual([
+      'tool.rect',
+      'tool.hand',
+      'tool.frame',
+      'view.zoom100',
+      'view.zoomOut',
+    ]);
+    // 最旧的 zoomIn 已被挤出（只剩常规视图组那一行）
+    expect(within(dialog).getAllByRole('option', { name: /放大/ }).length).toBe(1);
+  });
+
+  it('本地持久：组件重挂（模拟页面切换）后记录仍在', async () => {
+    const first = mountPalette();
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), '矩形');
+    first.unmount();
+
+    mountPalette();
+    press('/', { metaKey: true });
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+    expect(document.querySelector('[role="option"]')?.getAttribute('data-df-command')).toBe(
+      'tool.rect',
+    );
+    expect(within(dialog).getByText('最近使用')).toBeDefined();
   });
 });

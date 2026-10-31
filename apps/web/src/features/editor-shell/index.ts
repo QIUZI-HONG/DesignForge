@@ -53,6 +53,14 @@ export {
   registerBuiltinCommands,
 } from './commands/builtins';
 export { type CommandRunResult, type CommandRunStatus, executeCommand } from './commands/execute';
+// 最近执行命令的本地记录（票 04「最近使用」数据层；命令面板读它建模置顶分组）
+export {
+  loadRecentCommands,
+  RECENT_COMMAND_LIMIT,
+  recordRecentCommand,
+  resetRecentCommands,
+  saveRecentCommands,
+} from './commands/recent';
 export {
   type Command,
   type CommandRegistry,
