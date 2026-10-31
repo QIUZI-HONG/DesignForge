@@ -8,6 +8,6 @@
 
 - [x] daemon 路由测试：流式响应对白名单 Origin 返回 `access-control-allow-origin` 回显头（复用既有流式 content-type 断言手法）
 - [x] daemon 路由测试：流式响应对非白名单 Origin 不带放行头；`Origin: null` 带放行头
-- [ ] curl A/B 复验：同一端点流式与非流式的 CORS 头一致
+- [x] curl A/B 复验：同一端点流式与非流式的 CORS 头一致（2026-10-31 集成分支真跑：临时 daemon + DF_CORS_ORIGINS 白名单来源，A 流式 `text/event-stream` 与 B 非流式 JSON 的 `access-control-allow-origin`（回显）/`vary: Origin` 完全一致——证据 `~/df-evidence/01-sse-cors/curl-ab-integration.json`）
 - [ ] 浏览器实测（未配置 key）：AI 提交走完步骤流，呈现降级结果与建议清单，无 CORS 报错
 - [ ] 重试按钮在传输层修复后可用于真实重试（不再必败）
