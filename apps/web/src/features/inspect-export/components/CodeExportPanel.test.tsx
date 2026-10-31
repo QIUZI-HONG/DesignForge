@@ -8,7 +8,7 @@
 
 import type { ScenePage, TokenSet } from '@dforge/engine';
 import { ToastProvider } from '@dforge/ui';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -100,6 +100,31 @@ describe('CodeExportPanel · 复制', () => {
     setup(INSPECT_IDS.card, copyText);
     fireEvent.click(screen.getByRole('button', { name: '复制代码' }));
     expect(await screen.findByText('复制失败：剪贴板被拒绝')).toBeDefined();
+  });
+
+  it('复制成功 Toast 不受恢复 Toast 撤销动作影响：无动作按钮、默认时长自动消失（票 08 回归）', async () => {
+    vi.useFakeTimers();
+    try {
+      const copyText = vi.fn(async (_text: string) => undefined);
+      setup(INSPECT_IDS.card, copyText);
+      fireEvent.click(screen.getByRole('button', { name: '复制代码' }));
+      // 冲刷剪贴板 promise（微任务不经假定时器）→ 成功 Toast 弹出
+      await act(async () => {});
+      expect(screen.getByText('已复制代码')).toBeDefined();
+      // 不带动作槽位：恢复 Toast 加「撤销」后，这里的 Toast 不得出现动作按钮
+      expect(screen.queryByRole('button', { name: '撤销' })).toBeNull();
+      // 自动消失时机不变：默认 4000ms
+      act(() => {
+        vi.advanceTimersByTime(3999);
+      });
+      expect(screen.getByText('已复制代码')).toBeDefined();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(screen.queryByText('已复制代码')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

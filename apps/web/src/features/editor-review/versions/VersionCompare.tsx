@@ -18,6 +18,7 @@
 import type { DesignDocument } from '@dforge/engine';
 import { Overlay, useToast } from '@dforge/ui';
 
+import { RESERVED_COMMAND_IDS, runCommand } from '@/features/editor-shell';
 import { t } from '@/i18n';
 import { formatTimestamp } from '../format';
 import { SlidePreview } from '../present/SlidePreview';
@@ -108,9 +109,22 @@ export function VersionCompare() {
             const wasComparing = session.versions.getState().compareId !== null;
             session.versions.getState().confirmRestore(t('review.versions.autoLabel'));
             // 恢复成功反馈（C1）：第二步确认后文档已被整份替换——给明确成功提示，
-            // 而不是「浮层消失」这种需要用户自己推断的信号
+            // 而不是「浮层消失」这种需要用户自己推断的信号。
+            // 附「撤销」动作（票 08 · spec P1-4）：误恢复一键回退。撤销复用顶栏撤销的
+            // **同一条命令 id**（`RESERVED_COMMAND_IDS.undo` = `edit.undo`，入口不漂移）——
+            // 经命令注册表 `runCommand` 执行，与顶栏按钮/⌘Z/命令面板完全同源；
+            // 不直接调 `stack.undo()`（那是旁路，绕过命令入口即漂移）。
             if (wasComparing) {
-              toast.show({ message: t('review.versions.restored'), tone: 'success' });
+              toast.show({
+                message: t('review.versions.restored'),
+                tone: 'success',
+                action: {
+                  label: t('canvas.action.undo'),
+                  onActivate: () => {
+                    void runCommand(RESERVED_COMMAND_IDS.undo);
+                  },
+                },
+              });
             }
           }}
         >
