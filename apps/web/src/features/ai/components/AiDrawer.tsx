@@ -194,6 +194,15 @@ export function AiDrawer(props: AiDrawerProps) {
             ) : null}
           </div>
 
+          {state.phase === 'done' && state.degraded && state.degradedReason !== null ? (
+            <p
+              className="dfg-ai__suggestion-detail"
+              data-df-ai-degrade-reason={state.degradedReason}
+            >
+              {t(`ai.degrade.${state.degradedReason}`)}
+            </p>
+          ) : null}
+
           {state.phase === 'failed' && state.error !== null ? (
             <div className="dfg-ai__actions">
               <span className="dfg-ai__error-text">{state.error}</span>

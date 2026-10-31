@@ -10,11 +10,17 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import type { AiDegradeReason } from '@dforge/contracts';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import zhCN from '../../../../messages/zh-CN.json';
+import { t } from '@/i18n';
 import { controllableAiPort, degradedResponse, fakeAiPort, okResponse } from '../test-utils';
 import { AiDrawer } from './AiDrawer';
+
+/** zh-CN 目录（JSON 导入的键集是字面量并集，动态键索引需放宽为记录）。 */
+const catalog = zhCN as unknown as Record<string, string>;
 
 /** 步骤行（data-df-step 是门禁与测试共用的对外挂点）。 */
 const stepRow = (id: string) => document.querySelector(`[data-df-step="${id}"]`);
@@ -177,6 +183,71 @@ describe('AI 抽屉（F4）', () => {
     render(<AiDrawer port={port} defaultOpen />);
     expect(await screen.findByText(/未配置 DeepSeek key/)).toBeTruthy();
     expect(port.statusCalls).toBe(1);
+  });
+});
+
+describe('降级原因五类映射（票 02 / spec P0-3：degradedReason 渲染中文人话）', () => {
+  /** 提交一次指定原因的降级运行，返回结果区。 */
+  async function submitDegradedRun(reason: AiDegradeReason) {
+    const user = userEvent.setup();
+    const port = fakeAiPort({
+      runs: [
+        [
+          {
+            type: 'start',
+            runId: `ai_${reason}`,
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            degraded: true,
+          },
+          { type: 'done', response: degradedResponse(reason) },
+        ],
+      ],
+    });
+    render(<AiDrawer port={port} defaultOpen />);
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    await user.click(screen.getByRole('button', { name: '生成' }));
+  }
+
+  it.each<AiDegradeReason>([
+    'no-credentials',
+    'upstream-error',
+    'timeout',
+    'rate-limited',
+    'invalid-response',
+  ])('%s：结果区渲染 zh-CN 目录的人话文案（挂点携带原始原因）', async (reason) => {
+    await submitDegradedRun(reason);
+
+    const key = `ai.degrade.${reason}`;
+    const expected = t(key);
+    const line = await screen.findByText(expected);
+    expect(line.getAttribute('data-df-ai-degrade-reason')).toBe(reason);
+    // 文案确实来自 zh-CN 目录（不是键回退、不是组件硬编码——ADR-0003）
+    expect(catalog[key]).toBeTruthy();
+    expect(catalog[key]).not.toBe(key);
+  });
+
+  it('真态完成不渲染降级原因（原因行只在 degraded 时出现）', async () => {
+    const user = userEvent.setup();
+    const port = fakeAiPort({
+      runs: [
+        [
+          {
+            type: 'start',
+            runId: 'ai_ok',
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            degraded: false,
+          },
+          { type: 'done', response: okResponse('已生成按钮组') },
+        ],
+      ],
+    });
+    render(<AiDrawer port={port} defaultOpen />);
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    await user.click(screen.getByRole('button', { name: '生成' }));
+    await screen.findByText('已生成按钮组');
+    expect(document.querySelector('[data-df-ai-degrade-reason]')).toBeNull();
   });
 });
 

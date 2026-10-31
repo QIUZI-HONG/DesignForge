@@ -6,7 +6,7 @@
  * - 假端口：把契约事件序列变成「真 SSE 文本块」喂给适配层（不真调云端）；
  * - 可控端口：chatStream 由测试显式放行，用来观察运行中（loading/disabled）态。
  */
-import type { AiChatResponse, AiStatusResponse, AiStreamEvent } from '@dforge/contracts';
+import type { AiChatResponse, AiDegradeReason, AiStatusResponse, AiStreamEvent } from '@dforge/contracts';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
@@ -55,8 +55,8 @@ export function statusConfigured(): AiStatusResponse {
   };
 }
 
-/** 降级完成响应（与真响应同构）。 */
-export function degradedResponse(): AiChatResponse {
+/** 降级完成响应（与真响应同构；`reason` 注入降级原因，缺省 no-credentials）。 */
+export function degradedResponse(reason?: AiDegradeReason): AiChatResponse {
   return {
     runId: 'ai_degraded',
     provider: 'deepseek',
@@ -65,7 +65,7 @@ export function degradedResponse(): AiChatResponse {
     finishReason: 'degraded',
     usage: null,
     degraded: true,
-    degradedReason: 'no-credentials',
+    degradedReason: reason ?? 'no-credentials',
     suggestions: [
       {
         kind: 'configure-credentials',
