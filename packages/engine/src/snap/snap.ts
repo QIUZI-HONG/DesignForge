@@ -12,11 +12,18 @@
 import { boundsCenter, unionBounds } from '../geometry/bounds';
 import { worldBoundsOfNode } from '../geometry/transform';
 import type { Point, Rect } from '../geometry/types';
-import type { NodeId, ScenePage } from '../model/index';
+import type { NodeId, PageGuide, ScenePage } from '../model/index';
 import { getChildrenIds, getDescendantIds, resolveNode } from '../scene/query';
 
 /** 屏幕空间吸附阈值（px）。 */
 export const SNAP_THRESHOLD_PX = 6;
+
+/**
+ * 参考线吸附跨度（世界单位，单侧）：页面参考线是无限延伸的直线，
+ * 但吸附目标必须是有限矩形（非有限数会被序列化守门拒绝）——用一个大而有限的跨度展开。
+ * 只影响「吸附红线的绘制跨度」与命中几何，不影响阈值语义（阈值仍按屏幕 6px）。
+ */
+export const GUIDE_SNAP_EXTENT_WORLD = 100_000;
 
 /** 画布缩放 → 世界空间阈值。 */
 export function snapThresholdWorld(zoom: number): number {
@@ -99,6 +106,19 @@ function candidatesY(rect: Rect): Array<{ value: number; kind: SnapGuide['kind']
   ];
 }
 
+/**
+ * 参考线目标的**约束轴**（非参考线 → null）：axis 'x' 的垂直线 bounds 零宽，只约束 x；
+ * axis 'y' 的水平线 bounds 零高，只约束 y。垂直线在另一轴上是无限延伸的——
+ * 它的大跨度矩形的「中心/边缘」候选在横轴上没有几何意义，参与求解会产生伪吸附
+ * （移动体恰好落在线的跨距中点时被莫名拉走），因此横轴一律跳过参考线目标。
+ */
+function guideConstrainedAxis(target: SnapTarget): 'x' | 'y' | null {
+  if (target.source !== 'guide') return null;
+  if (target.bounds.width === 0) return 'x';
+  if (target.bounds.height === 0) return 'y';
+  return null;
+}
+
 /** 某一个轴上的最佳吸附。 */
 function bestAxisSnap(
   movingValues: Array<{ value: number; kind: SnapGuide['kind'] }>,
@@ -110,6 +130,9 @@ function bestAxisSnap(
     null;
   for (const moving of movingValues) {
     for (const target of targets) {
+      // 参考线只在其约束轴上参与（见 guideConstrainedAxis：横轴候选无限延展、无对齐语义）
+      const constrained = guideConstrainedAxis(target);
+      if (constrained !== null && constrained !== axis) continue;
       const targetValues = axis === 'x' ? candidatesX(target.bounds) : candidatesY(target.bounds);
       for (const targetValue of targetValues) {
         const delta = targetValue.value - moving.value;
@@ -121,7 +144,8 @@ function bestAxisSnap(
           Math.abs(delta) === Math.abs(best.delta) &&
           targetValue.value === best.position
         ) {
-          best.refs.push(target.id);
+          // 同一目标的多个候选值可能相等（零宽/零高矩形，如页面参考线）：去重，refs 不得重复计数
+          if (!best.refs.includes(target.id)) best.refs.push(target.id);
         }
       }
     }
@@ -398,6 +422,36 @@ export function snapTargetsFromPage(
   }
   for (const target of options.extra ?? []) targets.push(target);
   return targets;
+}
+
+/**
+ * 页面参考线 → 吸附参考对象（票 12：参考线参与移动吸附命中）。
+ *
+ * 轴语义与 `SnapGuide` 对齐：axis 'x' = 垂直线（bounds 零宽、y 向展开大跨度）、
+ * axis 'y' = 水平线（bounds 零高、x 向展开）。`source: 'guide'` 供调用方区分
+ * 「对节点的测量」与「对参考线的对齐」（测量不指向参考线，见 reducer 的口径）。
+ * 调用方经 `guidesOf` 读取页面参考线（旧文档运行时缺键 → 空集）。
+ */
+export function snapTargetsFromGuides(guides: readonly PageGuide[]): SnapTarget[] {
+  const out: SnapTarget[] = [];
+  for (const guide of guides) {
+    const bounds: Rect =
+      guide.axis === 'x'
+        ? {
+            x: guide.position,
+            y: -GUIDE_SNAP_EXTENT_WORLD,
+            width: 0,
+            height: GUIDE_SNAP_EXTENT_WORLD * 2,
+          }
+        : {
+            x: -GUIDE_SNAP_EXTENT_WORLD,
+            y: guide.position,
+            width: GUIDE_SNAP_EXTENT_WORLD * 2,
+            height: 0,
+          };
+    out.push({ id: guide.id, bounds, source: 'guide' });
+  }
+  return out;
 }
 
 /** 节点的父 id（内部用；避免与 helpers 循环依赖）。 */

@@ -17,6 +17,7 @@
 
 import type { DesignDocument } from '@dforge/engine';
 import { SegmentedControl, Tooltip } from '@dforge/ui';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 
@@ -27,6 +28,7 @@ import { ImagePanel } from '@/features/image';
 import { CodeExportPanel, ExportPanel, InspectPanel } from '@/features/inspect-export';
 import { InspectorPanel } from '@/features/inspector';
 import { t } from '@/i18n';
+import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 import { installCanvasDebugHandle, sessionDebugHandle } from '../debug/canvas-debug';
 import { daemonPageId } from '../persistence/documents-client';
@@ -252,11 +254,23 @@ export function AiDrawerSlot() {
   const open = useWorkspaceUi((state) => state.aiDrawerOpen);
   // 基址解析已全站收敛（`@/lib/daemon-endpoint`，ADR-0004 裁决 ①）：端口自取同一份口径
   const port = useMemo(() => createAiPort(), []);
+  const router = useRouter();
   const onOpenChange = useCallback((next: boolean) => {
     useWorkspaceUi.getState().setAiDrawerOpen(next);
   }, []);
+  // 「去诊断」（票 06 / spec P1-2）：路由到设置页的既有诊断入口，续写当前 daemon 端点参数
+  const onOpenDiagnostics = useCallback(() => {
+    router.push(withDaemonEndpoint('/settings'));
+  }, [router]);
   if (!mounted) return null;
-  return <AiDrawer open={open} onOpenChange={onOpenChange} port={port} />;
+  return (
+    <AiDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      port={port}
+      onOpenDiagnostics={onOpenDiagnostics}
+    />
+  );
 }
 
 /**

@@ -48,6 +48,18 @@ export interface SceneFrame {
   rulers: boolean;
   /** 正在做 DOM 覆盖层编辑的文本节点（画布上跳过其字形，避免重影）。 */
   editingNodeId: NodeId | null;
+  /**
+   * 参考线拖拽预览（票 12；会话的 guideDrag 原样透传）。
+   * 结构化类型：渲染层不反向依赖会话模块（依赖方向 state → render）。
+   */
+  guideDrag: {
+    axis: 'x' | 'y';
+    position: number;
+    originId: string | null;
+    overRuler: boolean;
+  } | null;
+  /** 悬停高亮的参考线 id（票 12；删除/移动可供性）。 */
+  guideHoverId: string | null;
 }
 
 /** 8 手柄 + 选择框的绘制数据（渲染与命中测试共用同一份，见 input/handle-hit.ts）。 */

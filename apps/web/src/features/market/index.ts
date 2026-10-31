@@ -28,6 +28,7 @@ export { classifyMarketOutcome, isSearchDegraded, type MarketOutcome } from './a
 export { type BadgeTone, badgeClassName, meterFillClassName } from './badge-classes';
 export * from './components';
 export { type MarketEmptyKindInput, resolveMarketEmptyKind } from './empty-kind';
+export { type MarketFailureCopy, marketFailureText } from './failure-copy';
 export * from './feedback';
 export * from './filters';
 export * from './load-store';

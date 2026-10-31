@@ -10,6 +10,7 @@
  * 断言走**可观测行为**（角色、文案、aria 状态、store 结果），不碰内部结构。
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getCommand, registerCommand, resetCommandRegistry } from '../commands/registry';
@@ -100,6 +101,14 @@ describe('壳层骨架（C1 / C2 / C16）', () => {
       const entry = screen.getByRole('button', { name: label });
       expect(entry.hasAttribute('disabled'), `${label} 应为禁用`).toBe(true);
     }
+  });
+
+  it('未注册入口悬停给原因提示（F15 既有 tooltip 不回退 · 票 07 spec P1-3）', async () => {
+    renderShell();
+    const user = userEvent.setup();
+    await user.hover(screen.getByRole('button', { name: '分享' }));
+    expect((await screen.findByRole('tooltip')).textContent).toContain('功能尚未接入');
+    await user.unhover(screen.getByRole('button', { name: '分享' }));
   });
 
   it('后续票注册命令后入口自动可点（FE-07 对接形态）', () => {

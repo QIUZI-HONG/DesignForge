@@ -76,6 +76,8 @@ export {
   type TabSpec,
   Tabs,
   type TabsProps,
+  TechnicalDetails,
+  type TechnicalDetailsProps,
   type ToastAction,
   type ToastHandle,
   type ToastOptions,

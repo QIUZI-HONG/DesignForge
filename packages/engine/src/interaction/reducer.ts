@@ -25,6 +25,7 @@ import { applyToPoint, invert, rotateVector } from '../geometry/matrix';
 import { worldBoundsOfNode, worldBoundsOfNodes, worldMatrix } from '../geometry/transform';
 import type { Matrix, Point, Rect } from '../geometry/types';
 import type { NodeId, PageId, ScenePage } from '../model/index';
+import { guidesOf } from '../model/index';
 import { resolveNode } from '../scene/query';
 import type { SnapOptions, SnapResult } from '../snap/snap';
 import {
@@ -32,6 +33,7 @@ import {
   computeSnap,
   NO_SNAP,
   type SnapTarget,
+  snapTargetsFromGuides,
   snapTargetsFromPage,
   snapThresholdWorld,
   snapValueToGrid,
@@ -356,7 +358,12 @@ export function applySnapToMove(
   const gridAdjusted = translateRect(moved, gridX?.delta ?? 0, gridY?.delta ?? 0);
   const nodeAxes: SnapOptions['axes'] | null =
     gridX !== null && gridY !== null ? null : gridX !== null ? 'y' : gridY !== null ? 'x' : 'both';
-  const targets: SnapTarget[] = [...snapTargetsFromPage(context.page, nodeIds)];
+  // 吸附参考集：节点（兄弟/父链/顶层）+ 页面参考线（票 12，axis 语义与 SnapGuide 对齐）+ 调用方追加。
+  // 参考线只参与**对齐命中**（红线 refs 指向它）；测量标注仍只对节点（红线口径与既有吸附一致）。
+  const targets: SnapTarget[] = [
+    ...snapTargetsFromPage(context.page, nodeIds),
+    ...snapTargetsFromGuides(guidesOf(context.page)),
+  ];
   for (const target of context.extraTargets ?? []) targets.push(target);
   const nodeSnap =
     nodeAxes === null
@@ -370,7 +377,12 @@ export function applySnapToMove(
     dy,
     guides: [...nodeSnap.guides],
     measurements:
-      dx !== 0 || dy !== 0 ? computeMeasurements(translateRect(moved, dx, dy), targets) : [],
+      dx !== 0 || dy !== 0
+        ? computeMeasurements(
+            translateRect(moved, dx, dy),
+            targets.filter((target) => target.source !== 'guide'),
+          )
+        : [],
   };
   return { delta: { x: delta.x + dx, y: delta.y + dy }, snap };
 }

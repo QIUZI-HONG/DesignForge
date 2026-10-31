@@ -647,3 +647,142 @@ describe('会话 · HUD（C20 内部实现）', () => {
     expect(sessionRef.store.getState().hud).toBeNull();
   });
 });
+
+describe('会话 · 标尺参考线（票 12）', () => {
+  it('从顶标尺拖出水平参考线：松手入页面数据，撤销后消失', () => {
+    const sessionRef = session();
+    sessionRef.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    sessionRef.pointerMove({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    expect(sessionRef.store.getState().guideDrag).toMatchObject({
+      axis: 'y',
+      position: 130,
+      originId: null,
+      overRuler: false,
+    });
+    sessionRef.pointerUp({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    const guides = sessionRef.page().guides;
+    expect(guides).toHaveLength(1);
+    expect(guides[0]).toMatchObject({ axis: 'y', position: 130 });
+    sessionRef.undo();
+    expect(sessionRef.page().guides).toEqual([]);
+  });
+
+  it('从左标尺拖出垂直参考线', () => {
+    const sessionRef = session();
+    sessionRef.pointerDown({ world: { x: 8, y: 300 }, screen: { x: 8, y: 300 }, button: 'left' });
+    sessionRef.pointerMove({ world: { x: 260, y: 300 }, screen: { x: 260, y: 300 } });
+    sessionRef.pointerUp({ world: { x: 260, y: 300 }, screen: { x: 260, y: 300 } });
+    expect(sessionRef.page().guides[0]).toMatchObject({ axis: 'x', position: 260 });
+  });
+
+  it('在标尺条内按下并松手（未拖出）不产生参考线', () => {
+    const sessionRef = session();
+    sessionRef.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    sessionRef.pointerUp({ world: { x: 300, y: 14 }, screen: { x: 300, y: 14 } });
+    expect(sessionRef.page().guides).toEqual([]);
+    expect(sessionRef.store.getState().guideDrag).toBeNull();
+  });
+
+  it('移动既有参考线：抓取 → 拖到新位置 → page.update 提交', () => {
+    const sessionRef = session();
+    sessionRef.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    sessionRef.pointerMove({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    sessionRef.pointerUp({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    const id = sessionRef.page().guides[0]?.id as string;
+
+    sessionRef.pointerDown({
+      world: { x: 300, y: 130 },
+      screen: { x: 300, y: 130 },
+      button: 'left',
+    });
+    expect(sessionRef.store.getState().guideDrag).toMatchObject({ originId: id });
+    sessionRef.pointerMove({ world: { x: 300, y: 200 }, screen: { x: 300, y: 200 } });
+    sessionRef.pointerUp({ world: { x: 300, y: 200 }, screen: { x: 300, y: 200 } });
+    expect(sessionRef.page().guides).toHaveLength(1);
+    expect(sessionRef.page().guides[0]).toMatchObject({ id, axis: 'y', position: 200 });
+  });
+
+  it('拖回标尺删除既有参考线（undo 恢复）', () => {
+    const sessionRef = session();
+    sessionRef.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    sessionRef.pointerMove({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    sessionRef.pointerUp({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    expect(sessionRef.page().guides).toHaveLength(1);
+
+    sessionRef.pointerDown({
+      world: { x: 300, y: 130 },
+      screen: { x: 300, y: 130 },
+      button: 'left',
+    });
+    sessionRef.pointerMove({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 } });
+    expect(sessionRef.store.getState().guideDrag).toMatchObject({ overRuler: true });
+    sessionRef.pointerUp({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 } });
+    expect(sessionRef.page().guides).toEqual([]);
+    sessionRef.undo();
+    expect(sessionRef.page().guides).toHaveLength(1);
+  });
+
+  it('拖动时 HUD 显示轴向位置、松手消失；Esc 取消不写入', () => {
+    const sessionRef = session();
+    sessionRef.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    sessionRef.pointerMove({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    expect(sessionRef.store.getState().hud).toBe('Y 130');
+    sessionRef.cancelActiveInteraction();
+    expect(sessionRef.store.getState().guideDrag).toBeNull();
+    expect(sessionRef.page().guides).toEqual([]);
+  });
+
+  it('空闲悬停既有参考线 → guideHover 高亮读点；离开清空', () => {
+    const sessionRef = session();
+    sessionRef.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    sessionRef.pointerMove({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    sessionRef.pointerUp({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    const id = sessionRef.page().guides[0]?.id as string;
+    sessionRef.pointerMove({ world: { x: 300, y: 132 }, screen: { x: 300, y: 132 } });
+    expect(sessionRef.store.getState().guideHover).toBe(id);
+    sessionRef.pointerMove({ world: { x: 300, y: 200 }, screen: { x: 300, y: 200 } });
+    expect(sessionRef.store.getState().guideHover).toBeNull();
+  });
+
+  it('右键删除：guideIdAt 命中读点 + deleteGuide 走命令栈（可撤销）', () => {
+    const sessionRef = session();
+    sessionRef.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    sessionRef.pointerMove({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    sessionRef.pointerUp({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    const id = sessionRef.page().guides[0]?.id as string;
+
+    expect(sessionRef.guideIdAt({ x: 300, y: 130 })).toBe(id);
+    expect(sessionRef.guideIdAt({ x: 300, y: 300 })).toBeNull();
+    sessionRef.deleteGuide(id);
+    expect(sessionRef.page().guides).toEqual([]);
+    sessionRef.undo();
+    expect(sessionRef.page().guides).toHaveLength(1);
+  });
+
+  it('标尺隐藏（⇧R）时条内按下不再拉参考线', () => {
+    const sessionRef = session();
+    sessionRef.setRulers(false);
+    sessionRef.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    expect(sessionRef.store.getState().guideDrag).toBeNull();
+    sessionRef.cancelActiveInteraction();
+  });
+
+  it('移动节点靠近参考线 → 吸附对齐（参考线参与命中，会话层贯通）', () => {
+    const sessionRef = session({ snapEnabled: true });
+    // 建一条水平参考线 y=160
+    sessionRef.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    sessionRef.pointerMove({ world: { x: 300, y: 160 }, screen: { x: 300, y: 160 } });
+    sessionRef.pointerUp({ world: { x: 300, y: 160 }, screen: { x: 300, y: 160 } });
+
+    // 选中 n_rect（10,10,50,30）并向下拖 114：底缘 154 → 参考线 160 吸附修正 +6
+    //（位置远离既有节点候选，确保命中只来自参考线）
+    click(sessionRef, { x: 30, y: 20 });
+    sessionRef.pointerDown({ world: { x: 30, y: 20 }, screen: { x: 30, y: 20 }, button: 'left' });
+    sessionRef.pointerMove({ world: { x: 30, y: 134 }, screen: { x: 30, y: 134 } });
+    const snap = sessionRef.store.getState().snap;
+    // x 轴可能同时有既有节点对齐（n_text 左缘同 x）——只断言参考线命中存在
+    expect(snap?.guides.some((guide) => guide.refs.includes('guide_100'))).toBe(true);
+    sessionRef.pointerUp({ world: { x: 30, y: 134 }, screen: { x: 30, y: 134 } });
+    expect(geometryOf(sessionRef, 'n_rect').y).toBe(130); // 10 + 120（154→160 吸附，底缘贴线）
+  });
+});

@@ -30,7 +30,7 @@ function upstreamCalls(calls: { url: string }[]): { url: string }[] {
 }
 
 describe('ai · 降级两态（无 key / 上游失败）', () => {
-  it('无 key：直接降级（200 + degraded + 建议清单），且不触发任何上游调用', async () => {
+  it('无 key：直接降级（200 + degraded + 建议清单），content 为本地建议非空串，且不触发任何上游调用', async () => {
     const daemon = await createTestDaemon();
     try {
       const { statusCode, payload, raw } = await injectJson(daemon.app, {
@@ -54,9 +54,78 @@ describe('ai · 降级两态（无 key / 上游失败）', () => {
       expect(response.degradedReason).toBe('no-credentials');
       expect(response.finishReason).toBe('degraded');
       expect(response.suggestions[0]?.kind).toBe('configure-credentials');
-      expect(response.content).toBe('');
+      // 票 03：content 为真实可读的本地建议（非空串，含分步建议与注意事项）
+      expect(response.content.length).toBeGreaterThan(0);
+      expect(response.content).toContain('按钮');
+      expect(response.content).toContain('注意事项');
       expect(upstreamCalls(daemon.fetchCalls)).toHaveLength(0);
       expect(raw).not.toContain(FAKE_KEY);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('无 key 信封（票 03 / spec P0-2）：content 为关键词族本地建议且确定，suggestions 结构契约合法', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const payload = {
+        messages: [{ role: 'user', content: '给首屏加一个主按钮，并把圆角统一为 8' }],
+      };
+      const first = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/ai/chat',
+        payload,
+      });
+      const second = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/ai/chat',
+        payload,
+      });
+      const firstResult = (
+        first.payload as {
+          result: {
+            content: string;
+            suggestions: { kind: string; title: string; detail: string | null }[];
+          };
+        }
+      ).result;
+      // content：真实建议文本（识别到按钮 + 圆角两族，含分步与注意事项）
+      expect(firstResult.content).toContain('「按钮」');
+      expect(firstResult.content).toContain('「圆角」');
+      expect(firstResult.content).toContain('注意事项');
+      // suggestions：配置凭据条目在前，其后为逐族的 manual-edit 条目（结构合法）
+      expect(firstResult.suggestions[0]?.kind).toBe('configure-credentials');
+      const manual = firstResult.suggestions.filter(
+        (suggestion) => suggestion.kind === 'manual-edit',
+      );
+      expect(manual).toHaveLength(2);
+      for (const suggestion of manual) {
+        expect(suggestion.title.length).toBeGreaterThan(0);
+        expect(suggestion.detail === null || typeof suggestion.detail === 'string').toBe(true);
+      }
+      // 确定性（信封级）：同输入两次请求 → content 完全一致
+      const secondResult = (second.payload as { result: { content: string } }).result;
+      expect(secondResult.content).toBe(firstResult.content);
+      // 不触上游
+      expect(upstreamCalls(daemon.fetchCalls)).toHaveLength(0);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('无 key 且提示词无关键词：content 走兜底文案（非空），suggestions 仍契约合法', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const { payload } = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/ai/chat',
+        payload: { messages: [{ role: 'user', content: '让页面更有呼吸感' }] },
+      });
+      const response = (payload as { result: { content: string; suggestions: { kind: string }[] } })
+        .result;
+      expect(response.content.length).toBeGreaterThan(0);
+      expect(response.content).toContain('注意事项');
+      expect(response.suggestions[0]?.kind).toBe('configure-credentials');
     } finally {
       await daemon.cleanup();
     }

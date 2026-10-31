@@ -25,6 +25,7 @@ import {
   createPage,
   createRect,
   createViewport,
+  guidesOf,
   parseDocument,
   resolveNode,
   serializeDocument,
@@ -363,6 +364,12 @@ export function CanvasStudio({
       pageId: () => session.page().id,
       documentName: () => session.document().name,
       documentId: () => bridge.store.getState().documentId,
+      guides: () =>
+        guidesOf(session.page()).map((guide) => ({
+          id: guide.id,
+          axis: guide.axis,
+          position: guide.position,
+        })),
       hud: () => session.store.getState().hud,
       editingText: () => {
         const editing = session.store.getState().editing;

@@ -13,6 +13,7 @@
           "style": "grid",
           "visible": false
         },
+        "guides": [],
         "id": "page_fixed",
         "name": "主页面",
         "nodes": {

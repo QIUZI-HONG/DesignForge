@@ -214,7 +214,11 @@ describe('api · 取数（假 fetch）', () => {
       { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('daemon_unreachable');
+    if (!result.ok) {
+      expect(result.error.code).toBe('daemon_unreachable');
+      // 客户端层只透传原始错误（票 06 / P1-2）：不在这里拼界面文案，人话由展示层归类生成
+      expect(result.error.message).toBe('ECONNREFUSED');
+    }
   });
 
   it('详情未命中 → null（页面渲染「资源不存在」态）', () => {

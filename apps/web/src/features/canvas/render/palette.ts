@@ -40,6 +40,8 @@ export interface CanvasPalette {
   handleBorder: string;
   /** 吸附参考线（红）。 */
   snapGuide: string;
+  /** 页面参考线（票 12：用户从标尺拉出的辅助线；红色口径与吸附红线同族）。 */
+  guide: string;
   /** 测量线（红）与标注底/字。 */
   measureLine: string;
   measureLabelBackground: string;
@@ -80,6 +82,7 @@ export function canvasPalette(theme: ThemeName): CanvasPalette {
     handleFill: colors.surface,
     handleBorder: colors.primary,
     snapGuide: colors.danger,
+    guide: colors.danger,
     measureLine: colors.danger,
     measureLabelBackground: colors.danger,
     measureLabelText: colors.onDanger,

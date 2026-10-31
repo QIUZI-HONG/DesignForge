@@ -21,6 +21,7 @@ import {
   isUpdateAvailable,
   LoadConfirmDialog,
   MarketErrorState,
+  marketFailureText,
   useLoadPlan,
   useLoadRecords,
   useMarketAsset,
@@ -144,13 +145,17 @@ export default function MarketAssetPage() {
       {loadPlan.status === 'error' ? (
         <ErrorState
           title={t('market.detail.error.title')}
-          description={loadPlan.error ?? ''}
+          description={marketFailureText(
+            { message: loadPlan.error ?? '' },
+            { network: 'market.detail.error.network' },
+          )}
           onRetry={() => {
             setConfirming(false);
           }}
           retryLabel={t('market.error.retry')}
           code="MARKET_LOAD_PLAN_FAILED"
-          diagnosticsLabel={t('state.diagnostics')}
+          diagnosticsLabel={t('error.technicalDetails')}
+          diagnosticsDetail={loadPlan.error ?? undefined}
         />
       ) : null}
 

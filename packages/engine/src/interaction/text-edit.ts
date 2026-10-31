@@ -7,7 +7,13 @@
 
 import type { Command } from '../commands/types';
 import type { NodeId, PageId, ScenePage, TextContent, TextSelection } from '../model/index';
-import { deleteTextRange, normalizeSelection, replaceTextRange } from '../model/index';
+import {
+  clampTextCharacters,
+  deleteTextRange,
+  normalizeSelection,
+  replaceTextRange,
+  TEXT_CHARACTERS_MAX_LENGTH,
+} from '../model/index';
 import { domainError } from '../scene/errors';
 import { resolveNode } from '../scene/query';
 
@@ -46,18 +52,28 @@ export function setTextSelection(
   return { ...session, selection: normalizeSelection(session.content.characters, selection) };
 }
 
-/** 在光标处插入文本（输入法上屏、粘贴）。 */
+/**
+ * 在光标处插入文本（输入法上屏、粘贴）。
+ *
+ * 写入点统一钳制字符数上限（票 13「超长输入钳制」）：逐段插入只吃到余量、
+ * 整段替换（覆盖层 onChange 通道）截断到上限——文档不因超长输入进入病态区间。
+ */
 export function insertText(session: TextEditSession, text: string | TextContent): TextEditSession {
   if (typeof text !== 'string') {
-    // 整段替换（粘贴富文本时保留排版属性）
+    // 整段替换（粘贴富文本时保留排版属性）；字符数钳到上限
+    const characters = clampTextCharacters(text.characters);
     return {
       ...session,
-      content: text,
-      selection: { start: text.characters.length, end: text.characters.length },
+      content: { ...text, characters },
+      selection: { start: characters.length, end: characters.length },
     };
   }
-  const content = replaceTextRange(session.content, session.selection, text);
-  const caret = session.selection.start + text.length;
+  const { start, end } = normalizeSelection(session.content.characters, session.selection);
+  // 余量按「替换后的基长」算：选区本身要被替换掉，让出的空间计入可插入量（全选后粘贴应吃满余量）
+  const room = TEXT_CHARACTERS_MAX_LENGTH - (session.content.characters.length - (end - start));
+  const accepted = text.length > room ? text.slice(0, Math.max(0, room)) : text;
+  const content = replaceTextRange(session.content, { start, end }, accepted);
+  const caret = start + accepted.length;
   return { ...session, content, selection: { start: caret, end: caret } };
 }
 

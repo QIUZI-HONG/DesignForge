@@ -338,6 +338,10 @@ export function applyCommand(doc: DesignDocument, command: Command): ApplyResult
       if (command.patch.backgroundColor !== undefined)
         previous.backgroundColor = page.backgroundColor;
       if (command.patch.grid !== undefined) previous.grid = page.grid;
+      // 参考线（票 12）：旧文档可能没有 guides 键——逆命令按「空数组」还原，
+      // 与 guidesOf 的旧文档兼容口径一致（施加后的页面恒有 guides 键）。
+      if (command.patch.guides !== undefined)
+        previous.guides = Array.isArray(page.guides) ? [...page.guides] : [];
       const next = updatePage(doc, command.pageId, command.patch);
       return {
         document: next,

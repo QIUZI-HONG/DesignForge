@@ -33,6 +33,7 @@ import {
   type MarketFilters,
   MarketSkeletonGrid,
   MarketWarningBanner,
+  marketFailureText,
   resolveMarketEmptyKind,
   selectFeatured,
   toQueryParams,
@@ -204,7 +205,13 @@ export default function MarketHomePage() {
         )}
         {loadMoreState === 'error' ? (
           <span className="dfg-market__pagination-error">
-            {t('market.list.loadMoreFailed', { message: loadMoreError ?? '' })}
+            {marketFailureText(
+              { message: loadMoreError ?? '' },
+              {
+                network: 'market.list.loadMoreFailed.network',
+                composed: 'market.list.loadMoreFailed',
+              },
+            )}
           </span>
         ) : null}
       </div>
@@ -273,7 +280,10 @@ export default function MarketHomePage() {
 
       {pendingAsset !== null && loadPlan.status === 'error' ? (
         <MarketWarningBanner
-          message={t('market.loadPlanError', { message: loadPlan.error ?? '' })}
+          message={marketFailureText(
+            { message: loadPlan.error ?? '' },
+            { network: 'market.loadPlanError.network', composed: 'market.loadPlanError' },
+          )}
         />
       ) : null}
 
