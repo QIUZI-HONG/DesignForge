@@ -153,4 +153,67 @@ describe('MCP 确认条宿主位（终态留存）', () => {
     expect(document.querySelector('[data-df-mcp-confirm]')).toBeNull();
     expect(document.querySelector('[data-df-mcp-bar-host]')).not.toBeNull();
   });
+
+  it('新提案替换即重置（既有语义）：旧终态被替换，新提案回到可确认；旧留存计时到点不误撤新条', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const ackBodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: unknown, init?: { body?: string }) => {
+        if (init?.body !== undefined) ackBodies.push(JSON.parse(init.body));
+        return envelopeResponse(ackApproved());
+      }),
+    );
+    render(<McpConfirmHost />);
+    act(() => {
+      publishMcpProposal(proposalFixture());
+    });
+    await user.click(screen.getByRole('button', { name: '确认' }));
+    await waitFor(() => {
+      expect(screen.getByText('已确认')).toBeTruthy();
+    });
+
+    // 新提案进来：确认条整体重置（新 token、回到 pending 可确认）
+    act(() => {
+      publishMcpProposal(
+        proposalFixture({
+          proposalId: 'prop_2',
+          ackToken: 'token-2',
+          expiresAt: new Date(T0 + 240_000).toISOString(),
+        }),
+      );
+    });
+    expect(screen.queryByText('已确认')).toBeNull();
+    expect(screen.getByRole('button', { name: '确认' })).toBeTruthy();
+    expect(screen.getByText('剩余 4:00')).toBeTruthy();
+
+    // 旧提案的留存计时（T0+120s）到点：身份守卫，不得撤掉已替换的新确认条
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(screen.getByRole('button', { name: '确认' })).toBeTruthy();
+    expect(document.querySelector('[data-df-mcp-bar-host]')).not.toBeNull();
+
+    // 新提案可正常确认（一次性 token 用的是新 token）
+    await user.click(screen.getByRole('button', { name: '确认' }));
+    await waitFor(() => {
+      expect(screen.getByText('已确认')).toBeTruthy();
+    });
+    const secondAck = ackBodies[1] as { ackToken?: string; approve?: boolean };
+    expect(secondAck).toEqual({ ackToken: 'token-2', approve: true });
+    expect(ackBodies).toHaveLength(2);
+  });
+
+  it('过期态既有行为不回退：超时未确认显示「已失效」，宿主不撤（持续可见直至替换）', async () => {
+    render(<McpConfirmHost />);
+    act(() => {
+      publishMcpProposal(proposalFixture());
+    });
+
+    // 不确认，直接越过 TTL → expired；文案保持，宿主不撤条
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(screen.getByText('已失效（超时未确认）')).toBeTruthy();
+    expect(screen.getByText('需重新发起 dryRun 提案')).toBeTruthy();
+    expect(document.querySelector('[data-df-mcp-confirm]')?.getAttribute('data-df-mcp-confirm')).toBe(
+      'expired',
+    );
+  });
 });
