@@ -20,9 +20,11 @@ import {
   getPage,
   insertNode,
   insertNodes,
+  nodeKeys,
   requireNode,
   validateDocument,
 } from '../scene/index';
+import { serializeDocument } from '../serialize/index';
 import {
   type Command,
   CommandError,
@@ -597,5 +599,55 @@ describe('commands · node.update 键适用性（B5）', () => {
     while (s.undo());
     while (s.redo());
     expect(JSON.parse(JSON.stringify(s.document))).toEqual(applied);
+  });
+
+  it('序列化往返无未知自有键残留（自有键集合是独立的字面清单，不随补丁漂移）', () => {
+    const s = stack();
+    const initialJson = serializeDocument(s.document);
+    // rect 的合法自有键——独立字面清单（与 NodeBase + type 对不上即红）
+    const rectKeys = [
+      'blendMode',
+      'cornerRadius',
+      'effects',
+      'fills',
+      'height',
+      'id',
+      'locked',
+      'name',
+      'opacity',
+      'rotation',
+      'strokes',
+      'type',
+      'visible',
+      'width',
+      'x',
+      'y',
+    ].sort();
+    const keysOf = (id: string): string[] => nodeKeys(requireNode(getPage(s.document, 'p1'), id));
+
+    // 拒绝路径：跨类型键不落节点（修前 autoLayout 会作为自有键残留并随序列化落盘）
+    errorCodeOf(() =>
+      s.dispatch({
+        type: 'node.update',
+        pageId: 'p1',
+        nodeId: 'r1',
+        patch: { autoLayout: null } as never,
+      }),
+    );
+    expect(serializeDocument(s.document)).toBe(initialJson);
+    expect(keysOf('r1')).toEqual(rectKeys);
+
+    // 适用路径：写入只改值，不增删自有键
+    s.dispatch({
+      type: 'node.update',
+      pageId: 'p1',
+      nodeId: 'r1',
+      patch: { x: 12.5, fills: [solidPaint('#010203')] },
+    });
+    expect(keysOf('r1')).toEqual(rectKeys);
+
+    // 全撤销 → 序列化逐字节回到初始（无残留可进历史逆路径）
+    while (s.undo());
+    expect(serializeDocument(s.document)).toBe(initialJson);
   });
 });
