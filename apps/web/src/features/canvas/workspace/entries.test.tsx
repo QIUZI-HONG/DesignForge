@@ -212,7 +212,11 @@ describe('edit.undo / edit.redo · 置灰原因（票 07 · spec P1-3）', () =>
     getWorkspace().panels.stack.dispatch(
       {
         type: 'document.replace',
-        document: createDocument({ id: 'doc-1', name: '测试文档', pages: [createPage({ id: 'page-1' })] }),
+        document: createDocument({
+          id: 'doc-1',
+          name: '测试文档',
+          pages: [createPage({ id: 'page-1' })],
+        }),
       },
       { label: '载入文档' },
     );
