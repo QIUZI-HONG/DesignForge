@@ -485,6 +485,34 @@ describe('保存（⌘S / 顶栏按钮）', () => {
     const body = bodies[0]?.body as { page: { nodes: Record<string, unknown> } };
     expect(Object.keys(body.page.nodes).length).toBe(1);
   });
+
+  it('>64 页完整往返：70 页保存 → 重开页数/顺序/内容一致（旧实现硬编码 64 页截断）', async () => {
+    const daemon = createFakeDaemon();
+    const workspace = makeWorkspace(daemon);
+    workspace.canvas.createRect({ x: 10, y: 10, width: 30, height: 30 }); // 首页一个节点
+    for (let index = 2; index <= 70; index += 1) {
+      workspace.panels.stack.dispatch({
+        type: 'page.add',
+        page: createPage({ id: `page-p${String(index)}`, name: `第 ${String(index)} 页` }),
+      });
+    }
+
+    expect((await workspace.documents.save()).ok).toBe(true);
+    expect(daemon.documents.get('未命名文件')?.pages.size).toBe(70);
+
+    // 新会话重开：页数、顺序（页名）、首页内容完整（旧实现在第 64 页处静默截断）
+    const reopened = makeWorkspace(daemon);
+    expect((await reopened.documents.load('未命名文件')).ok).toBe(true);
+    const pages = reopened.canvas.document().pages;
+    expect(pages.length).toBe(70);
+    expect(pages[0]?.name).toBe('页面 1');
+    expect(pages[63]?.name).toBe('第 64 页');
+    expect(pages[64]?.name).toBe('第 65 页'); // 旧实现的截断线之后
+    expect(pages[69]?.name).toBe('第 70 页');
+    expect(Object.keys(pages[0]?.nodes ?? {}).length).toBe(1);
+    // 载入后当前页落在第一页
+    expect(reopened.canvas.page().id).toBe(pages[0]?.id);
+  });
 });
 
 describe('地址栏同步的参数名（宿主契约：编辑器 `?documentId=` / `_canvas` `?doc=`）', () => {
