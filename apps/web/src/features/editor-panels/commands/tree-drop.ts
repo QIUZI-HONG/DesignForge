@@ -2,15 +2,19 @@
  * Tree 拖拽落位解析（RW-13 约定，seam：`Tree.onReorder(source, target)` + 指针/行几何 →
  * 引擎可用的移动目标）。
  *
- * **RW-13 落位约定**（兑现 RW-07 在 Tree 接口里声明留给本票的「落位语义」）：
+ * **RW-13 落位约定**（兑现 RW-07 在 Tree 接口里声明留给本票的「落位语义」；
+ * 票 11 修正：面板显示序是绘制序的**逆序**，缘 → 下标的映射必须先翻回绘制序）：
  *
  * 1. **指针细节由消费侧自记**：Tree v1 的 `onReorder` 只上报 `(sourceId, targetId)` 对，
  *    不携带指针位置。图层面板在拖拽期间用 document 级 `dragover` 记录指针 Y，
  *    drop 时量取 target 行矩形（`getBoundingClientRect`），二者合成 `TreeDropPointer`。
- * 2. **上/下各半判定插入位置**：以 target 行垂直中线为界——指针在上半 → 插到 target
- *    **之前**，在下半 → 插到 target **之后**（同一父级的同级序列；中点归下半）。
- *    指针越过行上缘按「之前」、越过下缘按「之后」；无指针信息（几何不可得，如测试环境）
- *    按「之前」降级，保证判定确定性。
+ * 2. **上/下各半判定插入位置（面板显示序语义）**：以 target 行垂直中线为界——指针在上半 →
+ *    插到 target 的**面板上方**，在下半 → **面板下方**（中点归下半）。
+ *    面板行序 = children 的逆序（最上层显示在最前），所以「面板上方」= 绘制序里 target
+ *    **之后**（下标 = target 位置 + 1），「面板下方」= target **之前**（下标 = target 位置）。
+ *    巡检实测（ux-audit C3）：不翻这层序，常见拖拽会落回出发时的数组槽位——面板纹丝不动，
+ *    即「拖拽排序未生效」的根因。指针越过行上缘按上半、越过下缘按下半；
+ *    无指针信息（几何不可得，如测试环境）按「上半」降级，保证判定确定性。
  * 3. **跨父拖拽 = reparent**：落点父级恒为 target 的父级，因此 source 与 target 不同父时
  *    本次落点就是改父（引擎 `node.reparent` 族，`moveLayerCommands` 走
  *    `reparentPreservingWorldCommands` 保持世界位置；同父即纯重排）。
@@ -18,11 +22,11 @@
  *    展开后落到它的某个子行上，空/折叠容器的拖入走画布拖拽。
  * 4. **无效落点 → null**（调用方不发命令）：source/target 是实例虚节点（结构只读）、
  *    落到自身、target 落在 source 子树内（成环，引擎会拒）、任一节点不存在。
- * 5. **下标坐标空间**：`index` 是「**先摘除 source，再插入**」的列表下标——与引擎
- *    `node.reparent` 语义一致（见 `scene/mutate.ts` 的 `reparentNode`），交给
- *    `moveLayerCommands` 前无需再换算，避免「向下拖一格却少移一位」的 off-by-one。
+ * 5. **下标坐标空间**：`index` 是「**先摘除 source，再插入新位置**」的绘制序列表下标——
+ *    与引擎 `node.reparent` 语义一致（见 `scene/mutate.ts` 的 `reparentNode`），交给
+ *    `moveLayerCommands` 前无需再换算。
  * 6. **单事务**：一次 drop 恰好一次 `session.run`（一条 reparentPreservingWorld 命令组，
- *    同一事务内原子生效）；面板不碰 `CommandStack.enqueue` 的微任务合并路径，
+ *    同一事务内原子生效，undo 整体还原）；面板不碰 `CommandStack.enqueue` 的微任务合并路径，
  *    其「高频写入合并为一个事务」的语义不受影响。
  */
 import {
@@ -49,9 +53,9 @@ export interface TreeDropPointer {
 export interface TreeDropPlacement {
   /** 新父级（null = 页面顶层）。 */
   parentId: NodeId | null;
-  /** 「摘除 source 后」的列表下标（直接交给 `moveLayerCommands`）。 */
+  /** 「摘除 source 后」的绘制序列表下标（直接交给 `moveLayerCommands`）。 */
   index: number;
-  /** 插入缘：target 之前 / 之后。 */
+  /** 插入缘：面板中 target 上方（before）/ 下方（after）。 */
   edge: 'before' | 'after';
 }
 
@@ -61,7 +65,7 @@ export interface TreeDropPlacement {
  * @param page 当前页面快照（写操作必须基于最新文档构造命令，调用方负责取最新）
  * @param sourceId 被拖拽的节点（Tree.onReorder 的 source）
  * @param targetId 落点行节点（Tree.onReorder 的 target）
- * @param pointer 指针证据；缺省/null = 几何不可得，按「之前」降级
+ * @param pointer 指针证据；缺省/null = 几何不可得，按「上半」降级
  */
 export function resolveTreeDropPlacement(
   page: ScenePage,
@@ -79,16 +83,18 @@ export function resolveTreeDropPlacement(
   if (isDescendantOf(page, targetId, sourceId)) return null;
 
   const parentId = parentIdOf(page, targetId);
-  // 摘除 source 后的同级序列（坐标空间与 node.reparent 一致）
+  // 摘除 source 后的同级绘制序列表（坐标空间与 node.reparent 一致）
   const siblingsWithoutSource = getChildrenIds(page, parentId).filter((id) => id !== sourceId);
   const position = siblingsWithoutSource.indexOf(targetId);
   if (position < 0) return null;
 
   const edge = edgeOf(pointer);
-  return { parentId, index: edge === 'before' ? position : position + 1, edge };
+  // 面板显示序 = 绘制序的逆序：面板「target 上方」= 绘制序 target 之后（position + 1），
+  // 面板「target 下方」= 绘制序 target 之前（position）。不翻这层序 = 拖拽视觉上不生效。
+  return { parentId, index: edge === 'before' ? position + 1 : position, edge };
 }
 
-/** 前后缘判定：上/下各半，中点归下半；无指针按「之前」降级。 */
+/** 前后缘判定：上/下各半，中点归下半；无指针按「上半（before）」降级。 */
 function edgeOf(pointer?: TreeDropPointer | null): 'before' | 'after' {
   if (!pointer || pointer.rowBottom <= pointer.rowTop) return 'before';
   const ratio = (pointer.y - pointer.rowTop) / (pointer.rowBottom - pointer.rowTop);

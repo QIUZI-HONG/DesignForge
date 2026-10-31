@@ -7,6 +7,7 @@
  * 无操作口径：命令列表为空 = UI 侧的操作不可用（已在端位、值未变、不足两个同级节点……）。
  * 会话层对空列表直接跳过 dispatch（不写撤销栈），避免「点了但什么也没发生」污染历史。
  */
+import { DOCUMENT_NAME_MAX_LENGTH } from '@dforge/contracts';
 import {
   type Command,
   deleteNodesCommands,
@@ -72,7 +73,9 @@ export function toggleLockCommands(page: ScenePage, pageId: PageId, nodeId: Node
 
 /**
  * 重命名：写新名字。
- * 空白名视作取消（不提交）；同名视作无操作——两者都返回空列表，由输入框自行复位。
+ * 空白名视作取消（不提交，提示与回退在 Tree 侧就地表态）；超长钳到
+ * `DOCUMENT_NAME_MAX_LENGTH`（64，与新建文件同源上限——票 11：巡检实测 5000 字被接受）；
+ * 同名（含钳制后与原名相同）视作无操作——均返回空列表，由输入框自行复位。
  */
 export function renameLayerCommands(
   page: ScenePage,
@@ -80,7 +83,7 @@ export function renameLayerCommands(
   nodeId: NodeId,
   name: string,
 ): Command[] {
-  const trimmed = name.trim();
+  const trimmed = name.trim().slice(0, DOCUMENT_NAME_MAX_LENGTH);
   if (trimmed.length === 0) return [];
   const node = resolveNode(page, nodeId);
   if (!node || node.name === trimmed) return [];
