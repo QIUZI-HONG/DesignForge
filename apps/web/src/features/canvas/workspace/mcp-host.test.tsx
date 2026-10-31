@@ -102,7 +102,7 @@ describe('MCP 确认条宿主位（终态留存）', () => {
     expect(currentMcpProposal()?.proposalId).toBe('prop_1');
   });
 
-  it('批准 ack 成功后终态留存：不立即撤条，越过 TTL 终态文案仍可见', async () => {
+  it('批准 ack 成功后终态留存：不立即撤条，TTL 窗口内终态文案持续可见', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     vi.stubGlobal(
       'fetch',
@@ -121,10 +121,36 @@ describe('MCP 确认条宿主位（终态留存）', () => {
       'approved',
     );
 
-    // 留存：推进到 TTL 之后（既有缺陷在此刻已整体撤条）
-    await vi.advanceTimersByTimeAsync(121_000);
+    // 留存：在提案 TTL 窗口内持续推进，终态文案与桩注始终可见
+    // （既有缺陷在落定瞬间已整体撤条）
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(screen.getByText('已确认')).toBeTruthy();
     expect(screen.getByText(/桩：未产生真实写入/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: '确认' })).toBeNull();
+  });
+
+  it('终态留存有界：提案 TTL 到期后确认条撤下（宿主位仍在场）', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => envelopeResponse(ackApproved())),
+    );
+    render(<McpConfirmHost />);
+    act(() => {
+      publishMcpProposal(proposalFixture());
+    });
+
+    await user.click(screen.getByRole('button', { name: '确认' }));
+    await waitFor(() => {
+      expect(screen.getByText('已确认')).toBeTruthy();
+    });
+
+    // TTL（120s）之内留存，到期撤条——撤的是整条终态确认条，宿主容器保留
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(screen.getByText('已确认')).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(screen.queryByText('已确认')).toBeNull();
+    expect(document.querySelector('[data-df-mcp-confirm]')).toBeNull();
+    expect(document.querySelector('[data-df-mcp-bar-host]')).not.toBeNull();
   });
 });

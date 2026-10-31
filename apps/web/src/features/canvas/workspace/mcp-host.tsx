@@ -17,8 +17,8 @@
  */
 
 import type { McpProposalResponse } from '@dforge/contracts';
-import { useEffect, useState, useSyncExternalStore } from 'react';
-import { McpConfirmBar } from '@/features/mcp';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { McpConfirmBar, type McpConfirmationState } from '@/features/mcp';
 
 /** 提案事件名（跨票契约：谁拿到 dryRun 响应谁投递）。 */
 export const MCP_PROPOSAL_EVENT = 'dforge:mcp-proposal';
@@ -55,6 +55,7 @@ export function McpConfirmHost() {
     () => pending,
     () => null,
   );
+  const retentionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -68,9 +69,30 @@ export function McpConfirmHost() {
     };
   }, []);
 
+  // 终态留存的上界（P1-1）：ack 落定后起计时，提案 TTL（expiresAt）到期即撤条；
+  // 到期时若提案已被新提案替换则不动（身份守卫，避免误撤替换后的确认条）。
+  const handleSettled = useCallback((state: McpConfirmationState) => {
+    const settled = state.proposal;
+    if (retentionTimer.current !== null) clearTimeout(retentionTimer.current);
+    const delay = Math.max(0, Date.parse(settled.expiresAt) - Date.now());
+    retentionTimer.current = setTimeout(() => {
+      if (currentMcpProposal() === settled) clearMcpProposal();
+    }, delay);
+  }, []);
+
+  // 卸载回收计时器（不漏悬挂定时器）
+  useEffect(
+    () => () => {
+      if (retentionTimer.current !== null) clearTimeout(retentionTimer.current);
+    },
+    [],
+  );
+
   return (
     <div className="dfc-ws-mcp" data-df-mcp-bar-host="">
-      {mounted && proposal !== null ? <McpConfirmBar proposal={proposal} /> : null}
+      {mounted && proposal !== null ? (
+        <McpConfirmBar proposal={proposal} onSettled={handleSettled} />
+      ) : null}
     </div>
   );
 }
