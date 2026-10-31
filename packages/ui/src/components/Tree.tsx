@@ -50,6 +50,11 @@ export interface TreeNodeSpec {
   label: string;
   /** 节点类型图标（图层树消费方按图层类型给，如 Frame/Text/Group）。 */
   icon?: ReactNode;
+  /**
+   * 行尾控件（票 11：显隐/锁定等行级开关，由消费方构造）。
+   * 挂在 `.dfg-tree__actions` 槽里：点击不触发行激活，重命名编辑态不渲染。
+   */
+  trailing?: ReactNode;
   children?: TreeNodeSpec[];
   /** 禁用行：不可选中、不可拖拽、键盘漫游跳过。 */
   disabled?: boolean;
@@ -75,6 +80,14 @@ export interface TreeProps {
   onExpandedChange?: (ids: string[]) => void;
   /** 重命名入口：给出才开放（双击/F2），提交新名。 */
   onRename?: (id: string, label: string) => void;
+  /**
+   * 空名提交的就地提示（票 11）：给出后，空/纯空白名提交不再静默关闭——
+   * 编辑态保持、提示以 `role="alert"` 就地呈现、原名保留（回退），Esc 取消；
+   * 缺省维持既有静默口径（关闭编辑、原名保留）。
+   */
+  renameEmptyMessage?: string;
+  /** 重命名输入的长度上限（直传 `maxLength`；超长输入在输入端被拦）。 */
+  renameMaxLength?: number;
   /** 错误行重试（点击错误行触发）。 */
   onRetry?: (id: string) => void;
   /** 拖拽排序接口：source 落到 target（落位语义由消费方约定）。 */
@@ -134,6 +147,8 @@ export function Tree({
   defaultExpandedIds,
   onExpandedChange,
   onRename,
+  renameEmptyMessage,
+  renameMaxLength,
   onRetry,
   onReorder,
   emptyContent,
@@ -153,6 +168,8 @@ export function Tree({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const renameOriginal = useRef('');
+  // 空名提交的就地提示态（票 11）：提交被拦时置位，输入变更或收尾时清除
+  const [renameError, setRenameError] = useState(false);
   // 重命名收尾同步锁：focusRow 会同步触发输入框 blur，blur 的 finishRename(true)
   // 带旧闭包重入——不锁住，Esc 取消会被 blur 抢成提交
   const renameFinishing = useRef(false);
@@ -200,17 +217,31 @@ export function Tree({
       if (node.disabled === true || node.loading === true || node.error === true) return;
       renameOriginal.current = node.label;
       setDraft(node.label);
+      setRenameError(false);
       setRenamingId(node.id);
     },
     [onRename],
   );
 
+  /**
+   * 收尾重命名。`source` 区分提交来源：
+   * - `enter`（键盘提交）+ 空名且有提示文案 → 就地拦下（提示 + 焦点拉回输入框，用户正在编辑）；
+   * - `blur` + 空名且有提示文案 → 同样拦下但不抢焦点（编辑态与提示保持显式未决，
+   *   Esc 取消收场）——静默关闭正是巡检点名的缺陷（「空名提交无提示」）。
+   * 未给提示文案时空名维持既有口径：静默关闭、原名保留。
+   */
   const finishRename = useCallback(
-    (commit: boolean): void => {
+    (commit: boolean, source: 'enter' | 'blur' = 'enter'): void => {
       if (renamingId === null || renameFinishing.current) return;
       const id = renamingId;
       const text = draft.trim();
+      if (commit && text === '' && renameEmptyMessage !== undefined) {
+        setRenameError(true);
+        if (source === 'enter') renameInputRef.current?.focus();
+        return;
+      }
       setRenamingId(null);
+      setRenameError(false);
       renameFinishing.current = true;
       try {
         // 回焦点到行：编辑结束不把焦点丢给 body（键盘连续操作）
@@ -220,7 +251,7 @@ export function Tree({
         renameFinishing.current = false;
       }
     },
-    [draft, focusRow, onRename, renamingId],
+    [draft, focusRow, onRename, renameEmptyMessage, renamingId],
   );
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
@@ -284,10 +315,13 @@ export function Tree({
     }
   };
 
-  /** 点击归属判定：子行冒泡与展开钮点击都不当代本行的激活。 */
+  /** 点击归属判定：子行冒泡、展开钮与行尾控件（显隐/锁定等）的点击都不当代本行的激活。 */
   const isOwnRowClick = (node: TreeNodeSpec, event: ReactMouseEvent<HTMLDivElement>): boolean => {
-    if ((event.target as HTMLElement).closest('.dfg-tree__toggle') !== null) return false;
-    const hit = (event.target as HTMLElement).closest<HTMLElement>('[data-node-id]');
+    const target = event.target as HTMLElement;
+    if (target.closest('.dfg-tree__toggle') !== null) return false;
+    // 行尾控件槽：按钮自带 onClick 语义，行激活不再叠加（双击重命名同理）
+    if (target.closest('.dfg-tree__actions') !== null) return false;
+    const hit = target.closest<HTMLElement>('[data-node-id]');
     return hit?.dataset.nodeId === node.id;
   };
 
@@ -397,28 +431,43 @@ export function Tree({
         )}
         {node.icon === undefined ? null : <span className="dfg-tree__icon">{node.icon}</span>}
         {isRenaming ? (
-          <input
-            className="dfg-tree__rename"
-            ref={renameInputRef}
-            value={draft}
-            aria-label={node.label}
-            onChange={(event) => setDraft(event.target.value)}
-            onClick={(event) => event.stopPropagation()}
-            onBlur={() => finishRename(true)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                event.stopPropagation();
-                finishRename(true);
-              } else if (event.key === 'Escape') {
-                event.preventDefault();
-                event.stopPropagation();
-                finishRename(false);
-              }
-            }}
-          />
+          <>
+            <input
+              className="dfg-tree__rename"
+              ref={renameInputRef}
+              value={draft}
+              aria-label={node.label}
+              aria-invalid={renameError || undefined}
+              {...(renameMaxLength === undefined ? {} : { maxLength: renameMaxLength })}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setRenameError(false);
+              }}
+              onClick={(event) => event.stopPropagation()}
+              onBlur={() => finishRename(true, 'blur')}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  finishRename(true, 'enter');
+                } else if (event.key === 'Escape') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  finishRename(false);
+                }
+              }}
+            />
+            {renameError ? (
+              <span className="dfg-tree__rename-error" role="alert">
+                {renameEmptyMessage}
+              </span>
+            ) : null}
+          </>
         ) : (
           <span className="dfg-tree__label">{node.label}</span>
+        )}
+        {isRenaming || node.trailing === undefined ? null : (
+          <span className="dfg-tree__actions">{node.trailing}</span>
         )}
       </div>
     );

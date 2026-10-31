@@ -1074,6 +1074,15 @@
   outline: none;
 }
 
+/* 空名提交的就地提示（票 11）：行内右缘短文案，danger 语义色（令牌，禁裸值） */
+.dfg-tree__rename-error {
+  flex: none;
+  padding-inline-start: var(--dfg-space-2);
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-danger);
+  white-space: nowrap;
+}
+
 .dfg-tree__empty {
   padding: var(--dfg-space-4);
   font-size: var(--dfg-font-size-12);

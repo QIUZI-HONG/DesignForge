@@ -13,6 +13,9 @@
  *   画布多选时面板只高亮主选中行（Tree v1 单选语义）。
  * - **重命名**：Tree 行内编辑（双击/F2，Enter/失焦提交、Esc 取消）提交 →
  *   `renameLayerCommands`（引擎 `node.update` 补丁，空白/同名由两侧共同把关）。
+ *   票 11 补齐反馈与钳制：空/纯空白名提交不再静默——就地提示「名称不能为空」、
+ *   编辑态保持、原名保留（回退）；长度经输入端 `maxLength` 与写入端
+ *   `renameLayerCommands` 双层钳到 `DOCUMENT_NAME_MAX_LENGTH`（64，与新建文件同源）。
  *   右键菜单不再带「重命名」条目：Tree v1 的编辑态是组件内私有状态，外部无法触达；
  *   行内双击/F2 是更短的路径。
  * - **拖拽落位（RW-13 约定，详见 commands/tree-drop.ts）**：Tree `onReorder(source, target)`
@@ -29,6 +32,7 @@
  *   （editor-panels.css `.dfg-panels__tree .dfg-tree__node`）——不引依赖、不做 JS 窗口化：
  *   JS 窗口需要把 Tree 的嵌套 group 结构切片，会破坏键盘漫游与 aria 语义（取舍登记在 RW-13 报告）。
  */
+import { DOCUMENT_NAME_MAX_LENGTH } from '@dforge/contracts';
 import {
   type Command,
   findPage,
@@ -288,6 +292,8 @@ export function LayersPanel({
             expandedIds={expandedIds}
             onExpandedChange={onExpandedChange}
             onRename={onRename}
+            renameEmptyMessage={t('panels.layers.renameEmpty')}
+            renameMaxLength={DOCUMENT_NAME_MAX_LENGTH}
             onReorder={onReorder}
             emptyContent={emptyContent}
           />

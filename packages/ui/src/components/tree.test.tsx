@@ -213,6 +213,91 @@ describe('Tree · 重命名入口', () => {
   });
 });
 
+describe('Tree · 重命名校验（空名提示与回退、长度钳制；票 11）', () => {
+  const nodes: TreeNodeSpec[] = [{ id: 'rect', label: '背景矩形' }];
+
+  it('提供 renameEmptyMessage 时空名提交：就地提示、编辑不关、不提交（原名保留 = 回退）', async () => {
+    const user = userEvent.setup();
+    const onRename = vi.fn();
+    render(
+      <Tree label="图层" nodes={nodes} onRename={onRename} renameEmptyMessage="名称不能为空" />,
+    );
+    await user.dblClick(rowOf('背景矩形'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    await user.clear(input);
+    await user.keyboard('{Enter}');
+    // 提示以 alert 语义就地呈现；编辑态保持（用户可直接改或 Esc 回退）
+    expect(screen.getByRole('alert').textContent).toBe('名称不能为空');
+    expect(screen.queryByRole('textbox')).not.toBeNull();
+    expect(onRename).not.toHaveBeenCalled();
+
+    // 纯空白同样拦下
+    await user.type(input, '   ');
+    await user.keyboard('{Enter}');
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toBeTruthy();
+  });
+
+  it('提示后改成有效名再提交：提示消失、正常提交', async () => {
+    const user = userEvent.setup();
+    const onRename = vi.fn();
+    render(
+      <Tree label="图层" nodes={nodes} onRename={onRename} renameEmptyMessage="名称不能为空" />,
+    );
+    await user.dblClick(rowOf('背景矩形'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    await user.clear(input);
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('alert')).toBeTruthy();
+
+    await user.type(input, '底色矩形');
+    // 输入即清错：提示离场
+    expect(screen.queryByRole('alert')).toBeNull();
+    await user.keyboard('{Enter}');
+    expect(onRename).toHaveBeenCalledWith('rect', '底色矩形');
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('空名提示态 Esc 取消：编辑关闭、提示消失、原名保留', async () => {
+    const user = userEvent.setup();
+    const onRename = vi.fn();
+    render(
+      <Tree label="图层" nodes={nodes} onRename={onRename} renameEmptyMessage="名称不能为空" />,
+    );
+    await user.dblClick(rowOf('背景矩形'));
+    await user.clear(screen.getByRole('textbox'));
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('alert')).toBeTruthy();
+
+    await user.keyboard('{Escape}');
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(rowOf('背景矩形')).toBeTruthy();
+  });
+
+  it('未提供 renameEmptyMessage：维持既有静默口径（关闭编辑、不提交、无提示）', async () => {
+    const user = userEvent.setup();
+    const onRename = vi.fn();
+    render(<Tree label="图层" nodes={nodes} onRename={onRename} />);
+    await user.dblClick(rowOf('背景矩形'));
+    await user.clear(screen.getByRole('textbox'));
+    await user.keyboard('{Enter}');
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('renameMaxLength 传给输入框 maxLength（超长输入在输入端被拦）', async () => {
+    const user = userEvent.setup();
+    const onRename = vi.fn();
+    render(<Tree label="图层" nodes={nodes} onRename={onRename} renameMaxLength={64} />);
+    await user.dblClick(rowOf('背景矩形'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    expect(input.maxLength).toBe(64);
+  });
+});
+
 describe('Tree · 禁用 / 加载 / 错误 / 空态', () => {
   it('禁用节点不可选中且标注 aria-disabled', async () => {
     const user = userEvent.setup();

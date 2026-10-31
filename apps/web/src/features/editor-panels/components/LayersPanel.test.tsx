@@ -216,6 +216,35 @@ describe('图层面板 · 重命名（Tree 行内编辑 → node.update 命令�
     fireEvent.keyDown(row('卡片'), { key: 'F2' });
     expect(screen.getByRole('textbox')).toBeTruthy();
   });
+
+  it('空名提交：就地提示「名称不能为空」、名称回退不改文档，Esc 关闭（票 11）', () => {
+    const { session, page } = renderPanel();
+    fireEvent.doubleClick(row('卡片'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    // 提示就地呈现，编辑态保持；文档名未动（回退），无历史条目
+    expect(screen.getByRole('alert').textContent).toBe('名称不能为空');
+    expect(screen.queryByRole('textbox')).not.toBeNull();
+    expect(getNode(page(), 'r2')?.name).toBe('卡片');
+    expect(session.stack.history().undo).toHaveLength(0);
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(getNode(page(), 'r2')?.name).toBe('卡片');
+  });
+
+  it('超长名钳制到 64 字符：输入端 maxLength + 写入端兜底（与新建文件同源上限；票 11）', () => {
+    const { page } = renderPanel();
+    fireEvent.doubleClick(row('卡片'));
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    expect(input.maxLength).toBe(64);
+    fireEvent.change(input, { target: { value: '长'.repeat(5000) } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(getNode(page(), 'r2')?.name).toHaveLength(64);
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
 });
 
 describe('图层面板 · 拖拽落位约定（RW-13：面板显示序上/下各半；跨父 = reparent；票 11）', () => {
