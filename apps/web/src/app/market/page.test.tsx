@@ -10,8 +10,8 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { marketFixtures } from '@/features/market';
+import { t } from '@/i18n';
 
 // 夹具经 market 公开面取（`marketFixtures` 命名空间），不引 `__fixtures__` 深路径
 const { makeAsset, makeQueryResponse } = marketFixtures;
@@ -255,6 +255,30 @@ describe('/market · 空态与错误态（验收 §5）', () => {
     await waitFor(() => {
       expect(fetchMock.mock.calls.length).toBeGreaterThan(before);
     });
+  });
+
+  it('断网（浏览器 fetch 失败原文）→ 中文人话 + 下一步，原始英文只在折叠详情里；恢复后重试回正常态（票 06 / spec P1-2）', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    render(<MarketHomePage />);
+
+    // 人话与下一步（重试按钮）齐备，不再直出裸英文
+    expect(await screen.findByText(t('market.error.network.human'))).toBeTruthy();
+    expect(screen.getByRole('button', { name: t('market.error.retry') })).toBeTruthy();
+    // 原始英文只出现在默认收起的技术详情折叠里（带归一错误码）
+    const raw = screen.getByText('Failed to fetch');
+    const details = raw.closest('details');
+    expect(details).not.toBeNull();
+    expect((details as HTMLDetailsElement).open).toBe(false);
+    expect(details?.textContent).toContain('DAEMON_UNREACHABLE');
+
+    // 断网恢复 → 重试成功回正常态（既有成功路径不回退）
+    respondWith(makeQueryResponse());
+    await user.click(screen.getByRole('button', { name: t('market.error.retry') }));
+    await waitFor(() => {
+      expect(screen.getAllByRole('heading', { name: 'PDF 导出' }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(t('market.error.network.human'))).toBeNull();
   });
 
   it('部分失败 → 结果区给提示条（有结果仍照常展示）', async () => {

@@ -42,6 +42,12 @@ vi.mock('@/features/canvas/runtime/canvaskit-loader', () => ({
   loadCanvasKit: () => new Promise<never>(() => {}),
 }));
 
+// AI 抽屉槽（票 06）经 `useRouter` 接「去诊断」跳设置页；本测试锁引导/hydration 结构，
+// 跳转本身是 next/navigation 的行为——桩掉 router，避免要求 App Router 上下文。
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 beforeEach(() => {
   resetCommandRegistry();
   resetEditorSlots();
