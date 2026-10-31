@@ -22,10 +22,9 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
-
-import { type CanvasSession, createCanvasSession } from '../state/session';
-import { attachPointerAdapter } from '../input/pointer';
 import { dispatchKeyDown } from '../input/keyboard';
+import { attachPointerAdapter } from '../input/pointer';
+import { type CanvasSession, createCanvasSession } from '../state/session';
 import { TextOverlay } from './text-overlay';
 
 /** 建带文本节点的会话（初始视口：zoom 2、pan 40/30，验证坐标换算）。 */

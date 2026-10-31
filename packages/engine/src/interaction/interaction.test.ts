@@ -448,7 +448,10 @@ describe('interaction · 文本编辑会话（C10）', () => {
     expect(session.content.characters.startsWith(fill.slice(0, 10))).toBe(true);
     // 有余量时只吃到余量（部分钳制，不整段丢弃）
     const trimmed = session.content.characters.slice(0, TEXT_CHARACTERS_MAX_LENGTH - 2);
-    session = setTextSelection(session, { start: trimmed.length, end: session.content.characters.length });
+    session = setTextSelection(session, {
+      start: trimmed.length,
+      end: session.content.characters.length,
+    });
     session = insertText(session, 'ab超长');
     expect(session.content.characters.length).toBe(TEXT_CHARACTERS_MAX_LENGTH);
     expect(session.content.characters.endsWith('ab')).toBe(true);
