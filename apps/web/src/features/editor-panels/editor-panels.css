@@ -236,6 +236,56 @@
   color: var(--dfg-color-text-secondary);
 }
 
+/* ---------- 令牌行内管理（票 14 管理半缺：每行编辑值/删除） ---------- */
+
+/* 动作组：默认收在行尾；行悬停时浮现（不挤占阅读、可发现性靠悬停 + 可见性挂点） */
+.dfg-panels__token-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--dfg-space-1);
+  opacity: 0;
+  transition: opacity var(--dfg-duration-fast) var(--dfg-easing-standard);
+}
+
+.dfg-panels__token-row:hover .dfg-panels__token-actions,
+.dfg-panels__token-row:focus-within .dfg-panels__token-actions {
+  opacity: 1;
+}
+
+/* 图标动作钮：命中区够到紧凑档行高，配色走文本次级/危险语义 */
+.dfg-panels__token-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dfg-icon-size-lg);
+  height: var(--dfg-icon-size-lg);
+  border-radius: var(--dfg-radius-sm);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-panels__token-icon-btn:hover {
+  color: var(--dfg-color-text-primary);
+  background-color: var(--dfg-color-skeleton);
+}
+
+.dfg-panels__token-icon-btn[data-df-asset-token-delete]:hover {
+  color: var(--dfg-color-danger);
+}
+
+/* 单行改值态：输入吃掉名字与值的余量，确认/取消贴行尾 */
+.dfg-panels__token-edit {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+}
+
+.dfg-panels__token-edit > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* ---------- 令牌添加（票 14：资产面板 Token 添加入口） ---------- */
 
 /* 入口行：与工具栏同一条底边分隔，按钮占满行宽（入口在任何令牌体状态下都可见） */

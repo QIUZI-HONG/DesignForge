@@ -252,3 +252,100 @@ describe('资产面板 · Token 添加入口（票 14）', () => {
     expect(session.stack.document.tokens).toBe(before);
   });
 });
+
+describe('资产面板 · Token 行内管理（票 14 管理半缺：删除/改值）', () => {
+  it('每个令牌行带编辑值/删除动作挂点（图标钮 + aria 名）', () => {
+    renderTokensSegment();
+    expect(
+      document.querySelector('[data-df-asset-token-edit="color.brand.primary"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-df-asset-token-delete="color.brand.primary"]'),
+    ).not.toBeNull();
+    // 夹具三行各一组动作
+    expect(screen.getAllByRole('button', { name: '编辑值' })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: '删除令牌' })).toHaveLength(3);
+  });
+
+  it('删除：命令栈单事务入档，行即离开文档数据与列表；撤销恢复', () => {
+    const { session } = renderTokensSegment();
+    const row = document.querySelector('[data-df-asset-token="color.brand.primary"]');
+    expect(row).not.toBeNull();
+    const deleteBtn = row?.querySelector('[data-df-asset-token-delete]');
+    expect(deleteBtn).not.toBeNull();
+    fireEvent.click(deleteBtn as HTMLElement);
+
+    // primary 消失；同组的 onPrimary（别名兄弟行）不受牵连
+    const brand = (
+      session.stack.document.tokens.color as {
+        brand: Record<string, { $value: string } | undefined>;
+      }
+    ).brand;
+    expect(brand.primary).toBeUndefined();
+    expect(brand.onPrimary).toBeDefined();
+    expect(document.querySelector('[data-df-asset-token="color.brand.primary"]')).toBeNull();
+
+    act(() => {
+      expect(session.stack.undo()).toBe(true);
+    });
+    // 撤销后文档是新快照：重读再断言 primary 回来了
+    const brandAfterUndo = (
+      session.stack.document.tokens.color as {
+        brand: Record<string, { $value: string } | undefined>;
+      }
+    ).brand;
+    expect(brandAfterUndo.primary).toBeDefined();
+    expect(document.querySelector('[data-df-asset-token="color.brand.primary"]')).not.toBeNull();
+  });
+
+  it('改值：进编辑态预填原始 $value（别名串不预解析），保存后 $value 更新、$type 沿用', () => {
+    const { session } = renderTokensSegment();
+    const row = document.querySelector('[data-df-asset-token="color.brand.onPrimary"]');
+    const editBtn = row?.querySelector('[data-df-asset-token-edit]');
+    expect(editBtn).not.toBeNull();
+    fireEvent.click(editBtn as HTMLElement);
+
+    const form = document.querySelector('[data-df-asset-token-edit-form="color.brand.onPrimary"]');
+    expect(form).not.toBeNull();
+    // 原始 $value 是别名串（未预解析）——用户改的是文档数据
+    const input = screen.getByLabelText('新值') as HTMLInputElement;
+    expect(input.value).toBe('{color.brand.primary}');
+
+    fireEvent.change(input, { target: { value: '{space.md}' } });
+    fireEvent.submit(form as HTMLElement);
+
+    const onPrimary = (
+      session.stack.document.tokens.color as {
+        brand: Record<string, { $value: string } | undefined>;
+      }
+    ).brand.onPrimary;
+    expect(onPrimary?.$value).toBe('{space.md}');
+    // 编辑态退出，解析视图反映新别名（onPrimary 现在解析到 space.md 的字面值）
+    expect(document.querySelector('[data-df-asset-token-edit-form]')).toBeNull();
+    expect(
+      document.querySelector('[data-df-asset-token="color.brand.onPrimary"]')?.textContent,
+    ).toContain('16');
+  });
+
+  it('改值空提交被拒：不写文档，行内非法态提示；取消退出不写', () => {
+    const { session } = renderTokensSegment();
+    const row = document.querySelector('[data-df-asset-token="space.md"]');
+    fireEvent.click(row?.querySelector('[data-df-asset-token-edit]') as HTMLElement);
+    const form = document.querySelector('[data-df-asset-token-edit-form="space.md"]');
+    const before = session.stack.document.tokens;
+
+    // 清空预填值再提交：空值被拒（非法态），文档不动
+    fireEvent.change(screen.getByLabelText('新值'), { target: { value: '' } });
+    fireEvent.submit(form as HTMLElement);
+    expect((screen.getByLabelText('新值') as HTMLInputElement).getAttribute('aria-invalid')).toBe(
+      'true',
+    );
+    expect(session.stack.document.tokens).toBe(before);
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(document.querySelector('[data-df-asset-token-edit-form]')).toBeNull();
+    expect((session.stack.document.tokens.space as { md: { $value: string } }).md.$value).toBe(
+      '16',
+    );
+  });
+});

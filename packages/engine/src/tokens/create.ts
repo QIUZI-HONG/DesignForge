@@ -100,3 +100,44 @@ function writePath(level: TokenSet, segments: readonly string[], token: DesignTo
       : (child as TokenSet);
   return { ...level, [head]: writePath(nested, rest, token) };
 }
+
+/**
+ * 删除单个令牌（票 14 管理入口 · 引擎侧）：点分路径定位叶子，返回移除后的新集合。
+ *
+ * 不可变约定同 `upsertToken`；沿途因删除而**变空的组一并剪除**（组是隐式结构，
+ * 留下空对象组会让面板出现「有组头无行」的幽灵分组）。路径不存在 → 原样返回
+ * （调用方决定 no-op 语义，不在引擎层报错）；路径非法（空分段）→ 抛错，与写入同判。
+ */
+export function removeToken(tokens: TokenSet, path: string): TokenSet {
+  const segments = path.split('.');
+  if (segments.length === 0 || path.trim().length === 0) {
+    throw new Error(`令牌路径非法：${path}`);
+  }
+  return removePath(tokens, segments);
+}
+
+/** 递归移除：命中叶子摘除；组删空即剪除；未命中沿原引用返回（不复制未改动分支）。 */
+function removePath(level: TokenSet, segments: readonly string[]): TokenSet {
+  const [head, ...rest] = segments;
+  if (head === undefined || head.length === 0) {
+    throw new Error(`令牌路径非法：空分段（${segments.join('.')}）`);
+  }
+  if (!(head in level)) return level;
+  if (rest.length === 0) {
+    if (!isDesignToken(level[head])) return level; // 组不能当令牌删（组由令牌存在性隐式定义）
+    const next = { ...level };
+    delete next[head];
+    return next;
+  }
+  const child = level[head];
+  if (isDesignToken(child) || typeof child !== 'object' || child === null) return level;
+  const nested = removePath(child as TokenSet, rest);
+  if (nested === child) return level;
+  // 子级删空 → 把组一并剪掉（避免幽灵分组）；否则浅拷挂回
+  if (Object.keys(nested).length === 0) {
+    const next = { ...level };
+    delete next[head];
+    return next;
+  }
+  return { ...level, [head]: nested };
+}

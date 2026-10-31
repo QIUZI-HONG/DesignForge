@@ -9,7 +9,7 @@ import {
   token,
 } from '../model/index';
 import { parseDocument, serializeDocument, stableStringify } from '../serialize/index';
-import { upsertToken, validateTokenName } from './create';
+import { removeToken, upsertToken, validateTokenName } from './create';
 import { flattenTokens, resolveAllTokens, resolveToken } from './index';
 
 /** 既有令牌（与 tokens.test.ts 同一夹具族：组级 $type + 别名）。 */
@@ -84,6 +84,71 @@ describe('tokens · 创建（票 14：upsertToken 不可变写入）', () => {
     const next = upsertToken(tokens, 'color.brand.primary', token('color', '#FFFFFF'));
     expect(flattenTokens(next)['color.brand.primary']?.$value).toBe('#FFFFFF');
     expect(Object.keys(flattenTokens(next))).toHaveLength(3);
+  });
+});
+
+describe('tokens · 删除（票 14 管理入口：removeToken 不可变移除）', () => {
+  it('删除叶子令牌：展平路径消失，其余令牌原样保留', () => {
+    const next = removeToken(tokens, 'color.brand.primary');
+    const flat = flattenTokens(next);
+    expect(flat['color.brand.primary']).toBeUndefined();
+    expect(flat['color.brand.secondary']).toBeDefined();
+    expect(flat['space.small']).toBeDefined();
+  });
+
+  it('不修改输入（不可变约定与写入同一条）', () => {
+    const before = JSON.stringify(tokens);
+    removeToken(tokens, 'color.brand.primary');
+    expect(JSON.stringify(tokens)).toBe(before);
+  });
+
+  it('删空沿途组：组是隐式结构，变空的组一并剪除（不留幽灵分组）', () => {
+    const next = removeToken(tokens, 'space.small');
+    expect(next.space).toBeUndefined();
+    expect(flattenTokens(next)['space.small']).toBeUndefined();
+  });
+
+  it('未删空的组保留：color.brand 删 primary 后仍有 secondary 撑着', () => {
+    const next = removeToken(tokens, 'color.brand.primary');
+    expect(next.color).toBeDefined();
+    expect(flattenTokens(next)['color.brand.secondary']).toBeDefined();
+  });
+
+  it('路径不存在 → 原引用原样返回（no-op 语义，调用方决定跳过 dispatch）', () => {
+    expect(removeToken(tokens, 'color.brand.nope')).toBe(tokens);
+    expect(removeToken(tokens, 'nope.deeper.path')).toBe(tokens);
+  });
+
+  it('组路径不能当令牌删：返回原集合（组由令牌存在性隐式定义）', () => {
+    expect(removeToken(tokens, 'color.brand')).toBe(tokens);
+  });
+
+  it('空路径非法 → 抛错（与写入同判）', () => {
+    expect(() => removeToken(tokens, '   ')).toThrow();
+  });
+
+  it('删除结果随文档序列化往返幂等（与创建同一条验收）', () => {
+    const next = removeToken(tokens, 'color.brand.primary');
+    const doc = createDocument({ id: 'doc-token-remove', tokens: next });
+    const json = serializeDocument(doc);
+    const parsed = parseDocument(json);
+    expect(parsed.document.tokens).toEqual(next);
+    expect(serializeDocument(parsed.document)).toBe(json);
+  });
+
+  it('命令栈：删除一条事务入栈，撤销还原、重做复删（可撤销与添加同等级）', () => {
+    const doc = createDocument({ id: 'doc-token-remove-cmd', tokens });
+    const stack = new CommandStack(doc, { freeze: true });
+    stack.dispatch(
+      { type: 'document.setTokens', tokens: removeToken(tokens, 'color.brand.primary') },
+      { label: '删除令牌' },
+    );
+    expect(flattenTokens(stack.document.tokens)['color.brand.primary']).toBeUndefined();
+
+    expect(stack.undo()).toBe(true);
+    expect(stack.document.tokens).toEqual(tokens);
+    expect(stack.redo()).toBe(true);
+    expect(flattenTokens(stack.document.tokens)['color.brand.primary']).toBeUndefined();
   });
 });
 

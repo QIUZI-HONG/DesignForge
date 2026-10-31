@@ -12,6 +12,8 @@
 import type { Command } from '@dforge/engine';
 import {
   type DesignToken,
+  flattenTokens,
+  removeToken,
   type TokenSet,
   type TokenType,
   upsertToken,
@@ -33,5 +35,33 @@ export function addTokenCommands(tokens: TokenSet, input: AddTokenInput): Comman
   const name = input.name.trim();
   if (validateTokenName(tokens, name) !== null) return [];
   const designToken: DesignToken = { $type: input.$type, $value: input.value.trim() };
+  return [{ type: 'document.setTokens', tokens: upsertToken(tokens, name, designToken) }];
+}
+
+/**
+ * 构造「删除单个令牌」的命令列表（票 14 管理入口）：路径不存在 → 空列表（会话层跳过
+ * dispatch），存在 → 单条 `document.setTokens`（一次事务，逆命令由施加器按当前文档
+ * 计算——与添加同等级可撤销）。
+ */
+export function deleteTokenCommands(tokens: TokenSet, path: string): Command[] {
+  const name = path.trim();
+  if (name.length === 0) return [];
+  if (flattenTokens(tokens)[name] === undefined) return [];
+  return [{ type: 'document.setTokens', tokens: removeToken(tokens, name) }];
+}
+
+/**
+ * 构造「修改单个令牌值」的命令列表（票 14 管理入口）：只改 `$value`，`$type` 沿用既有
+ * 令牌（改类型不在本票）；路径不存在或新值为空 → 空列表（不写文档）。改名不做（票面
+ * 未点名）——名字不变则无需再过 `validateTokenName` 分因。
+ */
+export function updateTokenValueCommands(tokens: TokenSet, path: string, value: string): Command[] {
+  const name = path.trim();
+  const nextValue = value.trim();
+  if (name.length === 0 || nextValue.length === 0) return [];
+  const existing = flattenTokens(tokens)[name];
+  if (existing === undefined) return [];
+  // 展开既有令牌再覆 $value：$type（DTCG 允许组级继承，可为缺省）原样保留
+  const designToken: DesignToken = { ...existing, $value: nextValue };
   return [{ type: 'document.setTokens', tokens: upsertToken(tokens, name, designToken) }];
 }

@@ -12,6 +12,7 @@
  */
 import {
   findPage,
+  flattenTokens,
   groupTokenPaths,
   listComponents,
   resolveAllTokens,
@@ -22,18 +23,26 @@ import {
 } from '@dforge/engine';
 import {
   Button,
+  CheckIcon,
+  CloseIcon,
   ComponentIcon,
   EmptyState,
   ErrorState,
   Input,
+  PencilIcon,
   PlusIcon,
   SegmentedControl,
   Skeleton,
+  TrashIcon,
 } from '@dforge/ui';
 import { type ChangeEvent, type FormEvent, useMemo, useState } from 'react';
 
 import { t } from '@/i18n';
-import { addTokenCommands } from '../commands/token-commands';
+import {
+  addTokenCommands,
+  deleteTokenCommands,
+  updateTokenValueCommands,
+} from '../commands/token-commands';
 import { usePanelsDocument, usePanelsUi } from '../state/hooks';
 import { usePanelsSession } from './panels-context';
 
@@ -98,6 +107,11 @@ export function AssetsPanel({
   const [addType, setAddType] = useState<TokenType>('color');
   const [addProblem, setAddProblem] = useState<TokenNameProblemCode | null>(null);
 
+  // 令牌行内管理（票 14 管理半缺）：改值单行编辑态 + 删除（都走命令栈单事务，可撤销）
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [editEmpty, setEditEmpty] = useState(false);
+
   const openAddForm = (): void => {
     setAddName('');
     setAddValue('');
@@ -147,6 +161,42 @@ export function AssetsPanel({
       case 'duplicate':
         return t('panels.assets.tokenAdd.error.duplicate');
     }
+  };
+
+  /** 进入单行改值态：预填文档里的**原始** `$value`（别名串原样可改，求值交给解析层）。 */
+  const startEditValue = (path: string): void => {
+    const raw = flattenTokens(doc.tokens)[path];
+    setEditingPath(path);
+    // $value 是 TokenValue 联合（别名串/数字/布尔…），编辑框统一按字符串呈现
+    setEditValue(raw === undefined ? '' : String(raw.$value));
+    setEditEmpty(false);
+  };
+
+  const cancelEditValue = (): void => {
+    setEditingPath(null);
+    setEditValue('');
+    setEditEmpty(false);
+  };
+
+  /** 提交改值：只改 `$value`（`$type` 沿用既有）；空值不写文档，行内提示。 */
+  const onEditSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (editingPath === null) return;
+    if (editValue.trim().length === 0) {
+      setEditEmpty(true);
+      return;
+    }
+    session.run(
+      updateTokenValueCommands(doc.tokens, editingPath, editValue),
+      t('panels.history.tokenUpdate'),
+    );
+    cancelEditValue();
+  };
+
+  /** 删除令牌：命令栈单事务（撤销即恢复）；若正编辑该行则先退出编辑态。 */
+  const onDeleteToken = (path: string): void => {
+    session.run(deleteTokenCommands(doc.tokens, path), t('panels.history.tokenDelete'));
+    if (editingPath === path) cancelEditValue();
   };
 
   const normalized = query.trim().toLowerCase();
@@ -369,6 +419,7 @@ export function AssetsPanel({
                 const token = tokenSet.resolved[path];
                 const value = token === undefined ? '' : String(token.value);
                 const isColor = token !== undefined && token.type === 'color';
+                const editing = editingPath === path;
                 return (
                   <div key={path} data-df-asset-token={path} className="dfg-panels__token-row">
                     <span
@@ -379,8 +430,70 @@ export function AssetsPanel({
                       // 颜色令牌的色块取文档里的解析值（文档数据，动态值豁免——工单 06 登记表）
                       style={isColor ? { background: value } : undefined}
                     />
-                    <span className="dfg-panels__token-name">{path}</span>
-                    <span className="dfg-panels__token-value">{value}</span>
+                    {editing ? (
+                      <form
+                        className="dfg-panels__token-edit"
+                        data-df-asset-token-edit-form={path}
+                        onSubmit={onEditSubmit}
+                      >
+                        <Input
+                          size="sm"
+                          aria-label={t('panels.assets.tokenEdit.value')}
+                          placeholder={t('panels.assets.tokenAdd.valuePlaceholder')}
+                          value={editValue}
+                          invalid={editEmpty}
+                          onChange={(event) => {
+                            setEditValue(event.currentTarget.value);
+                            if (editEmpty) setEditEmpty(false);
+                          }}
+                        />
+                        <button
+                          type="submit"
+                          className="dfg-panels__token-icon-btn"
+                          aria-label={t('panels.assets.tokenEdit.submit')}
+                          data-df-asset-token-edit-submit=""
+                        >
+                          <CheckIcon size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="dfg-panels__token-icon-btn"
+                          aria-label={t('panels.assets.tokenAdd.cancel')}
+                          onClick={cancelEditValue}
+                        >
+                          <CloseIcon size={14} />
+                        </button>
+                      </form>
+                    ) : (
+                      <>
+                        <span className="dfg-panels__token-name">{path}</span>
+                        <span className="dfg-panels__token-value">{value}</span>
+                        <span className="dfg-panels__token-actions">
+                          <button
+                            type="button"
+                            className="dfg-panels__token-icon-btn"
+                            aria-label={t('panels.assets.tokenRow.edit')}
+                            data-df-asset-token-edit={path}
+                            onClick={() => {
+                              startEditValue(path);
+                            }}
+                          >
+                            <PencilIcon size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="dfg-panels__token-icon-btn"
+                            aria-label={t('panels.assets.tokenRow.delete')}
+                            data-df-asset-token-delete={path}
+                            onClick={() => {
+                              onDeleteToken(path);
+                            }}
+                          >
+                            <TrashIcon size={14} />
+                          </button>
+                        </span>
+                      </>
+                    )}
                   </div>
                 );
               })}

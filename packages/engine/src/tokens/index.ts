@@ -3,7 +3,7 @@
  */
 
 export type { TokenNameProblemCode } from './create';
-export { TOKEN_NAME_MAX_LENGTH, upsertToken, validateTokenName } from './create';
+export { removeToken, TOKEN_NAME_MAX_LENGTH, upsertToken, validateTokenName } from './create';
 export type { ResolvedToken, TokenProblem } from './tokens';
 export {
   expandTokens,
