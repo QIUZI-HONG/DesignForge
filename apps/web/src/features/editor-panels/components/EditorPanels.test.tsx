@@ -78,7 +78,7 @@ describe('编辑器左栏 · 扩展页签（槽位注册，票 16）', () => {
     expect(screen.getByRole('radio', { name: '资产' })).toBeTruthy();
     expect(screen.getByRole('radio', { name: '市场' })).toBeTruthy();
     // 内置页签之后是扩展页签（图层、资产、市场的 DOM 顺序）
-    const radios = screen.getAllByRole('radio');
+    const radios = screen.getAllByRole('radio') as HTMLInputElement[];
     expect(radios.map((node) => node.value)).toEqual(['layers', 'assets', 'p2-market']);
     // 默认图层页签：市场面板体不渲染（render 未被调用）
     expect(renderPanel).not.toHaveBeenCalled();

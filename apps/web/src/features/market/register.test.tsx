@@ -15,7 +15,7 @@ import { registerEditorSlotItem, resetEditorSlots } from '@/features/editor-shel
 
 import { makeQueryResponse } from './__fixtures__/market';
 import { FEEDBACK_KEY, readFeedback } from './feedback';
-import { MarketPanelSlot, MARKET_TAB_ID, marketTabLabel } from './register';
+import { MARKET_TAB_ID, MarketPanelSlot, marketTabLabel } from './register';
 
 // 路由能力：只断言跳转落点，不做真实导航。
 const push = vi.fn();
@@ -92,7 +92,11 @@ describe('MarketPanelSlot · 编辑器内市场面板（数据接线）', () => 
 
   it('索引缺失 → 采集指引空态（与市场首页/看板同源，含命令提示）', async () => {
     respondWith(
-      makeQueryResponse({ items: [], total: 0, warnings: [{ code: 'index-missing' }] }),
+      makeQueryResponse({
+        items: [],
+        total: 0,
+        warnings: [{ code: 'index-missing', message: '索引不存在' }],
+      }),
     );
     render(<MarketPanelSlot />);
     await waitFor(() => {

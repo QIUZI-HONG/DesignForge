@@ -113,9 +113,7 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
       ]);
       expect(listEditorSlotItems('left-panel').map((item) => item.id)).toEqual(['fe-04-panels']);
       // 票 16：左栏页签族扩展——「市场」入口随声明表挂载（页签体只在选中时渲染）
-      expect(listEditorSlotItems('left-panel-tabs').map((item) => item.id)).toEqual([
-        'p2-market',
-      ]);
+      expect(listEditorSlotItems('left-panel-tabs').map((item) => item.id)).toEqual(['p2-market']);
       expect(listEditorSlotItems('left-panel-tabs')[0]?.label?.()).toBe('市场');
       expect(listEditorSlotItems('right-panel').map((item) => item.id)).toEqual([
         'fe-06-right',

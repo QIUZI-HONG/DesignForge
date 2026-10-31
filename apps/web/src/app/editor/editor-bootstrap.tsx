@@ -42,13 +42,13 @@ import {
   ReviewVersionsDrawerSlot,
   registerEditorReview,
 } from '@/features/editor-review/register';
-import { MARKET_TAB_ID, MarketPanelSlot, marketTabLabel } from '@/features/market/register';
 import {
   type EditorBootstrapEntry,
   type EditorSlotDeclaration,
   mountEditorSlotDeclarations,
   runEditorBootstrapEntries,
 } from '@/features/editor-shell';
+import { MARKET_TAB_ID, MarketPanelSlot, marketTabLabel } from '@/features/market/register';
 
 /**
  * 插槽挂载声明（**全部插槽在这一张表里**）。
