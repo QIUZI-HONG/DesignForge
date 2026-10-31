@@ -8,8 +8,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { FakeClock } from './__fixtures__/fake-clock.ts';
-import type { HttpDeps, HttpResponseLike } from './http.ts';
-import { requestText, sha256Hex } from './http.ts';
+import type { FetchLike, HttpDeps, HttpResponseLike } from './http.ts';
+import { RequestTimeoutError, requestText, sha256Hex, withRequestTimeout } from './http.ts';
 import {
   BudgetLedger,
   ConsecutiveRateLimitAbort,
@@ -212,6 +212,98 @@ describe('requestText 请求纪律', () => {
       useEtag: false,
     });
     expect(calls[0]?.init.headers['if-none-match']).toBeUndefined();
+  });
+});
+
+describe('withRequestTimeout（单请求超时，票 12 / 证据报告 §D3）', () => {
+  const PROBE_URL = 'https://api.github.com/x';
+  /** 永不 settle 的假 fetch：既有测试注入的假 fetch 必然 settle，抓不到「挂起冻结整条流水线」（D3）。 */
+  const neverSettle: FetchLike = () => new Promise(() => {});
+
+  /** 真实时间轮询等待条件成立（超时即失败）——用于「永不 settle 假 fetch + 真实短超时」的确定性等待。 */
+  async function waitFor(cond: () => boolean, what: string): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (!cond()) {
+      if (Date.now() > deadline) throw new Error(`waitFor 超时：${what}`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
+  it('永不 settle 的 fetch → 按超时拒绝（不无限挂起）', async () => {
+    const wrapped = withRequestTimeout(neverSettle, 20);
+    await expect(wrapped(PROBE_URL, { method: 'GET', headers: {} })).rejects.toBeInstanceOf(
+      RequestTimeoutError,
+    );
+  });
+
+  it('超时错误消息点名 URL 与超时值（留痕可读）', async () => {
+    const wrapped = withRequestTimeout(neverSettle, 20);
+    await expect(wrapped(PROBE_URL, { method: 'GET', headers: {} })).rejects.toThrow(
+      /请求超时（20ms 无响应）：https:\/\/api\.github\.com\/x/,
+    );
+  });
+
+  it('正常响应透传：status/headers 原样，正文原样可读', async () => {
+    const fast: FetchLike = async () => ({
+      status: 200,
+      headers: { get: (name) => (name === 'etag' ? 'W/"t"' : null) },
+      text: async () => '{"ok":true}',
+    });
+    const wrapped = withRequestTimeout(fast, 1_000);
+    const res = await wrapped(PROBE_URL, { method: 'GET', headers: {} });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('etag')).toBe('W/"t"');
+    await expect(res.text()).resolves.toBe('{"ok":true}');
+  });
+
+  it('init 注入 AbortSignal（真网 fetch 据此中止 socket：超时后连接真正释放，不留 300s 隐式尾巴）', async () => {
+    let seen: unknown = null;
+    const probe: FetchLike = async (_url, init) => {
+      seen = init.signal;
+      return { status: 200, headers: { get: () => null }, text: async () => '' };
+    };
+    await withRequestTimeout(probe, 1_000)(PROBE_URL, { method: 'GET', headers: {} });
+    expect(seen).toBeInstanceOf(AbortSignal);
+  });
+
+  it('慢滴流正文：headers 即回但 text() 永不 settle → 同样按超时收敛', async () => {
+    const drip: FetchLike = async () => ({
+      status: 200,
+      headers: { get: () => null },
+      text: () => new Promise(() => {}),
+    });
+    const wrapped = withRequestTimeout(drip, 20);
+    await expect(wrapped(PROBE_URL, { method: 'GET', headers: {} })).rejects.toBeInstanceOf(
+      RequestTimeoutError,
+    );
+  });
+
+  it('timeoutMs 非正 → 包裹时即抛（防呆：不得静默产生「恒超时」出口）', () => {
+    expect(() => withRequestTimeout(neverSettle, 0)).toThrow(/timeoutMs/);
+  });
+
+  it('组合 requestText：超时按既有网络错误语义重试、ledger 记账、事件留痕', async () => {
+    const clock = new FakeClock();
+    const events: RawEvent[] = [];
+    const deps = {
+      ...makeDeps(withRequestTimeout(neverSettle, 20), clock, events),
+      maxAttempts: 2,
+    } satisfies HttpDeps;
+
+    const pending = requestText(deps, { url: PROBE_URL, kind: 'core' });
+    // 第 1 次尝试：真实 20ms 超时 → 记账 + 留痕（status 0）
+    await waitFor(() => events.length === 1, '第 1 次尝试的超时留痕');
+    expect(events[0]?.response.status).toBe(0);
+    expect(deps.ledger.total('core')).toBe(1);
+    // 退避等待（虚拟时钟；rand=0.5 → 恰 1s）→ 第 2 次尝试再超时 → 尝试耗尽如实返回
+    await clock.advance(2_000);
+    const outcome = await pending;
+    expect(outcome.ok).toBe(false);
+    expect(outcome.status).toBe(0);
+    expect(outcome.attempts).toBe(2);
+    expect(outcome.errorMessage).toContain('请求超时');
+    expect(events.map((e) => e.request.attempt)).toEqual([1, 2]);
+    expect(deps.ledger.total('core')).toBe(2);
   });
 });
 
