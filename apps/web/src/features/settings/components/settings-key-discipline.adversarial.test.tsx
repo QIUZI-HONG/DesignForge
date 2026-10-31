@@ -22,7 +22,9 @@ const TYPED_KEY = 'sk-adversarial-INPUT-9876543210';
 /** 打开 AI 分区（设置页默认落在工作目录分区）。 */
 async function openAiSection(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByRole('heading', { name: '设置' });
-  await user.click(screen.getByRole('button', { name: 'DeepSeek' }));
+  // 分区导航在首帧后异步挂载：整仓并行跑时同步 getByRole 会早于挂载失败（合并实测），
+  // 与 settings-page.test.tsx 同口径改为 findByRole 等待（断言不变，只等挂载）。
+  await user.click(await screen.findByRole('button', { name: 'DeepSeek' }));
 }
 
 describe('对抗 · 明文 key 的可见面', () => {

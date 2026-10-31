@@ -4,8 +4,8 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done（已并入 ux-audit-remediation 9b69956，浏览器项待复核）
 
-- [ ] 组件测试：恢复版本 Toast 含「撤销」按钮，点击触发与顶栏撤销同 id 的命令
-- [ ] 组件测试：其他 Toast（复制代码等）不受影响；自动消失时机不变
+- [x] 组件测试：恢复版本 Toast 含「撤销」按钮，点击触发与顶栏撤销同 id 的命令
+- [x] 组件测试：其他 Toast（复制代码等）不受影响；自动消失时机不变
 - [ ] 浏览器实测：恢复 → 撤销 → 文档回到恢复前内容（与「回滚前自动保存」路径兼容）

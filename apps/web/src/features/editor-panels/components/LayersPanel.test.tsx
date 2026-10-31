@@ -486,7 +486,11 @@ describe('图层面板 · 行级状态（Tree 六态消费）', () => {
 });
 
 describe('图层面板 · 千级图层与渲染窗口化（零依赖）', () => {
-  it('1000 图层：全量行挂载（结构完整），渲染窗口交给浏览器 content-visibility', () => {
+  // 千级行全量挂载是重管线用例：全仓并行跑时 worker 负载会把 5s 默认超时顶穿（合并实测 11s），
+  // 按「只放宽超时上限、不放宽断言」口径放宽本用例超时。
+  it('1000 图层：全量行挂载（结构完整），渲染窗口交给浏览器 content-visibility', {
+    timeout: 30_000,
+  }, () => {
     const session = createFixtureSession(manyLayersDocument(1000));
     render(
       <PanelsProvider session={session}>

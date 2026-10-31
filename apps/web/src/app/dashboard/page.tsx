@@ -4,7 +4,8 @@
  * 数据看板路由（D6；`/dashboard`，浅色首页族）。
  *
  * 取数：daemon `/market/query`（`limit` 取到 200——看板要尽量全的样本；索引缺失 → 空态说明
- * 「先跑采集线」，不伪造进度）。空态/加载/错误三态与市场页同一套组件。
+ * 「先跑采集线」并**直接给采集命令**（巡检缺口④，与市场首页空态同源），不伪造进度）。
+ * 空态/加载/错误三态与市场页同一套组件。
  */
 
 import { Button, EmptyState } from '@dforge/ui';
@@ -13,6 +14,7 @@ import { useMemo } from 'react';
 import { DashboardView } from '@/features/dashboard';
 import {
   classifyMarketOutcome,
+  MarketCollectHint,
   MarketErrorState,
   MarketWarningBanner,
   useMarketQuery,
@@ -69,9 +71,11 @@ export default function DashboardPage() {
 
       {status === 'ready' && outcome === 'index-missing' ? (
         <div data-df-state="empty" data-df-empty="index-missing">
+          {/* 空态内直接给采集命令（巡检缺口④）：与市场首页空态同源（MarketCollectHint 单一真源） */}
           <EmptyState
             title={t('dashboard.empty')}
             description={t('market.empty.indexMissing.desc')}
+            action={<MarketCollectHint />}
           />
         </div>
       ) : null}
@@ -80,6 +84,7 @@ export default function DashboardPage() {
           <EmptyState
             title={t('dashboard.empty')}
             description={t('market.empty.indexInvalid.desc')}
+            action={<MarketCollectHint />}
           />
         </div>
       ) : null}

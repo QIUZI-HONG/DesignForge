@@ -27,6 +27,7 @@ export * as marketFixtures from './__fixtures__/market';
 export { classifyMarketOutcome, isSearchDegraded, type MarketOutcome } from './api';
 export { type BadgeTone, badgeClassName, meterFillClassName } from './badge-classes';
 export * from './components';
+export { type MarketEmptyKindInput, resolveMarketEmptyKind } from './empty-kind';
 export * from './feedback';
 export * from './filters';
 export * from './load-store';
