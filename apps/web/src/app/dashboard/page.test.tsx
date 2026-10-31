@@ -8,7 +8,7 @@
  * && df market index`）+ 同一描述文案（`market.empty.indexMissing.desc`）。
  */
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { marketFixtures } from '@/features/market';

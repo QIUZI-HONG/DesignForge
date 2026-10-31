@@ -12,10 +12,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-
-import { resolveMarketEmptyKind } from './empty-kind';
 import type { MarketOutcome } from './api';
 import type { MarketEmptyKind } from './components/MarketStates';
+import { resolveMarketEmptyKind } from './empty-kind';
 
 describe('resolveMarketEmptyKind · 判定顺序（巡检缺口①②）', () => {
   const cases: {
