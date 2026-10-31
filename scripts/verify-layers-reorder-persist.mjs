@@ -33,7 +33,14 @@
  * 尚未带旗标，票 10 收口前本脚本自起，不动共享件）。
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,7 +55,9 @@ const EVIDENCE_DIR = resolve(
 
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
-let webUrl = args.includes('--web-url') ? args[args.indexOf('--web-url') + 1] : process.env.DF_WEB_URL ?? null;
+let webUrl = args.includes('--web-url')
+  ? args[args.indexOf('--web-url') + 1]
+  : (process.env.DF_WEB_URL ?? null);
 
 const startedAt = new Date();
 const stamp = startedAt.toISOString().replaceAll(':', '-').replace(/\..+$/, '');
@@ -77,7 +86,9 @@ const evidence = {
 function record(id, ok, detail) {
   evidence.assertions.push({ id, ok, detail });
   const mark = ok === true ? 'ok' : 'FAIL';
-  console.log(`  [${mark}] ${id} —— ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
+  console.log(
+    `  [${mark}] ${id} —— ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`,
+  );
 }
 
 function note(message) {
@@ -133,11 +144,57 @@ async function finish(code, message) {
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
   console.log(`证据：${evidencePath}`);
   if (message) console.error(message);
+  // 两段回收：SIGTERM 优雅收尾，SIGKILL 兜底（next start 的宽限窗口实测可越过直接退出）
   signalChildren('SIGTERM');
   await sleep(800);
   signalChildren('SIGKILL');
   if (daemon !== null) await daemon.close().catch(() => undefined);
+  // 第三段（Next 16 实测，同 verify-command-palette）：`next start` 会把 next-server fork
+  // 进另一个进程组，组杀够不到——按端口找监听者的精确 PID 再 SIGKILL。
+  // 端口是本脚本自选的空闲端口（4460+），谁在上面监听谁就是本脚本起的（不波及其它端口）。
+  if (webUrl !== null) {
+    const port = Number(new URL(webUrl).port);
+    if (Number.isFinite(port) && (await portBusy(port))) {
+      const killed = killPortListener(port);
+      console.log(
+        killed
+          ? `回收残留监听进程（端口 ${port}）`
+          : `警告：端口 ${port} 仍有监听者，未能按 PID 回收`,
+      );
+    }
+  }
   process.exit(code);
+}
+
+/**
+ * 按「监听端口 → socket inode → 持有 fd 的进程」找监听者并 SIGKILL（精确 PID）。
+ * 只应作用于本脚本自选的空闲端口；其它端口一律不碰。
+ */
+function killPortListener(port) {
+  const hex = port.toString(16).toUpperCase().padStart(4, '0');
+  for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    if (!existsSync(table)) continue;
+    for (const line of readFileSync(table, 'utf8').split('\n').slice(1)) {
+      const columns = line.trim().split(/\s+/);
+      const local = columns[1] ?? '';
+      if (!local.endsWith(`:${hex}`) || columns[3] !== '0A') continue; // 0A = LISTEN
+      const inode = columns[9];
+      for (const entry of readdirSync('/proc')) {
+        if (!/^\d+$/.test(entry)) continue;
+        try {
+          for (const fd of readdirSync(`/proc/${entry}/fd`)) {
+            if (readlinkSync(`/proc/${entry}/fd/${fd}`) === `socket:[${inode}]`) {
+              process.kill(Number(entry), 'SIGKILL');
+              return true;
+            }
+          }
+        } catch {
+          // 进程已退出 / fd 已关闭：继续
+        }
+      }
+    }
+  }
+  return false;
 }
 
 const sleep = (ms) => new Promise((settle) => setTimeout(settle, ms));
@@ -285,7 +342,9 @@ try {
         cwd: REPO_ROOT,
         encoding: 'utf8',
       });
-      note(`CanvasKit 资产：${prepared.status === 0 ? '就位' : '准备失败（编辑器可能阻塞在 Skia）'}`);
+      note(
+        `CanvasKit 资产：${prepared.status === 0 ? '就位' : '准备失败（编辑器可能阻塞在 Skia）'}`,
+      );
     }
     const nextBin = join(WEB_APP_DIR, 'node_modules', '.bin', 'next');
     if (!existsSync(nextBin)) {
@@ -312,10 +371,7 @@ try {
 
   const chrome = resolveChromeExecutable();
   if (chrome === undefined) {
-    await finish(
-      2,
-      '阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）。',
-    );
+    await finish(2, '阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）。');
   }
   const { chromium } = await import('playwright-core');
   const browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox'] });
@@ -338,10 +394,7 @@ try {
     { x: 200, y: 60, width: 80, height: 60 },
     { x: 360, y: 80, width: 80, height: 60 },
   ].entries()) {
-    const id = await page.evaluate(
-      (box) => globalThis.__dforgeCanvas.createRect(box),
-      bounds,
-    );
+    const id = await page.evaluate((box) => globalThis.__dforgeCanvas.createRect(box), bounds);
     if (typeof id !== 'string' || id === '') {
       await finish(2, `阻塞：createRect 第 ${String(index + 1)} 个未返回 id。`);
     }
@@ -456,7 +509,10 @@ try {
   await context.close();
   await browser.close();
   const failed = evidence.assertions.filter((entry) => entry.ok !== true);
-  await finish(failed.length === 0 ? 0 : 1, failed.length === 0 ? undefined : '有断言未过（见证据）。');
+  await finish(
+    failed.length === 0 ? 0 : 1,
+    failed.length === 0 ? undefined : '有断言未过（见证据）。',
+  );
 } catch (error) {
   await finish(2, `阻塞：${String(error)}`);
 }
