@@ -9,9 +9,11 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { ads, score, transform } from '@dforge/ingest';
 import { buildDwsRecord } from './ads-join.ts';
 import { joinTables } from './dwd-map.ts';
+import { buildIndexHandoffLines } from './handoff.ts';
 import type { MarketCommandOutcome } from './outcome.ts';
 import { resolveDataPaths } from './paths.ts';
 import { indexRunId, readDwdAsOf } from './score-cmd.ts';
@@ -266,6 +268,14 @@ export async function runIndexCommand(
       `index：${written.index.path}（${artifacts.index.counts.total} 卡片，loadable ${artifacts.index.counts.loadable}，sha256 ${written.index.sha256.slice(0, 16)}…）`,
     );
     log(`检索索引：${written.searchIndex.path}`);
+    // 落点交接（票 #15 · 方案 2）：缺省产物在 <CWD>/data/ads/，daemon 只探数据根——
+    // 不把接线动作写进输出，用户就会困在「跑完三连 → 市场页仍空态」的死循环里。
+    for (const line of buildIndexHandoffLines({
+      dataRoot: resolve(paths.root),
+      indexPath: resolve(written.index.path),
+    })) {
+      log(line);
+    }
   }
   log(`证据：${evidenceArtifact.path}`);
   return {
