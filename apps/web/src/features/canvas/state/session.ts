@@ -14,6 +14,7 @@
 import type {
   Command,
   DesignDocument,
+  GuideAxis,
   IdFactory,
   InteractionContext,
   InteractionState,
@@ -46,6 +47,7 @@ import {
   copyNodes,
   createEllipse,
   createFrame,
+  createGuide,
   createRect,
   createSelection,
   createText,
@@ -56,7 +58,9 @@ import {
   distributeCommands,
   duplicateCommands,
   fitBounds,
+  GUIDE_ID_PREFIX,
   groupNodesCommands,
+  guidesOf,
   ID_PREFIX,
   IDLE,
   type InsertNodeCommand,
@@ -85,6 +89,7 @@ import {
 } from '@dforge/engine';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
+import { guideHitAt, guideWorldPosition, isOverRulerStrip, rulerDragAxisAt } from '../input/guides';
 import { clickTargetAt, type HandleHit, handleHitAt, marqueeHitIds } from '../input/hit';
 import { EMPTY_PREVIEW, type PreviewPatches, previewPatchesOf, snapPreviewOf } from './preview';
 
@@ -93,6 +98,19 @@ export type CanvasTool = 'select' | 'hand' | 'rect' | 'ellipse' | 'text' | 'fram
 
 /** 创建类工具集合（拖画/点击创建）。 */
 export const CREATION_TOOLS: readonly CanvasTool[] = ['rect', 'ellipse', 'text', 'frame'];
+
+/**
+ * 参考线拖拽会话（票 12）：从标尺拉出新线（`originId: null`）或移动既有线。
+ * `overRuler` = 指针回到标尺条（松手 = 删除既有线 / 取消拉新）。
+ */
+export interface GuideDragState {
+  axis: GuideAxis;
+  /** 当前位置（世界坐标，沿 axis 轴）。 */
+  position: number;
+  /** 被移动的既有参考线 id；拉新线为 null。 */
+  originId: string | null;
+  overRuler: boolean;
+}
 
 /** 指针按键（DOM 层 button 归一化后的口径）。 */
 export type PointerButton = 'left' | 'middle' | 'right';
@@ -117,6 +135,10 @@ export interface CanvasUiState {
   viewportSize: { width: number; height: number };
   /** 标尺显隐（C8）。 */
   rulers: boolean;
+  /** 参考线拖拽会话（票 12；非拖拽态为 null）。 */
+  guideDrag: GuideDragState | null;
+  /** 悬停高亮的既有参考线 id（票 12；删除/移动可供性）。 */
+  guideHover: string | null;
   /** 吸附开关（C8 吸附可关；默认开）。 */
   snapEnabled: boolean;
   /** 文本内联编辑会话（C10；DOM 覆盖层消费）。 */
@@ -208,6 +230,10 @@ export interface SessionFrameInput {
   draft: Rect | null;
   rulers: boolean;
   editing: TextEditSession | null;
+  /** 参考线拖拽预览（票 12；非拖拽态为 null）。 */
+  guideDrag: GuideDragState | null;
+  /** 悬停高亮的参考线 id（票 12）。 */
+  guideHover: string | null;
 }
 
 /** 画布会话。 */
@@ -244,6 +270,11 @@ export interface CanvasSession {
   setRulers(visible: boolean): void;
   /** 吸附开关（C8）。 */
   setSnapEnabled(enabled: boolean): void;
+
+  /** 命中既有参考线（右键菜单读点；无 → null）。 */
+  guideIdAt(screen: Point): string | null;
+  /** 删除参考线（右键菜单；走命令栈，可撤销）。 */
+  deleteGuide(id: string): void;
 
   copy(): void;
   paste(): Promise<void>;
@@ -325,6 +356,8 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
     draft: null,
     viewportSize: { width: 0, height: 0 },
     rulers: options.rulers ?? true,
+    guideDrag: null,
+    guideHover: null,
     snapEnabled: options.snapEnabled ?? true,
     editing: null,
     hud: null,
@@ -529,6 +562,41 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
     }
   };
 
+  /** 参考线拖拽的 HUD 文案（轴向 + 世界位置；与移动 HUD 同族，纯数字不需 i18n）。 */
+  const guideHud = (axis: GuideAxis, position: number): string =>
+    `${axis === 'x' ? 'X' : 'Y'} ${round2(position)}`;
+
+  /**
+   * 参考线拖拽结算（票 12）：拉新 / 移动 / 拖回标尺删除，统一走 `page.update`
+   * （命令栈唯一写入口，撤销/重做免费）。拉新未离开过标尺 = 无操作。
+   */
+  const commitGuideDrag = (drag: GuideDragState): void => {
+    const current = page();
+    const guides = [...guidesOf(current)];
+    if (drag.overRuler) {
+      if (drag.originId === null) return;
+      const next = guides.filter((guide) => guide.id !== drag.originId);
+      if (next.length === guides.length) return;
+      dispatchGuarded(
+        [{ type: 'page.update', pageId: current.id, patch: { guides: next } }],
+        '参考线',
+      );
+      return;
+    }
+    if (drag.originId !== null) {
+      const index = guides.findIndex((guide) => guide.id === drag.originId);
+      const existing = guides[index];
+      if (existing === undefined) return;
+      if (existing.axis === drag.axis && existing.position === drag.position) return;
+      guides[index] = { id: drag.originId, axis: drag.axis, position: drag.position };
+    } else {
+      guides.push(
+        createGuide({ id: ids.next(GUIDE_ID_PREFIX), axis: drag.axis, position: drag.position }),
+      );
+    }
+    dispatchGuarded([{ type: 'page.update', pageId: current.id, patch: { guides } }], '参考线');
+  };
+
   const session: CanvasSession = {
     stack,
     store,
@@ -595,6 +663,38 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       }
       if (input.button === 'right') return; // 右键菜单归 DOM 层（C11）
 
+      // 标尺参考线（票 12）：条内拉新线、条外抓既有线。手柄/旋转区**优先**——
+      // 画布表面含标尺条覆盖区，贴近原点的选中框手柄不能被标尺拖拽吞掉（既有交互不回退）。
+      if (state.rulers && hitContext(input.world, input.deep === true).handle === null) {
+        const rulerAxis = rulerDragAxisAt(input.screen);
+        if (rulerAxis !== null) {
+          store.setState({
+            guideDrag: {
+              axis: rulerAxis,
+              position: guideWorldPosition(rulerAxis, input.screen, state.viewport),
+              originId: null,
+              overRuler: true,
+            },
+            draft: null,
+            snap: null,
+          });
+          return;
+        }
+        const guide = guideHitAt(input.screen, page(), state.viewport);
+        if (guide !== null) {
+          store.setState({
+            guideDrag: {
+              axis: guide.axis,
+              position: guide.position,
+              originId: guide.id,
+              overRuler: false,
+            },
+            snap: null,
+          });
+          return;
+        }
+      }
+
       // 创建工具：按下开始拖画（矩形/椭圆/画板）
       if (state.tool === 'rect' || state.tool === 'ellipse' || state.tool === 'frame') {
         store.setState({
@@ -647,6 +747,17 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
       const state = store.getState();
       if (state.editing !== null) return;
 
+      // 参考线拖拽（票 12）：实时更新位置预览；回到标尺条 = 待删除（HUD 收起）
+      if (state.guideDrag !== null) {
+        const overRuler = isOverRulerStrip(input.screen);
+        const position = guideWorldPosition(state.guideDrag.axis, input.screen, state.viewport);
+        store.setState({
+          guideDrag: { ...state.guideDrag, position, overRuler },
+          hud: overRuler ? null : guideHud(state.guideDrag.axis, position),
+        });
+        return;
+      }
+
       if (state.draft !== null) {
         store.setState({
           draft: {
@@ -692,8 +803,17 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
             : handle.mode === 'rotate'
               ? 'grab'
               : 'pointer';
-        if (hoverId !== state.hoverId || hoverCursor !== state.hoverCursor) {
-          store.setState({ hoverId, hoverCursor });
+        // 参考线悬停高亮（票 12：删除/移动的可供性）；标尺隐藏时参考线不响应抓取
+        const guideHover =
+          state.rulers && hoverId === null
+            ? (guideHitAt(input.screen, page(), state.viewport)?.id ?? null)
+            : null;
+        if (
+          hoverId !== state.hoverId ||
+          hoverCursor !== state.hoverCursor ||
+          guideHover !== state.guideHover
+        ) {
+          store.setState({ hoverId, hoverCursor, guideHover });
         }
         return;
       }
@@ -714,6 +834,13 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
     pointerUp(input) {
       const state = store.getState();
       if (state.editing !== null) return;
+
+      // 参考线拖拽结算（票 12）：拉新/移动/拖回标尺删除
+      if (state.guideDrag !== null) {
+        commitGuideDrag(state.guideDrag);
+        store.setState({ guideDrag: null, guideHover: null, hud: null });
+        return;
+      }
 
       if (state.draft !== null) {
         commitDraft(state.draft);
@@ -776,6 +903,7 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
         interaction: cancelInteraction(state.interaction),
         snap: null,
         draft: null,
+        guideDrag: null,
         hud: null,
       });
     },
@@ -803,6 +931,20 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
     },
     setSnapEnabled(enabled) {
       store.setState({ snapEnabled: enabled });
+    },
+
+    guideIdAt(screen) {
+      return guideHitAt(screen, page(), store.getState().viewport)?.id ?? null;
+    },
+    deleteGuide(id) {
+      const current = page();
+      const guides = guidesOf(current);
+      if (!guides.some((guide) => guide.id === id)) return;
+      const next = guides.filter((guide) => guide.id !== id);
+      dispatchGuarded(
+        [{ type: 'page.update', pageId: current.id, patch: { guides: next } }],
+        '参考线',
+      );
     },
 
     copy() {
@@ -1100,6 +1242,8 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
         draft: state.draft,
         rulers: state.rulers,
         editing: state.editing,
+        guideDrag: state.guideDrag,
+        guideHover: state.guideHover,
       };
     },
   };
