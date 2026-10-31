@@ -160,6 +160,16 @@ describe('commands · 撤销/重做往返恒等', () => {
     roundTrip([{ type: 'node.remove', pageId: 'p1', nodeId: 'f1' }]);
   });
 
+  it('小数增量移动撤销逐字段还原（浮点相对量 (x+dx)-dx ≠ x → 逆命令必须由状态推导）', () => {
+    // 确定性漂移对：x=10 处 (10+6.1)-6.1 = 10.000000000000002（整数增量永测不出）
+    roundTrip([{ type: 'node.move', pageId: 'p1', nodeIds: ['r1'], dx: 6.1, dy: 6.4 }]);
+  });
+
+  it('跨父级多选小数增量移动同样满足 undo → redo 恒等', () => {
+    // r1 在 f1 内、t1 在页面顶层：多选跨父级，各自按父坐标系平移
+    roundTrip([{ type: 'node.move', pageId: 'p1', nodeIds: ['r1', 't1'], dx: 6.1, dy: 6.4 }]);
+  });
+
   it('删除子树后撤销可完整还原（含后代与父级位置）', () => {
     const s = stack();
     const before = JSON.parse(JSON.stringify(s.document));
