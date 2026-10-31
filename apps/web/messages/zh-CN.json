@@ -680,6 +680,7 @@
   "ai.input.label": "描述修改",
   "ai.input.placeholder": "例如：给首屏加一个主按钮，并把圆角统一为 8",
   "ai.action.submit": "生成",
+  "ai.action.submit.disabled": "请先输入描述",
   "ai.action.submitting": "正在生成",
   "ai.action.retry": "重试",
   "ai.steps.label": "生成步骤",

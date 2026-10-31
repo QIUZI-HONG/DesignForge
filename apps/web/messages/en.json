@@ -680,6 +680,7 @@
   "ai.input.label": "Describe the change",
   "ai.input.placeholder": "e.g. Add a primary button to the first screen and unify corner radius to 8",
   "ai.action.submit": "Generate",
+  "ai.action.submit.disabled": "Enter a description first",
   "ai.action.submitting": "Generating",
   "ai.action.retry": "Retry",
   "ai.steps.label": "Generation steps",
