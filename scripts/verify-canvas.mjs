@@ -401,6 +401,7 @@ async function ensureDaemon(webPort) {
     ...(webPort === null ? [] : [`http://localhost:${webPort}`, `http://127.0.0.1:${webPort}`]),
   ].join(',');
   // 临时目录纪律（禁 /tmp）：数据根/工作目录一律落仓外证据目录，release 时随临时目录一起清
+  mkdirSync(EVIDENCE_DIR, { recursive: true });
   workspaceDir = await mkdtemp(join(EVIDENCE_DIR, 'ws-'));
   dataRootDir = await mkdtemp(join(EVIDENCE_DIR, 'data-'));
   // 端口纪律：远离 3000（Next 缺省）与 4318（daemon 缺省端口窗起点），扫描段整体上移
