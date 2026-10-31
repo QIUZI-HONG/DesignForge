@@ -2,16 +2,18 @@
  * @dforge/daemon · 受控 CORS（跨源白名单，禁止通配）。
  *
  * 背景（架构口径「同源 HTTP」）：web 开发态跑在 `http://localhost:3000`、daemon 在
- * `http://127.0.0.1:4318`，浏览器直连必然跨源；打包桌面壳以 `file://` 装载页面时
- * 浏览器发出的 `Origin` 为字面量 `null`。这里做**白名单受控放行**，而不是 `*`：
+ * `http://127.0.0.1:4318`，浏览器直连必然跨源。这里做**白名单受控放行**，而不是 `*`：
  * - 默认仅本机开发来源（localhost:3000 / 127.0.0.1:3000），可用环境变量覆盖；
  * - 无 `Origin` 头（curl / Node 客户端 / 同源网关）直接放行——CORS 是浏览器机制，
  *   非浏览器客户端不受影响；
- * - `Origin: null` 放行：打包壳（file:// 或本地静态服务）的真实形态，且伪造 `null`
- *   的来源本来也绕不过本机回环语义（daemon 只监听 127.0.0.1，威胁模型是「本机其他页面」，
- *   受控白名单正是为了收窄它）；
+ * - **`Origin: null` 不放行**：`<iframe sandbox>`、`file://`、跨源重定向等上下文浏览器
+ *   会真实产出 `Origin: null`——它不是「可伪造才安全」的边角，而是沙箱网页的标准形态，
+ *   放行等于对任意网页开门（§A2-5a）。壳也早已弃用 file:// 装载（静态产物经
+ *   `http://127.0.0.1:<随机端口>` 装载，见 apps/desktop/src/main/static-server.ts），
+ *   「打包壳 = Origin null」的前提已失效；其跨源配对问题由静态 CORS 配对票处理；
  * - **非白名单来源：不加任何 CORS 头（让浏览器自行拒绝），但 API 语义不变**
- *   （服务端照常处理，不引入 403「伪安全」——真正的访问控制边界在回环监听与未来令牌）。
+ *   （服务端照常处理，不引入 403「伪安全」——真正的访问控制边界在回环监听 +
+ *   Host 校验（access-control.ts）与未来令牌；「一次性握手 token」登记为后续票）。
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -58,13 +60,12 @@ export interface CorsPolicy {
   isAllowed(origin: string): boolean;
 }
 
-/** 创建策略：精确匹配（大小写不敏感比较 host 部分），`null` 恒放行。 */
+/** 创建策略：精确匹配（大小写不敏感比较 host 部分）；`null` 与一切白名单外来源不放行。 */
 export function createCorsPolicy(origins: readonly string[] = DEFAULT_CORS_ORIGINS): CorsPolicy {
   const normalized = origins.map((origin) => origin.toLowerCase());
   return {
     origins: [...origins],
     isAllowed(origin: string): boolean {
-      if (origin === 'null') return true; // 打包壳（file://）形态，理由见模块头注释
       return normalized.includes(origin.toLowerCase());
     },
   };
