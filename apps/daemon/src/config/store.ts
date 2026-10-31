@@ -14,11 +14,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import type { DaemonConfig, DaemonConfigPatch } from '@dforge/contracts';
 import { isDaemonConfig, isNonEmptyString } from '@dforge/contracts';
 
-import {
-  baseUrlRejection,
-  isAllowedAiBaseUrl,
-  isAllowedComfyBaseUrl,
-} from '../access-control.ts';
+import { baseUrlRejection, isAllowedAiBaseUrl, isAllowedComfyBaseUrl } from '../access-control.ts';
 import { ensureDir, isWritable, readJsonFileOrNull, writeFileAtomic } from '../fs-atomic.ts';
 
 /** 配置更新结果（失败时带统一错误码，由路由层透传）。 */

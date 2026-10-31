@@ -185,8 +185,8 @@ describe('对抗 · 访问控制（Host 头校验）', () => {
       // 拒绝在路由前：内存配置不得被这次请求改动
       const config = await injectJson(daemon.app, { method: 'GET', url: '/config' });
       expect(
-        (config.payload as { result: { config: { telemetry: { enabled: boolean } } } }).result.config
-          .telemetry.enabled,
+        (config.payload as { result: { config: { telemetry: { enabled: boolean } } } }).result
+          .config.telemetry.enabled,
       ).toBe(true);
     } finally {
       await daemon.cleanup();

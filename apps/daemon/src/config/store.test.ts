@@ -133,7 +133,11 @@ describe('config store · load 磁盘脏值收敛（不静默继承越界 baseUr
   it('磁盘上的合法官方域/回环 baseUrl 照常载入（不误伤）', async () => {
     const fine = {
       workspaceDir: '/df-ws',
-      ai: { provider: 'deepseek', model: 'deepseek-reasoner', baseUrl: 'https://api.deepseek.com/v1' },
+      ai: {
+        provider: 'deepseek',
+        model: 'deepseek-reasoner',
+        baseUrl: 'https://api.deepseek.com/v1',
+      },
       comfy: { baseUrl: 'http://localhost:8188', installPath: null },
       telemetry: { enabled: true },
     };
