@@ -23,7 +23,13 @@ import { sendFail } from './http.ts';
 
 /** 判断主机名是否本机回环（127.0.0.0/8、::1、localhost；大小写不敏感，容忍 FQDN 尾点）。 */
 export function isLoopbackHostname(hostname: string): boolean {
-  const host = hostname.trim().toLowerCase().replace(/\.$/, '');
+  // WHATWG URL 的 IPv6 hostname 保留方括号（[::1]），先剥掉再比对
+  const host = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
+    .replace(/\.$/, '');
   if (host === 'localhost' || host === '::1') return true;
   // 点分十进制严格匹配（不认 127.1 这类八进制/缩写形态——从严）
   return /^127(\.\d{1,3}){3}$/.test(host);
