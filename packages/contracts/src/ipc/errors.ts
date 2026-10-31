@@ -25,6 +25,7 @@ export const DF_ERROR_CODES = [
   // 导出
   'export_unsupported_format',
   'export_page_not_found',
+  'export_canvas_too_large',
   'export_render_failed',
   // 配置与凭据（凭据只在 daemon 解密使用，任何响应/日志不得出现明文 key）
   'config_invalid',
@@ -69,6 +70,7 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   doc_last_page: 409,
   export_unsupported_format: 400,
   export_page_not_found: 404,
+  export_canvas_too_large: 400,
   export_render_failed: 500,
   config_invalid: 400,
   credential_invalid: 400,

@@ -169,6 +169,37 @@ describe('export · 三格式产物', () => {
 });
 
 describe('export · 失败态', () => {
+  it('导出输出尺寸超限（页面边长 × scale > 8192）→ 400 export_canvas_too_large + 结构化原因', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const created = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '超大页面' },
+      });
+      const id = (created.payload as { result: { document: { id: string } } }).result.document.id;
+      // D1 场景的廉价变体：8193×1 页面在 scale1 下即超限（渲染若放行也只分配 8193 像素）
+      const saved = await injectJson(daemon.app, {
+        method: 'PUT',
+        url: `/documents/${encodeURIComponent(id)}/pages/page-1`,
+        payload: { body: { width: 8193, height: 1, background: '#FFFFFF', children: [] } },
+      });
+      expect(saved.statusCode).toBe(200);
+      const { statusCode, payload } = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId: id, pageId: 'page-1', format: 'png' },
+      });
+      expect(statusCode).toBe(400);
+      const error = (payload as { error: { code: string; message: string; details?: Record<string, unknown> } }).error;
+      expect(error.code).toBe('export_canvas_too_large');
+      expect(error.message).toContain('8192');
+      expect(error.details).toMatchObject({ width: 8193, height: 1, scale: 1, maxEdge: 8192 });
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('不支持的格式 → 400 export_unsupported_format', async () => {
     const daemon = await createTestDaemon();
     try {

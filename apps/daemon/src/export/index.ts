@@ -17,6 +17,50 @@ import { renderSvg } from './svg.ts';
 /** PNG scale 上限（像素倍率 1–4，防误传超大倍率打爆内存）。 */
 export const EXPORT_MAX_SCALE = 4;
 
+/**
+ * 导出画布单边像素上限（页面逻辑边长 × scale，两轴各查各的）。
+ * 依据测试报告 §D1：5000×5000 页面 @scale4 → 20000×20000 ≈ 3.2GB 同步分配会冻结事件循环，
+ * 故在**分配任何像素缓冲之前**拒绝（路由层回 4xx `export_canvas_too_large`）。
+ */
+export const EXPORT_MAX_EDGE_PX = 8192;
+
+/** 导出尺寸超限错误（携带结构化上下文，路由层据此回 4xx）。 */
+export class ExportCanvasTooLargeError extends Error {
+  /** 超限的实际输出宽（像素）。 */
+  readonly width: number;
+  /** 超限的实际输出高（像素）。 */
+  readonly height: number;
+  /** 引发超限的 scale。 */
+  readonly scale: number;
+  /** 单边上限（= EXPORT_MAX_EDGE_PX）。 */
+  readonly maxEdge: number;
+
+  constructor(init: { width: number; height: number; scale: number }) {
+    super(
+      `导出画布尺寸超限：${init.width}×${init.height} 像素超出单边上限 ${EXPORT_MAX_EDGE_PX}` +
+        `（页面宽高 × scale；请缩小页面或调低 scale）`,
+    );
+    this.name = 'ExportCanvasTooLargeError';
+    this.width = init.width;
+    this.height = init.height;
+    this.scale = init.scale;
+    this.maxEdge = EXPORT_MAX_EDGE_PX;
+  }
+}
+
+/** 校验导出输出尺寸（单边 = 逻辑边长 × scale），超限抛 `ExportCanvasTooLargeError`。 */
+export function assertExportSizeWithinLimit(
+  width: number,
+  height: number,
+  scale: number,
+): void {
+  const outWidth = Math.max(1, Math.round(width * scale));
+  const outHeight = Math.max(1, Math.round(height * scale));
+  if (outWidth > EXPORT_MAX_EDGE_PX || outHeight > EXPORT_MAX_EDGE_PX) {
+    throw new ExportCanvasTooLargeError({ width: outWidth, height: outHeight, scale });
+  }
+}
+
 /** 上下文提示（附加到 SVG/PDF 的注释里，便于人识别来源与简化口径）。 */
 export interface ExportContext {
   documentId: string;
@@ -47,6 +91,8 @@ export function renderExport(options: {
 }): RenderedExport {
   const scene = extractScene(options.pageBody);
   const scale = effectiveScale(options.format, options.scale);
+  // 尺寸护栏必须先于任何渲染（PNG 光栅化/PDF 编码都是同步大缓冲分配，§D1）
+  assertExportSizeWithinLimit(scene.width, scene.height, scale);
   const fileName = `${options.context.documentId}-${options.context.pageId}.${options.format}`;
 
   switch (options.format) {
