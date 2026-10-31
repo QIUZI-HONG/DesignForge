@@ -72,7 +72,9 @@ export function toQueryParams(filters: MarketFilters, limit = 60): MarketQueryPa
   return params;
 }
 
-/** 是否有任何激活的筛选（决定空态给「清空筛选」还是「首次采集」）。 */
+/** 是否有任何激活的筛选（决定空态给「清空筛选」还是「首次采集」）。
+ *  排序计入筛选语义（巡检缺口③）：非默认排序档与分类/许可同权——选过排序后
+ *  「清空筛选」同样出现，清空恢复默认档（`INITIAL_MARKET_FILTERS.sort`）。 */
 export function hasActiveFilters(filters: MarketFilters): boolean {
   return (
     filters.query.trim().length > 0 ||
@@ -82,11 +84,12 @@ export function hasActiveFilters(filters: MarketFilters): boolean {
     filters.licenseGate !== 'all' ||
     filters.repo.trim().length > 0 ||
     filters.loadedOnly ||
-    filters.scene !== null
+    filters.scene !== null ||
+    filters.sort !== INITIAL_MARKET_FILTERS.sort
   );
 }
 
-/** 激活筛选的计数（徽标用；排序不算筛选）。 */
+/** 激活筛选的计数（徽标用；排序计入——与 `hasActiveFilters` 同一口径，巡检缺口③）。 */
 export function activeFilterCount(filters: MarketFilters): number {
   let count = 0;
   if (filters.query.trim().length > 0) count += 1;
@@ -97,6 +100,7 @@ export function activeFilterCount(filters: MarketFilters): number {
   if (filters.repo.trim().length > 0) count += 1;
   if (filters.loadedOnly) count += 1;
   if (filters.scene !== null) count += 1;
+  if (filters.sort !== INITIAL_MARKET_FILTERS.sort) count += 1;
   return count;
 }
 

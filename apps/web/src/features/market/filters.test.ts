@@ -61,6 +61,14 @@ describe('filters · 状态映射', () => {
     ).toBe(2);
   });
 
+  it('排序计入筛选语义：非默认排序激活筛选且计数 +1，默认档不算（巡检缺口③）', () => {
+    expect(hasActiveFilters({ ...INITIAL_MARKET_FILTERS, sort: 'updated' })).toBe(true);
+    expect(hasActiveFilters({ ...INITIAL_MARKET_FILTERS, sort: 'name' })).toBe(true);
+    expect(hasActiveFilters({ ...INITIAL_MARKET_FILTERS, sort: 'score' })).toBe(false);
+    expect(activeFilterCount({ ...INITIAL_MARKET_FILTERS, sort: 'updated' })).toBe(1);
+    expect(activeFilterCount({ ...INITIAL_MARKET_FILTERS, sort: 'score' })).toBe(0);
+  });
+
   it('一级标签覆盖四类资产 + 全部（清单 D1）', () => {
     expect(MARKET_KIND_TABS.map((tab) => tab.value)).toEqual([
       'all',

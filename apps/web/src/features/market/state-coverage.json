@@ -213,7 +213,7 @@
         },
         "empty": {
           "marker": "data-df-empty=\"index-missing\"",
-          "how": "无索引/无结果 → 「看板不下结论」空态"
+          "how": "无索引/无结果 → 「看板不下结论」空态 + 采集命令提示（与市场首页空态同源 MarketCollectHint）"
         },
         "error": {
           "marker": "data-df-state=\"error\"",

@@ -21,6 +21,7 @@ export { HighlightedText } from './HighlightedText';
 export { LoadConfirmDialog, type LoadConfirmDialogProps } from './LoadConfirmDialog';
 export { MarketCard, type MarketCardProps } from './MarketCard';
 export {
+  MarketCollectHint,
   type MarketEmptyKind,
   MarketEmptyState,
   MarketErrorState,

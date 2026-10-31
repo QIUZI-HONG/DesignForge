@@ -33,6 +33,7 @@ import {
   type MarketFilters,
   MarketSkeletonGrid,
   MarketWarningBanner,
+  resolveMarketEmptyKind,
   selectFeatured,
   toQueryParams,
   useLoadPlan,
@@ -110,7 +111,9 @@ export default function MarketHomePage() {
    * 结果区（三态补齐：加载 / 错误 / 就绪；**任何输入都有分支可匹配**，不得静默空白）。
    *
    * 就绪但 `response` 缺失（形状校验后理论不可达，防御式保留）→ 错误态；
-   * 就绪时按 outcome 分发四类空态与卡片网格——`MarketOutcome` 的每支都落在某条分支上。
+   * 就绪时索引缺失/损坏或结果集为空 → `resolveMarketEmptyKind` 归一四类空态
+   * （判定顺序：已装载无记录 > 查询词 > 索引缺失/损坏 > 普通无结果）；
+   * 其余 → 卡片网格——`MarketOutcome` 的每支都落在某条分支上。
    */
   const renderResults = (): ReactElement => {
     if (status === 'loading') {
@@ -125,21 +128,32 @@ export default function MarketHomePage() {
         />
       );
     }
-    if (outcome === 'index-missing') {
-      return <MarketEmptyState kind="index-missing" />;
-    }
-    if (outcome === 'index-invalid') {
-      return <MarketEmptyState kind="index-invalid" />;
-    }
-    if (visible.length === 0) {
-      return installedView ? (
-        <MarketEmptyState
-          kind="installed-empty"
-          onGoMarket={() => {
-            setInstalledView(false);
-          }}
-        />
-      ) : (
+    if (
+      outcome !== null &&
+      (outcome === 'index-missing' || outcome === 'index-invalid' || visible.length === 0)
+    ) {
+      // 空态判定顺序收口在 resolveMarketEmptyKind（巡检缺口①②）：已装载视图无本地记录 →
+      // installed-empty 优先；有查询词 → no-result 优先于索引缺失；其余维持旧口径。
+      const kind = resolveMarketEmptyKind({
+        outcome,
+        hasQuery: filters.query.trim().length > 0,
+        installedView,
+        loadedCount: loadedIds.length,
+      });
+      if (kind === 'index-missing' || kind === 'index-invalid') {
+        return <MarketEmptyState kind={kind} />;
+      }
+      if (kind === 'installed-empty') {
+        return (
+          <MarketEmptyState
+            kind="installed-empty"
+            onGoMarket={() => {
+              setInstalledView(false);
+            }}
+          />
+        );
+      }
+      return (
         <MarketEmptyState
           kind="no-result"
           {...(searchDegraded ? { note: t('market.empty.noResult.literalNote') } : {})}
