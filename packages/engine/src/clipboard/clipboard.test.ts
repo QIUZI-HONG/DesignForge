@@ -314,8 +314,12 @@ describe('clipboard · 跨父级选区（B4）', () => {
     const newIds = after.rootIds.filter((id) => id !== 't1');
     expect(newIds).toHaveLength(2);
     const positions = newIds.map((id) => worldBoundsOfNode(after, id));
-    expect(positions).toContainEqual(expect.objectContaining({ x: 130, y: 140, width: 40, height: 20 }));
-    expect(positions).toContainEqual(expect.objectContaining({ x: 510, y: 70, width: 30, height: 30 }));
+    expect(positions).toContainEqual(
+      expect.objectContaining({ x: 130, y: 140, width: 40, height: 20 }),
+    );
+    expect(positions).toContainEqual(
+      expect.objectContaining({ x: 510, y: 70, width: 30, height: 30 }),
+    );
   });
 
   describe('旋转父级（坐标随父级语义换算）', () => {

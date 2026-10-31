@@ -294,7 +294,11 @@ function validateClipboardPayload(payload: ClipboardPayload): DocumentIssue[] {
         }
         const frame = (origin as { frame?: unknown }).frame;
         if (!frame || typeof frame !== 'object') {
-          issues.push({ code: 'missing-field', message: `${path}.frame 缺失`, path: `${path}.frame` });
+          issues.push({
+            code: 'missing-field',
+            message: `${path}.frame 缺失`,
+            path: `${path}.frame`,
+          });
           return;
         }
         const matrix = frame as Record<string, unknown>;
@@ -511,9 +515,9 @@ interface RootPlacement {
   x: number;
   y: number;
   /** undefined = 保持载荷原值（坐标未跨坐标系，无需改写）。 */
-  rotation?: number;
+  rotation?: number | undefined;
   /** 恢复原父级且原节点仍在位：其在父级中的现下标（位移记账用）；undefined = 追加。 */
-  anchorIndex?: number;
+  anchorIndex?: number | undefined;
 }
 
 /**
@@ -646,8 +650,7 @@ export function pasteCommands(payload: ClipboardPayload, options: PasteOptions):
   }
   for (const group of anchorGroups.values()) {
     group.sort(
-      (a, b) =>
-        (placements.get(a)?.anchorIndex ?? 0) - (placements.get(b)?.anchorIndex ?? 0),
+      (a, b) => (placements.get(a)?.anchorIndex ?? 0) - (placements.get(b)?.anchorIndex ?? 0),
     );
     group.forEach((rootId, order) => {
       const placement = placements.get(rootId);
@@ -720,7 +723,8 @@ export function pasteCommands(payload: ClipboardPayload, options: PasteOptions):
         parentId = placement.parentId;
         index = placement.index;
       } else {
-        parentId = map.get(oldParent) ?? targetParentId;
+        // 子节点：挂到重映射后的原父级（载荷校验保证父先于子；oldParent 为 null 时兜底目标父级）
+        parentId = oldParent === null ? targetParentId : (map.get(oldParent) ?? targetParentId);
         index = indexInParent.get(node.id);
       }
       const command: Command = {
