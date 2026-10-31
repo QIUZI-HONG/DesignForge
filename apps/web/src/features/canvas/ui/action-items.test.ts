@@ -156,7 +156,8 @@ describe('C11 菜单分组', () => {
     expect(item?.id).toBe('deleteGuide');
     expect(item?.label).toBe('canvas.action.deleteGuide');
     expect(item?.danger).toBe(true);
-    item?.onSelect();
+    if (item === undefined) throw new Error('参考线分组缺条目');
+    item.onSelect?.();
     expect(session.page().guides).toEqual([]);
   });
 
