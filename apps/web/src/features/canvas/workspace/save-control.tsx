@@ -11,11 +11,12 @@
  * 为什么状态文案走 i18n 组合而不是在桥里拼中文：桥只给「原文原因」（daemon 的 message），
  * 人话由界面层经 zh-CN 目录包一层（ADR-0003）。
  */
-import { Button } from '@dforge/ui';
+import { Button, TechnicalDetails } from '@dforge/ui';
 import { useStore } from 'zustand';
 
 import { executeCommand, useCommand } from '@/features/editor-shell';
 import { t } from '@/i18n';
+import { classifyDaemonFailure } from '@/lib/daemon-failure';
 
 import { SAVE_DOCUMENT_COMMAND_ID } from './document-bridge';
 import { getWorkspace } from './workspace-session';
@@ -45,10 +46,44 @@ export function DocumentSaveControl() {
         {t('editor.action.save')}
       </Button>
       <span className="dfc-ws-save__state" role="status" data-df-save-state={status}>
-        {saveStateLabel(status, errorKind, error)}
+        <SaveStateContent status={status} errorKind={errorKind} error={error} />
       </span>
     </span>
   );
+}
+
+/**
+ * 保存态内容（票 06 / spec P1-2）：失败态先经共享归类——网络层失败（fetch/TypeError 族）
+ * 渲染中文人话（人话里带下一步：重新保存 / 重试），原始技术串与归一错误码沉进
+ * **可折叠技术详情**（默认收起，报障可引用）；其余失败（daemon 明确拒绝等）维持
+ * 既有「保存失败：{原因}」组合文案。dirty/saving/saved 三态不受影响。
+ */
+function SaveStateContent({
+  status,
+  errorKind,
+  error,
+}: {
+  status: 'dirty' | 'saving' | 'saved' | 'error';
+  errorKind: 'load' | 'save' | null;
+  error: string | null;
+}) {
+  if (status === 'error' && error !== null) {
+    const view = classifyDaemonFailure({ message: error });
+    if (view.isNetwork) {
+      return (
+        <>
+          {t(errorKind === 'load' ? 'editor.load.failed.network' : 'editor.save.failed.network')}
+          <TechnicalDetails
+            className="dfc-ws-save__tech"
+            label={t('error.technicalDetails')}
+            code={view.code}
+            raw={view.raw}
+          />
+        </>
+      );
+    }
+  }
+  return saveStateLabel(status, errorKind, error);
 }
 
 /** 保存态文案（失败按来源给「载入失败 / 保存失败」两种人话）。 */

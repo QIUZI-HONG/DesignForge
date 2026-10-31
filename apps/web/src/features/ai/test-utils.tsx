@@ -149,6 +149,34 @@ export function fakeAiPort(options: {
   return port;
 }
 
+/**
+ * 网络失败端口：`chatStream` 一开始迭代就抛给定错误（daemon 不可达时浏览器 fetch
+ * 抛 `TypeError: Failed to fetch` 的原样故障；票 06 人话化用例的驱动桩）。
+ */
+export function failingAiPort(message: string): FakeAiPort {
+  let streamCalls = 0;
+  let statusCalls = 0;
+  return {
+    get streamCalls() {
+      return streamCalls;
+    },
+    get statusCalls() {
+      return statusCalls;
+    },
+    async status() {
+      statusCalls += 1;
+      return statusConfigured();
+    },
+    chatStream() {
+      streamCalls += 1;
+      const iterator: AsyncIterator<string> = {
+        next: () => Promise.reject(new TypeError(message)),
+      };
+      return { [Symbol.asyncIterator]: () => iterator };
+    },
+  };
+}
+
 /** 可控端口：`chatStream` 阻塞直到 `release()` 被调用（观察运行中态）。 */
 export function controllableAiPort(): FakeAiPort & { release: () => void } {
   let release = (): void => undefined;

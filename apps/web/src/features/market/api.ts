@@ -222,9 +222,14 @@ async function requestJson<T>(
     const payload: unknown = await response.json();
     return readEnvelope<T>(payload, options.validate);
   } catch (error) {
+    // 客户端层只透传原始错误与归一码（票 06 / spec P1-2）：不在这里拼界面文案——
+    // 「中文人话 + 下一步 + 技术详情」由展示层经共享归类（`@/lib/daemon-failure`）生成
     return {
       ok: false,
-      error: { code: 'daemon_unreachable', message: `无法连接本地服务：${String(error)}` },
+      error: {
+        code: 'daemon_unreachable',
+        message: error instanceof Error ? error.message : String(error),
+      },
     };
   }
 }

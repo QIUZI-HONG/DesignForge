@@ -79,6 +79,24 @@ describe('ErrorState（F14 错误态族）', () => {
     expect(details?.open).toBe(true);
   });
 
+  it('给 diagnosticsDetail 时：原始技术信息与错误码同收进折叠（票 06 / P1-2，人话仍在主位）', () => {
+    render(
+      <ErrorState
+        title="无法连接本地服务"
+        description="请确认本地服务已启动，然后重试。"
+        code="DAEMON_UNREACHABLE"
+        diagnosticsLabel="技术详情"
+        diagnosticsDetail="TypeError: Failed to fetch"
+      />,
+    );
+    expect(screen.getByText('请确认本地服务已启动，然后重试。')).toBeTruthy();
+    const details = screen.getByText('技术详情').closest('details');
+    expect(details).not.toBeNull();
+    expect(details?.open).toBe(false); // 默认收起：原始技术串不直接铺开
+    expect(details?.contains(screen.getByText('DAEMON_UNREACHABLE'))).toBe(true);
+    expect(details?.contains(screen.getByText('TypeError: Failed to fetch'))).toBe(true);
+  });
+
   it('重试进行中：按钮进加载态并禁点', () => {
     const onRetry = vi.fn();
     const { rerender } = render(

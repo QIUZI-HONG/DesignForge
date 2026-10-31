@@ -11,14 +11,17 @@
  *   降级响应（无 key 时 content 为本地建议正文——票 03 / spec P0-2），本组件只读
  *   `degraded` 一个字段渲染角标，**不为降级写任何分支**；
  * - 降级原因（degradedReason 五类）映射中文人话渲染（角标旁一行说明）；
- * - 建议清单按 kind 渲染动作（配置凭据 → 去设置；稍后重试 → 重试；手动修改 → 提示文案）。
+ * - 建议清单按 kind 渲染动作（配置凭据 → 去设置；稍后重试 → 重试；手动修改 → 提示文案）；
+ * - **网络层失败的人话化**（票 06 / spec P1-2）：daemon 不可达（fetch/TypeError 族）时
+ *   渲染中文人话 + 下一步（重试 / 去诊断），原始错误沉进可折叠技术详情（不再直出
+ *   `Failed to fetch`）——见 `FailureNotice` 与共享归类 `@/lib/daemon-failure`。
  *
  * 依赖注入：`port` 不给时用真 daemon 端口（`NEXT_PUBLIC_DF_DAEMON_URL` / 回环缺省）。
  */
-import { AlertCircleIcon, Button, CheckIcon, Drawer, Spinner } from '@dforge/ui';
+import { AlertCircleIcon, Button, CheckIcon, Drawer, Spinner, TechnicalDetails } from '@dforge/ui';
 import { useMemo, useState } from 'react';
-
 import { t } from '@/i18n';
+import { classifyDaemonFailure } from '@/lib/daemon-failure';
 
 import { type AiPort, createAiPort } from '../client';
 import {
@@ -41,6 +44,11 @@ export interface AiDrawerProps {
   onOpenChange?: (open: boolean) => void;
   /** 建议动作「去配置 key」的落点（设置页由 FE-09 提供；缺省不渲染该按钮）。 */
   onConfigureCredentials?: () => void;
+  /**
+   * 「去诊断」动作的落点（票 06 / spec P1-2）：网络层失败的下一步之一，宿主路由到
+   * 设置页的诊断入口；缺省（无宿主接缝）只给提示行不渲染按钮。
+   */
+  onOpenDiagnostics?: () => void;
 }
 
 /** 步骤图标（活动=转圈 / 完成=对勾 / 失败=警示 / 等待=空心圆）。 */
@@ -108,9 +116,62 @@ function Suggestions({
   );
 }
 
+/**
+ * 失败提示（票 06 / spec P1-2）：网络层失败（fetch/TypeError 族——daemon 不可达）渲染
+ * 中文人话 + 与场景匹配的下一步（重试 / 去诊断），原始 message 与归一错误码沉进
+ * 可折叠技术详情（报障可引用，不再直接铺 `Failed to fetch`）；其余失败（daemon 明确
+ * 拒绝等，message 本就是可读短句）维持原样渲染 + 重试。
+ */
+function FailureNotice({
+  error,
+  onRetry,
+  onOpenDiagnostics,
+}: {
+  error: string;
+  onRetry: () => void;
+  onOpenDiagnostics?: (() => void) | undefined;
+}) {
+  const view = classifyDaemonFailure({ message: error });
+  if (!view.isNetwork) {
+    return (
+      <div className="dfg-ai__actions">
+        <span className="dfg-ai__error-text">{error}</span>
+        <span className="dfg-ai__spacer" />
+        <Button size="sm" onClick={onRetry}>
+          {t('ai.action.retry')}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="dfg-ai__failure" data-df-ai-failure="network">
+      <p className="dfg-ai__error-text">{t('error.network.headline')}</p>
+      <p className="dfg-ai__suggestion-detail">{t('ai.error.network.next')}</p>
+      <TechnicalDetails label={t('error.technicalDetails')} code={view.code} raw={view.raw} />
+      <div className="dfg-ai__actions">
+        <Button size="sm" onClick={onRetry}>
+          {t('ai.action.retry')}
+        </Button>
+        {onOpenDiagnostics === undefined ? null : (
+          <Button size="sm" variant="secondary" onClick={onOpenDiagnostics}>
+            {t('ai.error.diagnostics')}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** AI 抽屉。 */
 export function AiDrawer(props: AiDrawerProps) {
-  const { port: injectedPort, open, defaultOpen, onOpenChange, onConfigureCredentials } = props;
+  const {
+    port: injectedPort,
+    open,
+    defaultOpen,
+    onOpenChange,
+    onConfigureCredentials,
+    onOpenDiagnostics,
+  } = props;
   const port = useMemo(() => injectedPort ?? createAiPort(), [injectedPort]);
   const { state, status, submit, retry } = useAiRun({ port });
   const [prompt, setPrompt] = useState('');
@@ -205,13 +266,11 @@ export function AiDrawer(props: AiDrawerProps) {
           ) : null}
 
           {state.phase === 'failed' && state.error !== null ? (
-            <div className="dfg-ai__actions">
-              <span className="dfg-ai__error-text">{state.error}</span>
-              <span className="dfg-ai__spacer" />
-              <Button size="sm" onClick={retry}>
-                {t('ai.action.retry')}
-              </Button>
-            </div>
+            <FailureNotice
+              error={state.error}
+              onRetry={retry}
+              onOpenDiagnostics={onOpenDiagnostics}
+            />
           ) : null}
 
           {state.content.length > 0 ? (

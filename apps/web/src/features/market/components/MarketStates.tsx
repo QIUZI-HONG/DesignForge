@@ -11,8 +11,8 @@
  */
 
 import { Button, EmptyState, ErrorState, InfoIcon } from '@dforge/ui';
-
 import { t } from '@/i18n';
+import { classifyDaemonFailure } from '@/lib/daemon-failure';
 
 import { MARKET_COLLECT_COMMAND } from '../api';
 import { badgeClassName } from '../badge-classes';
@@ -115,6 +115,11 @@ export function MarketEmptyState({
 
 /** 错误态（`data-df-state="error"`；六态之一的 error 挂点）。
  *
+ * 人话化口径（票 06 / spec P1-2）：`message` 是客户端层透传的**原始**错误，先经共享
+ * 归类（`classifyDaemonFailure`）——网络层失败（fetch/TypeError 族）时描述位给中文人话
+ * + 下一步（标题本就是「无法连接本地服务」，主句补「请确认 daemon 已启动」+ 重试指引），
+ * 原始 message 与归一错误码沉进**可折叠技术详情**（报障可引用，不再直出裸英文）；
+ * 其余失败（daemon 明确拒绝等）维持 message 原样描述 + 码收折叠。
  * `code` 由调用方给（daemon 错误码 / 前端归一码，如 `daemon_bad_response`）；
  * 展示时统一大写（`daemon_unreachable` → `DAEMON_UNREACHABLE`，与旧挂点口径一致）。
  */
@@ -129,13 +134,16 @@ export function MarketErrorState({
   title?: string;
   onRetry: () => void;
 }) {
+  const view = classifyDaemonFailure({ message, code });
+  const isNetwork = view.isNetwork;
   return (
     <div data-df-state="error" data-df-error="daemon">
       <ErrorState
         title={title}
-        description={message}
-        code={code.toUpperCase()}
-        diagnosticsLabel={t('state.diagnostics')}
+        description={isNetwork ? t('market.error.network.human') : message}
+        {...(view.code === null ? {} : { code: view.code.toUpperCase() })}
+        diagnosticsLabel={t('error.technicalDetails')}
+        {...(isNetwork && view.raw.length > 0 ? { diagnosticsDetail: view.raw } : {})}
         onRetry={onRetry}
         retryLabel={t('market.error.retry')}
       />

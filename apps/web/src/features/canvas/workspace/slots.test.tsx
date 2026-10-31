@@ -11,9 +11,16 @@
  */
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { resetCommandRegistry } from '@/features/editor-shell';
+
+// AI 抽屉槽（票 06）经 `useRouter` 接「去诊断」跳设置页；本测试只锁 DOM 与状态接线，
+// 跳转本身是 next/navigation 的行为——桩掉 router，避免要求 App Router 上下文。
+const routerPush = vi.fn();
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: routerPush }),
+}));
 
 import { registerWorkspaceCommands } from '../register';
 import { AiEntryButton, OverlaysSlot, RightPanelSlot } from './slots';

@@ -745,6 +745,29 @@
   cursor: pointer;
 }
 
+.dfg-state__diagnostics-detail {
+  word-break: break-all;
+}
+
+/* 可折叠技术详情（票 06 / P1-2）：错误码 + 原始技术信息沉进折叠（默认收起，报障可引用） */
+.dfg-technical-details__toggle {
+  cursor: pointer;
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-technical-details__code {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-disabled);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+}
+
+.dfg-technical-details__raw {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+  word-break: break-all;
+}
+
 /* ---------- Spinner / 骨架 / 进度（F13：加载态族） ---------- */
 
 .dfg-spinner {
