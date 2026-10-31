@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CommandStack } from '../commands/index';
 import { marqueeSelect } from '../geometry/hit-test';
+import { rotateVector } from '../geometry/matrix';
 import {
   createDocument,
   createFrame,
@@ -327,6 +328,219 @@ describe('interaction · 缩放（8 手柄）', () => {
     const node = requireNode(getPage(stack.document, 'p1'), 'r');
     expect(node.width).toBeCloseTo(140);
     expect(node.rotation).toBe(90);
+  });
+});
+
+describe('interaction · 缩放（父级坐标换算 + 旋转节点，票 06）', () => {
+  it('画板内多选缩放：节点随集合盒在世界系缩放，不把世界坐标直写父相对字段', () => {
+    let doc = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+    doc = insertNode(
+      doc,
+      'p1',
+      createFrame({ id: 'f', x: 100, y: 100, width: 400, height: 400 }),
+      null,
+    );
+    doc = insertNodes(
+      doc,
+      'p1',
+      [
+        createRect({ id: 'a', x: 10, y: 20, width: 50, height: 50 }),
+        createRect({ id: 'b', x: 200, y: 200, width: 100, height: 40 }),
+      ],
+      'f',
+    );
+    const page = getPage(doc, 'p1');
+    const context: InteractionContext = { page, pageId: 'p1', zoom: 1 };
+    // 世界系集合盒：a (110,120,50,50) ∪ b (300,300,100,40) → (110,120,290,220)
+    let state = beginInteraction(
+      IDLE,
+      down({
+        selection: ['a', 'b'],
+        handle: { id: 'se', mode: 'resize' },
+        point: { x: 400, y: 340 },
+      }),
+      context,
+    );
+    if (state.kind !== 'resize') throw new Error('应为缩放态');
+    expect(state.startBounds).toEqual({ x: 110, y: 120, width: 290, height: 220 });
+    // 拖到两倍：nextBounds (110,120,580,440)，scaleX = scaleY = 2
+    state = updateInteraction(
+      state,
+      { type: 'pointer.move', point: { x: 690, y: 560 }, screen: { x: 690, y: 560 } },
+      context,
+    );
+    if (state.kind !== 'resize') throw new Error('应为缩放态');
+    const stack = new CommandStack(doc);
+    const { commands } = commitInteraction(state, context);
+    stack.dispatch(commands);
+    const after = getPage(stack.document, 'p1');
+    // 锚点角（集合盒左上 = a 的左上）不动：局部坐标保持，尺寸翻倍
+    expect(requireNode(after, 'a')).toMatchObject({ x: 10, y: 20, width: 100, height: 100 });
+    // b 随集合盒在世界系缩放：世界 (490,480,200,80) = 画板内局部 (390,380,200,80)
+    expect(requireNode(after, 'b')).toMatchObject({ x: 390, y: 380, width: 200, height: 80 });
+  });
+
+  it('旋转父级下多选缩放：节点中心经父系逆矩阵换算', () => {
+    let doc = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+    doc = insertNode(
+      doc,
+      'p1',
+      createFrame({ id: 'f', x: 100, y: 100, width: 200, height: 200, rotation: 90 }),
+      null,
+    );
+    doc = insertNodes(
+      doc,
+      'p1',
+      [
+        createRect({ id: 'r', x: 0, y: 0, width: 100, height: 50 }),
+        createRect({ id: 'r2', x: 50, y: 100, width: 50, height: 50 }),
+      ],
+      'f',
+    );
+    const page = getPage(doc, 'p1');
+    const context: InteractionContext = { page, pageId: 'p1', zoom: 1 };
+    // 画板 90° 旋转：r 世界 AABB (250,100,50,100)，r2 世界 AABB (150,150,50,50)
+    // 集合盒 (150,100,150,100)；拖 se 到两倍 (150,100,300,200)
+    let state = beginInteraction(
+      IDLE,
+      down({
+        selection: ['r', 'r2'],
+        handle: { id: 'se', mode: 'resize' },
+        point: { x: 300, y: 200 },
+      }),
+      context,
+    );
+    if (state.kind !== 'resize') throw new Error('应为缩放态');
+    state = updateInteraction(
+      state,
+      { type: 'pointer.move', point: { x: 450, y: 300 }, screen: { x: 450, y: 300 } },
+      context,
+    );
+    if (state.kind !== 'resize') throw new Error('应为缩放态');
+    const stack = new CommandStack(doc);
+    const { commands } = commitInteraction(state, context);
+    stack.dispatch(commands);
+    const after = getPage(stack.document, 'p1');
+    // r 新世界中心 (400,200)：父系逆矩阵换算后局部中心 (100,-100) → 局部 (0,-150,200,100)
+    expect(requireNode(after, 'r')).toMatchObject({ x: 0, y: -150, width: 200, height: 100 });
+    // r2 新世界中心 (200,250)：局部中心 (150,100) → 局部 (100,50,100,100)
+    expect(requireNode(after, 'r2')).toMatchObject({ x: 100, y: 50, width: 100, height: 100 });
+  });
+
+  // B3 破坏集：旋转非 90° 倍数（任意宽高比）∪ 90°/270° 非正方形。
+  // 幻影盒回归：起点盒曾是旋转后世界 AABB，而 resizeRotatedNode 契约要求未旋转盒。
+  it.each([
+    { w: 100, h: 50, rot: 30, x: 200, y: 100 },
+    { w: 100, h: 50, rot: 90, x: 0, y: 0 },
+    { w: 100, h: 50, rot: 270, x: 0, y: 0 },
+    { w: 100, h: 100, rot: 30, x: 200, y: 100 },
+  ])(
+    '旋转节点拖 e 手柄加倍宽：起点盒为未旋转盒、对侧锚点不动（$w×$h @$rot°）',
+    ({ w, h, rot, x, y }) => {
+      let doc = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+      doc = insertNode(
+        doc,
+        'p1',
+        createRect({ id: 'r', x, y, width: w, height: h, rotation: rot }),
+        null,
+      );
+      const page = getPage(doc, 'p1');
+      const context: InteractionContext = { page, pageId: 'p1', zoom: 1 };
+      // 对侧锚点（w 边中点）世界位置——修前与修后各测一次，必须重合
+      const anchorWorldOf = (node: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        rotation: number;
+      }) => {
+        const cx = node.x + node.width / 2;
+        const cy = node.y + node.height / 2;
+        const anchor = rotateVector({ x: -node.width / 2, y: 0 }, node.rotation);
+        return { x: cx + anchor.x, y: cy + anchor.y };
+      };
+      const before = requireNode(page, 'r');
+      const anchorBefore = anchorWorldOf(before);
+      let state = beginInteraction(
+        IDLE,
+        down({
+          selection: ['r'],
+          handle: { id: 'e', mode: 'resize' },
+          point: { x: 0, y: 0 },
+        }),
+        context,
+      );
+      if (state.kind !== 'resize') throw new Error('应为缩放态');
+      // 起点盒契约：世界中心 + 未旋转尺寸（顶层节点父系为单位阵，两者重合；
+      // 世界 AABB 中心经三角函数算出，含 1e-13 级浮点误差，按 1e-9 近等断言）
+      expect(state.startBounds.x).toBeCloseTo(x, 9);
+      expect(state.startBounds.y).toBeCloseTo(y, 9);
+      expect(state.startBounds.width).toBeCloseTo(w, 9);
+      expect(state.startBounds.height).toBeCloseTo(h, 9);
+      expect(state.rotation).toBe(rot);
+      // 指针落在未旋转系 (x + 2w, y + h/2) 的世界对应点 → 宽度加倍
+      const pointerLocal = { x: x + 2 * w, y: y + h / 2 };
+      const center = { x: x + w / 2, y: y + h / 2 };
+      const offset = rotateVector(
+        { x: pointerLocal.x - center.x, y: pointerLocal.y - center.y },
+        rot,
+      );
+      state = updateInteraction(
+        state,
+        {
+          type: 'pointer.move',
+          point: { x: center.x + offset.x, y: center.y + offset.y },
+          screen: { x: center.x + offset.x, y: center.y + offset.y },
+        },
+        context,
+      );
+      if (state.kind !== 'resize') throw new Error('应为缩放态');
+      const stack = new CommandStack(doc);
+      const { commands } = commitInteraction(state, context);
+      stack.dispatch(commands);
+      const node = requireNode(getPage(stack.document, 'p1'), 'r');
+      expect(node.width).toBeCloseTo(2 * w);
+      expect(node.height).toBeCloseTo(h);
+      expect(node.rotation).toBeCloseTo(rot);
+      // 对侧锚点不动（对全部破坏集成员逐例断言）
+      const anchorAfter = anchorWorldOf(node);
+      expect(anchorAfter.x).toBeCloseTo(anchorBefore.x, 4);
+      expect(anchorAfter.y).toBeCloseTo(anchorBefore.y, 4);
+    },
+  );
+
+  it('旋转节点 Shift 比例缩放：未旋转系内保持宽高比', () => {
+    let doc = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+    doc = insertNode(
+      doc,
+      'p1',
+      createRect({ id: 'r', x: 200, y: 100, width: 100, height: 50, rotation: 30 }),
+      null,
+    );
+    const page = getPage(doc, 'p1');
+    const context: InteractionContext = { page, pageId: 'p1', zoom: 1 };
+    let state = beginInteraction(
+      IDLE,
+      down({
+        selection: ['r'],
+        handle: { id: 'se', mode: 'resize' },
+        point: { x: 0, y: 0 },
+      }),
+      context,
+    );
+    // 任意偏离比例线的指针：Shift 投影后宽高比仍为 2:1
+    state = updateInteraction(
+      state,
+      {
+        type: 'pointer.move',
+        point: { x: 380, y: 220 },
+        screen: { x: 380, y: 220 },
+        modifiers: { shift: true },
+      },
+      context,
+    );
+    if (state.kind !== 'resize') throw new Error('应为缩放态');
+    expect(state.nextBounds.width / state.nextBounds.height).toBeCloseTo(2, 5);
   });
 });
 

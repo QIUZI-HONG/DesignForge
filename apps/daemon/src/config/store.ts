@@ -3,6 +3,9 @@
  *
  * 局部更新语义：PUT /config 只覆盖出现的字段；工作目录变更做**路径规范化**
  * （展开 `~`、resolve 绝对路径）与**可写性校验**（mkdir -p + W_OK），非法值拒绝并保持旧配置。
+ * baseUrl 收敛（票 02 · §A2-5c）：ai.baseUrl 仅 DeepSeek 官方域、comfy.baseUrl 仅回环
+ * 网段（access-control.ts）——patch 入口越界拒绝且**不改内存/磁盘**；load 入口对磁盘上的
+ * 历史脏值回退默认（不静默继承外送通道）。
  */
 
 import { homedir } from 'node:os';
@@ -11,6 +14,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import type { DaemonConfig, DaemonConfigPatch } from '@dforge/contracts';
 import { isDaemonConfig, isNonEmptyString } from '@dforge/contracts';
 
+import { baseUrlRejection, isAllowedAiBaseUrl, isAllowedComfyBaseUrl } from '../access-control.ts';
 import { ensureDir, isWritable, readJsonFileOrNull, writeFileAtomic } from '../fs-atomic.ts';
 
 /** 配置更新结果（失败时带统一错误码，由路由层透传）。 */
@@ -44,13 +48,18 @@ export function normalizePath(input: string): string {
   return isAbsolute(expanded) ? resolve(expanded) : resolve(process.cwd(), expanded);
 }
 
-function isHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
-  }
+/** 磁盘载入时的 baseUrl 收敛：越界（含旧版本写入的宽口径值）回退默认，不静默继承。 */
+function sanitizeLoadedConfig(candidate: DaemonConfig): DaemonConfig {
+  const defaults = defaultConfig(candidate.workspaceDir);
+  return {
+    ...candidate,
+    ai: isAllowedAiBaseUrl(candidate.ai.baseUrl)
+      ? candidate.ai
+      : { ...candidate.ai, baseUrl: defaults.ai.baseUrl },
+    comfy: isAllowedComfyBaseUrl(candidate.comfy.baseUrl)
+      ? candidate.comfy
+      : { ...candidate.comfy, baseUrl: defaults.comfy.baseUrl },
+  };
 }
 
 /** 创建配置存储（configJsonPath 为 `<dataRoot>/config.json`；defaultWorkspaceDir 为测试注入点）。 */
@@ -100,7 +109,7 @@ export function createConfigStore(options: {
       }
       const merged = readMerged(result.value);
       if (merged !== null) {
-        current = merged;
+        current = sanitizeLoadedConfig(merged);
       }
     },
 
@@ -166,12 +175,11 @@ export function createConfigStore(options: {
           next.ai.model = ai.model;
         }
         if (ai.baseUrl !== undefined) {
-          if (!isNonEmptyString(ai.baseUrl) || !isHttpUrl(ai.baseUrl)) {
-            return {
-              ok: false,
-              message: 'ai.baseUrl 必须是 http(s) URL',
-              details: { field: 'ai.baseUrl' },
-            };
+          // 收敛 allowlist（§A2-5c）：仅 DeepSeek 官方域（https）——key 以 Bearer 头发送，
+          // 允许任意地址等于「改一行配置即外送凭据」；越界拒绝且不改内存
+          if (!isNonEmptyString(ai.baseUrl) || !isAllowedAiBaseUrl(ai.baseUrl)) {
+            const rejection = baseUrlRejection('ai.baseUrl');
+            return { ok: false, message: rejection.message, details: rejection.details };
           }
           next.ai.baseUrl = ai.baseUrl;
         }
@@ -183,12 +191,10 @@ export function createConfigStore(options: {
         }
         const comfy = input.comfy as Record<string, unknown>;
         if (comfy.baseUrl !== undefined) {
-          if (!isNonEmptyString(comfy.baseUrl) || !isHttpUrl(comfy.baseUrl)) {
-            return {
-              ok: false,
-              message: 'comfy.baseUrl 必须是 http(s) URL',
-              details: { field: 'comfy.baseUrl' },
-            };
+          // 收敛回环网段（§A2-5c）：ComfyUI 是本机服务，非回环地址封死 SSRF 面
+          if (!isNonEmptyString(comfy.baseUrl) || !isAllowedComfyBaseUrl(comfy.baseUrl)) {
+            const rejection = baseUrlRejection('comfy.baseUrl');
+            return { ok: false, message: rejection.message, details: rejection.details };
           }
           next.comfy.baseUrl = comfy.baseUrl;
         }

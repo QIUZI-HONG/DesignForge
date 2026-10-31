@@ -10,7 +10,7 @@
  */
 import type { PageId } from '@dforge/engine';
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { KeyValueBackend } from '../storage';
+import type { KeyValueBackend, LocalStore } from '../storage';
 import { commentsKey, createLocalStore, isCommentThread } from '../storage';
 import type { WorldAnchor } from './coords';
 import {
@@ -43,6 +43,13 @@ export interface CommentsUiState {
   /** 线程面板「已解决」段是否展开（默认折叠）。 */
   resolvedExpanded: boolean;
 
+  /**
+   * 换文档重挂（跨文档隔离，#03）：持久化桶换到新文档、线程从新桶重载；
+   * 悬停/激活/草稿属于旧文档的画布，跨文档一律收摊（评论模式开关保留——用户级 UI 态）。
+   * 同 id 重挂是空操作（恢复/撤销等 `document.replace` 不清列表）。
+   */
+  attachDocument: (documentId: string) => void;
+
   setMode: (on: boolean) => void;
   toggleMode: () => void;
   setHovered: (threadId: string | null) => void;
@@ -66,7 +73,7 @@ export type CommentsStore = StoreApi<CommentsUiState>;
 
 /** createCommentsStore 选项。 */
 export interface CommentsStoreOptions {
-  /** 归属文档（持久化键空间按文档隔离）。 */
+  /** 初始归属文档（持久化键空间按文档隔离；换文档经 `attachDocument` 重挂桶）。 */
   documentId: string;
   /** 当前页面 id（新评论落在当前页）；给函数则**每次建线程时取值**（载入/切页后跟随）。 */
   pageId: PageId | (() => PageId);
@@ -86,13 +93,18 @@ export interface CommentsStoreOptions {
 export function createCommentsStore(options: CommentsStoreOptions): CommentsStore {
   const now = options.now ?? (() => new Date());
   const nextId = options.nextId ?? defaultIdFactory();
-  const storageOptions: Parameters<typeof createLocalStore<CommentThread>>[0] = {
-    key: commentsKey(options.documentId),
-    validate: isCommentThread,
+  /** 当前归属文档（可变：`attachDocument` 换文档时重挂持久化桶）。 */
+  let documentId = options.documentId;
+  const buildStorage = (id: string): LocalStore<CommentThread> => {
+    const storageOptions: Parameters<typeof createLocalStore<CommentThread>>[0] = {
+      key: commentsKey(id),
+      validate: isCommentThread,
+    };
+    if (options.backend !== undefined) storageOptions.backend = options.backend;
+    if (options.onWriteError !== undefined) storageOptions.onWriteError = options.onWriteError;
+    return createLocalStore<CommentThread>(storageOptions);
   };
-  if (options.backend !== undefined) storageOptions.backend = options.backend;
-  if (options.onWriteError !== undefined) storageOptions.onWriteError = options.onWriteError;
-  const storage = createLocalStore<CommentThread>(storageOptions);
+  let storage = buildStorage(documentId);
   const initialThreads = storage.load();
   /** 当前页面 id 的即时读法（函数形式支持「载入/切页后跟随」）。 */
   const currentPageId = (): PageId =>
@@ -196,6 +208,19 @@ export function createCommentsStore(options: CommentsStoreOptions): CommentsStor
     setResolvedExpanded: (expanded) => {
       if (get().resolvedExpanded === expanded) return;
       set({ resolvedExpanded: expanded });
+    },
+
+    attachDocument: (nextDocumentId) => {
+      if (nextDocumentId === documentId) return;
+      documentId = nextDocumentId;
+      storage = buildStorage(nextDocumentId);
+      // 线程从新桶重载；悬停/激活/草稿属于旧文档的画布——跨文档一律收摊（模式开关保留）
+      set({
+        threads: storage.load(),
+        hoveredThreadId: null,
+        activeThreadId: null,
+        draftAnchor: null,
+      });
     },
   }));
 }
