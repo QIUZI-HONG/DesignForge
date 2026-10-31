@@ -15,21 +15,32 @@
  * 用**真实指针与键盘事件**驱动，逐条记录证据；另附 C9 浮层工具条（13 胶囊）与
  * C11 右键菜单（条目 32 高 + 快捷键右对齐）的 DOM 断言。
  *
+ * 四回归场景（票 16 · 报告 §五③/§E1-E4——Node 级测试看不见、只有真浏览器能逮住的故障）：
+ *   R1（E1）CanvasKit 脚本加载失败 → 失败标签即摘即净 → 产品路径重试（会话换代重挂）→ 重试成功；
+ *   R2（E4）指针拖出画布松开 → 交互收口（interaction 归 idle、拖动提交、节点不粘光标）；
+ *   R3（E2）拖动节点松手 → 浮层工具条位置跟随（文档快照订阅驱动，不停在拖动前坐标）；
+ *   R4（E3）焦点在按钮上按空格/Enter → 按钮原生激活、画布不劫持（不进平移预备、不误触 editText）。
+ *
  * 截图对照段：与 REF-01 冻结的参照集逐像素比对（主基准视口 **1440×900 @DPR1.5**，
  * 主题 **dark**——C8 属编辑器族；参照图名按清单规范 `figma-C-C8-canvas-dark-default.png`）；
  * **无参照集 → 该段 exit 2** 并打印「阻塞：参照集未冻结」——禁止用自截图假绿。
  *
- * 退出码（三态）：0 全过 / 1 功能断言违规 / 2 功能通过但截图段阻塞（参照集未冻结 / 站点不可达 /
- * Chromium 缺失）。
+ * 退出码（三态）：0 全过 / 1 功能断言（挂载/接线/回归）违规 / 2 前置不成立（Chromium 缺失 /
+ * 生产构建或站点、daemon 起不来）或功能通过但截图段阻塞（参照集未冻结）。
  *
- * **任何退出路径**都先走 `release()`（浏览器 + daemon/next dev 子进程 + 临时目录），再 `process.exit`——
+ * 驱动口径（仓库纪律，票 16 起收口）：**生产构建 + `next start`**（禁 `next dev` 跑浏览器门禁——
+ * dev 源不加载客户端引导件，断言会假红）；Chromium 经 `resolveChromeExecutable`（chromium-1243）；
+ * daemon/站点端口显式且远离 3000/4318；临时数据根落仓外证据目录（**禁 /tmp**），
+ * 严禁连真实 daemon / 读写 `~/.dforge`。
+ *
+ * **任何退出路径**都先走 `release()`（浏览器 + daemon/next 子进程 + 临时目录），再 `process.exit`——
  * 直接退出会把子进程留在机器上（实测残留 daemon 占端口，另一 worktree 曾积 21 个）。
  * 证据字段按验收标准 §4：`diff{bbox,diffPixels,ratio}` 为顶层摘要（无比对时三项 null + note）。
  *
  * 用法（仓库根执行）：
- *   node scripts/verify-canvas.mjs                 # 自动起 daemon（临时目录）+ next dev
- *   DF_WEB_URL=http://localhost:3000 node scripts/verify-canvas.mjs
- *   DF_DAEMON_URL=http://127.0.0.1:4318 node scripts/verify-canvas.mjs --verbose
+ *   node scripts/verify-canvas.mjs                 # 自动起 daemon（临时数据根）+ 生产构建 + next start
+ *   DF_WEB_URL=http://127.0.0.1:3226 node scripts/verify-canvas.mjs   # 复用在跑的生产站点
+ *   DF_DAEMON_URL=http://127.0.0.1:14318 node scripts/verify-canvas.mjs --verbose
  *
  * 环境变量：DF_WEB_URL / DF_DAEMON_URL / DF_EVIDENCE_DIR / DF_REF_DIR / BENCH_CHROME_EXECUTABLE。
  *
@@ -42,7 +53,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -89,6 +100,8 @@ const notes = [];
 const cleanups = [];
 let daemonProcess;
 let workspaceDir;
+/** daemon 临时数据根（与工作目录同批落仓外证据目录；release 一并清）。 */
+let dataRootDir;
 /** 交互用浏览器（`finish` 前统一关闭；截图段另起浏览器，自管生命周期）。 */
 let browser = null;
 
@@ -355,7 +368,14 @@ async function release() {
     }
   }
   if (workspaceDir !== undefined) {
-    await rm(workspaceDir, { recursive: true, force: true }).catch(() => undefined);
+    await rm(workspaceDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(
+      () => undefined,
+    );
+  }
+  if (dataRootDir !== undefined) {
+    await rm(dataRootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(
+      () => undefined,
+    );
   }
 }
 
@@ -380,9 +400,11 @@ async function ensureDaemon(webPort) {
     'http://127.0.0.1:3000',
     ...(webPort === null ? [] : [`http://localhost:${webPort}`, `http://127.0.0.1:${webPort}`]),
   ].join(',');
-  workspaceDir = await mkdtemp(join(tmpdir(), 'df-fe06-ws-'));
-  const dataRoot = await mkdtemp(join(tmpdir(), 'df-fe06-data-'));
-  const port = await freePort(4318);
+  // 临时目录纪律（禁 /tmp）：数据根/工作目录一律落仓外证据目录，release 时随临时目录一起清
+  workspaceDir = await mkdtemp(join(EVIDENCE_DIR, 'ws-'));
+  dataRootDir = await mkdtemp(join(EVIDENCE_DIR, 'data-'));
+  // 端口纪律：远离 3000（Next 缺省）与 4318（daemon 缺省端口窗起点），扫描段整体上移
+  const port = await freePort(14318);
   const started = startProcess(process.execPath, [join(REPO_ROOT, 'apps/daemon/src/main.ts')], {
     env: {
       DF_WORKSPACE_DIR: workspaceDir,
@@ -407,7 +429,14 @@ async function ensureDaemon(webPort) {
   daemonUrl = url;
 }
 
-/** 起 Web 站点（未外部指定时 `next dev`）。 */
+/**
+ * 起 Web 站点（未外部指定时：**生产构建 + `next start`**）。
+ *
+ * 为什么不用 `next dev`（仓库纪律，implementation-workflow.md「门禁清单」）：Next 16 Turbopack
+ * dev 源在本机不加载客户端引导件（槽位挂不上，整树停在 SSR 空槽），断言会以「看不见入口」假红。
+ * 生产构建前 CanvasKit 资产必须已就位（`main` 里 `ensureAssets` 先行），否则站点起来也是
+ * 「Skia 初始化失败」的假红/假绿。
+ */
 async function ensureWeb(plannedPort) {
   if (webUrl !== undefined) {
     if (!(await probe(`${webUrl}/_canvas`))) {
@@ -416,47 +445,38 @@ async function ensureWeb(plannedPort) {
     return;
   }
   const port = plannedPort ?? (await freePort(3226));
-  const started = startProcess(
-    'pnpm',
-    ['--filter', '@dforge/web', 'exec', 'next', 'dev', '-p', String(port)],
-    // detached：pnpm 之下还有真 dev server（孙进程），退出时要整组信号才不留残留。
-    { cwd: REPO_ROOT, detached: true },
-  );
-  track(started.child);
-  // 用 localhost 打开：Next 16 dev 对 `/_next/*` 有开发源限制，127.0.0.1 会被拦（HMR/chunk 404）
-  webUrl = `http://localhost:${port}`;
-  // Next 16 dev 每个项目只允许一个实例：若工作区已有 dev 服务在跑（多票并行开发常见），
-  // 新进程会退出并提示既有地址——直接复用它，而不是把整条门禁判成阻塞。
-  const existingUrl = await waitFor(
-    () => {
-      const match = started.output().match(/existing server at (http:\/\/localhost:\d+)/);
-      return match === null ? null : match[1];
-    },
-    { timeout: 6000, interval: 200, label: '既有 dev 服务探测' },
-  ).catch(() => null);
-  if (existingUrl !== null) {
-    notes.push(`复用已运行的 next dev：${existingUrl}（Next 16 每项目单实例）`);
-    webUrl = existingUrl;
-  } else {
-    // 端口漂移兜底：续跑残留的服务会占住计划端口，Next 会自动换端口并在输出里打印真实地址
-    const advertised = await waitFor(
-      () => {
-        const match = started
-          .output()
-          .match(/(?:Local:|existing server at)\s+(http:\/\/localhost:\d+)/);
-        return match === null ? null : match[1];
-      },
-      { timeout: 8000, interval: 200, label: '真实监听地址探测' },
-    ).catch(() => null);
-    if (advertised !== null && advertised !== webUrl) {
-      notes.push(`端口漂移：计划 ${webUrl} 已被占用，改用站点自报地址 ${advertised}`);
-      webUrl = advertised;
-    }
+  const nextBin = join(WEB_APP_DIR, 'node_modules', '.bin', 'next');
+  if (!existsSync(nextBin)) {
+    return finish(2, '阻塞：未找到 next 可执行文件（先 pnpm install）');
   }
+  // ① 生产构建（构建失败属「前置不成立」→ exit 2，不得带病起站点）
+  const build = startProcess(nextBin, ['build'], { cwd: WEB_APP_DIR });
+  track(build.child);
+  const buildCode = await new Promise((settle) => {
+    if (build.child.exitCode !== null) {
+      settle(build.child.exitCode);
+      return;
+    }
+    const timer = setTimeout(() => settle(-1), 600_000);
+    build.child.on('exit', (code) => {
+      clearTimeout(timer);
+      settle(code ?? -1);
+    });
+  });
+  if (buildCode !== 0) {
+    return finish(
+      2,
+      `阻塞：web 生产构建失败（exit ${String(buildCode)}；输出尾部：${build.output().slice(-600)}）`,
+    );
+  }
+  // ② 起生产服务（显式端口，远离 3000/4318）
+  const started = startProcess(nextBin, ['start', '-p', String(port)], { cwd: WEB_APP_DIR });
+  track(started.child);
+  webUrl = `http://127.0.0.1:${port}`;
   const ready = await waitFor(() => probe(`${webUrl}/_canvas`), {
     timeout: 120000,
     interval: 500,
-    label: 'next dev 就绪',
+    label: 'next start 就绪',
   })
     .then(() => true)
     .catch(() => false);
@@ -705,6 +725,9 @@ async function main() {
   // --- 白名单 13 类 + C9/C11 外观（真实事件驱动） ---
   await runWiring(page, api);
 
+  // --- 四回归场景（票 16 · 报告 §E1-E4） ---
+  await runRegressions(page, api, { canvasUrl, proxyDaemon: useProxy, daemonUrl });
+
   // 控制台无未预期错误（渲染/接线健康度）
   const meaningfulErrors = consoleErrors.filter(
     (text) => !text.includes('favicon') && !text.includes('Download the React DevTools'),
@@ -742,7 +765,7 @@ async function main() {
   if (failures.length > 0 || wiringFailures.length > 0) {
     evidence.screenshot = { ...evidence.screenshot, status: 'skipped', artifacts: actualArtifacts };
     notes.push(
-      `功能断言失败：挂载 ${failures.map((item) => item.id).join(',') || '无'}；接线 ${wiringFailures.map((item) => item.id).join(',') || '无'}`,
+      `功能断言失败：挂载/回归 ${failures.map((item) => item.id).join(',') || '无'}；接线 ${wiringFailures.map((item) => item.id).join(',') || '无'}`,
     );
     evidence.diff = {
       bbox: null,
@@ -752,7 +775,7 @@ async function main() {
     };
     await finish(
       1,
-      `违规：挂载断言失败 ${failures.length} 条、接线断言失败 ${wiringFailures.length} 条（明细见证据 JSON）。`,
+      `违规：挂载/回归断言失败 ${failures.length} 条、接线断言失败 ${wiringFailures.length} 条（明细见证据 JSON）。`,
     );
   }
 
@@ -786,7 +809,7 @@ async function main() {
         '阻塞：参照集未冻结（REF-01 未完成）——该段不能出结论。',
         `原因：${evidence.screenshot.reason}`,
         `实际截图已落盘：${actualPath}（仅供人工预览，不得当判据）。`,
-        `功能断言结论：挂载 6 断言 + 接线 ${wiring.length} 条全部通过（证据见 JSON）。`,
+        `功能断言结论：挂载 6 断言 + 接线 ${wiring.length} 条 + 四回归场景全部通过（证据见 JSON）。`,
       ].join('\n'),
     );
   }
@@ -853,7 +876,10 @@ async function main() {
       `违规：C8 对标页差异率 ${(ratio * 100).toFixed(4)}% 超容差（≤ ${(MAX_RATIO * 100).toFixed(2)}%）。`,
     );
   }
-  await finish(0, '通过：挂载 6 断言 + 白名单 13 类接线 + C9/C11 外观 + 截图对照全部通过。');
+  await finish(
+    0,
+    '通过：挂载 6 断言 + 白名单 13 类接线 + C9/C11 外观 + 四回归场景 + 截图对照全部通过。',
+  );
 }
 
 /** 页面 API 包装（调试句柄 + 坐标换算）。 */
@@ -1272,6 +1298,203 @@ async function ensureTwoRectangles(_page, api, preferredId) {
   const created = await api.createRect({ x: 200, y: 220, width: 140, height: 90 });
   const second = await api.createRect({ x: 620, y: 300, width: 110, height: 80 });
   return [created, second];
+}
+
+/**
+ * 四回归场景（票 16 · 报告 §E1-E4——Node 级测试看不见、只有真浏览器能逮住的故障）。
+ *
+ * R2/R3/R4 打在主取样页上（真实指针/键盘事件 + 调试句柄读真实运行态）；
+ * R1 需要一次**受控的加载失败**，另起独立浏览器上下文（干净 HTTP 缓存，abort 才可靠生效），
+ * 但重试必须发生在**同一 JS realm**里走产品路径（会话换代重挂）——整页刷新不算恢复
+ * （§E1 中毒路径的特征恰恰是「只有整页刷新能恢复」）。
+ *
+ * @param {import('playwright-core').Page} page 主取样页
+ * @param {ReturnType<typeof makeApi>} api 页面 API 包装
+ * @param {{ canvasUrl: string, proxyDaemon: boolean, daemonUrl: string }} options 主流程上下文
+ */
+async function runRegressions(page, api, options) {
+  const { canvasUrl, proxyDaemon } = options;
+
+  // --- R2（E4）：指针拖出画布松开 → 交互收口（节点不粘光标） ---
+  await api.setViewport({ zoom: 1, panX: 80, panY: 60 });
+  await api.setSnap(false);
+  const r2Id = await api.createRect({ x: 940, y: 560, width: 120, height: 80 });
+  const r2Start = await api.geometry(r2Id);
+  const r2From = await api.toPage({ x: r2Start.x + 60, y: r2Start.y + 40 });
+  await page.mouse.move(r2From.x, r2From.y);
+  await page.mouse.down();
+  await page.mouse.move(r2From.x + 40, r2From.y + 30, { steps: 4 });
+  // 拖出画布表面再松开：松开点取宿主工具行按钮（画布壳之外的真实区域）
+  const outsideBox = await page.locator('[data-df-studio-tool="select"]').boundingBox();
+  if (outsideBox === null) throw new Error('R2 夹具异常：找不到画布壳之外的宿主工具按钮');
+  await page.mouse.move(outsideBox.x + outsideBox.width / 2, outsideBox.y + outsideBox.height / 2, {
+    steps: 4,
+  });
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  const r2Interaction = await page.evaluate(() => {
+    const state = globalThis.__dforgeCanvas.session().store.getState();
+    return { interaction: state.interaction.kind, draft: state.draft !== null };
+  });
+  const r2Committed = await api.geometry(r2Id);
+  // 节点不粘光标：松开后**无按键**移动鼠标横穿画布，节点必须纹丝不动
+  await page.mouse.move(r2From.x, r2From.y, { steps: 6 });
+  await page.mouse.move(r2From.x + 120, r2From.y + 60, { steps: 6 });
+  await page.waitForTimeout(120);
+  const r2AfterHover = await api.geometry(r2Id);
+  record(
+    assertions,
+    'R2-pointer-release-outside-settles',
+    r2Interaction.interaction === 'idle' &&
+      r2Interaction.draft === false &&
+      (r2Committed.x !== r2Start.x || r2Committed.y !== r2Start.y) &&
+      r2AfterHover.x === r2Committed.x &&
+      r2AfterHover.y === r2Committed.y,
+    {
+      interactionAfterRelease: r2Interaction,
+      start: { x: r2Start.x, y: r2Start.y },
+      committed: { x: r2Committed.x, y: r2Committed.y },
+      afterHoverMove: { x: r2AfterHover.x, y: r2AfterHover.y },
+    },
+  );
+
+  // --- R3（E2）：拖动节点松手 → 浮层工具条位置跟随（文档快照订阅驱动） ---
+  await api.setViewport({ zoom: 1, panX: 80, panY: 60 });
+  const r3Id = await api.createRect({ x: 700, y: 600, width: 120, height: 80 });
+  await api.select([r3Id]);
+  await page.waitForTimeout(120);
+  const toolbarPos = () =>
+    page
+      .locator('[data-df-canvas-toolbar]')
+      .evaluate((element) => ({
+        left: Number.parseFloat(element.style.left),
+        top: Number.parseFloat(element.style.top),
+      }))
+      .catch(() => null);
+  const toolbarBefore = await toolbarPos();
+  const r3 = await api.geometry(r3Id);
+  const r3From = await api.toPage({ x: r3.x + 60, y: r3.y + 40 });
+  await page.mouse.move(r3From.x, r3From.y);
+  await page.mouse.down();
+  await page.mouse.move(r3From.x + 50, r3From.y + 30, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  const toolbarAfter = await toolbarPos();
+  record(
+    assertions,
+    'R3-toolbar-follows-drag',
+    toolbarBefore !== null &&
+      toolbarAfter !== null &&
+      Math.abs(toolbarAfter.left - toolbarBefore.left - 50) < 1e-6 &&
+      Math.abs(toolbarAfter.top - toolbarBefore.top - 30) < 1e-6,
+    {
+      before: toolbarBefore,
+      after: toolbarAfter,
+      expectedDelta: { left: 50, top: 30 },
+    },
+  );
+
+  // --- R4（E3）：焦点在按钮上，空格/Enter 归按钮原生激活（画布不劫持） ---
+  const r4TextId = await api.createTextAt({ x: 420, y: 480 });
+  await page.waitForTimeout(100);
+  const toolState = () =>
+    page.evaluate(() => {
+      const state = globalThis.__dforgeCanvas.session().store.getState();
+      return {
+        tool: state.tool,
+        spacePressed: state.spacePressed,
+        editing: state.editing !== null,
+      };
+    });
+  // 空格：焦点在工具按钮上按下 → 画布不得进平移预备；松开 → 按钮激活（切到手型工具）
+  await page.locator('[data-df-studio-tool="hand"]').focus();
+  await page.keyboard.down(' ');
+  await page.waitForTimeout(80);
+  const duringSpace = await toolState();
+  await page.keyboard.up(' ');
+  await page.waitForTimeout(150);
+  const afterSpace = await toolState();
+  // Enter：选中文本节点后焦点在按钮上按 Enter → 不得误触 editText；按钮激活（切回选择工具）
+  await api.select([r4TextId]);
+  await page.locator('[data-df-studio-tool="select"]').focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  const afterEnter = await toolState();
+  record(
+    assertions,
+    'R4-activation-keys-reach-button',
+    duringSpace.spacePressed === false &&
+      afterSpace.tool === 'hand' &&
+      afterEnter.editing === false &&
+      afterEnter.tool === 'select',
+    { duringSpace, afterSpace, afterEnter },
+  );
+
+  // --- R1（E1）：CanvasKit 脚本加载失败 → 标签即摘即净 → 重试成功（同一 realm） ---
+  const browser = page.context().browser();
+  if (browser === null) throw new Error('R1 夹具异常：拿不到浏览器实例');
+  const r1Context = await browser.newContext({
+    viewport: { width: VIEWPORT.width, height: VIEWPORT.height },
+  });
+  const r1Page = await r1Context.newPage();
+  const r1Errors = [];
+  r1Page.on('pageerror', (error) => r1Errors.push(String(error)));
+  if (proxyDaemon) await routeDaemon(r1Page);
+  try {
+    // ① 注入失败：canvaskit.js 网络层 abort → boot 走 onerror（先证明「失败真的发生了」）
+    await r1Page.route('**/canvaskit/canvaskit.js', (route) => route.abort());
+    await r1Page.goto(canvasUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+    const failedBanner = await r1Page
+      .waitForSelector('[data-df-canvas-status="error"]', { timeout: 30_000 })
+      .then(() => true)
+      .catch(() => false);
+    // ② 失败标签即摘即净：DOM 不留 data-df-canvaskit 残留（残留会让重试误判「已就绪」直接放行）
+    const residualTags = await r1Page.evaluate(
+      () => document.querySelectorAll('script[data-df-canvaskit]').length,
+    );
+    // ③ 产品路径重试：导入当前文档 → 会话换代 → 画布重挂 → loadCanvasKit 重试（失败不缓存）
+    await r1Page.unroute('**/canvaskit/canvaskit.js');
+    const retry = await r1Page.evaluate(async () => {
+      const handle = globalThis.__dforgeCanvas;
+      return handle.importIr(handle.exportIr());
+    });
+    const recovered = await r1Page
+      .waitForFunction(
+        () => {
+          const runtime = globalThis.__dforgeCanvas?.runtime();
+          return (
+            runtime !== undefined &&
+            runtime.canvasKit === 'ready' &&
+            runtime.fonts === 'ready' &&
+            (runtime.frameCount ?? 0) >= 1
+          );
+        },
+        null,
+        { timeout: 90_000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    const r1Runtime = await r1Page.evaluate(() => globalThis.__dforgeCanvas.runtime());
+    const r1Stats = await r1Page.evaluate(() => globalThis.__dforgeCanvas.stats());
+    record(
+      assertions,
+      'R1-canvaskit-fail-recover-retry',
+      failedBanner && residualTags === 0 && retry?.ok === true && recovered,
+      {
+        failureObserved: failedBanner,
+        residualScriptTags: residualTags,
+        retry,
+        recovered,
+        canvasKit: r1Runtime?.canvasKit ?? null,
+        fonts: r1Runtime?.fonts ?? null,
+        frameCount: r1Runtime?.frameCount ?? null,
+        nodesDrawn: r1Stats?.nodesDrawn ?? null,
+        pageErrors: r1Errors.slice(0, 3),
+      },
+    );
+  } finally {
+    await r1Context.close().catch(() => undefined);
+  }
 }
 
 /** 主色（令牌 primary #0D99FF）像素计数：证明「高亮真的画到画布上了」。 */

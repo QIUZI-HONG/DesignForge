@@ -508,6 +508,15 @@ async function runEditorGate(browser, urls) {
 
 try {
   mkdirSync(workspaceDir, { recursive: true });
+
+  // Chromium 前置先行（票 16）：起 daemon / 生产构建都要数分钟，浏览器缺失属「前置不成立」，
+  // 必须立刻阻塞（exit 2）而不是烧完构建才发现——CI 的阻塞语义断言也依赖这条快速路径。
+  const chrome = resolveChrome();
+  if (chrome === undefined) {
+    console.error('阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）。');
+    await finish(evidence, 2);
+  }
+
   try {
     fixtureDaemon = await startFixtureDaemon({ dataRoot, workspaceDir });
   } catch (error) {
@@ -576,13 +585,7 @@ try {
   evidence.gatewayUrl = gatewayUrl;
   log(`同源网关就绪：${gatewayUrl}（/df/* → daemon，其余 → 站点）`);
 
-  // --- 浏览器 + 场景执行 ---
-  const chrome = resolveChrome();
-  if (chrome === undefined) {
-    console.error('阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）。');
-    await finish(evidence, 2);
-  }
-
+  // --- 浏览器 + 场景执行（Chromium 已在主流程开头解析为 chrome） ---
   const { chromium } = await import('playwright-core');
   try {
     browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox'] });

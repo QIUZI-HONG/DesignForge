@@ -13,7 +13,7 @@
 
 const PREFIX = '[canvas]';
 
-/** 读取调试句柄（门禁挂点：见 features/canvas/debug/canvas-debug.ts）。 */
+/** 读取调试句柄（门禁读点：见 features/canvas/debug/canvas-debug.ts）。 */
 async function handle(page, fn, arg) {
   return page.evaluate(fn, arg);
 }
