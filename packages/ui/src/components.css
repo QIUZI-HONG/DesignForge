@@ -1083,6 +1083,26 @@
   white-space: nowrap;
 }
 
+/* 行尾控件槽（票 11：显隐/锁定等行级开关）：DOM 常驻、按行状态显现；
+   显现节奏走 duration-fast，颜色继承 IconButton 的图标语义色 */
+.dfg-tree__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  margin-inline-start: auto;
+  opacity: 0;
+  transition: opacity var(--dfg-duration-fast) var(--dfg-easing-standard);
+}
+
+/* 显现口径：选中行 → 行 hover / 行内焦点（含控件自身）/ 合成 hover 态（升序防降特异性告警） */
+.dfg-tree__node--selected .dfg-tree__actions,
+.dfg-tree__node:hover .dfg-tree__actions,
+.dfg-tree__node:focus-within .dfg-tree__actions,
+.dfg-tree__node.dfg-state-hover .dfg-tree__actions {
+  opacity: 1;
+}
+
 .dfg-tree__empty {
   padding: var(--dfg-space-4);
   font-size: var(--dfg-font-size-12);

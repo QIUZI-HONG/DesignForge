@@ -22,6 +22,9 @@
  * - 拖拽排序接口：行可拖（`draggable`），拖 A 落到 B 触发 `onReorder(source, target)`
  *   ——**落位语义（前后/内外）由图层树消费票（RW-13）与画布约定**，本组件只上报
  *   拖拽对；拖拽过程行上有 `--dragging` / `--droptarget` 修饰类供视觉表达。
+ * - 行尾控件槽（票 11）：`TreeNodeSpec.trailing` 渲染在 `.dfg-tree__actions`——
+ *   点击/双击不触发行激活，重命名编辑态不渲染；行可访问名钉在 `aria-label`
+ *  （节点名），控件不并入行名。
  *
  * 状态族（六态，登记表 F16）：行 hover / 选中与键盘焦点（active）/ 禁用行（disabled）/
  * 子树加载中（loading，行内转圈 + `aria-busy`）/ 空树插槽（empty，文案调用方给）/
@@ -340,6 +343,7 @@ export function Tree({
         }}
         role="treeitem"
         data-node-id={node.id}
+        aria-label={node.label}
         aria-level={level}
         aria-expanded={
           row.hasChildren && node.loading !== true && node.error !== true

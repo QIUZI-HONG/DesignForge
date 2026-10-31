@@ -193,12 +193,11 @@ describe('落位 → 引擎命令族（与 moveLayerCommands 组合；最终顺�
     expect(displayOrder(childrenNow())).toEqual(['g1', 'r2', 'r1']);
 
     // 背景块拖到标题组行下半 → 面板里紧贴标题组下方（卡片上方）
-    const placement = resolveTreeDropPlacement(
-      getPage(stack.document, 'p1'),
-      'r1',
-      'g1',
-      { y: 130, rowTop: 112, rowBottom: 140 },
-    );
+    const placement = resolveTreeDropPlacement(getPage(stack.document, 'p1'), 'r1', 'g1', {
+      y: 130,
+      rowTop: 112,
+      rowBottom: 140,
+    });
     expect(placement).toEqual({ parentId: 'f1', index: 1, edge: 'after' });
     const spot = placement as NonNullable<typeof placement>;
     stack.dispatch(
@@ -219,12 +218,11 @@ describe('落位 → 引擎命令族（与 moveLayerCommands 组合；最终顺�
 
   it('上移到面板最上：背景块落到标题组行上半 → 面板顶（绘制序末尾）', () => {
     const stack = new CommandStack(fixture(), { freeze: true });
-    const placement = resolveTreeDropPlacement(
-      getPage(stack.document, 'p1'),
-      'r1',
-      'g1',
-      { y: 114, rowTop: 112, rowBottom: 140 },
-    );
+    const placement = resolveTreeDropPlacement(getPage(stack.document, 'p1'), 'r1', 'g1', {
+      y: 114,
+      rowTop: 112,
+      rowBottom: 140,
+    });
     expect(placement).toEqual({ parentId: 'f1', index: 2, edge: 'before' });
     const spot = placement as NonNullable<typeof placement>;
     stack.dispatch(
@@ -241,12 +239,11 @@ describe('落位 → 引擎命令族（与 moveLayerCommands 组合；最终顺�
   it('已就位的落点 = 无操作：不发命令、不写历史（CommandStack 不被空事务污染）', () => {
     const stack = new CommandStack(fixture(), { freeze: true });
     // 背景块落到卡片行下半：面板里已在卡片下方 → 原位
-    const placement = resolveTreeDropPlacement(
-      getPage(stack.document, 'p1'),
-      'r1',
-      'r2',
-      { y: 186, rowTop: 168, rowBottom: 196 },
-    );
+    const placement = resolveTreeDropPlacement(getPage(stack.document, 'p1'), 'r1', 'r2', {
+      y: 186,
+      rowTop: 168,
+      rowBottom: 196,
+    });
     expect(placement).toEqual({ parentId: 'f1', index: 0, edge: 'after' });
     const spot = placement as NonNullable<typeof placement>;
     const commands = moveLayerCommands(

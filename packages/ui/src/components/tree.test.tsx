@@ -345,6 +345,54 @@ describe('Tree · 禁用 / 加载 / 错误 / 空态', () => {
   });
 });
 
+describe('Tree · 行尾控件槽（票 11：显隐/锁定等行级开关）', () => {
+  it('渲染节点自带 trailing 控件；行可访问名仍是节点名（控件不并入行名）', () => {
+    const onSelect = vi.fn();
+    const nodes: TreeNodeSpec[] = [
+      {
+        id: 'rect',
+        label: '背景矩形',
+        trailing: <button type="button">眼睛</button>,
+      },
+    ];
+    render(<Tree label="图层" nodes={nodes} onSelect={onSelect} />);
+    expect(rowOf('背景矩形').querySelector('.dfg-tree__actions')).not.toBeNull();
+    // aria-label 钉住行名：行尾控件不改变 treeitem 的可访问名
+    expect(screen.getByRole('treeitem', { name: '背景矩形' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '眼睛' })).toBeTruthy();
+  });
+
+  it('点击/双击行尾控件不触发行激活，也不进重命名', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onRename = vi.fn();
+    const nodes: TreeNodeSpec[] = [
+      {
+        id: 'rect',
+        label: '背景矩形',
+        trailing: <button type="button">眼睛</button>,
+      },
+    ];
+    render(<Tree label="图层" nodes={nodes} onSelect={onSelect} onRename={onRename} />);
+    await user.click(screen.getByRole('button', { name: '眼睛' }));
+    expect(onSelect).not.toHaveBeenCalled();
+    await user.dblClick(screen.getByRole('button', { name: '眼睛' }));
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
+  it('重命名编辑态不渲染行尾控件（编辑器独占行）', async () => {
+    const user = userEvent.setup();
+    const nodes: TreeNodeSpec[] = [
+      { id: 'rect', label: '背景矩形', trailing: <button type="button">眼睛</button> },
+    ];
+    render(<Tree label="图层" nodes={nodes} onRename={() => undefined} />);
+    expect(screen.getByRole('button', { name: '眼睛' })).toBeTruthy();
+    await user.dblClick(rowOf('背景矩形'));
+    expect(screen.queryByRole('button', { name: '眼睛' })).toBeNull();
+  });
+});
+
 describe('Tree · 拖拽排序接口', () => {
   it('行可拖拽（draggable），拖 A 落到 B 触发 onReorder(source, target)', () => {
     const onReorder = vi.fn();

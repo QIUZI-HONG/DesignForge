@@ -27,6 +27,10 @@
  * - **行级状态**：Tree 六态的 `disabled` = 实例虚节点（结构只读：不可选中/拖拽/重命名，
  *   键盘漫游跳过；选中与属性编辑走画布/Inspector）；`loading`/`error` 在同步命令栈文档下
  *   不产生（无异步子树装载），挂点透传留给后续异步装载票（不给 `onRetry` 即关闭错误行入口）。
+ * - **行内显隐/锁定控件（票 11，C3 缺口④）**：每行行尾渲染眼睛/锁按钮（hover/焦点/选中
+ *   显现，DOM 常驻供挂点断言），点击经 `toggleVisibilityCommands` / `toggleLockCommands`
+ *   走命令栈（与重命名/拖拽同一条写路径，可撤销）；实例虚节点的可见性走
+ *   `instance.setOverride` 覆盖路由；行可访问名钉在节点名，控件不并入行名。
  * - **千级图层（渲染窗口化，零依赖）**：全量 DOM 挂载（树结构/折叠/键盘漫游语义完整），
  *   屏外行的**渲染**跳过交给 CSS `content-visibility: auto`
  *   （editor-panels.css `.dfg-panels__tree .dfg-tree__node`）——不引依赖、不做 JS 窗口化：
@@ -53,11 +57,16 @@ import {
 } from 'react';
 
 import { t } from '@/i18n';
-import { moveLayerCommands, renameLayerCommands } from '../commands/layer-commands';
+import {
+  moveLayerCommands,
+  renameLayerCommands,
+  toggleLockCommands,
+  toggleVisibilityCommands,
+} from '../commands/layer-commands';
 import { resolveTreeDropPlacement } from '../commands/tree-drop';
 import { usePanelsDocument, usePanelsUi } from '../state/hooks';
 import { LayerContextMenu } from './LayerContextMenu';
-import { buildTreeModel, type PanelTreeModel } from './layers-tree-model';
+import { buildTreeModel, type PanelTreeModel, type TreeRowHandlers } from './layers-tree-model';
 import { usePanelsSession } from './panels-context';
 
 import '../editor-panels.css';
@@ -88,15 +97,6 @@ export function LayersPanel({
   const selection = usePanelsUi(session, (state) => state.selection);
 
   const page = findPage(doc, session.pageId);
-  const model = useMemo<PanelTreeModel>(
-    () => buildTreeModel(page === undefined ? [] : layerTree(page)),
-    [page],
-  );
-  // Tree 受控展开集 = 全部容器 − 折叠集（面板 store 持「折叠」语义，Figma 默认全展开）
-  const expandedIds = useMemo(
-    () => model.containerIds.filter((id) => !collapsedIds.has(id)),
-    [model, collapsedIds],
-  );
 
   const treeRef = useRef<HTMLDivElement | null>(null);
   /** 拖拽期间自记的指针 Y（document dragover；drop 时与 target 行矩形合成落点证据）。 */
@@ -115,6 +115,39 @@ export function LayersPanel({
   const currentPage = useCallback(
     (): ScenePage | undefined => findPage(session.stack.document, session.pageId),
     [session],
+  );
+
+  // 行级控件（显隐/锁定）的上报路径（票 11）：与重命名/拖拽同一条写路径——
+  // 基于最新文档构造命令（toggle 族在点击时读当前值，不吃渲染期快照），一次 session.run 一条历史
+  const onToggleVisibility = useCallback(
+    (nodeId: NodeId) => {
+      const current = currentPage();
+      if (current === undefined) return;
+      run(toggleVisibilityCommands(current, session.pageId, nodeId), 'panels.history.visibility');
+    },
+    [currentPage, run, session],
+  );
+  const onToggleLock = useCallback(
+    (nodeId: NodeId) => {
+      const current = currentPage();
+      if (current === undefined) return;
+      run(toggleLockCommands(current, session.pageId, nodeId), 'panels.history.lock');
+    },
+    [currentPage, run, session],
+  );
+  const rowHandlers = useMemo<TreeRowHandlers>(
+    () => ({ toggleVisibility: onToggleVisibility, toggleLock: onToggleLock }),
+    [onToggleLock, onToggleVisibility],
+  );
+
+  const model = useMemo<PanelTreeModel>(
+    () => buildTreeModel(page === undefined ? [] : layerTree(page), rowHandlers),
+    [page, rowHandlers],
+  );
+  // Tree 受控展开集 = 全部容器 − 折叠集（面板 store 持「折叠」语义，Figma 默认全展开）
+  const expandedIds = useMemo(
+    () => model.containerIds.filter((id) => !collapsedIds.has(id)),
+    [model, collapsedIds],
   );
 
   // 拖拽期间记录指针 Y（HTML5 drag 事件冒泡到 document；Tree 行内的 preventDefault 不阻断冒泡）。

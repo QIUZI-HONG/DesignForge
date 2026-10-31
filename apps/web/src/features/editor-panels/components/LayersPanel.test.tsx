@@ -325,6 +325,94 @@ describe('图层面板 · 拖拽落位约定（RW-13：面板显示序上/下各
   });
 });
 
+describe('图层面板 · 行内显隐/锁定控件（票 11）', () => {
+  /** 取某行某个行级控件的按钮（span 挂点包着 IconButton；aria 语义在按钮上）。 */
+  function controlOf(id: string, action: 'visibility' | 'lock'): HTMLButtonElement {
+    const slot = nodeRow(id)?.querySelector(`[data-df-layer-action="${action}"]`);
+    expect(slot, `${id} 缺少 ${action} 控件`).not.toBeNull();
+    return (slot as HTMLElement).querySelector('button') as HTMLButtonElement;
+  }
+
+  /** 取控件的外层挂点（data-df-layer-* 状态值在这里）。 */
+  function controlSlotOf(id: string, action: 'visibility' | 'lock'): HTMLElement {
+    return nodeRow(id)?.querySelector(`[data-df-layer-action="${action}"]`) as HTMLElement;
+  }
+
+  it('每行渲染显隐/锁定控件：aria-pressed、data 挂点与可访问名随状态表达', () => {
+    renderPanel();
+    const eye = controlOf('r1', 'visibility');
+    expect(eye.getAttribute('aria-pressed')).toBe('false');
+    expect(controlSlotOf('r1', 'visibility').getAttribute('data-df-layer-visible')).toBe('true');
+    expect(eye.getAttribute('aria-label')).toBe('隐藏「背景块」');
+    const lock = controlOf('r1', 'lock');
+    expect(lock.getAttribute('aria-pressed')).toBe('false');
+    expect(controlSlotOf('r1', 'lock').getAttribute('data-df-layer-locked')).toBe('false');
+    expect(lock.getAttribute('aria-label')).toBe('锁定「背景块」');
+  });
+
+  it('点眼睛：可见性经命令栈翻转并可撤销；行选择集不受影响', () => {
+    const { session, page } = renderPanel();
+    fireEvent.click(row('卡片'));
+    expect(session.ui.getState().selection.ids).toEqual(['r2']);
+
+    fireEvent.click(controlOf('r1', 'visibility'));
+    expect(getNode(page(), 'r1')?.visible).toBe(false);
+    expect(session.stack.history().undo.at(-1)).toBe('切换可见性');
+    expect(session.ui.getState().selection.ids).toEqual(['r2']);
+
+    expect(session.stack.undo()).toBe(true);
+    expect(getNode(page(), 'r1')?.visible).toBe(true);
+  });
+
+  it('点锁：锁定经命令栈翻转并可撤销；控件状态随重渲染翻转（显示↔隐藏）', () => {
+    const { session, page } = renderPanel();
+    fireEvent.click(controlOf('r2', 'lock'));
+    expect(getNode(page(), 'r2')?.locked).toBe(true);
+    expect(session.stack.history().undo.at(-1)).toBe('切换锁定');
+    expect(controlOf('r2', 'lock').getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(controlOf('r1', 'visibility'));
+    expect(controlOf('r1', 'visibility').getAttribute('aria-pressed')).toBe('true');
+    expect(controlOf('r1', 'visibility').getAttribute('aria-label')).toBe('显示「背景块」');
+    expect(controlSlotOf('r1', 'visibility').getAttribute('data-df-layer-visible')).toBe('false');
+
+    expect(session.stack.undo()).toBe(true);
+    expect(getNode(page(), 'r1')?.visible).toBe(true);
+  });
+
+  it('实例子树的虚节点行（结构只读）也有显隐控件：走实例覆盖命令（instance.setOverride）', () => {
+    let doc = panelsFixture();
+    doc = insertNode(
+      doc,
+      'p1',
+      createInstance({ id: 'i1', name: '按钮实例', componentId: 'c1', x: 0, y: 500 }),
+      null,
+    );
+    const { session } = renderPanelDoc(doc);
+    const virtualChild = getChildrenIds(getPage(session.stack.document, session.pageId), 'i1')[0];
+    if (virtualChild === undefined) throw new Error('夹具缺失：实例 i1 必须有虚子节点');
+    fireEvent.click(controlOf(virtualChild, 'visibility'));
+    const inst = getPage(session.stack.document, session.pageId).nodes.i1;
+    expect(inst && inst.type === 'instance' ? inst.overrides.cr1 : undefined).toEqual({
+      visible: false,
+    });
+  });
+
+  it('行尾控件槽：hover/焦点/选中显现（样式单轨：CSS 规则文本）', () => {
+    renderPanel();
+    const css = readFileSync(
+      resolve(process.cwd(), '../../packages/ui/src/components.css'),
+      'utf8',
+    );
+    // 显现口径：行 hover / 行内焦点（含控件自身）/ 选中行
+    expect(css).toContain('.dfg-tree__node:hover .dfg-tree__actions');
+    expect(css).toContain('.dfg-tree__node:focus-within .dfg-tree__actions');
+    expect(css).toContain('.dfg-tree__node--selected .dfg-tree__actions');
+    const slot = cssRule('../../packages/ui/src/components.css', '.dfg-tree__actions');
+    expect(slot).toContain('opacity: 0');
+  });
+});
+
 describe('图层面板 · 右键菜单（结构操作；重命名归行内编辑）', () => {
   it('五个条目齐备（无重命名条目），点「删除」真的删掉（并进撤销栈）', () => {
     const { session, page } = renderPanel();
