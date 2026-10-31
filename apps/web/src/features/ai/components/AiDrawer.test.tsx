@@ -16,7 +16,14 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { t } from '@/i18n';
 import zhCN from '../../../../messages/zh-CN.json';
-import { controllableAiPort, degradedResponse, fakeAiPort, okResponse } from '../test-utils';
+import type { AiPort } from '../client';
+import {
+  controllableAiPort,
+  degradedResponse,
+  failingAiPort,
+  fakeAiPort,
+  okResponse,
+} from '../test-utils';
 import { AiDrawer } from './AiDrawer';
 
 /** zh-CN 目录（JSON 导入的键集是字面量并集，动态键索引需放宽为记录）。 */
@@ -194,6 +201,84 @@ describe('AI 抽屉（F4）', () => {
     render(<AiDrawer port={port} defaultOpen />);
     expect(await screen.findByText(/未配置 DeepSeek key/)).toBeTruthy();
     expect(port.statusCalls).toBe(1);
+  });
+});
+
+describe('AI 抽屉失败态中文化（票 06 / spec P1-2：网络失败 → 人话 + 下一步 + 技术详情）', () => {
+  /** 提交一次生成并等到失败态。 */
+  async function submitAndFail(port: AiPort): Promise<void> {
+    const user = userEvent.setup();
+    render(<AiDrawer port={port} defaultOpen />);
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    await user.click(screen.getByRole('button', { name: '生成' }));
+    await screen.findByText(t('error.network.headline'));
+  }
+
+  it('网络层失败 → 中文人话 + 下一步提示 + 重试，不再直接铺裸英文技术串', async () => {
+    await submitAndFail(failingAiPort('Failed to fetch'));
+
+    // 人话主句与下一步提示都来自 zh-CN 目录（ADR-0003）
+    expect(screen.getByText(t('error.network.headline'))).toBeTruthy();
+    expect(catalog['error.network.headline']).toContain('无法连接本地服务');
+    expect(screen.getByText(t('ai.error.network.next'))).toBeTruthy();
+    expect(screen.getByRole('button', { name: t('ai.action.retry') })).toBeTruthy();
+    // 失败仍落在所在步（连接在建流前失败 → 落在「排队」步，重试既有能力不回退）
+    expect(stepRow('queued')?.getAttribute('data-df-step-status')).toBe('failed');
+  });
+
+  it('原始错误进可折叠技术详情（默认收起，带归一错误码 DAEMON_UNREACHABLE）', async () => {
+    await submitAndFail(failingAiPort('Failed to fetch'));
+
+    const details = document.querySelector('[data-df-technical-details]');
+    expect(details).not.toBeNull();
+    expect((details as HTMLDetailsElement).open).toBe(false); // 默认收起：裸英文不直接铺开
+    expect(details?.contains(screen.getByText('Failed to fetch'))).toBe(true);
+    expect(screen.getByText('DAEMON_UNREACHABLE')).toBeTruthy();
+  });
+
+  it('给 onOpenDiagnostics 时给「去诊断」按钮并回调（下一步路由到既有诊断入口）', async () => {
+    let opened = false;
+    const user = userEvent.setup();
+    render(
+      <AiDrawer
+        port={failingAiPort('Failed to fetch')}
+        defaultOpen
+        onOpenDiagnostics={() => {
+          opened = true;
+        }}
+      />,
+    );
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    await user.click(screen.getByRole('button', { name: '生成' }));
+    const diagnose = await screen.findByRole('button', { name: t('ai.error.diagnostics') });
+    await user.click(diagnose);
+    expect(opened).toBe(true);
+    // 重试按钮仍在：下一步动作不止一条
+    expect(screen.getByRole('button', { name: t('ai.action.retry') })).toBeTruthy();
+  });
+
+  it('非网络失败保持原样：message 原样渲染，不出技术详情折叠', async () => {
+    const user = userEvent.setup();
+    const port = fakeAiPort({
+      runs: [
+        [
+          {
+            type: 'start',
+            runId: 'ai_1',
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            degraded: false,
+          },
+          { type: 'error', error: { code: 'ai_invalid_request', message: '上游连接中断' } },
+        ],
+      ],
+    });
+    render(<AiDrawer port={port} defaultOpen />);
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    await user.click(screen.getByRole('button', { name: '生成' }));
+    await screen.findByText('上游连接中断');
+    expect(document.querySelector('[data-df-technical-details]')).toBeNull();
+    expect(screen.queryByText(t('error.network.headline'))).toBeNull();
   });
 });
 

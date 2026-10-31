@@ -64,7 +64,10 @@ describe('classifyDaemonFailure · 非网络失败（daemon 明确拒绝等）',
   });
 
   it('文案里恰好提到 fetch 但语义是业务描述 → 不含英文特征串即不误判', () => {
-    const view = classifyDaemonFailure({ message: '上游请求失败：fetch 配置无效', code: 'upstream' });
+    const view = classifyDaemonFailure({
+      message: '上游请求失败：fetch 配置无效',
+      code: 'upstream',
+    });
     expect(view.isNetwork).toBe(false);
     expect(view.code).toBe('upstream');
   });

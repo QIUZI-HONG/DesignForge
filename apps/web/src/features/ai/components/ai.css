@@ -170,6 +170,14 @@
   color: var(--dfg-color-danger);
 }
 
+/* 网络层失败的人话块（票 06 / P1-2）：人话 + 下一步 + 技术详情折叠竖排 */
+.dfg-ai__failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dfg-space-1);
+}
+
 /* ---------- 建议清单 ---------- */
 
 .dfg-ai__suggestion-list {
