@@ -46,6 +46,10 @@ import {
   type PaletteItem,
 } from './palette-model';
 
+// 样式接线（票 04 · spec P0-4 根因修复）：本域样式表此前 25 条规则全仓无 import，
+// 面板以「无边框裸输入框」形态压在画布上——引入即恢复居中卡片 + 遮罩 + 焦点环全套。
+import './command-palette.css';
+
 /** 分组 + 组内条目的全局铺平下标（aria-activedescendant 与 DOM 顺序对齐的空间）。 */
 interface IndexedGroup {
   group: PaletteGroup;
