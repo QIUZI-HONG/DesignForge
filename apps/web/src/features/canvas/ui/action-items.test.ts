@@ -140,6 +140,39 @@ describe('C11 菜单分组', () => {
     expect(del?.danger).toBe(true);
   });
 
+  it('右键命中参考线：前置「参考线」分组，条目删除该线（票 12）', () => {
+    const session = fixture();
+    // 拖出一条水平参考线 y=130（与会话层同路径，不经内部状态注入）
+    session.pointerDown({ world: { x: 300, y: 8 }, screen: { x: 300, y: 8 }, button: 'left' });
+    session.pointerMove({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    session.pointerUp({ world: { x: 300, y: 130 }, screen: { x: 300, y: 130 } });
+    expect(session.page().guides).toHaveLength(1);
+
+    const guidePoint = { x: 300, y: 130 };
+    const sections = contextMenuSections(session, t, { guideId: session.guideIdAt(guidePoint) });
+    expect(sections[0]?.id).toBe('guide');
+    expect(sections[0]?.label).toBe('canvas.menu.section.guide');
+    const item = sections[0]?.items[0];
+    expect(item?.id).toBe('deleteGuide');
+    expect(item?.label).toBe('canvas.action.deleteGuide');
+    expect(item?.danger).toBe(true);
+    item?.onSelect();
+    expect(session.page().guides).toEqual([]);
+  });
+
+  it('右键未命中参考线：不出现参考线分组（分组序列保持既有口径）', () => {
+    const session = fixture();
+    session.setSelection(['n_rect', 'n_rect2']);
+    const sections = contextMenuSections(session, t, { guideId: null });
+    expect(sections.map((section) => section.id)).toEqual([
+      'edit',
+      'clipboard',
+      'arrange',
+      'align',
+      'view',
+    ]);
+  });
+
   it('工具条子集都在动作表里（避免两处硬编码漂移）', () => {
     const session = fixture();
     const ids = new Set(canvasActions(session).map((action) => action.id));
