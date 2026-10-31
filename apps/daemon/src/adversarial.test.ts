@@ -402,7 +402,7 @@ describe('对抗 · 导出（魔数与像素）', () => {
       });
       expect(badScale.statusCode).toBe(400);
 
-      // 巨大画布：无尺寸钳制 —— 极端值以 export_render_failed 收场（不崩）
+      // 巨大画布：尺寸护栏在分配任何像素缓冲前拒绝（§D1 修复）——4xx + 结构化原因
       await injectJson(daemon.app, {
         method: 'PUT',
         url: '/documents/exp/pages/page-1',
@@ -413,7 +413,14 @@ describe('对抗 · 导出（魔数与像素）', () => {
         url: '/export',
         payload: { documentId: 'exp', pageId: 'page-1', format: 'png' },
       });
-      expect(huge.payload).toMatchObject({ ok: false, error: { code: 'export_render_failed' } });
+      expect(huge.statusCode).toBe(400);
+      expect(huge.payload).toMatchObject({
+        ok: false,
+        error: {
+          code: 'export_canvas_too_large',
+          details: { width: 1_000_000, height: 1_000_000, scale: 1, maxEdge: 8192 },
+        },
+      });
     } finally {
       await daemon.cleanup();
     }
