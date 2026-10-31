@@ -15,9 +15,10 @@
  * 2. 服务端插入通道仍携带置深脚本（经 `ServerInsertedHTMLContext` 捕获回调验证），
  *    首帧置深能力不因迁移而丢失。
  */
-import type { ReactNode } from 'react';
+
 import { render } from '@testing-library/react';
 import { ServerInsertedHTMLContext } from 'next/navigation';
+import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 

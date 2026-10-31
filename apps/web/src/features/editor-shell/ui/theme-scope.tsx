@@ -1,5 +1,6 @@
 'use client';
 
+import { useServerInsertedHTML } from 'next/navigation';
 /**
  * 编辑器深色作用域（验收标准 §3：主题逐页对齐 Figma 本体——编辑器族 = 深色 UI3）。
  *
@@ -18,8 +19,6 @@
  * 2. **客户端导航**：挂载时把根元素切到深色，卸载时还原（effect 路径，见下）。
  */
 import { useEffect } from 'react';
-
-import { useServerInsertedHTML } from 'next/navigation';
 
 /** 深色首帧脚本（常量；内容与机制见文件头注释）。 */
 const DARK_THEME_BOOTSTRAP = "document.documentElement.dataset.theme='dark';";

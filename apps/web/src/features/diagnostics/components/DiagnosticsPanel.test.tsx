@@ -8,10 +8,10 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-
+import type { TelemetryEvent } from '@dforge/contracts';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fakeDiagnosticsPort } from '../test-utils';
 import { DiagnosticsPanel } from './DiagnosticsPanel';
 
@@ -158,5 +158,39 @@ describe('诊断面板 · 样式单轨（工单 06）', () => {
     expect(cssRule(css, 'dfg-diagnostics__status-chip')).toContain('var(--dfg-radius-pill)');
     expect(cssRule(css, 'dfg-diagnostics__row-label')).toContain('var(--dfg-space-16)');
     expect(cssRule(css, 'dfg-diagnostics__log-line')).toContain('var(--dfg-font-sans)');
+  });
+
+  it('日志列表重复行（同时间/同载荷的 doc.opened）不触发重复 key 告警（票 10 · spec P1-6）', async () => {
+    // 真实场景：连开两次同一文档——两条事件仅 daemon 生成的 id 不同，格式化行完全一致
+    const duplicate: TelemetryEvent = {
+      id: 'd1',
+      name: 'doc.opened',
+      at: '2026-10-15T00:00:05.000Z',
+      sessionId: null,
+      appVersion: null,
+      payload: { docId: 'doc-1' },
+    };
+    const port = fakeDiagnosticsPort({
+      events: {
+        events: [duplicate, { ...duplicate, id: 'd2' }],
+        total: 2,
+      },
+    });
+    const errors: unknown[][] = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errors.push(args);
+    });
+    try {
+      render(<DiagnosticsPanel port={port} env={ENV} open onOpenChange={() => undefined} />);
+      const section = await screen.findByRole('region', { name: '日志尾部' });
+      // 两条同内容日志行都渲染（列表形状不变）
+      expect(within(section).getAllByText(/doc\.opened/).length).toBe(2);
+    } finally {
+      errorSpy.mockRestore();
+    }
+    const duplicateKeyWarnings = errors.filter((args) =>
+      /same key|Keys should be unique/i.test(String(args[0])),
+    );
+    expect(duplicateKeyWarnings).toEqual([]);
   });
 });
