@@ -83,6 +83,34 @@ describe('面板 UI store', () => {
     expect(store.getState().leftTab).toBe('layers');
   });
 
+  it('左栏扩展页签：打开不改内置页签，关闭回到原页签（市场入口的「无状态残留」语义）', () => {
+    const store = createPanelsUiStore();
+    expect(store.getState().leftExtensionTab).toBeNull();
+
+    // 原页签 = 资产；打开扩展页签后内置页签原样保留（关闭即回原页签，无需额外记忆）
+    store.getState().setLeftTab('assets');
+    store.getState().openLeftExtensionTab('p2-market');
+    expect(store.getState().leftExtensionTab).toBe('p2-market');
+    expect(store.getState().leftTab).toBe('assets');
+
+    // 关闭：扩展页签清空，回到打开前的「资产」
+    store.getState().closeLeftExtensionTab();
+    expect(store.getState().leftExtensionTab).toBeNull();
+    expect(store.getState().leftTab).toBe('assets');
+  });
+
+  it('左栏扩展页签：重复打开同 id 与关闭空态都不产生新状态对象', () => {
+    const store = createPanelsUiStore();
+    const before = store.getState();
+    store.getState().closeLeftExtensionTab();
+    expect(store.getState()).toBe(before);
+
+    store.getState().openLeftExtensionTab('p2-market');
+    const opened = store.getState();
+    store.getState().openLeftExtensionTab('p2-market');
+    expect(store.getState()).toBe(opened);
+  });
+
   it('可订阅：状态变更通知订阅者（画布与面板同源的前提）', () => {
     const store = createPanelsUiStore();
     const listener = vi.fn();

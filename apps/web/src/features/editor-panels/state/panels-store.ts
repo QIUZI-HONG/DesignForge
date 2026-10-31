@@ -44,6 +44,14 @@ export interface PanelsUiState {
   assetQuery: string;
   /** 左栏页签：图层 ↔ 资产（等同 Figma 左面板的「文件 / 资产」）。 */
   leftTab: LeftPanelTab;
+  /**
+   * 左栏**扩展页签**（槽位注册的追加页签，如「市场」；null = 未打开，显示内置页签）。
+   *
+   * 为什么独立于 `leftTab`：扩展页签是「临时视图」语义——打开时**不改写** `leftTab`，
+   * 关闭清空本字段即回到打开前的原页签；「关闭回原页签、无状态残留」由结构保证，
+   * 不需要「记住上一个页签」的簿记。
+   */
+  leftExtensionTab: string | null;
 
   /** 整体替换选择集（画布框选 / 引擎回传用）。 */
   setSelection: (selection: Selection) => void;
@@ -61,6 +69,10 @@ export interface PanelsUiState {
   setAssetQuery: (query: string) => void;
   /** 切换左栏页签。 */
   setLeftTab: (tab: LeftPanelTab) => void;
+  /** 打开左栏扩展页签（按 id；同 id 重复打开为无操作）。 */
+  openLeftExtensionTab: (id: string) => void;
+  /** 关闭左栏扩展页签（回到打开前的内置页签；未打开时为无操作）。 */
+  closeLeftExtensionTab: () => void;
 }
 
 /** 面板 UI store 句柄（vanilla：`getState` / `subscribe` / React 侧配 `useStore`）。 */
@@ -84,6 +96,7 @@ export function createPanelsUiStore(
     assetSegment: initial.assetSegment ?? 'components',
     assetQuery: initial.assetQuery ?? '',
     leftTab: 'layers',
+    leftExtensionTab: null,
 
     setSelection: (selection) => {
       if (sameSelection(get().selection, selection)) return;
@@ -126,6 +139,17 @@ export function createPanelsUiStore(
     setLeftTab: (tab) => {
       if (get().leftTab === tab) return;
       set({ leftTab: tab });
+    },
+
+    openLeftExtensionTab: (id) => {
+      if (get().leftExtensionTab === id) return;
+      // 刻意不写 leftTab：扩展页签是临时视图，原页签留在 leftTab 里（关闭即回）。
+      set({ leftExtensionTab: id });
+    },
+
+    closeLeftExtensionTab: () => {
+      if (get().leftExtensionTab === null) return;
+      set({ leftExtensionTab: null });
     },
   }));
 }
