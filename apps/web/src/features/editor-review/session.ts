@@ -240,6 +240,7 @@ export function createReviewSession(options: ReviewSessionOptions = {}): ReviewS
       if (nextId === attachedDocumentId) return;
       attachedDocumentId = nextId;
       comments.getState().attachDocument(nextId);
+      versions.getState().attachDocument(nextId);
     };
     if (port !== undefined) port.subscribe(reattachIfDocumentChanged);
     else ownStack.subscribe(reattachIfDocumentChanged);

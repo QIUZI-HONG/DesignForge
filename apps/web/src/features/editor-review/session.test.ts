@@ -23,7 +23,7 @@ import {
   type PageId,
 } from '@dforge/engine';
 import { describe, expect, it } from 'vitest';
-import { commentsKey, createMemoryBackend } from './storage';
+import { commentsKey, createMemoryBackend, versionsKey } from './storage';
 import { createReviewSession, type ReviewDocumentPort } from './session';
 
 /** 造一份最小可编辑文档（id 即持久化桶的隔离键）。 */
@@ -99,5 +99,43 @@ describe('评审会话 · 评论跨文档隔离（#03）', () => {
     expect(session.comments.getState().threads.map((thread) => thread.body)).toEqual([
       'A 的评审意见',
     ]);
+  });
+});
+
+describe('评审会话 · 版本快照跨文档隔离（#03：恢复即整文档覆盖的切断）', () => {
+  it('A 存版本 → 切 B：恢复列表无 A 快照，A 的快照恢复不进 B；切回 A 快照在且可正常恢复', () => {
+    const backend = createMemoryBackend();
+    const stack = new CommandStack(doc('doc-editor'));
+    const session = createReviewSession({ documentPort: portOf(stack), backend });
+
+    // 在 A 上存一份版本快照
+    loadDocument(stack, 'doc-a');
+    const snapshot = session.versions.getState().capture('A 的第一版');
+    expect(session.versions.getState().snapshots).toHaveLength(1);
+    expect(backend.getItem(versionsKey('doc-a'))).toContain('A 的第一版');
+
+    // 切到 B：恢复列表换到 B 的桶——无 A 的任何快照
+    loadDocument(stack, 'doc-b');
+    const versions = session.versions.getState();
+    expect(versions.snapshots).toEqual([]);
+    expect(backend.getItem(versionsKey('doc-b'))).toBeNull();
+
+    // 隔离断言：拿着 A 的快照 id 也恢复不进 B——
+    // beginCompare 对列表外的 id 是空操作 → confirmRestore 无命令派发，
+    // B 的文档内容不会被 A 的快照整文档覆盖（缺陷现场的破坏路径）
+    versions.beginCompare(snapshot.id);
+    expect(versions.compareId).toBeNull();
+    versions.confirmRestore();
+    expect(stack.document.id).toBe('doc-b');
+
+    // 切回 A：快照原样回来，恢复自己的快照是合法路径（整文档替换后仍是 doc-a）
+    loadDocument(stack, 'doc-a');
+    expect(session.versions.getState().snapshots.map((item) => item.label)).toEqual([
+      'A 的第一版',
+    ]);
+    session.versions.getState().beginCompare(snapshot.id);
+    expect(session.versions.getState().compareId).toBe(snapshot.id);
+    session.versions.getState().confirmRestore();
+    expect(stack.document.id).toBe('doc-a');
   });
 });
