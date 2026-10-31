@@ -79,8 +79,40 @@ describe('documents · 列表与读取', () => {
   it('列表含体积与页数；按 updatedAt 倒序', async () => {
     const daemon = await createTestDaemon();
     try {
-      await createDocument(daemon, '甲');
-      await createDocument(daemon, '乙');
+      // 真实时钟下逐次等到时钟越过上一写入时刻：保证 updatedAt 严格递增、无同毫秒平局
+      const create = async (name: string): Promise<{ id: string; updatedAt: string }> => {
+        const created = await injectJson(daemon.app, {
+          method: 'POST',
+          url: '/documents',
+          payload: { name },
+        });
+        expect(created.statusCode).toBe(201);
+        return (created.payload as { result: { document: { id: string; updatedAt: string } } })
+          .result.document;
+      };
+      const waitPastIso = async (iso: string): Promise<void> => {
+        const target = Date.parse(iso);
+        for (let attempt = 0; attempt < 50 && Date.now() <= target; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        expect(Date.now()).toBeGreaterThan(target);
+      };
+
+      const first = await create('甲');
+      await waitPastIso(first.updatedAt);
+      const second = await create('乙');
+      await waitPastIso(second.updatedAt);
+      expect(Date.parse(second.updatedAt)).toBeGreaterThan(Date.parse(first.updatedAt));
+      // 给乙加一页：pageCount 断言非平凡（1 vs 2），且乙的 updatedAt 仍最新
+      const createdPage = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents/乙/pages',
+        payload: { name: '页面 2' },
+      });
+      expect(createdPage.statusCode).toBe(201);
+      const pageUpdatedAt = (createdPage.payload as { result: { page: { updatedAt: string } } })
+        .result.page.updatedAt;
+
       const { statusCode, payload } = await injectJson(daemon.app, {
         method: 'GET',
         url: '/documents',
@@ -89,12 +121,30 @@ describe('documents · 列表与读取', () => {
       const result = (
         payload as {
           result: {
-            documents: { id: string; sizeBytes: number; warnings?: unknown }[];
+            documents: {
+              id: string;
+              updatedAt: string;
+              pageCount: number;
+              sizeBytes: number;
+              warnings?: unknown;
+            }[];
             warnings: unknown[];
           };
         }
       ).result;
-      expect(result.documents.map((doc) => doc.id).sort()).toEqual(['乙', '甲']);
+      // 真断言倒序（不再 .sort() 抹掉顺序）：乙最新在前，且 updatedAt 严格递减
+      expect(result.documents.map((doc) => doc.id)).toEqual(['乙', '甲']);
+      expect(result.documents.map((doc) => doc.updatedAt)).toEqual([
+        pageUpdatedAt,
+        first.updatedAt,
+      ]);
+      const times = result.documents.map((doc) => Date.parse(doc.updatedAt));
+      expect((times[0] ?? Number.NaN) > (times[1] ?? Number.NaN)).toBe(true);
+      // 用例名承诺的页数：乙 2 页、甲 1 页
+      expect(Object.fromEntries(result.documents.map((doc) => [doc.id, doc.pageCount]))).toEqual({
+        乙: 2,
+        甲: 1,
+      });
       for (const document of result.documents) {
         expect(document.sizeBytes).toBeGreaterThan(0);
       }
