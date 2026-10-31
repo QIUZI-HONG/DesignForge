@@ -99,6 +99,10 @@ export function registerWorkspaceCommands(): void {
     group: t('editor.group.edit'),
     shortcut: '⌘Z',
     enabled: () => canvas.stack.canUndo,
+    // 置灰原因与真实状态一致（票 07 · spec P1-3）：悬停说明「为什么不可点」而不是回显名称
+    disabledReason: () => t('canvas.action.undo.disabled'),
+    // 可用性与原因依赖命令栈真值：栈变化即通知入口重取快照（否则 tooltip 留过期原因）
+    subscribe: (notify) => canvas.stack.subscribe(() => notify()),
     run: () => {
       canvas.undo();
     },
@@ -109,6 +113,8 @@ export function registerWorkspaceCommands(): void {
     group: t('editor.group.edit'),
     shortcut: '⇧⌘Z',
     enabled: () => canvas.stack.canRedo,
+    disabledReason: () => t('canvas.action.redo.disabled'),
+    subscribe: (notify) => canvas.stack.subscribe(() => notify()),
     run: () => {
       canvas.redo();
     },
