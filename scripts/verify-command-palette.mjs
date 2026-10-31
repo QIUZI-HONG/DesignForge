@@ -28,7 +28,14 @@
  * 端口纪律：空闲端口（4460 起），不碰 3000/4318；不起 daemon（面板断言不依赖数据面）。
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,7 +82,9 @@ const evidence = {
 function record(id, ok, detail) {
   evidence.assertions.push({ id, ok, detail });
   const mark = ok === true ? 'ok' : 'FAIL';
-  console.log(`  [${mark}] ${id} —— ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
+  console.log(
+    `  [${mark}] ${id} —— ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`,
+  );
 }
 
 /** 子进程登记：任何退出路径都整组回收（独立进程组），不留 next 残留。 */
@@ -136,7 +145,11 @@ async function finish(code, message) {
     const port = Number(new URL(webUrl).port);
     if (Number.isFinite(port) && (await portBusy(port))) {
       const killed = killPortListener(port);
-      console.log(killed ? `回收残留监听进程（端口 ${port}）` : `警告：端口 ${port} 仍有监听者，未能按 PID 回收`);
+      console.log(
+        killed
+          ? `回收残留监听进程（端口 ${port}）`
+          : `警告：端口 ${port} 仍有监听者，未能按 PID 回收`,
+      );
     }
   }
   process.exit(code);
@@ -200,7 +213,7 @@ async function freePort() {
 }
 
 /** HTTP 探测（轮询到站点就绪）。 */
-async function waitForHttp(url, timeoutMs, label) {
+async function waitForHttp(url, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
@@ -273,7 +286,7 @@ try {
       true,
     );
   }
-  if (!(await waitForHttp(webUrl, 60_000, '站点'))) {
+  if (!(await waitForHttp(webUrl, 60_000))) {
     await finish(2, `阻塞：站点不可达（${webUrl}）。`);
   }
   console.log(`站点就绪：${webUrl}`);
