@@ -78,3 +78,24 @@ describe('票 02 · AI 承诺文案与实际交付一致（spec P0-3）', () => 
     expect(enCatalog['ai.subtitle']).not.toContain('local template');
   });
 });
+
+describe('票 03 · 本地建议角标与首页空态文案（spec P0-2）', () => {
+  const zh = zhCN as unknown as Record<string, string>;
+  const enCatalog = en as unknown as Record<string, string>;
+
+  it('降级角标明确标注「本地建议 · 非 AI 生成」（来源可辨）', () => {
+    expect(zh['ai.badge.localTemplate']).toContain('本地建议');
+    expect(zh['ai.badge.localTemplate']).toContain('非 AI 生成');
+  });
+
+  it('首页空态不再承诺「用 AI 生成第一版初稿」（与实际交付一致）', () => {
+    const desc = zh['home.empty.desc'];
+    expect(desc).toBeTruthy();
+    expect(desc).not.toContain('初稿');
+  });
+
+  it('en 兜底目录同步：角标含 not AI-generated，首页空态退场 draft 承诺', () => {
+    expect(enCatalog['ai.badge.localTemplate']).toContain('not AI-generated');
+    expect(enCatalog['home.empty.desc']).not.toContain('draft the first version');
+  });
+});

@@ -84,7 +84,7 @@ export function registerAiRoutes(app: FastifyInstance, context: DaemonContext): 
       credential: summary,
       degradedHint:
         runtime.apiKey === null
-          ? '未配置 DeepSeek key：AI 功能为降级态（建议清单），不影响编辑与出图'
+          ? '未配置 DeepSeek key：AI 功能为降级态（本地建议 · 非 AI 生成），不影响编辑与出图'
           : null,
     };
     return sendOk(reply, status);
