@@ -47,8 +47,11 @@ function runCli(
   delete env.DF_MARKET_INDEX;
   delete env.DF_DATA_ROOT;
   return new Promise((resolvePromise, reject) => {
-    // Node 22.6–22.17 需显式开类型擦除（22.18+/24 默认开，该开关仍兼容）
-    const child = spawn(process.execPath, ['--experimental-strip-types', CLI_BIN, ...args], {
+    // Node 22.6–22.17 需显式开类型擦除；22.18+ / 24 默认开（不再传锁死旧版本的开关）
+    const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
+    const needsStripFlag = major === 22 && minor < 18;
+    const nodeArgs = needsStripFlag ? ['--experimental-strip-types', CLI_BIN] : [CLI_BIN];
+    const child = spawn(process.execPath, [...nodeArgs, ...args], {
       cwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
