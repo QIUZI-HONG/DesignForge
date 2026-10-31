@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-
+import { AI_STEP_STATUSES, AI_VISIBLE_STEPS } from '@/features/ai/steps';
 import en from '../../messages/en.json';
 import zhCN from '../../messages/zh-CN.json';
-import { AI_VISIBLE_STEPS, AI_STEP_STATUSES } from '@/features/ai/steps';
 import { FALLBACK_LOCALE, PRIMARY_LOCALE, t } from './index';
 
 describe('@dforge/web i18n 冒烟', () => {
