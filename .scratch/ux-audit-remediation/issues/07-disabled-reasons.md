@@ -4,8 +4,8 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done（已并入 ux-audit-remediation 672ff52，浏览器项见票面）
 
-- [ ] 组件测试：四处禁用项悬停显示原因 tooltip，文案来自 zh-CN 目录
-- [ ] 组件测试：「分享」既有 tooltip 不回退
-- [ ] 浏览器实测：截图核对四处 tooltip 均在悬停时出现
+- [x] 组件测试：四处禁用项悬停显示原因 tooltip，文案来自 zh-CN 目录
+- [x] 组件测试：「分享」既有 tooltip 不回退
+- [ ] 浏览器实测：截图核对四处 tooltip 均在悬停时出现（待主会话浏览器复核）
