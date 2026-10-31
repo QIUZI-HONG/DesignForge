@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { DaemonContext } from '../app.ts';
 import { sendFail, sendOk } from '../http.ts';
+import { exceedsJsonDepth, MAX_JSON_DEPTH } from '../path-safety.ts';
 
 /** 注册 MCP 确认桩路由。 */
 export function registerMcpRoutes(app: FastifyInstance, context: DaemonContext): void {
@@ -31,10 +32,19 @@ export function registerMcpRoutes(app: FastifyInstance, context: DaemonContext):
         'caller 必须是 user/local-ai/mcp:zcode/mcp:workbuddy/importer 之一',
       );
     }
-    const args =
-      typeof record.args === 'object' && record.args !== null && !Array.isArray(record.args)
-        ? (record.args as Record<string, unknown>)
-        : {};
+    const isPlainArgs =
+      typeof record.args === 'object' && record.args !== null && !Array.isArray(record.args);
+    // 深嵌套 args 在桩的 JSON.stringify（argsDigest 计算，递归）处会栈溢出 → 500：
+    // 与 documents 正文同口径（MAX_JSON_DEPTH），入口先按深度拒为 4xx
+    if (isPlainArgs && exceedsJsonDepth(record.args, MAX_JSON_DEPTH)) {
+      return sendFail(
+        reply,
+        'bad_request',
+        `args 嵌套深度超过上限 ${MAX_JSON_DEPTH} 层（拒绝提案以避免栈溢出）`,
+        { maxDepth: MAX_JSON_DEPTH },
+      );
+    }
+    const args = isPlainArgs ? (record.args as Record<string, unknown>) : {};
     const proposal = await context.mcp.propose({
       tool: record.tool,
       args,
