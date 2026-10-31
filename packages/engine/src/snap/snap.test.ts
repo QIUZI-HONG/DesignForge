@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   createDocument,
   createFrame,
+  createGuide,
   createPage,
   createRect,
+  guidesOf,
   type ScenePage,
 } from '../model/index';
 import { getPage, insertNode, insertNodes } from '../scene/index';
@@ -15,6 +17,7 @@ import {
   type SnapTarget,
   snapPointToGrid,
   snapRectToGrid,
+  snapTargetsFromGuides,
   snapTargetsFromPage,
   snapThresholdWorld,
   snapValueToGrid,
@@ -206,5 +209,54 @@ describe('snap · 从页面收集参考对象', () => {
     expect(ids).not.toContain('r1');
     expect(ids).not.toContain('r2');
     expect(ids).toContain('t1');
+  });
+});
+
+describe('snap · 页面参考线命中（票 12）', () => {
+  const guideV = createGuide({ id: 'guide_v', axis: 'x', position: 200 });
+  const guideH = createGuide({ id: 'guide_h', axis: 'y', position: 120 });
+
+  it('snapTargetsFromGuides：轴语义与 SnapGuide 对齐（x=垂直线、y=水平线），source=guide', () => {
+    const targets = snapTargetsFromGuides([guideV, guideH]);
+    expect(targets).toHaveLength(2);
+    expect(targets[0]).toMatchObject({ id: 'guide_v', source: 'guide' });
+    expect(targets[0]?.bounds).toMatchObject({ x: 200, width: 0 });
+    expect(targets[1]).toMatchObject({ id: 'guide_h', source: 'guide' });
+    expect(targets[1]?.bounds).toMatchObject({ y: 120, height: 0 });
+  });
+
+  it('移动体边缘落入阈值 → 吸附到参考线；refs 恰好一条（零宽矩形的三个候选值相同，不得重复计数）', () => {
+    const result = computeSnap(
+      { x: 196, y: 0, width: 50, height: 50 },
+      snapTargetsFromGuides([guideV]),
+    );
+    expect(result.dx).toBe(4);
+    expect(result.guides).toHaveLength(1);
+    expect(result.guides[0]?.position).toBe(200);
+    expect(result.guides[0]?.refs).toEqual(['guide_v']);
+  });
+
+  it('超出阈值不吸附', () => {
+    const result = computeSnap(
+      { x: 210, y: 0, width: 50, height: 50 },
+      snapTargetsFromGuides([guideV]),
+    );
+    expect(result.dx).toBe(0);
+    expect(result.guides).toEqual([]);
+  });
+
+  it('节点边缘与参考线同距时节点优先（targets 顺序：节点在前）', () => {
+    const node = target('node', 196, 0, 50, 50);
+    const result = computeSnap({ x: 190, y: 0, width: 50, height: 50 }, [
+      node,
+      ...snapTargetsFromGuides([guideV]),
+    ]);
+    // 左缘 190→196（节点）与 190→200（参考线）同距：先解出的节点胜出
+    expect(result.dx).toBe(6);
+    expect(result.guides[0]?.refs).toEqual(['node']);
+  });
+
+  it('旧文档（guides 运行时缺失）经 guidesOf → 无参考目标', () => {
+    expect(snapTargetsFromGuides(guidesOf({ guides: undefined }))).toEqual([]);
   });
 });
