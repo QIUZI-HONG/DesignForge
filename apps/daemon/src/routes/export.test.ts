@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
 import { inflateSync } from 'node:zlib';
 
 import { describe, expect, it } from 'vitest';
@@ -111,7 +112,13 @@ describe('export · 三格式产物', () => {
       expect(text).toContain('fill="#0000FF"');
       expect(artifact.mimeType).toBe('image/svg+xml');
       expect(artifact.fileName).toBe(`${documentId}-page-1.svg`);
-      expect((await import('node:fs/promises')).stat(artifact.filePath)).toBeDefined();
+      // 产物确实落盘：存在性 + 长度 + 内容哈希与响应产物逐项一致
+      const onDisk = await stat(artifact.filePath);
+      expect(onDisk.isFile()).toBe(true);
+      expect(onDisk.size).toBe(artifact.length);
+      const diskBytes = await readFile(artifact.filePath);
+      expect(createHash('sha256').update(diskBytes).digest('hex')).toBe(artifact.sha256);
+      expect(diskBytes.equals(bytes)).toBe(true);
     } finally {
       await daemon.cleanup();
     }

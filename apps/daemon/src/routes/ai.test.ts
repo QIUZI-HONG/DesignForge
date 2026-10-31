@@ -404,6 +404,9 @@ describe('ai · 流式健壮性（上游非 SSE / 客户端断开）', () => {
     const encoder = new TextEncoder();
     let upstreamAborted = false;
     let upstreamCancelled = false;
+    // 推帧定时器必须登记引用：cancel 与 finally 双路清理，文件结束后不得残留
+    let pushTimer: ReturnType<typeof setInterval> | undefined;
+    let pushedFrames = 0;
     const daemon = await createTestDaemon({
       envApiKey: FAKE_KEY,
       fetchImpl: async (_url, init) => {
@@ -415,7 +418,8 @@ describe('ai · 流式健壮性（上游非 SSE / 客户端断开）', () => {
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
             // 持续推帧：客户端不断开就会一直推下去（上游占用）
-            setInterval(() => {
+            pushTimer = setInterval(() => {
+              pushedFrames += 1;
               try {
                 controller.enqueue(
                   encoder.encode('data: {"choices":[{"delta":{"content":"x"}}]}\n\n'),
@@ -428,6 +432,8 @@ describe('ai · 流式健壮性（上游非 SSE / 客户端断开）', () => {
           cancel() {
             upstreamCancelled = true;
             clearInterval(timer);
+            // 对照上面 1s 定时器的写法：推帧定时器同样清理
+            if (pushTimer !== undefined) clearInterval(pushTimer);
           },
         });
         return new Response(stream, {
@@ -451,7 +457,15 @@ describe('ai · 流式健壮性（上游非 SSE / 客户端断开）', () => {
       controller.abort(); // 客户端断开
       await new Promise((resolve) => setTimeout(resolve, 200));
       expect(upstreamAborted || upstreamCancelled).toBe(true);
+      // 推帧定时器确实启动过；显式清理后帧数不再增长（等价 1s 定时器的清理写法）
+      expect(pushTimer).toBeDefined();
+      const framesAtCleanup = pushedFrames;
+      if (pushTimer !== undefined) clearInterval(pushTimer);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(pushedFrames).toBe(framesAtCleanup);
     } finally {
+      // finally 兜底：即便 cancel 未触发或上面清理被删掉，也不让定时器活过文件结束
+      if (pushTimer !== undefined) clearInterval(pushTimer);
       await daemon.cleanup();
     }
   });
