@@ -2,7 +2,8 @@ name: ci
 
 # 设界 · 主 CI（骨架期口径，见 docs/plan/skeleton-and-package-layout-v1.md §2）
 # 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck → 逐包测试
-#      → 脚本单测 → **非浏览器门禁**（守卫 / 引擎 / 参照集·动效·性能阻塞语义；明细见文末挂点说明）。
+#      → 脚本单测 → **非浏览器门禁 + 浏览器门禁的阻塞语义断言**（守卫 / 引擎 / 参照集·动效·性能·
+#      画布·e2e 阻塞语义；明细见文末挂点说明）。
 on:
   push:
     branches: [main]
@@ -128,15 +129,58 @@ jobs:
           fi
           echo "OK：CI 判不了（基线 provisional / 真链路不可用）→ exit 2（阻塞，非通过）——门禁确已执行。"
 
+      # 画布挂载门禁（票 16 转真）：真断言（挂载 6 断言 + 白名单 13 类接线 + C9/C11 外观 +
+      # 四回归场景 E1-E4），驱动口径=生产构建 + next start + chromium-1243。CI 无 Chromium
+      # → exit 2（阻塞）；本步骤断言**三态语义契约**（脚本确已执行、不得零校验 exit 0 假绿），
+      # 不是「门禁通过」；CI 具备 Chromium 后改为要求 exit 0（截图对照段另行阻塞于参照集 REF-01）。
+      - name: 画布挂载门禁（断言阻塞语义：CI 无 Chromium → exit 2）
+        run: |
+          set +e
+          output=$(node scripts/verify-canvas.mjs 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+          if [ "$code" -eq 0 ]; then
+            echo "画布门禁在 CI 判定通过（Chromium 已具备）：本步骤此后应改为必须 exit 0。"
+            exit 0
+          fi
+          if [ "$code" -ne 2 ] || ! printf '%s' "$output" | grep -q '阻塞'; then
+            echo "违规：画布门禁的退出码/日志不符三态语义（exit=$code；期望 2 + 「阻塞」）"
+            exit 1
+          fi
+          echo "OK：CI 无 Chromium → exit 2（阻塞，非通过）——门禁确已执行。"
+
+      # 端到端冒烟门禁（票 16 登记）：场景化 runner（home/nav/canvas 拖画→持久化→导出/导入往返/
+      # editor + 编辑器真实门禁），生产构建 + next start。CI 无 Chromium → runner 前置先行、
+      # 快速 exit 2（阻塞）；本步骤断言**三态语义契约**，CI 具备 Chromium 后改为要求 exit 0。
+      - name: 端到端冒烟门禁（断言阻塞语义：CI 无 Chromium → exit 2）
+        run: |
+          set +e
+          output=$(node scripts/e2e-smoke.mjs 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+          if [ "$code" -eq 0 ]; then
+            echo "e2e 冒烟在 CI 判定通过（Chromium 已具备）：本步骤此后应改为必须 exit 0。"
+            exit 0
+          fi
+          if [ "$code" -ne 2 ] || ! printf '%s' "$output" | grep -q '阻塞'; then
+            echo "违规：e2e 冒烟门禁的退出码/日志不符三态语义（exit=$code；期望 2 + 「阻塞」）"
+            exit 1
+          fi
+          echo "OK：CI 无 Chromium → exit 2（阻塞，非通过）——门禁确已执行。"
+
       # ---------------------------------------------------------------------------------
       # 未接入本 CI 的门禁与原因（**不许注释说接了实际没接**）：
       #   - 浏览器门禁（挂点，随对应实现票接入）：
       #       pnpm verify:figma-home / verify:figma-editor / verify:figma-panels /
       #       verify:figma-inspect / verify:figma-inspector / verify:figma-component
-      #       （逐页/逐组件对照）、pnpm verify:canvas（画布挂载 6 断言）、
-      #       pnpm e2e:smoke（10 步冒烟）、pnpm verify:shell-parity（FE-12 壳内一致性）。
+      #       （逐页/逐组件对照）、pnpm verify:shell-parity（FE-12 壳内一致性）。
       #       驱动口径：playwright-core 1.63.0 锁 chromium-1243，生产构建 + headless；
-      #       需 Chromium 与冻结参照集，CI 暂不具备。
+      #       需 Chromium（与 figma 系另需冻结参照集），CI 暂不具备。
+      #   - verify:canvas / e2e:smoke 的**正式判定**：真断言已实现（票 16，上方两步以
+      #     「阻塞语义断言」接入，同 verify-figma-baseline 模式）——CI 尚无 Chromium 二进制，
+      #     正式接入（要求 exit 0）待 CI 具备 chromium-1243（npx playwright install 或等价物）。
       #   - verify:figma-baseline 的**正式判定**（像素/哈希对照）：参照集按纪律存仓库外
       #     （~/df-evidence/reference-v1，见 implementation-workflow.md「证据存仓库外」），
       #     CI 环境不存在 → 只会是 exit 2；本轮只断言其阻塞语义（上方步骤），
