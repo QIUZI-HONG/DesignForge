@@ -314,20 +314,6 @@ async function startFixtureDaemonStripTypes() {
 /** 覆盖层挂点选择器（文本节点 id → 覆盖层 textarea）。 */
 const overlaySelector = (id) => `[data-df-text-overlay="${id}"]`;
 
-/** 读节点屏幕几何：世界矩形 × zoom + pan（与 nodeOverlayBox 共享口径一致）。 */
-const SCREEN_BOX_EXPR = `(id) => {
-  const handle = globalThis.__dforgeCanvas;
-  const geometry = handle.geometry(id);
-  if (geometry === null) return null;
-  const viewport = handle.viewport();
-  return {
-    left: geometry.x * viewport.zoom + viewport.panX,
-    top: geometry.y * viewport.zoom + viewport.panY,
-    width: geometry.width * viewport.zoom,
-    height: geometry.height * viewport.zoom,
-  };
-}`;
-
 try {
   // --- 夹具 daemon（临时数据根） ---
   daemon = await startFixtureDaemonStripTypes();
@@ -440,12 +426,21 @@ try {
 
   // --- ② 双击路径进入编辑 + 覆盖层世界坐标对齐 ---
   const worldCenter = await page.evaluate(
-    `(id) => {
+    (id) => {
       const geometry = globalThis.__dforgeCanvas.geometry(id);
+      if (geometry === null) return null;
       return { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 };
-    }`,
+    },
     textId,
   );
+  if (worldCenter === null) {
+    await finish(
+      2,
+      `阻塞：提交后读不到文本节点几何（id=${textId}，nodeIds=${JSON.stringify(
+        await page.evaluate(() => globalThis.__dforgeCanvas.nodeIds()),
+      )}）`,
+    );
+  }
   const viewport = await page.evaluate(() => globalThis.__dforgeCanvas.viewport());
   const textScreenLocal = {
     x: worldCenter.x * viewport.zoom + viewport.panX,
@@ -458,8 +453,23 @@ try {
     overlayAppeared = false;
   });
   const screenBox = await page.evaluate(
-    new Function(`return (${SCREEN_BOX_EXPR})(${JSON.stringify(textId)})`),
+    (id) => {
+      const handle = globalThis.__dforgeCanvas;
+      const geometry = handle.geometry(id);
+      if (geometry === null) return null;
+      const viewport = handle.viewport();
+      return {
+        left: geometry.x * viewport.zoom + viewport.panX,
+        top: geometry.y * viewport.zoom + viewport.panY,
+        width: geometry.width * viewport.zoom,
+        height: geometry.height * viewport.zoom,
+      };
+    },
+    textId,
   );
+  if (screenBox === null) {
+    await finish(2, `阻塞：双击前读不到文本节点屏幕几何（id=${textId}）。`);
+  }
   record(
     'text.double-click-enters-editing',
     overlayAppeared,
@@ -487,8 +497,8 @@ try {
     `覆盖层 left/top=(${overlayLeft ?? '无'}, ${overlayTop ?? '无'})，期望 (${screenBox.left.toFixed(1)}, ${screenBox.top.toFixed(1)})（世界 × zoom + pan）`,
   );
 
-  // --- ③ 编辑回灌（输入即所见） ---
-  await page.keyboard.type('改');
+  // --- ③ 编辑回灌（输入即所见；双击进入带全选，键入整段替换选区） ---
+  await page.keyboard.type('改标题');
   const typed = await page.evaluate(() => globalThis.__dforgeCanvas.editingText()?.characters ?? null);
   record(
     'text.editing-mirrors-input',
@@ -510,8 +520,9 @@ try {
     `失焦提交后 textContent=${committed === null ? 'null' : JSON.stringify(committed)}（巡检缺口：失焦提交本轮未落盘）`,
   );
   const panelRowCount = await page.evaluate(
-    `(id) => document.querySelectorAll('[data-df-panel="layers"] [data-node-id]').length &&
-      document.querySelector('[data-df-panel="layers"] [data-node-id="' + id + '"]') !== null`,
+    (id) =>
+      document.querySelectorAll('[data-df-panel="layers"] [data-node-id]').length > 0 &&
+      document.querySelector(`[data-df-panel="layers"] [data-node-id="${id}"]`) !== null,
     textId,
   );
   const rootsAfter = await page.evaluate(() => globalThis.__dforgeCanvas.nodeIds().length);

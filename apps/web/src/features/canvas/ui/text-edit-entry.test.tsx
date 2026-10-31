@@ -216,4 +216,36 @@ describe('文本编辑进入路径（票 13）', () => {
     const node = resolveNode(session.page(), 'n_text');
     expect(node?.type === 'text' && node.text.characters).toBe('落盘稿');
   });
+
+  it('T 工具路径：打开编辑的那一击，同击 mousedown 不夺焦（慢环境「打开即关」根因，票 13）', () => {
+    // 真浏览器（慢机/自动化）时序：pointerdown 建文本开编辑 → React 在同击 mousedown
+    // 之前挂载并聚焦覆盖层 → mousedown 若再触发失焦提交，编辑态闪现即关。
+    // 适配器按「这一击是否打开了编辑」区分：同击不 blur，下一击才失焦提交。
+    session.setTool('text');
+    act(() => {
+      element.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 100 + 150,
+          clientY: 50 + 80,
+          button: 0,
+        }),
+      );
+      element.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }),
+      );
+    });
+    const editing = session.store.getState().editing;
+    expect(editing).not.toBeNull();
+    const overlay = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(overlay);
+    // 下一击（同节点上的普通点击）才走失焦提交
+    act(() => {
+      element.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }),
+      );
+    });
+    expect(session.store.getState().editing).toBeNull();
+  });
 });

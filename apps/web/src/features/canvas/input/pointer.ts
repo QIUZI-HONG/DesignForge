@@ -95,6 +95,13 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
   const requestRender = options.requestRender ?? ((): void => undefined);
   const isCanvasSurface = options.isCanvasSurface ?? defaultSurfaceCheck(element);
 
+  /**
+   * 本次点击是否正是「打开文本编辑」的那一击（同击的 mousedown 不得夺焦提交）。
+   * 真浏览器里 pointerdown 开编辑后 React 才挂载覆盖层并聚焦——若这次点击的
+   * mousedown 再触发失焦提交，编辑态就「打开即关」（票 13 巡检根因）。
+   */
+  let clickOpenedEditing = false;
+
   const onPointerDown = (event: PointerEvent): void => {
     if (!isCanvasSurface(event.target)) return;
     // 中键：阻止 autoscroll；右键：交给 contextmenu（这里不动默认行为）
@@ -102,6 +109,7 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
     if (event.button === 2) return;
     element.focus?.();
     const local = localPoint(element, event);
+    const editingBefore = session.store.getState().editing !== null;
     guard(session, () =>
       session.pointerDown({
         screen: local,
@@ -111,6 +119,7 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
         deep: event.metaKey || event.ctrlKey,
       }),
     );
+    clickOpenedEditing = !editingBefore && session.store.getState().editing !== null;
     requestRender();
   };
 
@@ -182,21 +191,25 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
    * 画布表面的 mousedown：**接管焦点转移**（票 13「打开即关」根因）。
    *
    * 浏览器对画布 mousedown 的默认动作是把焦点搬到 body（画布壳不可聚焦）——
-   * 时序上它落在「pointerdown 开编辑 → React 挂载覆盖层并聚焦」**之后**，
+   * 时序上它可能落在「pointerdown 开编辑 → React 挂载覆盖层并聚焦」**之后**，
    * 于是刚聚焦的文本覆盖层立刻被夺焦：blur 即提交，编辑态闪现即关闭
    * （巡检 C10：双击/点击路径「没进编辑」、失焦提交未落盘的真实根因）。
    * 因此：
-   * - 覆盖层已持焦点 → 显式 `blur()`，「失焦提交」确定性发生（不再依赖默认动作时序）；
-   * - 其余情况 → `preventDefault()`，画布点击不改变焦点（覆盖层挂载后保持焦点；
-   *   键盘语义在 document 层，画布本就不需要焦点）。
+   * - 覆盖层持焦且这一击**不是**打开编辑的那一击 → 显式 `blur()`，
+   *   「失焦提交」确定性发生（不再依赖默认动作时序）；
+   * - 其余情况只 `preventDefault()`：画布点击不改变焦点（键盘语义在 document 层），
+   *   打开编辑的那一击的 mousedown 不得夺走同击刚聚焦的覆盖层。
    * 只管左键；中键（autoscroll）/右键（菜单）各有专属处理。
    */
   const onMouseDown = (event: MouseEvent): void => {
     if (!isCanvasSurface(event.target) || event.button !== 0) return;
     const active = document.activeElement;
-    if (active instanceof HTMLElement && active.dataset.dfTextOverlay !== undefined) {
+    const overlayFocused =
+      active instanceof HTMLElement && active.dataset.dfTextOverlay !== undefined;
+    if (overlayFocused && !clickOpenedEditing) {
       active.blur();
     }
+    clickOpenedEditing = false;
     event.preventDefault();
   };
 
