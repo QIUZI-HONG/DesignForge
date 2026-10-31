@@ -715,6 +715,7 @@
   "image.form.height": "高",
   "image.form.steps": "步数",
   "image.action.submit": "生成图片",
+  "image.action.submit.disabled": "请先输入提示词",
   "image.action.submitting": "正在提交",
   "image.action.cancel": "取消",
   "image.action.downgrade": "降档重试",

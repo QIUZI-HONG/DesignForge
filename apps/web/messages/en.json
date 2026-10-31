@@ -715,6 +715,7 @@
   "image.form.height": "Height",
   "image.form.steps": "Steps",
   "image.action.submit": "Generate image",
+  "image.action.submit.disabled": "Enter a prompt first",
   "image.action.submitting": "Submitting",
   "image.action.cancel": "Cancel",
   "image.action.downgrade": "Retry downgraded",
