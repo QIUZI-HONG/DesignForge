@@ -60,23 +60,38 @@ export function statusConfigured(): AiStatusResponse {
   };
 }
 
-/** 降级完成响应（与真响应同构；`reason` 注入降级原因，缺省 no-credentials）。 */
-export function degradedResponse(reason?: AiDegradeReason): AiChatResponse {
+/**
+ * 降级完成响应（与真响应同构；`reason` 注入降级原因，缺省 no-credentials；
+ * `options.content` 注入正文——无 key 降级时 daemon 产出的本地建议为非空串，
+ * 上游失败可能为空串，两种形态都要可测）。
+ */
+export function degradedResponse(
+  reason?: AiDegradeReason,
+  options?: { content?: string },
+): AiChatResponse {
+  // 建议按 reason 与 daemon suggestionsFor 同构：无 key → 配置凭据；上游失败 → 稍后重试；
+  // manual-edit 收尾（无 key 真跑时生成器还会追加逐族 manual-edit 条目，见票 03）。
+  const suggestions: AiChatResponse['suggestions'] =
+    (reason ?? 'no-credentials') === 'no-credentials'
+      ? [
+          {
+            kind: 'configure-credentials',
+            title: '未配置 DeepSeek API key',
+            detail: '在设置页填入 key（sk-…）后即可使用 AI 功能',
+          },
+        ]
+      : [{ kind: 'retry-later', title: '请求未能完成', detail: '可稍后重试' }];
   return {
     runId: 'ai_degraded',
     provider: 'deepseek',
     model: 'deepseek-chat',
-    content: '',
+    content: options?.content ?? '',
     finishReason: 'degraded',
     usage: null,
     degraded: true,
     degradedReason: reason ?? 'no-credentials',
     suggestions: [
-      {
-        kind: 'configure-credentials',
-        title: '未配置 DeepSeek API key',
-        detail: '在设置页填入 key（sk-…）后即可使用 AI 功能',
-      },
+      ...suggestions,
       { kind: 'manual-edit', title: '可先手动完成本次修改', detail: null },
     ],
   };

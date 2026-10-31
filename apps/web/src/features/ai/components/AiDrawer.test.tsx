@@ -68,7 +68,7 @@ describe('AI 抽屉（F4）', () => {
     expect(port.streamCalls).toBe(1);
   });
 
-  it('降级态：与真态同构渲染 + 显式角标「本地建议」+ 建议动作（文案均来自 zh-CN 目录）', async () => {
+  it('降级态（上游失败、无内容）：与真态同构渲染 + 角标 + 诚实空态说明（文案均来自 zh-CN 目录）', async () => {
     const user = userEvent.setup();
     const port = fakeAiPort({
       runs: [
@@ -80,7 +80,7 @@ describe('AI 抽屉（F4）', () => {
             model: 'deepseek-chat',
             degraded: true,
           },
-          { type: 'done', response: degradedResponse() },
+          { type: 'done', response: degradedResponse('upstream-error') },
         ],
       ],
     });
@@ -98,8 +98,51 @@ describe('AI 抽屉（F4）', () => {
     expect(await screen.findByText(t('ai.result.degradedEmpty'))).toBeTruthy();
     // 降级也走完可见三段（同构：完成段同样打勾），并且给出可操作建议
     expect(stepRow('done')?.getAttribute('data-df-step-status')).toBe('done');
+    expect(screen.getByText('可先手动完成本次修改')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+  });
+
+  it('降级完成态渲染建议正文 + 独立角标「本地建议 · 非 AI 生成」（票 03 / spec P0-2）', async () => {
+    const user = userEvent.setup();
+    const adviceBody = [
+      '针对「按钮」「圆角」的操作建议：',
+      '1. 用「矩形工具」在画布拖出按钮底形；',
+      '2. 在属性面板「圆角」输入统一数值。',
+      '',
+      '注意事项：',
+      '- 以上为本地规则生成的建议（非 AI 生成），不会改动你的文档。',
+    ].join('\n');
+    const port = fakeAiPort({
+      runs: [
+        [
+          {
+            type: 'start',
+            runId: 'ai_local',
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            degraded: true,
+          },
+          { type: 'done', response: degradedResponse('no-credentials', { content: adviceBody }) },
+        ],
+      ],
+    });
+    render(<AiDrawer port={port} defaultOpen onConfigureCredentials={() => undefined} />);
+
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    await user.click(screen.getByRole('button', { name: '生成' }));
+
+    // 建议正文经同一内容位渲染（与真响应同构：不为降级写内容分支）
+    expect(await screen.findByText(/针对「按钮」「圆角」的操作建议/)).toBeTruthy();
+    expect(screen.getByText(/本地规则生成的建议/)).toBeTruthy();
+    // 独立角标：label 明确「非 AI 生成」，来源可辨（label 来自 zh-CN 目录）
+    const badge = await screen.findByText(t('ai.badge.localTemplate'));
+    expect(badge.getAttribute('data-df-badge')).toBe('local-template');
+    expect(catalog['ai.badge.localTemplate']).toContain('非 AI 生成');
+    // 降级原因行与建议动作照常（挂点与信封同构）
+    expect(document.querySelector('[data-df-ai-degrade-reason="no-credentials"]')).not.toBeNull();
     expect(screen.getByText('未配置 DeepSeek API key')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '去配置 key' })).toBeTruthy();
+    // 有真实正文时不再出现「没有内容」兜底
+    expect(screen.queryByText(t('ai.result.degradedEmpty'))).toBeNull();
   });
 
   it('抽屉副标题来自 zh-CN 目录（票 02：不再暗示会修改文档）', async () => {
