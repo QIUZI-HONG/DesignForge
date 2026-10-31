@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done（已并入 ux-audit-remediation bda22c3，浏览器项待复核）
 
-- [ ] README 修正后，按文档从零执行 daemon 与 web 启动成功（Node 22.16 环境可复现）
-- [ ] dev 装载地址按所选方案修正；127.0.0.1 与 localhost 至少其一在文档路径下水合正常
-- [ ] 浏览器实测：/editor 与 / 加载 console 无水合错配、无 script-tag 警告、无重复 key 警告
-- [ ] Inspector 无裸键名，全部文案来自 zh-CN 目录
-- [ ] 既有门禁（lint/typecheck/test）全绿
+- [x] README 修正后，按文档从零执行 daemon 与 web 启动成功（Node 22.16 环境可复现）
+- [x] dev 装载地址按所选方案修正；127.0.0.1 与 localhost 至少其一在文档路径下水合正常
+- [ ] 浏览器实测：/editor 与 / 加载 console 无水合错配、无 script-tag 警告、无重复 key 警告（待主会话浏览器复核）
+- [x] Inspector 无裸键名，全部文案来自 zh-CN 目录
+- [x] 既有门禁（lint/typecheck/test）全绿
