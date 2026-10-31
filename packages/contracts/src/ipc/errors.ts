@@ -12,6 +12,7 @@ export const DF_ERROR_CODES = [
   'bad_request',
   'not_found',
   'conflict',
+  'forbidden',
   'internal',
   // 文档（.dfg 目录态）
   'doc_not_found',
@@ -60,6 +61,7 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   bad_request: 400,
   not_found: 404,
   conflict: 409,
+  forbidden: 403,
   internal: 500,
   doc_not_found: 404,
   doc_exists: 409,
