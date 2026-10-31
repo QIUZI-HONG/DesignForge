@@ -9,14 +9,20 @@
 import {
   applyToPoint,
   boundsCenter,
+  boundsOfPoints,
+  identity,
   invert,
+  multiply,
+  parentFrameRotation,
+  parentWorldMatrix,
+  translation,
   worldBoundsOfNode,
-  worldBoundsOfNodes,
   worldDeltaToLocal,
   worldMatrix,
+  worldQuad,
   worldRotation,
 } from '../geometry/index';
-import type { Point, Rect } from '../geometry/types';
+import type { Matrix, Point, Rect } from '../geometry/types';
 import { ID_PREFIX, type IdFactory, systemIdFactory } from '../model/ids';
 import type { NodeId, NodePatch, PageId, SceneNode, ScenePage } from '../model/index';
 import { createGroup } from '../model/index';
@@ -90,6 +96,32 @@ export function reorderNodeCommands(pageId: PageId, nodeId: NodeId, op: ZOrderOp
 }
 
 /**
+ * 换算原语（改父 / 解组 / 编组 / 建组件共用）：把节点换算进「以 `frameMatrix` 为世界矩阵、
+ * 累计旋转为 `frameRotation` 的父坐标系」的属性补丁，使其**世界形状保持不变**
+ * （位置 = 世界中心在新父坐标系中的落点；旋转 = 世界旋转 − 新父系旋转）。
+ * 新父级尚未入树时（编组 / 建组件的容器），由调用方手工合成其世界矩阵后传入同一原语，
+ * 保证「进入任何父坐标系」只有一套换算语义。
+ */
+function patchToKeepWorldShape(
+  page: ScenePage,
+  nodeId: NodeId,
+  frameMatrix: Matrix,
+  frameRotation: number,
+): NodePatch | null {
+  const node = resolveNode(page, nodeId);
+  if (!node) return null;
+  const quad = worldBoundsOfNode(page, nodeId);
+  if (!quad) return null;
+  const center = boundsCenter(quad);
+  const localCenter = applyToPoint(invert(frameMatrix), center);
+  return {
+    x: localCenter.x - node.width / 2,
+    y: localCenter.y - node.height / 2,
+    rotation: worldRotation(page, nodeId) - frameRotation,
+  };
+}
+
+/**
  * 把节点换算到「新父级坐标系」的属性补丁，使其**世界形状保持不变**
  * （位置 = 世界中心在新父坐标系中的落点；旋转 = 世界旋转 − 新父坐标系旋转）。
  * 返回 null 表示节点不存在。
@@ -99,20 +131,9 @@ export function frameTransformPatch(
   nodeId: NodeId,
   newParentId: NodeId | null,
 ): NodePatch | null {
-  const node = resolveNode(page, nodeId);
-  if (!node) return null;
-  const quad = worldBoundsOfNode(page, nodeId);
-  if (!quad) return null;
-  const center = boundsCenter(quad);
-  const frameMatrix =
-    newParentId === null ? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 } : worldMatrix(page, newParentId);
-  const localCenter = applyToPoint(invert(frameMatrix), center);
+  const frameMatrix = newParentId === null ? identity() : worldMatrix(page, newParentId);
   const frameRotation = newParentId === null ? 0 : worldRotation(page, newParentId);
-  return {
-    x: localCenter.x - node.width / 2,
-    y: localCenter.y - node.height / 2,
-    rotation: worldRotation(page, nodeId) - frameRotation,
-  };
+  return patchToKeepWorldShape(page, nodeId, frameMatrix, frameRotation);
 }
 
 /** 保持世界位置的改父（图层面板拖拽的语义）。 */
@@ -131,7 +152,7 @@ export function reparentPreservingWorldCommands(
   ];
 }
 
-/** 编组：组包围盒 = 选中节点世界 AABB 的并集；子节点坐标改为相对组，世界形状不变。 */
+/** 编组：组包围盒 = 选中节点并集在**父坐标系**中的 AABB；子节点坐标改为相对组，世界形状不变。 */
 export function groupNodesCommands(
   page: ScenePage,
   pageId: PageId,
@@ -140,8 +161,6 @@ export function groupNodesCommands(
 ): Command[] {
   const roots = sortByZOrder(page, topmostIds(page, nodeIds));
   if (roots.length === 0) return [];
-  const bounds = worldBoundsOfNodes(page, roots);
-  if (!bounds) return [];
 
   // 编组要求同层（Figma 的编组也是同层操作）：跨父级会改变层级语义
   const parents = new Set(roots.map((id) => parentIdOf(page, id)));
@@ -151,20 +170,20 @@ export function groupNodesCommands(
 
   const ids = options.ids ?? systemIdFactory;
   const groupId = options.groupId ?? ids.next(ID_PREFIX.group);
-  const group = createGroup({
-    id: groupId,
-    name: options.name ?? '编组',
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
-  });
+  const group = createGroup({ id: groupId, name: options.name ?? '编组' });
+  // 容器几何由 wrapIntoContainerCommands 统一经父坐标系逆换算落位
   return wrapIntoContainerCommands(page, pageId, roots, group);
 }
 
 /**
- * 把选中节点包进**给定容器**（容器需已按选中并集定位），并使各子节点世界形状不变。
+ * 把选中节点包进**给定容器**，并使各子节点世界形状不变。
  * 编组与「提升为主组件」共用这条路径。
+ *
+ * 容器定位与子项补丁一律经**父坐标系逆换算**（与解组路径 `frameTransformPatch` 同一原语）：
+ * - 容器 x/y 语义为相对父容器，落位取选中并集在父坐标系中的 AABB——
+ *   世界 AABB 直接当父相对坐标会让整组瞬移一个父偏移，父级带旋转时再错一层旋转；
+ * - 容器相对父级无旋转（编组/组件容器构造时 rotation 为 0），其世界矩阵 = 父世界矩阵 ∘ 局部平移；
+ * - 传入容器的几何字段仅作占位，落位几何以本函数计算为准。
  */
 export function wrapIntoContainerCommands(
   page: ScenePage,
@@ -175,16 +194,26 @@ export function wrapIntoContainerCommands(
   const first = roots[0] as NodeId;
   const parentId = parentIdOf(page, first);
   const index = siblingIndexOf(page, first);
-  const bounds = {
-    x: container.x,
-    y: container.y,
-    width: container.width,
-    height: container.height,
+  const parentMatrix = parentId === null ? identity() : parentWorldMatrix(page, first);
+  const localBounds = selectionBoundsInParentSpace(page, roots, parentMatrix);
+  if (!localBounds) return [];
+  const placed: ContainerLike = {
+    ...container,
+    x: localBounds.x,
+    y: localBounds.y,
+    width: localBounds.width,
+    height: localBounds.height,
   };
-  const patches = roots.map((id) => ({ id, patch: inGroupPatch(page, id, bounds) }));
+  const containerMatrix = multiply(parentMatrix, translation(localBounds.x, localBounds.y));
+  const frameRotation = parentId === null ? 0 : parentFrameRotation(page, first);
+  const patches = roots.map((id) => ({
+    id,
+    patch: patchToKeepWorldShape(page, id, containerMatrix, frameRotation),
+  }));
 
-  const commands: Command[] = [{ type: 'node.insert', pageId, node: container, parentId, index }];
+  const commands: Command[] = [{ type: 'node.insert', pageId, node: placed, parentId, index }];
   patches.forEach(({ id, patch }, order) => {
+    if (!patch) return;
     commands.push({ type: 'node.update', pageId, nodeId: id, patch });
     commands.push({
       type: 'node.reparent',
@@ -197,7 +226,7 @@ export function wrapIntoContainerCommands(
   return commands;
 }
 
-/** 可作为容器包裹选中节点的节点（编组/组件/画板）。 */
+/** 可作为容器包裹选中节点的节点（编组/组件/画板）；几何字段仅作占位，落位由 `wrapIntoContainerCommands` 统一经父坐标系逆换算确定。 */
 export type ContainerLike = SceneNode & {
   id: NodeId;
   x: number;
@@ -206,16 +235,24 @@ export type ContainerLike = SceneNode & {
   height: number;
 };
 
-/** 子节点进入「以组原点为原点的无旋转坐标系」后的属性。 */
-function inGroupPatch(page: ScenePage, nodeId: NodeId, groupBounds: Rect): NodePatch {
-  const node = resolveNode(page, nodeId) as { width: number; height: number };
-  const world = worldBoundsOfNode(page, nodeId) as Rect;
-  const center = boundsCenter(world);
-  return {
-    x: center.x - node.width / 2 - groupBounds.x,
-    y: center.y - node.height / 2 - groupBounds.y,
-    rotation: worldRotation(page, nodeId),
-  };
+/**
+ * 选中并集在父坐标系中的 AABB：各节点世界四角经父矩阵逆映射后取并集。
+ * 父级带旋转时这才是「紧包裹」——节点的父局部脚印本就是其在父坐标系中的真实形状。
+ */
+function selectionBoundsInParentSpace(
+  page: ScenePage,
+  roots: readonly NodeId[],
+  parentMatrix: Matrix,
+): Rect | null {
+  const inverse = invert(parentMatrix);
+  const points: Point[] = [];
+  for (const id of roots) {
+    const quad = worldQuad(page, id);
+    if (!quad) return null;
+    for (const point of quad) points.push(applyToPoint(inverse, point));
+  }
+  if (points.length === 0) return null;
+  return boundsOfPoints(points);
 }
 
 /** 解组：子节点升到组的父级、保持在组中的绘制顺序，世界形状不变。 */

@@ -125,6 +125,12 @@ export function dropProtoKeys<T>(value: T): T {
 /**
  * 节点形状校验（结构 + 类型，不判数值有限性——后者由 `collectNonFiniteNumbers` 报出）。
  * 文档校验与剪贴板载荷校验（B5）同口径复用。
+ *
+ * 未知自有字段：**保留不拒**（票 08 定案）。前向兼容是 serialize-edges 钉住的既定语义
+ * （v1 引擎可开未来版本文档）；B5 的「未知自有键残留」根因在**写路径**，已由
+ * `setNodeProps` 的键适用性守门在写前拒绝——校验侧拒绝会把「开新版本文档」从
+ * 降级变成硬失败，收益不抵破坏。导入入口的残留风险由非有限数/深度守门与
+ * `__proto__` 丢弃覆盖，节点字段集合的封闭化若要做，应随版本迁移票一起定。
  */
 export function validateNodeShape(node: unknown, path: string): DocumentIssue[] {
   const issues: DocumentIssue[] = [];

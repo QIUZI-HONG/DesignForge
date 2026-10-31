@@ -376,6 +376,53 @@ export const PATCHABLE_KEYS = [
 /** 补丁属性键类型。 */
 export type PatchableKey = (typeof PATCHABLE_KEYS)[number];
 
+/**
+ * 基础可写补丁键（全部节点类型共有，即 NodeBase 的可写子集）。
+ *
+ * 为什么要有这张表：`NodePatch` 是**全类型联合**，类型系统挡不住「把 frame 的键发给
+ * rect」（B5 证据：对 group 发 `autoLayout` 会留下 undo 清不掉的自有键残留）。
+ * 应用侧（`setNodeProps`）据此按节点类型守门。
+ */
+const BASE_PATCH_KEYS = [
+  'name',
+  'x',
+  'y',
+  'width',
+  'height',
+  'rotation',
+  'visible',
+  'locked',
+  'opacity',
+  'blendMode',
+  'fills',
+  'strokes',
+  'effects',
+  'cornerRadius',
+] as const satisfies readonly PatchableKey[];
+
+/** 各节点类型在基础键之外的特有可写键（与各节点接口对 NodeBase 的扩展一一对应）。 */
+const TYPE_PATCH_KEYS: Record<SceneNodeType, readonly PatchableKey[]> = {
+  rect: [],
+  ellipse: [],
+  text: ['text'],
+  frame: ['clipsContent', 'autoLayout'],
+  group: [],
+  component: ['variantProperties'],
+  component_set: [],
+  instance: [],
+};
+
+/**
+ * 某节点类型可写的补丁键集合（`node.update` 应用侧守门用，B5）。
+ *
+ * 判据 = 基础键 ∪ 该类型特有键；不在其内的键一律不适用——既包括全联合里
+ * 其它类型的键（`autoLayout` 发给 group），也包括 Design IR 未知键与结构性键
+ * （children/componentId/overrides 走专用命令，永远不在补丁键集合内）。
+ */
+export function applicablePatchKeys(type: SceneNodeType): ReadonlySet<PatchableKey> {
+  return new Set([...BASE_PATCH_KEYS, ...TYPE_PATCH_KEYS[type]]);
+}
+
 /** 从节点提取指定键的补丁（撤销用：先取旧值，再写新值）。 */
 export function pickPatch(node: SceneNode, keys: readonly PatchableKey[]): NodePatch {
   const patch: Record<string, unknown> = {};

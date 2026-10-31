@@ -175,7 +175,261 @@ describe('export · 三格式产物', () => {
   });
 });
 
+/**
+ * web 真实信封夹具（镜像 `apps/web/.../documents-client.ts` 的 `encodePageBody` 输出）：
+ * `{ $format: 'dforge.canvas.page', $version: 1, page: ScenePage, tokens }`，
+ * ScenePage = 扁平节点表（`nodes: Record<id, node>`，字段集对齐引擎 `model/node.ts`）
+ * + `rootIds` 顶层顺序（后者在上）+ `backgroundColor` + `grid`。
+ * 这是「画图 → 保存」在 daemon 侧实际落盘的正文形状（§A1 缺陷现场）。
+ */
+function realCanvasEnvelope(): Record<string, unknown> {
+  return {
+    $format: 'dforge.canvas.page',
+    $version: 1,
+    page: {
+      id: 'page-1',
+      name: '页面 1',
+      nodes: {
+        'rect-1': {
+          id: 'rect-1',
+          name: '矩形',
+          type: 'rect',
+          x: 10,
+          y: 20,
+          width: 120,
+          height: 60,
+          rotation: 0,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          blendMode: 'normal',
+          fills: [{ type: 'solid', color: '#FF0000', opacity: 1, visible: true }],
+          strokes: [],
+          effects: [],
+          cornerRadius: 8,
+        },
+        'ellipse-1': {
+          id: 'ellipse-1',
+          name: '椭圆',
+          type: 'ellipse',
+          x: 160,
+          y: 30,
+          width: 60,
+          height: 60,
+          rotation: 0,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          blendMode: 'normal',
+          fills: [{ type: 'solid', color: '#0000FF', opacity: 1, visible: true }],
+          strokes: [],
+          effects: [],
+          cornerRadius: 0,
+        },
+        'text-1': {
+          id: 'text-1',
+          name: '文本',
+          type: 'text',
+          x: 20,
+          y: 90,
+          width: 80,
+          height: 24,
+          rotation: 0,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          blendMode: 'normal',
+          fills: [{ type: 'solid', color: '#000000', opacity: 1, visible: true }],
+          strokes: [],
+          effects: [],
+          cornerRadius: 0,
+          text: {
+            characters: '标题',
+            fontFamily: 'Noto Sans SC',
+            fontSize: 24,
+            fontWeight: 400,
+            lineHeight: 1.4,
+            letterSpacing: 0,
+            align: 'left',
+            autoResize: 'width_and_height',
+          },
+        },
+        'rect-hidden': {
+          id: 'rect-hidden',
+          name: '隐藏矩形',
+          type: 'rect',
+          x: 0,
+          y: 0,
+          width: 20,
+          height: 20,
+          rotation: 0,
+          visible: false,
+          locked: false,
+          opacity: 1,
+          blendMode: 'normal',
+          fills: [{ type: 'solid', color: '#00FF00', opacity: 1, visible: true }],
+          strokes: [],
+          effects: [],
+          cornerRadius: 0,
+        },
+        'inst-1': {
+          id: 'inst-1',
+          name: '实例',
+          type: 'instance',
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+          rotation: 0,
+          visible: true,
+          locked: false,
+          opacity: 1,
+          blendMode: 'normal',
+          fills: [],
+          strokes: [],
+          effects: [],
+          cornerRadius: 0,
+          componentId: 'comp-1',
+          overrides: {},
+        },
+      },
+      rootIds: ['rect-1', 'ellipse-1', 'text-1', 'rect-hidden', 'inst-1'],
+      backgroundColor: '#F5F5F5',
+      grid: { size: 10, visible: false, snapToGrid: false, style: 'grid' },
+    },
+    tokens: {},
+  };
+}
+
+/** 按 web 保存链路落一份真实信封文档（create → PUT page-1，对齐 saveDesignDocument）。 */
+async function seedEnvelopeDocument(daemon: TestDaemon): Promise<string> {
+  const created = await injectJson(daemon.app, {
+    method: 'POST',
+    url: '/documents',
+    payload: { name: '真实画布' },
+  });
+  const id = (created.payload as { result: { document: { id: string } } }).result.document.id;
+  const saved = await injectJson(daemon.app, {
+    method: 'PUT',
+    url: `/documents/${encodeURIComponent(id)}/pages/page-1`,
+    payload: { body: realCanvasEnvelope() },
+  });
+  expect(saved.statusCode).toBe(200);
+  return id;
+}
+
+describe('export · web 真实信封保存 → 导出（§A1 核心闭环）', () => {
+  it('PNG：信封展平生效——产物尺寸取内容包围盒、像素非空（红矩形/蓝椭圆/页面底色）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const documentId = await seedEnvelopeDocument(daemon);
+      const { statusCode, payload } = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId, pageId: 'page-1', format: 'png' },
+      });
+      expect(statusCode).toBe(200);
+      const result = (
+        payload as {
+          result: { artifact: { base64: string; length: number }; skippedNodes: number };
+        }
+      ).result;
+      // 产物非空且远大于「空场景」的下限（§A1 现状是空白 1440×900）
+      expect(result.artifact.length).toBeGreaterThan(0);
+      const png = decodePng(Buffer.from(result.artifact.base64, 'base64'));
+      // 包围盒：矩形右缘 10+120=130、椭圆右缘 160+60=220；底缘 max(30+60, 90+24)=114
+      expect(png.width).toBe(220);
+      expect(png.height).toBe(114);
+      // 红矩形内部（10–130 × 20–80 → 内点 70,50）
+      expect(png.pixel(70, 50)).toEqual([255, 0, 0, 255]);
+      // 蓝椭圆中心（160–220 × 30–90 → 中心 190,60）
+      expect(png.pixel(190, 60)).toEqual([0, 0, 255, 255]);
+      // 远角是页面底色 #F5F5F5（信封的 page.backgroundColor 生效）
+      expect(png.pixel(215, 5)).toEqual([245, 245, 245, 255]);
+      // 隐藏矩形 + 实例（组件语义不解析）→ skippedNodes = 2
+      expect(result.skippedNodes).toBe(2);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('SVG：矩形/椭圆/文本与页面底色全部进产物（非空正文）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const documentId = await seedEnvelopeDocument(daemon);
+      const { payload } = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId, pageId: 'page-1', format: 'svg' },
+      });
+      const artifact = (payload as { result: { artifact: { base64: string } } }).result.artifact;
+      const text = Buffer.from(artifact.base64, 'base64').toString('utf8');
+      expect(text).toContain('width="220" height="114"');
+      expect(text).toContain('fill="#F5F5F5"');
+      expect(text).toContain('fill="#FF0000"');
+      expect(text).toContain('<ellipse');
+      expect(text).toContain('fill="#0000FF"');
+      expect(text).toContain('标题');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('PDF：MediaBox 取内容包围盒尺寸，含矩形填充操作符', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const documentId = await seedEnvelopeDocument(daemon);
+      const { payload } = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId, pageId: 'page-1', format: 'pdf' },
+      });
+      const artifact = (payload as { result: { artifact: { base64: string } } }).result.artifact;
+      const text = Buffer.from(artifact.base64, 'base64').toString('utf8');
+      expect(text.startsWith('%PDF-1.4')).toBe(true);
+      expect(text).toContain('/MediaBox [0 0 220 114]');
+      expect(text).toContain('1 0 0 rg');
+      expect(text).toContain('re f');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
 describe('export · 失败态', () => {
+  it('导出输出尺寸超限（页面边长 × scale > 8192）→ 400 export_canvas_too_large + 结构化原因', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const created = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '超大页面' },
+      });
+      const id = (created.payload as { result: { document: { id: string } } }).result.document.id;
+      // D1 场景的廉价变体：8193×1 页面在 scale1 下即超限（渲染若放行也只分配 8193 像素）
+      const saved = await injectJson(daemon.app, {
+        method: 'PUT',
+        url: `/documents/${encodeURIComponent(id)}/pages/page-1`,
+        payload: { body: { width: 8193, height: 1, background: '#FFFFFF', children: [] } },
+      });
+      expect(saved.statusCode).toBe(200);
+      const { statusCode, payload } = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId: id, pageId: 'page-1', format: 'png' },
+      });
+      expect(statusCode).toBe(400);
+      const error = (
+        payload as { error: { code: string; message: string; details?: Record<string, unknown> } }
+      ).error;
+      expect(error.code).toBe('export_canvas_too_large');
+      expect(error.message).toContain('8192');
+      expect(error.details).toMatchObject({ width: 8193, height: 1, scale: 1, maxEdge: 8192 });
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('不支持的格式 → 400 export_unsupported_format', async () => {
     const daemon = await createTestDaemon();
     try {

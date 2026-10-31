@@ -5,11 +5,14 @@
  *
  * 口径：
  * - 位置 = 选择集世界包围盒的屏幕位置（顶部中心，向上偏移一个间隙）；
+ *   位置由**文档快照订阅**驱动（`useSyncExternalStore` 接命令栈，与 TextOverlay 同法）——
+ *   提交 move / 撤销 / Inspector 改值后位置即时正确（票 10 · 报告 §E2）；
  * - 条目与可用性来自 `ui/action-items.ts`（与 C11 菜单同源），图标复用 `@dforge/ui`，
  *   对齐/分布这类无图标动作走文字小按钮（图标几何归 FE-01，本票不另造）；
  * - 无选择时不渲染（Figma 口径：空选态没有浮层）。
  */
 
+import { selectionBounds } from '@dforge/engine';
 import {
   BoxIcon,
   CopyIcon,
@@ -21,6 +24,7 @@ import {
   TrashIcon,
 } from '@dforge/ui';
 import type { ReactNode } from 'react';
+import { useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 
 import { t } from '@/i18n';
@@ -76,7 +80,20 @@ const TEXT_SHORT: Record<string, string> = {
 export function FloatingToolbar({ session }: FloatingToolbarProps) {
   const viewport = useStore(session.store, (state) => state.viewport);
   const selection = useStore(session.store, (state) => state.selection);
-  const bounds = session.selectionBounds();
+  const pageId = useStore(session.store, (state) => state.pageId);
+  // 文档真值在命令栈里：与同目录 TextOverlay 同法接 useSyncExternalStore（票 10 · 报告 §E2）。
+  // 提交 move / 撤销重做 / Inspector 改值都只写命令栈，不改 viewport/selection 两个 UI 切片——
+  // 只订阅这两切片时浮层会停在拖动前坐标；订阅文档快照后每次命令栈写入都驱动重渲。
+  const documentSnapshot = useSyncExternalStore(
+    (listener) => session.stack.subscribe(() => listener()),
+    () => session.stack.getSnapshot(),
+    () => session.stack.getSnapshot(),
+  );
+
+  // 位置从**订阅到的快照**派生（页面 + 选择集 + 视口都是订阅输入），不读会话的活值：
+  // 保证重渲输出与触发它的事件一致（文档快照 → 包围盒 → 屏幕坐标）。
+  const page = documentSnapshot.pages.find((candidate) => candidate.id === pageId);
+  const bounds = page === undefined ? null : selectionBounds(page, selection);
 
   if (bounds === null || selection.ids.length === 0) return null;
 

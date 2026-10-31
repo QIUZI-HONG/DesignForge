@@ -21,6 +21,7 @@ import { lstat, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import type {
   DfgManifest,
   DfgPageMeta,
+  DocumentDetailResponse,
   DocumentListResponse,
   DocumentListWarning,
   DocumentSummary,
@@ -41,6 +42,7 @@ import {
   isRemovableDocDirectory,
   isValidDocumentId,
   isValidPageId,
+  MAX_JSON_DEPTH,
   resolveWithin,
 } from '../path-safety.ts';
 
@@ -85,6 +87,8 @@ export interface DocumentStore {
   list(): Promise<DocumentListResponse>;
   create(name: string): Promise<StoreResult<DocumentSummary>>;
   get(documentId: string): Promise<StoreResult<DocumentSummary>>;
+  /** 单对象 + manifest 页列表（保存/读取按页 id 列表寻址，见 `DocumentDetailResponse`）。 */
+  getDetail(documentId: string): Promise<StoreResult<DocumentDetailResponse>>;
   rename(documentId: string, name: string): Promise<StoreResult<DocumentSummary>>;
   remove(documentId: string): Promise<StoreResult<{ id: string }>>;
   readPage(documentId: string, pageId: string): Promise<StoreResult<PageReadResult>>;
@@ -98,9 +102,6 @@ export interface DocumentStore {
 
 /** 文档正文的落盘权限（目录态文档要能被用户与 Git 直接读，非敏感）。 */
 const DOC_FILE_MODE = 0o644;
-
-/** 正文嵌套深度上限：超过则 4xx 拒绝（`JSON.stringify` 递归序列化会栈溢出 → 500）。 */
-const MAX_BODY_DEPTH = 1024;
 
 /** manifest 提交的有界重试次数（跨进程并发写者的收敛上界；用尽 → `conflict`）。 */
 const MAX_COMMIT_ATTEMPTS = 3;
@@ -358,6 +359,21 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       return { ok: true, value: await summaryOf(documentId, paths.value, manifest.value) };
     },
 
+    async getDetail(documentId: string): Promise<StoreResult<DocumentDetailResponse>> {
+      const paths = await resolveDocPaths(documentId);
+      if (!paths.ok) return paths;
+      const manifest = await readManifestAt(paths.value, documentId);
+      if (!manifest.ok) return manifest;
+      return {
+        ok: true,
+        value: {
+          document: await summaryOf(documentId, paths.value, manifest.value),
+          // manifest 页列表原样给出（顺序 = 页面顺序；页 id 由 daemon 跳号分配，不与位置同名）
+          pages: manifest.value.pages.map((page) => ({ ...page })),
+        },
+      };
+    },
+
     async rename(documentId: string, name: string): Promise<StoreResult<DocumentSummary>> {
       if (!isValidDocumentName(name)) {
         return {
@@ -470,12 +486,12 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
         };
       }
       // 深嵌套正文在 JSON.stringify（递归）处会栈溢出 → 500：先按深度拒为 4xx
-      if (exceedsJsonDepth(body, MAX_BODY_DEPTH)) {
+      if (exceedsJsonDepth(body, MAX_JSON_DEPTH)) {
         return {
           ok: false,
           code: 'doc_invalid_body',
-          message: `正文嵌套深度超过上限 ${MAX_BODY_DEPTH} 层（拒绝序列化以避免栈溢出）`,
-          details: { documentId, pageId, maxDepth: MAX_BODY_DEPTH },
+          message: `正文嵌套深度超过上限 ${MAX_JSON_DEPTH} 层（拒绝序列化以避免栈溢出）`,
+          details: { documentId, pageId, maxDepth: MAX_JSON_DEPTH },
         };
       }
       const pagePath = await resolvePagePath(paths.value, documentId, pageId);

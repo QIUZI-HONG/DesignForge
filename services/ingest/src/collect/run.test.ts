@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ScriptedStep } from './__fixtures__/http-harness.ts';
 import { jsonStep } from './__fixtures__/http-harness.ts';
 import type { FetchLike } from './http.ts';
-import type { CollectOptions } from './run.ts';
+import type { CollectOptions, CollectResult } from './run.ts';
 import { runCollect, selectContentPaths, selectionsFromRecorded } from './run.ts';
 
 const tempDirs: string[] = [];
@@ -130,6 +130,13 @@ function baseOptions(outDir: string, over: Partial<CollectOptions> = {}): Collec
     token: { token: 'test-token', source: 'env' },
     ...over,
   };
+}
+
+/** 取证据 JSON 的「请求纪律」步骤指标（超时路径的留痕/记账断言面）。 */
+function disciplineMetrics(result: CollectResult): Record<string, number | string | null> {
+  const step = result.evidence.steps.find((s) => s.id === 'request-discipline');
+  if (!step) throw new Error('证据缺 request-discipline 步骤');
+  return step.metrics;
 }
 
 describe('runCollect 真网路径（剧本化 fetch）', () => {
@@ -271,6 +278,46 @@ describe('runCollect 真网路径（剧本化 fetch）', () => {
     );
     expect(result.exitCode).toBe(2);
     expect(result.blockedReason).toContain('网络');
+  });
+
+  it('单请求超时（永不 settle 的上游）→ 按超时失败并完成整轮（exit 2，不再无限冻结）', async () => {
+    const out = tempDir();
+    // D3：既有测试注入的假 fetch 必然 settle，抓不到「单请求挂起冻结整条流水线」；
+    // 此处注入永不 settle 的假 fetch——修复前本用例会永久挂起（超时即红）。
+    const neverSettling: FetchLike = () => new Promise(() => {});
+    const result = await runCollect(
+      baseOptions(out, {
+        fetchImpl: neverSettling,
+        token: { token: 't', source: 'env' },
+        requestTimeoutMs: 20, // 测试注入小值（生产默认 REQUEST_TIMEOUT_MS = 30s）
+        maxAttempts: 1,
+      }),
+    );
+    expect(result.exitCode).toBe(2);
+    expect(result.blockedReason).toContain('网络');
+    expect(result.records).toEqual([]);
+    const metrics = disciplineMetrics(result);
+    expect(metrics.events).toBeGreaterThan(0); // 超时往返照常留痕
+    expect(metrics.failures).toBeGreaterThan(0);
+  });
+
+  it('超时按既有网络错误语义重试（attempt 1→2 留痕、逐次记账）后整轮收敛', async () => {
+    const out = tempDir();
+    const neverSettling: FetchLike = () => new Promise(() => {});
+    const result = await runCollect(
+      baseOptions(out, {
+        fetchImpl: neverSettling,
+        token: { token: 't', source: 'env' },
+        requestTimeoutMs: 20,
+        maxAttempts: 2,
+      }),
+    );
+    expect(result.exitCode).toBe(2);
+    expect(result.blockedReason).toContain('网络');
+    const metrics = disciplineMetrics(result);
+    expect(metrics.retries).toBe(1); // 第 2 次尝试 = 超时后的既有语义重试
+    expect(metrics.coreTotal).toBe(2); // 每次尝试（含超时失败）都计入预算
+    expect(metrics.events).toBe(2);
   });
 
   it('仓 404 → 跳过并留痕（exit 0：如实记录、不伪造）', async () => {

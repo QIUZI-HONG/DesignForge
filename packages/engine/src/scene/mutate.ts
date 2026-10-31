@@ -11,10 +11,11 @@ import type {
   NodeId,
   NodePatch,
   PageId,
+  PatchableKey,
   SceneNode,
   ScenePage,
 } from '../model/index';
-import { isContainer } from '../model/index';
+import { applicablePatchKeys, isContainer } from '../model/index';
 import { domainError } from './errors';
 import { getParentId, requireNode } from './query';
 
@@ -202,7 +203,18 @@ function collectRealDescendants(page: ScenePage, nodeId: NodeId): NodeId[] {
   return out;
 }
 
-/** 修改节点属性（局部坐标系内的 x/y/width/height）。 */
+/**
+ * 修改节点属性（局部坐标系内的 x/y/width/height）。
+ *
+ * 键适用性守门（B5）：`NodePatch` 是全类型联合，类型系统挡不住「把 frame 的键发给
+ * rect」——修前逐键赋值会在目标节点留下 undo 清不掉的未知自有键（随序列化落盘）。
+ * 定案是**拒绝**而非静默过滤：
+ * 1. 命令栈自称写操作唯一入口，对非法载荷的一贯处置是显式拒绝（NaN 载荷 /
+ *    not-a-container 同族的 `invalid-argument`），静默过滤会把调用方 bug 变成
+ *    无 trace 的数据丢失（「设置了但没生效」）；
+ * 2. 拒绝发生在**写之前**，「撤销到初始文档」不变式无条件成立；过滤方案则要求
+ *    逆补丁提取（`pickPatch`）与写入两处同步过滤，任何一处漏掉就重开 B5 缺口。
+ */
 export function setNodeProps(
   doc: DesignDocument,
   pageId: PageId,
@@ -211,9 +223,17 @@ export function setNodeProps(
 ): DesignDocument {
   const page = getPage(doc, pageId);
   const node = requireNode(page, nodeId);
+  const applicable = applicablePatchKeys(node.type);
+  const inapplicable = Object.keys(patch).filter((key) => !applicable.has(key as PatchableKey));
+  if (inapplicable.length > 0) {
+    throw domainError(
+      'invalid-argument',
+      `补丁键不适用于 ${node.type} 节点 ${nodeId}：${inapplicable.join('、')}` +
+        '（类型特有键只发给对应类型；结构性键走专用命令；未知键不属于 Design IR）',
+    );
+  }
   const next = { ...node } as SceneNode & Record<string, unknown>;
   for (const [key, value] of Object.entries(patch)) {
-    if (key === 'id' || key === 'type' || key === 'children' || key === 'componentId') continue;
     next[key] = value;
   }
   return replacePage(doc, { ...page, nodes: { ...page.nodes, [nodeId]: next as SceneNode } });

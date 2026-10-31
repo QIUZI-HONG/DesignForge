@@ -329,6 +329,57 @@ export function handleKeyDown(
   return result === null ? null : result.id;
 }
 
+/**
+ * 画布级 keydown 的放行守卫（票 10 · 报告 §E3：焦点在交互控件上时两条激活键全断）。
+ *
+ * 口径：
+ * - **文本录入面**（输入框/文本域/contentEditable）：所有按键放行——文本输入与光标行为归浏览器；
+ * - **激活控件**（按钮/链接/下拉）：空格与 Enter 放行——这是它们的**原生激活键**，
+ *   画布不得 preventDefault（否则吞掉按钮激活）、不得进入空格平移预备、不得误触快捷键
+ *   （Enter 会误触 editText）；带 ⌘/Ctrl 的按键不放行，组合键仍走画布分派（不回归）；
+ * - 判据鸭子类型（不 `instanceof HTMLElement`）：node 级单测与浏览器同判据，
+ *   `isContentEditable` 在 jsdom 未实现，属性回退与壳层 `matching.isEditableTarget` 同口径。
+ */
+
+/** 放行判定用的按键形状（DOM `KeyboardEvent` 子集；纯函数可测）。 */
+export interface KeyReleaseEvent {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+}
+
+/** 文本录入面标签（内容控件之外的输入面）。 */
+const TEXT_ENTRY_TAGS = new Set(['INPUT', 'TEXTAREA']);
+
+/** 激活控件标签（空格/Enter 是其原生激活键）。 */
+const ACTIVATION_TAGS = new Set(['BUTTON', 'A', 'SELECT']);
+
+/**
+ * 该按键是否应放行给浏览器（画布级 keydown 直接返回、不劫持）。
+ *
+ * @param target 事件目标（`event.target`）
+ * @param event 按键形状（归一化后的 `KeyboardEvent` 子集）
+ */
+export function shouldReleaseKeyboard(target: EventTarget | null, event: KeyReleaseEvent): boolean {
+  if (target === null || typeof target !== 'object') return false;
+  const element = target as {
+    tagName?: unknown;
+    isContentEditable?: unknown;
+    getAttribute?: (name: string) => string | null;
+  };
+  const tagName = typeof element.tagName === 'string' ? element.tagName.toUpperCase() : '';
+  // contentEditable（isContentEditable 在 jsdom 未实现，属性回退保证测试与浏览器同判据）
+  const editableAttr = element.getAttribute?.('contenteditable') ?? null;
+  const contentEditable =
+    element.isContentEditable === true || (editableAttr !== null && editableAttr !== 'false');
+  if (contentEditable || TEXT_ENTRY_TAGS.has(tagName)) return true;
+  if (!ACTIVATION_TAGS.has(tagName)) return false;
+  // 激活键 = 空格 / Enter（无 ⌘/Ctrl——那是应用级组合键，交给画布分派）
+  const isActivationKey = event.key === ' ' || event.key === 'Enter';
+  return isActivationKey && !event.metaKey && !event.ctrlKey;
+}
+
 /** 空格键按下（临时手型；文本编辑中不劫持）。 */
 export function handleSpaceDown(session: CanvasSession): void {
   if (session.store.getState().editing !== null) return;

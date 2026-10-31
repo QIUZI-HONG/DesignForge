@@ -8,212 +8,20 @@
  * 4. 深度撤销栈的时间/内存表现。
  *
  * 每个用例都断言**外部可观测行为**，不依赖实现细节。
+ * 生成器（基准文档 / 伪随机 / 随机操作）在 `fuzz-generator.ts` 共享；
+ * 长跑种子另立 `command-stack-fuzz-long.test.ts`（vitest 按文件隔离，
+ * 长跑的分配量不改变本文件性能用例进入时的堆相位）。
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { CommandError, CommandStack, groupNodesCommands } from '../commands/index';
+import { CommandError, CommandStack } from '../commands/index';
 import type { Command } from '../commands/types';
-import { createIdFactory } from '../model/ids';
-import {
-  createComponent,
-  createDocument,
-  createFrame,
-  createInstance,
-  createPage,
-  createRect,
-  createText,
-  type DesignDocument,
-  type SceneNode,
-} from '../model/index';
-import { getPage, insertNode, insertNodes, validateDocument } from '../scene/index';
+import { createRect } from '../model/index';
+import { getPage, validateDocument } from '../scene/index';
 import { deepFreezeDocument } from '../scene/validate';
 import { parseDocument, serializeDocument } from '../serialize/index';
-
-// ---------------------------------------------------------------------------
-// 固定种子伪随机（mulberry32）——保证可复现
-// ---------------------------------------------------------------------------
-
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** 基准文档：两页、画板 + 形状 + 文本 + 主组件 + 实例。 */
-function scene(): DesignDocument {
-  let doc = createDocument({
-    id: 'd1',
-    pages: [createPage({ id: 'p1' }), createPage({ id: 'p2' })],
-  });
-  doc = insertNode(doc, 'p1', createFrame({ id: 'f1', x: 0, y: 0, width: 400, height: 300 }), null);
-  doc = insertNodes(
-    doc,
-    'p1',
-    [
-      createRect({ id: 'r1', x: 10, y: 10, width: 60, height: 40 }),
-      createRect({ id: 'r2', x: 90, y: 10, width: 60, height: 40 }),
-      createRect({ id: 'r3', x: 170, y: 10, width: 60, height: 40 }),
-      createText({ id: 't1', x: 10, y: 100, width: 120, height: 24 }),
-    ],
-    'f1',
-  );
-  doc = insertNode(
-    doc,
-    'p1',
-    createComponent({ id: 'c1', x: 500, y: 0, width: 100, height: 60 }),
-    null,
-  );
-  doc = insertNode(doc, 'p1', createRect({ id: 'c1kid', x: 5, y: 5, width: 40, height: 20 }), 'c1');
-  doc = insertNode(
-    doc,
-    'p1',
-    createInstance({ id: 'i1', componentId: 'c1', x: 500, y: 120 }),
-    null,
-  );
-  doc = insertNode(doc, 'p2', createRect({ id: 'q1', x: 0, y: 0, width: 50, height: 50 }), null);
-  return doc;
-}
-
-// ---------------------------------------------------------------------------
-// 随机操作生成器（一律针对「当前文档」生成合法命令）
-// ---------------------------------------------------------------------------
-
-interface RandomOpResult {
-  commands: Command[];
-  label: string;
-}
-
-/** 用当前页面状态生成一条随机操作（可能返回无法施加的命令 → 由调用方宽容处理）。 */
-function randomOp(doc: DesignDocument, rng: () => number, seq: number): RandomOpResult {
-  const pageId = doc.pages[rng() < 0.5 ? 0 : 1]?.id ?? 'p1';
-  const page = getPage(doc, pageId);
-  const allIds = Object.keys(page.nodes);
-  const pick = <T>(list: readonly T[]): T => list[Math.floor(rng() * list.length)] as T;
-  const roll = rng();
-
-  if (allIds.length === 0 || roll < 0.3) {
-    // 插入新节点
-    const id = `n_${seq}`;
-    const node: SceneNode = createRect({
-      id,
-      x: Math.floor(rng() * 200),
-      y: Math.floor(rng() * 200),
-      width: 10 + Math.floor(rng() * 90),
-      height: 10 + Math.floor(rng() * 90),
-    });
-    const containerIds = allIds.filter((id2) => {
-      const node2 = page.nodes[id2];
-      return node2 !== undefined && (node2.type === 'frame' || node2.type === 'group');
-    });
-    const parentId = rng() < 0.5 || containerIds.length === 0 ? null : pick(containerIds);
-    return {
-      commands: [{ type: 'node.insert', pageId, node, parentId }],
-      label: `insert ${id}`,
-    };
-  }
-
-  const target = pick(allIds);
-  const node = page.nodes[target] as SceneNode;
-
-  if (roll < 0.45) {
-    return {
-      commands: [
-        {
-          type: 'node.move',
-          pageId,
-          nodeIds: [target],
-          dx: Math.floor(rng() * 21) - 10,
-          dy: Math.floor(rng() * 21) - 10,
-        },
-      ],
-      label: `move ${target}`,
-    };
-  }
-  if (roll < 0.6) {
-    const patchRoll = rng();
-    const patch =
-      patchRoll < 0.3
-        ? { x: Math.floor(rng() * 500) - 100 }
-        : patchRoll < 0.5
-          ? { rotation: Math.floor(rng() * 360) }
-          : patchRoll < 0.7
-            ? { opacity: Number(rng().toFixed(3)) }
-            : patchRoll < 0.85
-              ? { visible: rng() < 0.5 }
-              : { name: `名字 ${seq}` };
-    return {
-      commands: [{ type: 'node.update', pageId, nodeId: target, patch }],
-      label: `update ${target}`,
-    };
-  }
-  if (roll < 0.68) {
-    return {
-      commands: [
-        {
-          type: 'node.reorder',
-          pageId,
-          nodeId: target,
-          op: pick(['front', 'back', 'forward', 'backward'] as const),
-        },
-      ],
-      label: `reorder ${target}`,
-    };
-  }
-  if (roll < 0.76) {
-    const parentId = pick(allIds.filter((id2) => id2 !== target));
-    return {
-      commands: [
-        { type: 'node.reparent', pageId, nodeId: target, parentId, index: Math.floor(rng() * 3) },
-      ],
-      label: `reparent ${target}`,
-    };
-  }
-  if (roll < 0.84) {
-    return {
-      commands: [{ type: 'node.remove', pageId, nodeId: target }],
-      label: `remove ${target}`,
-    };
-  }
-  if (roll < 0.88) {
-    // 编组（同父兄弟）：失败（跨父级）时由调用方吞掉
-    const siblings = page.rootIds.length > 1 ? page.rootIds : allIds;
-    const chosen = siblings.slice(0, 2);
-    return {
-      commands: groupNodesCommands(page, pageId, chosen, { ids: createIdFactory(seq * 100) }),
-      label: `group ${chosen.join(',')}`,
-    };
-  }
-  if (roll < 0.92 && node.type === 'instance') {
-    return {
-      commands: [
-        {
-          type: 'instance.setOverride',
-          pageId,
-          instanceId: target,
-          path: ['c1kid'],
-          patch: { width: 10 + Math.floor(rng() * 40) },
-        },
-      ],
-      label: `override ${target}`,
-    };
-  }
-  if (roll < 0.96) {
-    return {
-      commands: [{ type: 'document.rename', name: `文档 ${seq}` }],
-      label: 'rename',
-    };
-  }
-  return {
-    commands: [{ type: 'page.update', pageId, patch: { name: `页 ${seq}` } }],
-    label: 'page.update',
-  };
-}
+import { mulberry32, randomOp, scene } from './fuzz-generator';
 
 // ---------------------------------------------------------------------------
 // 1) 往返恒等 fuzz
@@ -222,8 +30,10 @@ function randomOp(doc: DesignDocument, rng: () => number, seq: number): RandomOp
 /** 随机穿插操作 → 全部撤销 → 全部重做，逐字段比对。 */
 function fuzzRoundTrip(seed: number, steps: number, freeze: boolean): void {
   const rng = mulberry32(seed);
-  const initial: DesignDocument = freeze ? deepFreezeDocument(scene()) : scene();
-  const stack = new CommandStack(initial, { freeze });
+  const initial = freeze ? deepFreezeDocument(scene()) : scene();
+  // 历史上限须容纳整段序列（默认 200）：票 08 的 400 步长序列曾因截断而「撤销不到初始」，
+  // 那是夹具参数错误而非引擎缺陷（截断本身是历史栈的文档语义，深度栈表现测试单独钉住）。
+  const stack = new CommandStack(initial, { freeze, historyLimit: steps + 1 });
   const start = JSON.parse(JSON.stringify(stack.document)) as unknown;
   const applied: number[] = [];
   const rejected: string[] = [];
