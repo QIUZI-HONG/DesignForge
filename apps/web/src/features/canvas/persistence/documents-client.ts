@@ -237,7 +237,14 @@ export function decodePageBody(body: unknown): CanvasPageBody | null {
   };
 }
 
-/** 设计页 id ↔ daemon 页面 id（daemon 的分配规则：`page-{N}`）。 */
+/**
+ * 设计页序号 → daemon 页面 id 的**派生约定**（`page-{N}`）。
+ *
+ * 注意：daemon 删页后按跳号分配，页 id 与位置不再同名——保存/读取一律以
+ * `getDocument` 汇报的 manifest 页列表为准（见 `saveDesignDocument` /
+ * `loadDesignDocument`），本函数仅供导出面按位置寻址（`slots.tsx` 的导出页签），
+ * 不是持久化寻址的真源。
+ */
 export function daemonPageId(index: number): string {
   return `page-${index + 1}`;
 }
