@@ -48,6 +48,7 @@ import {
   mountEditorSlotDeclarations,
   runEditorBootstrapEntries,
 } from '@/features/editor-shell';
+import { MARKET_TAB_ID, MarketPanelSlot, marketTabLabel } from '@/features/market/register';
 
 /**
  * 插槽挂载声明（**全部插槽在这一张表里**）。
@@ -69,6 +70,15 @@ export const EDITOR_SLOT_DECLARATIONS: readonly EditorSlotDeclaration[] = [
   },
   { slot: 'canvas', id: 'fe-06-canvas', order: 0, render: () => <CanvasSlot /> },
   { slot: 'left-panel', id: 'fe-04-panels', order: 0, render: () => <LeftPanelSlot /> },
+  // 票 16（spec P2）：编辑器内市场面板入口——左栏页签族扩展（图层/资产之后追加「市场」），
+  // 页签体承载既有市场面板内容；关闭回原页签、主题归编辑器壳层（见 market/register.tsx）
+  {
+    slot: 'left-panel-tabs',
+    id: MARKET_TAB_ID,
+    order: 0,
+    label: marketTabLabel,
+    render: () => <MarketPanelSlot />,
+  },
   { slot: 'right-panel', id: 'fe-06-right', order: 0, render: () => <RightPanelSlot /> },
   // AI 抽屉入口（D1）：工具栏按钮（命令面板走 `view.ai`，两处同一命令）
   { slot: 'toolbar', id: 'fe-10-ai-entry', order: 0, render: () => <AiEntryButton /> },
