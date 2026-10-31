@@ -182,6 +182,24 @@ describe('四步引导 · 完成态落库', () => {
 });
 
 describe('四步引导 · 进度本地持久化（票 17 · spec P2）', () => {
+  it('完成第 1 步后刷新（卸载重挂）：进度保留且停在第 2 步', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithToast(<OnboardingWizard api={makeApi()} />);
+
+    await screen.findByLabelText('工作目录');
+    await user.click(screen.getByRole('button', { name: '下一步' })); // 完成第 1 步（落库）
+    expect(await screen.findByText('已处理 1/4 步')).toBeTruthy();
+
+    // 模拟刷新：卸载后重新挂载（localStorage 由 jsdom 保留）
+    unmount();
+    renderWithToast(<OnboardingWizard api={makeApi()} />);
+
+    expect(screen.getByText('已处理 1/4 步')).toBeTruthy();
+    const items = stepItems();
+    expect(items[0]?.textContent).toContain('已完成');
+    expect(items[1]?.getAttribute('aria-current')).toBe('step');
+  });
+
   it('跳过第 1 步后刷新（卸载重挂）：进度保留且停在第 2 步', async () => {
     const user = userEvent.setup();
     const { unmount } = renderWithToast(<OnboardingWizard api={makeApi()} />);
