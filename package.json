@@ -21,6 +21,7 @@
     "verify:ai-two-state": "node scripts/verify-ai-two-state.mjs",
     "verify:image-two-state": "node scripts/verify-image-two-state.mjs",
     "verify:canvas": "node scripts/verify-canvas.mjs",
+    "verify:command-palette": "node scripts/verify-command-palette.mjs",
     "verify:market": "node scripts/verify-market.mjs",
     "verify:self-designed": "node scripts/verify-self-designed.mjs",
     "verify:shell-parity": "node scripts/verify-shell-parity.mjs",

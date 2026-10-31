@@ -398,6 +398,11 @@
   border-radius: var(--dfg-radius-sm);
 }
 
+/* 附加键位（别名）键帽：与主键位并列，左侧留一档间距（票 04 说明表同步） */
+.dfg-editor-shortcuts__keys--alias {
+  margin-left: var(--dfg-space-1);
+}
+
 .dfg-editor-shortcuts__empty {
   margin: 0;
   padding: var(--dfg-space-6) var(--dfg-space-2);
