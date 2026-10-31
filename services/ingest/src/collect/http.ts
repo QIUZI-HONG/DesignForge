@@ -8,7 +8,10 @@
  *    304 命中缓存 → **不计预算**；
  *  - 退避：`retryDelayMs`（retry-after > x-ratelimit-reset > 指数退避）；
  *  - 连续限速失败达阈值 → 抛 `ConsecutiveRateLimitAbort` 停整条流水线；
- *  - 每次往返（含重试与失败）记一条 `RawEvent`（URL/状态码/耗时/ETag/配额余量）。
+ *  - 每次往返（含重试与失败）记一条 `RawEvent`（URL/状态码/耗时/ETag/配额余量）；
+ *  - 单请求超时：`withRequestTimeout` 包裹 fetch 出口（票 12 / 证据 §D3）——生产 fetch 纯透传
+ *    无 signal 时，挂起的上游会冻结整条流水线（undici 隐式 300s × 5 次重试 ≈ 25 分钟/URL 起步，
+ *    慢滴流端点理论无界）。超时按**既有网络错误语义**走重试/记账/留痕，整轮必然收敛。
  */
 
 import { createHash } from 'node:crypto';
@@ -44,11 +47,72 @@ export interface HttpResponseLike {
 
 /**
  * fetch 形态。method 恒为 `GET`——类型层面关闭「误发 POST」的可能。
+ * `init.signal` 为可选中止信号（单请求超时经此传给真网 fetch；重放/测试假 fetch 可忽略）。
  */
 export type FetchLike = (
   url: string,
-  init: { method: 'GET'; headers: Record<string, string> },
+  init: { method: 'GET'; headers: Record<string, string>; signal?: AbortSignal },
 ) => Promise<HttpResponseLike>;
+
+/**
+ * 单请求超时默认值（票 12 / 证据 §D3，30s 量级）：
+ * undici 隐式 300s × MAX_ATTEMPTS 5 次重试 ≈ 25 分钟/URL 起步，采集轮不可接受；
+ * 30s 内正常响应的 GitHub REST 端点（元数据/树/正文）远够用。
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * 单请求超时（可重试）：**不**继承 `NonRetryableFetchError`——超时按既有网络错误语义
+ * 退避重试（`requestText` 的 status 0 路径），重试耗尽如实上报。
+ */
+export class RequestTimeoutError extends Error {
+  constructor(url: string, timeoutMs: number) {
+    super(`请求超时（${timeoutMs}ms 无响应）：${url}`);
+    this.name = 'RequestTimeoutError';
+  }
+}
+
+/**
+ * 单请求超时包裹（票 12 / 证据 §D3）：给 fetch 出口注入 `AbortSignal.timeout(timeoutMs)`。
+ *
+ * 双保险设计：
+ *  1. **signal 注入 init**——真网 fetch（undici）据此中止请求、真正释放 socket，
+ *     超时后不留 300s 隐式尾巴；调用方已有 signal 时经 `AbortSignal.any` 合并；
+ *  2. **真实墙钟 race**——假 fetch / 不理会 signal 的实现也能被超时打断（测试注入的
+ *     「永不 settle」假 fetch 抓的就是这个），整轮采集必然收敛。
+ *
+ * 响应头与正文读取共用同一超时预算（慢滴流端点：headers 已到但正文滴流不止 → 同样收敛），
+ * 正文在预算内预读，返回的响应 `text()` 直接复用已读内容。
+ *
+ * 为什么用真实时间而非注入 `Clock`：离线重放走冻结时钟（`sleep` 立即返回），
+ * 超时若骑在注入时钟上会把重放全判成超时；超时是网络请求的真实墙钟属性，不属 pacing。
+ */
+export function withRequestTimeout(inner: FetchLike, timeoutMs: number): FetchLike {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`withRequestTimeout：timeoutMs 必须为正有限数（收到 ${timeoutMs}）`);
+  }
+  return async (url, init) => {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal =
+      init.signal === undefined ? timeoutSignal : AbortSignal.any([init.signal, timeoutSignal]);
+    const initNext: typeof init & { signal: AbortSignal } = { ...init, signal };
+
+    // signal 中止 → race 以 RequestTimeoutError 落败；inner 先 settle → 摘掉监听避免悬挂。
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new RequestTimeoutError(url, timeoutMs));
+      if (timeoutSignal.aborted) onAbort();
+      else timeoutSignal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      const res = await Promise.race([inner(url, initNext), aborted]);
+      const bodyText = await Promise.race([res.text(), aborted]);
+      return { status: res.status, headers: res.headers, text: async () => bodyText };
+    } finally {
+      if (onAbort !== undefined) timeoutSignal.removeEventListener('abort', onAbort);
+    }
+  };
+}
 
 export interface HttpDeps {
   fetchImpl: FetchLike;
