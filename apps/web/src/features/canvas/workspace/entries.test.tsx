@@ -115,7 +115,14 @@ describe('文档载入锁（复核 J1：随工作区生命周期复位，SPA 导
       const summary = /^\/documents\/([^/]+)$/.exec(path);
       if (summary !== null) {
         const id = decodeURIComponent(summary[1] as string);
-        return respond(200, apiSuccess({ document: { id, name: id, pageCount: 1 } }));
+        // 与真 daemon 同形：documentGet 响应带 manifest 页列表（保存/读取按此寻址）
+        return respond(
+          200,
+          apiSuccess({
+            document: { id, name: id, pageCount: 1 },
+            pages: [{ id: 'page-1', name: '页面 1' }],
+          }),
+        );
       }
       const page = /^\/documents\/([^/]+)\/pages\/([^/]+)$/.exec(path);
       if (page !== null) {

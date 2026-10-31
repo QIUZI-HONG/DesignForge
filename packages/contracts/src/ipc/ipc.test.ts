@@ -34,6 +34,10 @@ describe('ipc · 错误码表', () => {
     expect(DF_ERROR_HTTP_STATUS.comfy_model_missing).toBe(422);
   });
 
+  it('forbidden（访问控制拒绝）映射为 403', () => {
+    expect(DF_ERROR_HTTP_STATUS.forbidden).toBe(403);
+  });
+
   it('isDfErrorCode 只认已知错误码', () => {
     expect(isDfErrorCode('doc_not_found')).toBe(true);
     expect(isDfErrorCode('not_a_code')).toBe(false);

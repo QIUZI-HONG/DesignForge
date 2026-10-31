@@ -142,3 +142,39 @@ describe('评论 store · 视口无关性', () => {
     expect(vi.isMockFunction(store.getState().toggleMode)).toBe(false);
   });
 });
+
+describe('评论 store · 换文档重挂（跨文档隔离，#03）', () => {
+  it('attachDocument 换桶重载：新桶为空、旧桶原样；悬停/激活收摊、模式保留', () => {
+    const { store, backend } = makeStore();
+    store.getState().beginDraft({ x: 1, y: 2 });
+    store.getState().submitDraft('doc-1 的评论');
+    const threadId = store.getState().threads[0]?.id as string;
+    store.getState().setActive(threadId);
+    store.getState().setHovered(threadId);
+    store.getState().setMode(true);
+
+    store.getState().attachDocument('doc-2');
+    expect(store.getState().threads).toEqual([]);
+    expect(store.getState().activeThreadId).toBeNull();
+    expect(store.getState().hoveredThreadId).toBeNull();
+    // 评论模式是用户级 UI 态，跨文档保留
+    expect(store.getState().mode).toBe(true);
+    // 桶按文档隔离：新桶为空，旧桶原样（切回原文档数据还在）
+    expect(backend.getItem(commentsKey('doc-2'))).toBeNull();
+    expect(backend.getItem(commentsKey('doc-1'))).toContain('doc-1 的评论');
+  });
+
+  it('重挂后新评论落新文档的桶；同 id 重挂是空操作（不清列表）', () => {
+    const { store, backend } = makeStore();
+    store.getState().attachDocument('doc-2');
+    store.getState().beginDraft({ x: 5, y: 6 });
+    store.getState().submitDraft('doc-2 的新评论');
+    // 提交持久化按当前桶写：新桶有、旧桶无
+    expect(backend.getItem(commentsKey('doc-2'))).toContain('doc-2 的新评论');
+    expect(backend.getItem(commentsKey('doc-1'))).toBeNull();
+
+    // 同 id 重挂为空操作——恢复/撤销等 document.replace 触发的重挂不清当前列表
+    store.getState().attachDocument('doc-2');
+    expect(store.getState().threads.map((thread) => thread.body)).toEqual(['doc-2 的新评论']);
+  });
+});

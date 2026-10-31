@@ -88,7 +88,7 @@ export interface ResizeInteraction {
   pageId: PageId;
   nodeIds: NodeId[];
   handle: HandleId;
-  /** 起始世界包围盒（旋转节点为其世界 AABB）。 */
+  /** 起始盒（世界坐标）：单节点为「世界中心 + 未旋转尺寸」，多选为世界 AABB 并集。 */
   startBounds: Rect;
   rotation: number;
   start: Point;
@@ -198,18 +198,33 @@ export function beginInteraction(
     if (handle.mode === 'rotate') return beginRotate(context, nodeIds, point);
     const bounds = worldBoundsOfNodes(context.page, nodeIds);
     if (!bounds) return IDLE;
-    const rotation =
-      nodeIds.length === 1 ? (resolveNode(context.page, nodeIds[0] as NodeId)?.rotation ?? 0) : 0;
+    let startBounds = bounds;
+    let rotation = 0;
+    if (nodeIds.length === 1) {
+      const node = resolveNode(context.page, nodeIds[0] as NodeId);
+      if (node) {
+        rotation = node.rotation;
+        // 旋转节点的缩放解算契约要求「未旋转盒」（geometry/handles.ts）：旋转绕自身中心，
+        // 世界 AABB 中心即未旋转盒中心，故以「世界中心 + 未旋转尺寸」构造起点盒（票 06 B3）。
+        const center = boundsCenter(bounds);
+        startBounds = {
+          x: center.x - node.width / 2,
+          y: center.y - node.height / 2,
+          width: node.width,
+          height: node.height,
+        };
+      }
+    }
     return {
       kind: 'resize',
       pageId: context.pageId,
       nodeIds,
       handle: handle.id,
-      startBounds: bounds,
+      startBounds,
       rotation,
       start: point,
       current: point,
-      nextBounds: bounds,
+      nextBounds: startBounds,
     };
   }
   if (clickTarget) {
@@ -301,27 +316,24 @@ function constrainDelta(raw: Point, modifiers: Modifiers | undefined): Point {
 /**
  * 按比例缩放的指针锁定：把指针投影到「锚点 → 指针」的方向并按起始宽高比归一，
  * 供 `resizeRotatedNode` 在 proportional 模式下使用（避免两段比例修正叠加）。
+ * `startBounds` 即未旋转盒（世界坐标），其手柄点天然位于未旋转坐标系，无需再旋转。
  */
 function aspectLockedPointer(state: ResizeInteraction, pointer: Point): Point {
   const s = normalizeRect(state.startBounds);
   const anchor = handlePoint(s, oppositeHandle(state.handle));
   const center = boundsCenter(s);
-  const localAnchor = addPoints(
-    center,
-    rotateVector(subtractPoints(anchor, center), -state.rotation),
-  );
   const localPointer = addPoints(
     center,
     rotateVector(subtractPoints(pointer, center), -state.rotation),
   );
-  const dx = localPointer.x - localAnchor.x;
-  const dy = localPointer.y - localAnchor.y;
+  const dx = localPointer.x - anchor.x;
+  const dy = localPointer.y - anchor.y;
   if (s.width === 0 || s.height === 0) return pointer;
   const ratio = s.width / s.height;
   const projected =
     Math.abs(dx) / ratio >= Math.abs(dy)
-      ? { x: localPointer.x, y: localAnchor.y + (dy < 0 ? -1 : 1) * (Math.abs(dx) / ratio) }
-      : { x: localAnchor.x + (dx < 0 ? -1 : 1) * Math.abs(dy) * ratio, y: localPointer.y };
+      ? { x: localPointer.x, y: anchor.y + (dy < 0 ? -1 : 1) * (Math.abs(dx) / ratio) }
+      : { x: anchor.x + (dx < 0 ? -1 : 1) * Math.abs(dy) * ratio, y: localPointer.y };
   return addPoints(center, rotateVector(subtractPoints(projected, center), state.rotation));
 }
 
@@ -462,21 +474,31 @@ function resizeCommands(context: InteractionContext, state: ResizeInteraction): 
     ];
   }
 
-  // 多选：按各自包围盒相对起始集合盒的比例缩放（不含旋转，P0 子集）
+  // 多选：按各自包围盒相对起始集合盒的比例缩放（不含自身旋转，P0 子集）。
+  // x/y 语义为父相对：世界系下的新中心先经父系逆矩阵换算，再反推局部左上角
+  // （与单选分支同法；父级带偏移/旋转时不再把世界坐标直写父相对字段，票 06 B2）。
   const commands: Command[] = [];
   for (const nodeId of state.nodeIds) {
     const node = resolveNode(context.page, nodeId);
     const bounds = worldBoundsOfNode(context.page, nodeId);
     if (!node || !bounds) continue;
+    const center = boundsCenter(bounds);
+    const nextCenterWorld = {
+      x: next.x + (center.x - start.x) * scaleX,
+      y: next.y + (center.y - start.y) * scaleY,
+    };
+    const width = round6(node.width * scaleX);
+    const height = round6(node.height * scaleY);
+    const localCenter = applyToPoint(frameMatrixOf(context.page, nodeId), nextCenterWorld);
     commands.push({
       type: 'node.update',
       pageId: state.pageId,
       nodeId,
       patch: {
-        x: round6(next.x + (bounds.x - start.x) * scaleX),
-        y: round6(next.y + (bounds.y - start.y) * scaleY),
-        width: round6(node.width * scaleX),
-        height: round6(node.height * scaleY),
+        x: round6(localCenter.x - width / 2),
+        y: round6(localCenter.y - height / 2),
+        width,
+        height,
       },
     });
   }

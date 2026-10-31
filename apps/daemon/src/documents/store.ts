@@ -21,6 +21,7 @@ import { lstat, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import type {
   DfgManifest,
   DfgPageMeta,
+  DocumentDetailResponse,
   DocumentListResponse,
   DocumentListWarning,
   DocumentSummary,
@@ -86,6 +87,8 @@ export interface DocumentStore {
   list(): Promise<DocumentListResponse>;
   create(name: string): Promise<StoreResult<DocumentSummary>>;
   get(documentId: string): Promise<StoreResult<DocumentSummary>>;
+  /** 单对象 + manifest 页列表（保存/读取按页 id 列表寻址，见 `DocumentDetailResponse`）。 */
+  getDetail(documentId: string): Promise<StoreResult<DocumentDetailResponse>>;
   rename(documentId: string, name: string): Promise<StoreResult<DocumentSummary>>;
   remove(documentId: string): Promise<StoreResult<{ id: string }>>;
   readPage(documentId: string, pageId: string): Promise<StoreResult<PageReadResult>>;
@@ -354,6 +357,21 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       const manifest = await readManifestAt(paths.value, documentId);
       if (!manifest.ok) return manifest;
       return { ok: true, value: await summaryOf(documentId, paths.value, manifest.value) };
+    },
+
+    async getDetail(documentId: string): Promise<StoreResult<DocumentDetailResponse>> {
+      const paths = await resolveDocPaths(documentId);
+      if (!paths.ok) return paths;
+      const manifest = await readManifestAt(paths.value, documentId);
+      if (!manifest.ok) return manifest;
+      return {
+        ok: true,
+        value: {
+          document: await summaryOf(documentId, paths.value, manifest.value),
+          // manifest 页列表原样给出（顺序 = 页面顺序；页 id 由 daemon 跳号分配，不与位置同名）
+          pages: manifest.value.pages.map((page) => ({ ...page })),
+        },
+      };
     },
 
     async rename(documentId: string, name: string): Promise<StoreResult<DocumentSummary>> {

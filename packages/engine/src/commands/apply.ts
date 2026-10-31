@@ -155,20 +155,25 @@ export function applyCommand(doc: DesignDocument, command: Command): ApplyResult
     }
 
     case 'node.move': {
+      const page = getPage(doc, command.pageId);
+      // 逆命令由施加时状态推导（各节点 x/y 旧值），而不是 -dx/-dy：
+      // 浮点相对量不可精确逆运算（(x+dx)-dx ≠ x，实测十分位增量约 2.8% 概率漂移），
+      // 取负号会让「撤销到初始文档」在小数增量下逐字段失败（票 08）；
+      // 绝对值还原与模块头约定一致（撤销无需调用方配合、按旧值还原）。
+      const inverse: Command[] = [];
+      for (const id of command.nodeIds) {
+        const current = page.nodes[id];
+        if (!current) continue; // 不存在的节点由 moveNodes 统一抛 node-not-found
+        inverse.push({
+          type: 'node.update',
+          pageId: command.pageId,
+          nodeId: id,
+          patch: { x: current.x, y: current.y },
+        });
+      }
       const moves = command.nodeIds.map((id) => ({ id, dx: command.dx, dy: command.dy }));
       const next = moveNodes(doc, command.pageId, moves);
-      return {
-        document: next,
-        inverse: [
-          {
-            type: 'node.move',
-            pageId: command.pageId,
-            nodeIds: [...command.nodeIds],
-            dx: -command.dx,
-            dy: -command.dy,
-          },
-        ],
-      };
+      return { document: next, inverse };
     }
 
     case 'node.reparent': {
