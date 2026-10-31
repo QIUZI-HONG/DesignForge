@@ -10,33 +10,46 @@ import { describe, expect, it } from 'vitest';
 import { generateLocalAdvice } from './local-advisor.ts';
 
 /** 契约合法的建议 kind（AiSuggestion 全集）。 */
-const SUGGESTION_KINDS = new Set(['configure-credentials', 'retry-later', 'check-network', 'manual-edit']);
+const SUGGESTION_KINDS = new Set([
+  'configure-credentials',
+  'retry-later',
+  'check-network',
+  'manual-edit',
+]);
 
 describe('本地建议生成器 · 关键词族识别（表驱动）', () => {
   it.each([
-    { topic: '按钮', prompts: ['给首屏加一个主按钮', 'add a primary button to the hero', 'CTA 要更突出'] },
+    {
+      topic: '按钮',
+      prompts: ['给首屏加一个主按钮', 'add a primary button to the hero', 'CTA 要更突出'],
+    },
     { topic: '颜色', prompts: ['把背景颜色统一为暖色', '配色再紧凑一点', 'unify the color'] },
     { topic: '圆角', prompts: ['把圆角统一为 8', '卡片 radius 改小'] },
     { topic: '布局', prompts: ['间距和对齐统一一下', '整体布局更紧凑', '图标排列居中'] },
     { topic: '文本', prompts: ['标题文字改大一点', '字体换成无衬线', 'body text smaller'] },
-  ])('「$topic」族：content 给出该族分步建议，suggestions 追加对应 manual-edit 条目', ({ topic, prompts }) => {
-    for (const prompt of prompts) {
-      const advice = generateLocalAdvice(prompt);
-      // 正文可读且结构完整：非空 + 分步编号 + 注意事项段
-      expect(advice.content.length).toBeGreaterThan(0);
-      expect(advice.content).toContain('注意事项');
-      expect(advice.content).toMatch(/\n\d+\./);
-      // 关键词族被识别为建议对象（路由到对应族的分步建议）
-      expect(advice.content).toContain(topic);
-      // suggestions 结构契约合法，且为该族追加了 manual-edit 条目
-      expect(advice.suggestions.length).toBeGreaterThanOrEqual(1);
-      for (const suggestion of advice.suggestions) {
-        expect(SUGGESTION_KINDS.has(suggestion.kind)).toBe(true);
-        expect(suggestion.title.length).toBeGreaterThan(0);
+  ])(
+    '「$topic」族：content 给出该族分步建议，suggestions 追加对应 manual-edit 条目',
+    ({ topic, prompts }) => {
+      for (const prompt of prompts) {
+        const advice = generateLocalAdvice(prompt);
+        // 正文可读且结构完整：非空 + 分步编号 + 注意事项段
+        expect(advice.content.length).toBeGreaterThan(0);
+        expect(advice.content).toContain('注意事项');
+        expect(advice.content).toMatch(/\n\d+\./);
+        // 关键词族被识别为建议对象（路由到对应族的分步建议）
+        expect(advice.content).toContain(topic);
+        // suggestions 结构契约合法，且为该族追加了 manual-edit 条目
+        expect(advice.suggestions.length).toBeGreaterThanOrEqual(1);
+        for (const suggestion of advice.suggestions) {
+          expect(SUGGESTION_KINDS.has(suggestion.kind)).toBe(true);
+          expect(suggestion.title.length).toBeGreaterThan(0);
+        }
+        expect(advice.suggestions.some((suggestion) => suggestion.title.includes(topic))).toBe(
+          true,
+        );
       }
-      expect(advice.suggestions.some((suggestion) => suggestion.title.includes(topic))).toBe(true);
-    }
-  });
+    },
+  );
 
   it('多族混提（票面示例）：按钮 + 圆角 同时成段，且族序固定（确定性排序）', () => {
     const advice = generateLocalAdvice('给首屏加一个主按钮，并把圆角统一为 8');

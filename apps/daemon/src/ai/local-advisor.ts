@@ -72,7 +72,18 @@ const TOPICS: readonly AdviceTopic[] = [
   },
   {
     label: '布局',
-    keywords: ['布局', '间距', '对齐', '排列', '居中', '分布', '位置', 'layout', 'spacing', 'align'],
+    keywords: [
+      '布局',
+      '间距',
+      '对齐',
+      '排列',
+      '居中',
+      '分布',
+      '位置',
+      'layout',
+      'spacing',
+      'align',
+    ],
     steps: [
       '用「选择工具」框选或加选需要对齐的图层；',
       '在属性面板「对齐」区使用左/中/右、顶/中/底与水平/垂直分布；',
@@ -147,9 +158,7 @@ export function generateLocalAdvice(prompt: string): LocalAdvice {
   );
 
   return {
-    content: composeContent(
-      matched.map((topic) => ({ label: topic.label, steps: topic.steps })),
-    ),
+    content: composeContent(matched.map((topic) => ({ label: topic.label, steps: topic.steps }))),
     suggestions: matched.map((topic) => ({
       kind: 'manual-edit',
       title: topic.suggestionTitle,
