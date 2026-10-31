@@ -296,10 +296,34 @@ export function toMenuItem(action: CanvasAction, t: Translate): MenuItemSpec {
   return item;
 }
 
-/** 右键菜单分组（空组自动省略：例如单选时「取消编组」之外的对齐组仍保留但条目全禁用）。 */
-export function contextMenuSections(session: CanvasSession, t: Translate): MenuSectionSpec[] {
+/**
+ * 右键菜单分组（空组自动省略：例如单选时「取消编组」之外的对齐组仍保留但条目全禁用）。
+ *
+ * `options.guideId` 非空 = 右键点在参考线上（票 12）：前置「参考线」分组，
+ * 提供「删除参考线」（危险语义）；选择集分组照常给出（参考线不是节点，两者不互斥）。
+ */
+export function contextMenuSections(
+  session: CanvasSession,
+  t: Translate,
+  options: { guideId?: string | null } = {},
+): MenuSectionSpec[] {
   const actions = new Map(canvasActions(session).map((action) => [action.id, action]));
   const sections: MenuSectionSpec[] = [];
+  const guideId = options.guideId;
+  if (guideId !== undefined && guideId !== null && guideId !== '') {
+    sections.push({
+      id: 'guide',
+      label: t('canvas.menu.section.guide'),
+      items: [
+        {
+          id: 'deleteGuide',
+          label: t('canvas.action.deleteGuide'),
+          danger: true,
+          onSelect: () => session.deleteGuide(guideId),
+        },
+      ],
+    });
+  }
   for (const group of CONTEXT_MENU_GROUPS) {
     const items: MenuItemSpec[] = [];
     for (const id of group.ids) {

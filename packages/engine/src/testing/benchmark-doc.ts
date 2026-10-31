@@ -105,6 +105,8 @@ export function createBenchmarkDocument(options: BenchmarkDocOptions): DesignDoc
     rootIds,
     backgroundColor: '#F5F5F5',
     grid: benchmarkGrid(),
+    // 基准文档不带参考线（吸附基准测的是节点对齐，不是参考线命中）
+    guides: [],
   };
 
   return {

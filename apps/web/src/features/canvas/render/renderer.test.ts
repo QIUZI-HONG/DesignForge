@@ -14,6 +14,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import {
   createFrame,
+  createGuide,
   createPage,
   createRect,
   createText,
@@ -102,6 +103,8 @@ function frame(page: ScenePage, overrides: Partial<SceneFrame> = {}): SceneFrame
     draft: null,
     rulers: false,
     editingNodeId: null,
+    guideDrag: null,
+    guideHoverId: null,
     ...overrides,
   };
 }
@@ -504,6 +507,89 @@ describe('效果渲染（工单 09：投影/内阴影/层模糊真实落像素�
     const renderer = rasterRenderer();
     const { stats } = renderPixels(renderer, frame(page, { palette: canvasPalette('light') }));
     expect(stats.effectsRendered).toBe(3);
+    renderer.dispose();
+  });
+});
+
+describe('页面参考线渲染（票 12）', () => {
+  /** 带两条参考线的夹具页面：垂直线 x=160、水平线 y=100。 */
+  function guidePage(): ScenePage {
+    const page = fixturePage();
+    return {
+      ...page,
+      guides: [
+        createGuide({ id: 'guide_v', axis: 'x', position: 160 }),
+        createGuide({ id: 'guide_h', axis: 'y', position: 100 }),
+      ],
+    };
+  }
+
+  it('页面参考线按红色令牌绘制（常驻内容），计数进 stats.guides', () => {
+    const renderer = rasterRenderer();
+    const { stats, pixelAt, countWhere } = renderPixels(renderer, frame(guidePage()), {
+      selectionFrame: null,
+      selectionLabels: [],
+      snap: null,
+    });
+    expect(stats.guides).toBe(2);
+    // 两条线的交点像素必为红（#F24822：红显著强于绿蓝）
+    expect(pixelAt(160, 100).r).toBeGreaterThan(100);
+    const red = countWhere((r, g, b) => r > 100 && r - g > 40 && r - b > 40);
+    expect(red).toBeGreaterThan(40);
+    renderer.dispose();
+  });
+
+  it('标尺隐藏（⇧R）时参考线仍绘制——参考线是页面数据，不是标尺附属', () => {
+    const renderer = rasterRenderer();
+    const { stats, pixelAt } = renderPixels(renderer, frame(guidePage(), { rulers: false }), {
+      selectionFrame: null,
+      selectionLabels: [],
+      snap: null,
+    });
+    expect(stats.guides).toBe(2);
+    expect(pixelAt(160, 100).r).toBeGreaterThan(100);
+    renderer.dispose();
+  });
+
+  it('拖拽中的参考线画预览线（加粗）；指针回到标尺条（overRuler）时不画', () => {
+    const renderer = rasterRenderer();
+    const dragging = {
+      axis: 'y' as const,
+      position: 120,
+      originId: null,
+      overRuler: false,
+    };
+    const { stats, countWhere } = renderPixels(
+      renderer,
+      frame(fixturePage(), { guideDrag: dragging }),
+      { selectionFrame: null, selectionLabels: [], snap: null },
+    );
+    expect(stats.guides).toBe(1);
+    const red = countWhere((r, g, b) => r > 100 && r - g > 40 && r - b > 40);
+    expect(red).toBeGreaterThan(100); // 横贯 240px 的加粗线
+
+    const { stats: hiddenStats } = renderPixels(
+      renderer,
+      frame(fixturePage(), { guideDrag: { ...dragging, overRuler: true } }),
+      { selectionFrame: null, selectionLabels: [], snap: null },
+    );
+    expect(hiddenStats.guides).toBe(0);
+    renderer.dispose();
+  });
+
+  it('拖拽既有线时原线让位给预览（不画两份）', () => {
+    const renderer = rasterRenderer();
+    const page = guidePage();
+    const { stats } = renderPixels(
+      renderer,
+      frame(page, {
+        guideDrag: { axis: 'y', position: 120, originId: 'guide_h', overRuler: false },
+        guideHoverId: 'guide_h',
+      }),
+      { selectionFrame: null, selectionLabels: [], snap: null },
+    );
+    // 两条常驻线中 guide_h 由预览呈现：仍是 2 条线（1 常驻 + 1 预览）
+    expect(stats.guides).toBe(2);
     renderer.dispose();
   });
 });

@@ -212,6 +212,8 @@ export function CanvasStage({
               draft: input.draft,
               rulers: input.rulers,
               editingNodeId: input.editing?.nodeId ?? null,
+              guideDrag: input.guideDrag,
+              guideHoverId: input.guideHover,
             },
             {
               selectionFrame: selectionFrameOf(input.page, input.selection),

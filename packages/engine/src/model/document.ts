@@ -7,6 +7,7 @@
 
 import type { GridSettings } from './grid';
 import { defaultGridSettings } from './grid';
+import type { PageGuide } from './guides';
 import type { DocumentId, NodeId, PageId } from './ids';
 import type { SceneNode } from './node';
 import type { TokenSet } from './tokens';
@@ -24,6 +25,8 @@ export interface ScenePage {
   backgroundColor: string;
   /** 网格设置（C7/C8）。 */
   grid: GridSettings;
+  /** 页面参考线（票 12：从标尺拖出的用户辅助线；随文档保存/加载）。 */
+  guides: PageGuide[];
 }
 
 /** 文档：页面序列 + 设计令牌。 */
@@ -43,6 +46,7 @@ export function createPage(init: {
   rootIds?: NodeId[];
   backgroundColor?: string;
   grid?: GridSettings;
+  guides?: PageGuide[];
 }): ScenePage {
   return {
     id: init.id,
@@ -51,6 +55,7 @@ export function createPage(init: {
     rootIds: init.rootIds ?? [],
     backgroundColor: init.backgroundColor ?? '#F5F5F5',
     grid: init.grid ?? defaultGridSettings(),
+    guides: init.guides ?? [],
   };
 }
 

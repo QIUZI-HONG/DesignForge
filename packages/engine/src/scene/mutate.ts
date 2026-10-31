@@ -10,6 +10,7 @@ import type {
   DesignDocument,
   NodeId,
   NodePatch,
+  PageGuide,
   PageId,
   SceneNode,
   ScenePage,
@@ -50,6 +51,8 @@ export interface PagePatch {
   name?: string;
   backgroundColor?: string;
   grid?: ScenePage['grid'];
+  /** 页面参考线（票 12：整组替换；增删改都用这一把尺子，命令栈逆命令据此还原）。 */
+  guides?: PageGuide[];
 }
 
 /** 修改页面设置。 */

@@ -10,6 +10,8 @@ export type { DesignDocument, ScenePage } from './document';
 export { createDocument, createPage } from './document';
 export type { GridSettings, GridStyle } from './grid';
 export { defaultGridSettings } from './grid';
+export type { GuideAxis, PageGuide } from './guides';
+export { createGuide, GUIDE_ID_PREFIX, guidesOf } from './guides';
 export type { ComponentId, DocumentId, IdFactory, NodeId, PageId } from './ids';
 export { createIdFactory, ID_PREFIX, systemIdFactory } from './ids';
 export type {

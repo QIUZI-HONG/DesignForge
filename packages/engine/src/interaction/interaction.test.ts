@@ -4,6 +4,7 @@ import { marqueeSelect } from '../geometry/hit-test';
 import {
   createDocument,
   createFrame,
+  createGuide,
   createPage,
   createRect,
   createText,
@@ -434,5 +435,49 @@ describe('interaction · 文本编辑会话（C10）', () => {
     const session = beginTextEdit(page, 'p1', 'txt');
     expect(commitTextEdit(session)).toEqual([]);
     expect(selectAllText(session).selection).toEqual({ start: 0, end: 0 });
+  });
+});
+
+describe('interaction · 吸附（页面参考线参与命中，票 12）', () => {
+  /** 带一条水平参考线（y=120）的场景：n1 在 (100,100) 50×50。 */
+  function guideScene(): InteractionContext {
+    const { page } = scene();
+    const withGuides = {
+      ...page,
+      guides: [createGuide({ id: 'guide_h', axis: 'y' as const, position: 120 })],
+    };
+    return { page: withGuides, pageId: 'p1', zoom: 1 };
+  }
+
+  it('移动节点靠近参考线 → 吸附对齐，红线 refs 指向参考线', () => {
+    const context = guideScene();
+    const { delta, snap } = applySnapToMove(context, ['n1'], { x: 0, y: 16 });
+    // 顶缘 116 → 参考线 120：修正 +4，总位移 20
+    expect(delta.y).toBe(20);
+    const guide = snap.guides.find((g) => g.axis === 'y' && g.position === 120);
+    expect(guide).toBeDefined();
+    expect(guide?.refs).toContain('guide_h');
+  });
+
+  it('测量标注不指向参考线（红线=吸附提示，测量只对节点，与既有吸附口径一致）', () => {
+    const context = guideScene();
+    const { snap } = applySnapToMove(context, ['n1'], { x: 0, y: 16 });
+    for (const measurement of snap.measurements) {
+      expect(measurement.refs).not.toContain('guide_h');
+    }
+  });
+
+  it('关闭吸附（snapEnabled=false）时参考线不参与', () => {
+    const context = { ...guideScene(), snapEnabled: false };
+    const { delta, snap } = applySnapToMove(context, ['n1'], { x: 0, y: 16 });
+    expect(delta).toEqual({ x: 0, y: 16 });
+    expect(snap.guides).toEqual([]);
+  });
+
+  it('远离参考线不吸附（无 y 轴参考线红线；x 轴的既有节点对齐行为不变）', () => {
+    const context = guideScene();
+    const { delta, snap } = applySnapToMove(context, ['n1'], { x: 0, y: 100 });
+    expect(delta).toEqual({ x: 0, y: 100 });
+    expect(snap.guides.some((g) => g.axis === 'y' && g.refs.includes('guide_h'))).toBe(false);
   });
 });

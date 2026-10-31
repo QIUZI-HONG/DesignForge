@@ -23,6 +23,7 @@
     "verify:canvas": "node scripts/verify-canvas.mjs",
     "verify:command-palette": "node scripts/verify-command-palette.mjs",
     "verify:layers-reorder": "node scripts/verify-layers-reorder-persist.mjs",
+    "verify:ruler-guides": "node scripts/verify-ruler-guides-persist.mjs",
     "verify:market": "node scripts/verify-market.mjs",
     "verify:self-designed": "node scripts/verify-self-designed.mjs",
     "verify:shell-parity": "node scripts/verify-shell-parity.mjs",
