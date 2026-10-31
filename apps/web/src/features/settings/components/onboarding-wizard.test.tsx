@@ -8,7 +8,7 @@
  */
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DaemonClientError } from '../api/daemon-client';
 import type { SettingsApi } from '../api/settings-api';
@@ -20,6 +20,12 @@ import { CONFIG_RESPONSE, makeApi, renderWithToast } from './settings-fixtures';
 function stepItems(): HTMLElement[] {
   return within(screen.getByRole('list', { name: '引导步骤' })).getAllByRole('listitem');
 }
+
+// 引导进度现在会落 localStorage（票 17）：jsdom 同文件内各用例共享一份存储，
+// 每条用例前清空，保证「首次进入 = 从第 1 步开始」的前提不串场。
+beforeEach(() => {
+  localStorage.clear();
+});
 
 describe('四步引导 · 步骤机与步骤条', () => {
   it('四步与设置分区同源同序；初始第一步为当前步，其余待办', async () => {
@@ -170,6 +176,73 @@ describe('四步引导 · 完成态落库', () => {
     ]);
     expect(screen.getByText('已处理 4/4 步')).toBeTruthy();
 
+    await user.click(screen.getByRole('button', { name: '进入工作台' }));
+    expect(onFinish).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('四步引导 · 进度本地持久化（票 17 · spec P2）', () => {
+  it('跳过第 1 步后刷新（卸载重挂）：进度保留且停在第 2 步', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithToast(<OnboardingWizard api={makeApi()} />);
+
+    await screen.findByLabelText('工作目录');
+    await user.click(screen.getByRole('button', { name: '跳过' }));
+    expect(await screen.findByText('已处理 1/4 步')).toBeTruthy();
+
+    // 模拟刷新：卸载后重新挂载（localStorage 由 jsdom 保留）
+    unmount();
+    renderWithToast(<OnboardingWizard api={makeApi()} />);
+
+    expect(screen.getByText('已处理 1/4 步')).toBeTruthy();
+    const items = stepItems();
+    expect(items[0]?.textContent).toContain('已跳过');
+    expect(items[1]?.getAttribute('aria-current')).toBe('step');
+    // 当前步表单是第二步（AI 分区），不是回到第一步
+    expect(await screen.findByLabelText('API 密钥')).toBeTruthy();
+  });
+
+  it('中断续作：刷新后完成第 2 步，第 1 步的旧结果不丢', async () => {
+    const api = makeApi();
+    const user = userEvent.setup();
+    const { unmount } = renderWithToast(<OnboardingWizard api={api} />);
+
+    await screen.findByLabelText('工作目录');
+    await user.click(screen.getByRole('button', { name: '跳过' }));
+    await screen.findByText('已处理 1/4 步');
+    unmount();
+
+    const resumedApi = makeApi();
+    renderWithToast(<OnboardingWizard api={resumedApi} />);
+    await user.type(await screen.findByLabelText('API 密钥'), 'sk-abcdefgh12345678');
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(resumedApi.setApiKey).toHaveBeenCalledWith('sk-abcdefgh12345678');
+    expect(await screen.findByText('已处理 2/4 步')).toBeTruthy();
+    const items = stepItems();
+    expect(items[0]?.textContent).toContain('已跳过');
+    expect(items[1]?.textContent).toContain('已完成');
+  });
+
+  it('全部完成后刷新：完成卡直接呈现，「进入工作台」跳转不变', async () => {
+    const onFinish = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = renderWithToast(<OnboardingWizard api={makeApi()} onFinish={onFinish} />);
+
+    await screen.findByLabelText('工作目录');
+    await user.click(screen.getByRole('button', { name: '跳过' })); // 工作目录（跳过）
+    await user.click(await screen.findByRole('button', { name: '跳过' })); // AI（跳过）
+    await user.click(await screen.findByRole('button', { name: '跳过' })); // 出图（跳过）
+    await screen.findByText('已处理 3/4 步');
+    await user.click(screen.getByRole('button', { name: '完成' }));
+    expect(await screen.findByText('引导完成')).toBeTruthy();
+
+    // 模拟刷新：完成态从本地读回，不回到第 1 步
+    unmount();
+    renderWithToast(<OnboardingWizard api={makeApi()} onFinish={onFinish} />);
+
+    expect(await screen.findByText('引导完成')).toBeTruthy();
+    expect(screen.getByText('已处理 4/4 步')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: '进入工作台' }));
     expect(onFinish).toHaveBeenCalledTimes(1);
   });
