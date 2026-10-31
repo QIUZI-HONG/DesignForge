@@ -179,5 +179,41 @@ describe('文本编辑进入路径（票 13）', () => {
     fireEvent.change(overlay, { target: { value: '超'.repeat(TEXT_CHARACTERS_MAX_LENGTH + 50) } });
     const editing = session.store.getState().editing;
     expect(editing?.content.characters.length).toBe(TEXT_CHARACTERS_MAX_LENGTH);
+    session.cancelText();
+  });
+
+  it('画布 mousedown 一律 preventDefault（画布不吃焦点，「打开即关」根因的防波堤，票 13）', () => {
+    // 真浏览器时序：pointerdown 开编辑 → React 挂载覆盖层并聚焦 → 同一次点击的
+    // mousedown 默认动作把焦点搬到 body → blur 即提交 → 编辑「打开即关」。
+    // 适配器接管焦点转移：画布 mousedown 不再触发浏览器的焦点转移（preventDefault），
+    // 失焦提交改由适配器显式 blur() 驱动（见下一用例）。
+    let prevented = true;
+    act(() => {
+      const event = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+      });
+      element.dispatchEvent(event);
+      prevented = event.defaultPrevented;
+    });
+    expect(prevented).toBe(true);
+    expect(session.store.getState().editing).toBeNull();
+  });
+
+  it('覆盖层持焦时画布 mousedown 显式失焦 → 失焦提交确定性发生（票 13）', async () => {
+    const user = userEvent.setup();
+    doubleClickAt({ x: 200 * 2 + 40, y: 62 * 2 + 30 });
+    const overlay = screen.getByRole('textbox') as HTMLTextAreaElement;
+    await user.clear(overlay);
+    await user.type(overlay, '落盘稿');
+    act(() => {
+      element.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }),
+      );
+    });
+    expect(session.store.getState().editing).toBeNull();
+    const node = resolveNode(session.page(), 'n_text');
+    expect(node?.type === 'text' && node.text.characters).toBe('落盘稿');
   });
 });

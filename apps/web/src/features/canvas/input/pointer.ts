@@ -178,6 +178,28 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
     options.onContextMenu?.(localPoint(element, event));
   };
 
+  /**
+   * 画布表面的 mousedown：**接管焦点转移**（票 13「打开即关」根因）。
+   *
+   * 浏览器对画布 mousedown 的默认动作是把焦点搬到 body（画布壳不可聚焦）——
+   * 时序上它落在「pointerdown 开编辑 → React 挂载覆盖层并聚焦」**之后**，
+   * 于是刚聚焦的文本覆盖层立刻被夺焦：blur 即提交，编辑态闪现即关闭
+   * （巡检 C10：双击/点击路径「没进编辑」、失焦提交未落盘的真实根因）。
+   * 因此：
+   * - 覆盖层已持焦点 → 显式 `blur()`，「失焦提交」确定性发生（不再依赖默认动作时序）；
+   * - 其余情况 → `preventDefault()`，画布点击不改变焦点（覆盖层挂载后保持焦点；
+   *   键盘语义在 document 层，画布本就不需要焦点）。
+   * 只管左键；中键（autoscroll）/右键（菜单）各有专属处理。
+   */
+  const onMouseDown = (event: MouseEvent): void => {
+    if (!isCanvasSurface(event.target) || event.button !== 0) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.dataset.dfTextOverlay !== undefined) {
+      active.blur();
+    }
+    event.preventDefault();
+  };
+
   const onDoubleClick = (event: MouseEvent): void => {
     if (!isCanvasSurface(event.target)) return;
     const local = localPoint(element, event);
@@ -196,6 +218,7 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
   element.addEventListener('pointermove', onPointerMove);
   element.addEventListener('pointerup', onPointerUp);
   element.addEventListener('pointerleave', onPointerLeave);
+  element.addEventListener('mousedown', onMouseDown);
   element.addEventListener('wheel', onWheel, { passive: false });
   element.addEventListener('contextmenu', onContextMenu);
   element.addEventListener('dblclick', onDoubleClick);
@@ -206,6 +229,7 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
       element.removeEventListener('pointermove', onPointerMove);
       element.removeEventListener('pointerup', onPointerUp);
       element.removeEventListener('pointerleave', onPointerLeave);
+      element.removeEventListener('mousedown', onMouseDown);
       element.removeEventListener('wheel', onWheel);
       element.removeEventListener('contextmenu', onContextMenu);
       element.removeEventListener('dblclick', onDoubleClick);
