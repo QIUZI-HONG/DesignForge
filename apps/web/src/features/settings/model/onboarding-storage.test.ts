@@ -75,7 +75,9 @@ describe('引导进度持久化 · createOnboardingPersistence', () => {
   });
 
   it('坏 JSON：当无存档（不抛错，下次进入从第 1 步开始）', () => {
-    const persistence = createOnboardingPersistence(memoryBackend({ [ONBOARDING_STORAGE_KEY]: '{ 坏了' }));
+    const persistence = createOnboardingPersistence(
+      memoryBackend({ [ONBOARDING_STORAGE_KEY]: '{ 坏了' }),
+    );
     expect(persistence.load()).toBeNull();
   });
 
@@ -89,7 +91,9 @@ describe('引导进度持久化 · createOnboardingPersistence', () => {
       JSON.stringify({ index: 1, outcomes: { workspace: 'skipped' } }),
     ];
     for (const raw of shapes) {
-      const persistence = createOnboardingPersistence(memoryBackend({ [ONBOARDING_STORAGE_KEY]: raw }));
+      const persistence = createOnboardingPersistence(
+        memoryBackend({ [ONBOARDING_STORAGE_KEY]: raw }),
+      );
       expect(persistence.load(), `形状应被拒：${raw}`).toBeNull();
     }
   });
@@ -97,14 +101,18 @@ describe('引导进度持久化 · createOnboardingPersistence', () => {
   it('越界下标（负数 / 超出步数）：当无存档，不越权渲染', () => {
     for (const index of [-1, 4, 99]) {
       const raw = JSON.stringify({ index, outcomes: { workspace: 'done' }, finished: false });
-      const persistence = createOnboardingPersistence(memoryBackend({ [ONBOARDING_STORAGE_KEY]: raw }));
+      const persistence = createOnboardingPersistence(
+        memoryBackend({ [ONBOARDING_STORAGE_KEY]: raw }),
+      );
       expect(persistence.load(), `下标应被拒：${index}`).toBeNull();
     }
   });
 
   it('缺步的 outcomes：缺的键按待办（null）补齐，其余结果保留', () => {
     const raw = JSON.stringify({ index: 1, outcomes: { workspace: 'done' }, finished: false });
-    const persistence = createOnboardingPersistence(memoryBackend({ [ONBOARDING_STORAGE_KEY]: raw }));
+    const persistence = createOnboardingPersistence(
+      memoryBackend({ [ONBOARDING_STORAGE_KEY]: raw }),
+    );
     const state = persistence.load();
     expect(state).not.toBeNull();
     expect(state?.outcomes.workspace).toBe('done');
