@@ -22,6 +22,17 @@ import '../market.css';
 /** 空态种类。 */
 export type MarketEmptyKind = 'no-result' | 'index-missing' | 'index-invalid' | 'installed-empty';
 
+/** 采集指引命令（空态内直接给「去跑采集」的 CLI 口径，不假装能自动补数据）。
+ *  市场首页与数据看板的空态**同源复用**本组件（巡检缺口④：看板空态说「先跑采集线」
+ *  却不给命令）——挂点 `data-df-market="collect-hint"` 与命令文本都只有这一处真源。 */
+export function MarketCollectHint() {
+  return (
+    <code className="dfg-market__code" data-df-market="collect-hint">
+      {`$ ${MARKET_COLLECT_COMMAND}`}
+    </code>
+  );
+}
+
 /** 空态 props。 */
 export interface MarketEmptyStateProps {
   kind: MarketEmptyKind;
@@ -54,11 +65,7 @@ export function MarketEmptyState({
               ? t('market.empty.indexMissing.desc')
               : t('market.empty.indexInvalid.desc')
           }
-          action={
-            <code className="dfg-market__code" data-df-market="collect-hint">
-              {`$ ${MARKET_COLLECT_COMMAND}`}
-            </code>
-          }
+          action={<MarketCollectHint />}
         />
       </div>
     );
