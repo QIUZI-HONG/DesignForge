@@ -17,7 +17,11 @@ export interface DaemonPaths {
   credentialsKeyPath: string;
   /** 工作目录缺省值（可被 config.workspaceDir 覆盖）。 */
   workspaceDirDefault: string;
-  /** 市场索引候选路径（按序探测；MK-04 产物为 `ads/df.marketplace.index.v1.json`）。 */
+  /**
+   * 市场索引候选路径（按序探测；MK-04 产物为 `ads/df.marketplace.index.v1.json`）。
+   * 顺序 = 兼容优先：先既有 daemon 手工落点（manifest 根 / ads 子目录），最后才是
+   * CLI `df market index` 的缺省同根 ADS 落点（票 #15）。
+   */
   marketIndexCandidates: string[];
   telemetryEventsPath: string;
   mcpAuditPath: string;
@@ -40,6 +44,11 @@ export function resolveDaemonPaths(dataRoot: string): DaemonPaths {
     marketIndexCandidates: [
       join(dataRoot, 'market', 'df.marketplace.index.v1.json'),
       join(dataRoot, 'market', 'ads', 'df.marketplace.index.v1.json'),
+      // CLI `df market index` 的缺省落点（`<data>/ads/`，票 #15）：与 CLI 指向同一数据根
+      // （`DF_DATA_ROOT=<data>` / `--data-root <data>`）即可命中，无需复制。
+      // 刻意**不**补裸 `process.cwd()` 候选：daemon 由壳/系统启动时 CWD 不可控，且本模块
+      // 纪律是「所有持久化路径从 DataRoot 派生」——跨根接线由 CLI 输出指引承担（方案 2）。
+      join(dataRoot, 'ads', 'df.marketplace.index.v1.json'),
     ],
     telemetryEventsPath: join(dataRoot, 'telemetry', 'events.jsonl'),
     mcpAuditPath: join(dataRoot, 'audit', 'mcp-audit.jsonl'),

@@ -89,6 +89,35 @@ async function seedSearchIndex(daemon: TestDaemon, content: unknown): Promise<vo
   );
 }
 
+describe('market · 落点候选（票 #15：与 CLI 缺省 ADS 落点同根）', () => {
+  it('索引落在 <数据根>/ads/（df market index 缺省产物）→ 缺省探测命中，不再 index-missing', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const dir = join(daemon.dataRoot, 'ads');
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, 'df.marketplace.index.v1.json'),
+        JSON.stringify(makeIndex([makeAsset()])),
+      );
+      const { statusCode, payload } = await injectJson(daemon.app, {
+        method: 'GET',
+        url: '/market/query',
+      });
+      expect(statusCode).toBe(200);
+      const result = (
+        payload as {
+          result: { state: string; items: { id: string }[]; warnings: { code: string }[] };
+        }
+      ).result;
+      expect(result.warnings).toEqual([]);
+      expect(result.state).toBe('ok');
+      expect(result.items).toHaveLength(1);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
 describe('market · 空态（无索引/索引损坏都不报错）', () => {
   it('无索引 → state=empty + warning index-missing（正常空态）', async () => {
     const daemon = await createTestDaemon();
