@@ -59,11 +59,12 @@ export function registerDocumentsRoutes(app: FastifyInstance, context: DaemonCon
 
   app.get(DAEMON_ROUTES.documentGet.path, async (request, reply) => {
     const { documentId } = request.params as { documentId: string };
-    const result = await store.get(documentId);
+    // 单对象 + manifest 页列表：保存/读取按页 id 列表寻址（删页后页 id 与位置不再同名）
+    const result = await store.getDetail(documentId);
     if (!result.ok) {
       return sendFail(reply, result.code, result.message, result.details);
     }
-    return sendOk(reply, { document: result.value });
+    return sendOk(reply, result.value);
   });
 
   app.patch(DAEMON_ROUTES.documentRename.path, async (request, reply) => {
