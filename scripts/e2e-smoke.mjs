@@ -47,7 +47,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveChromeExecutable } from './lib/browser-toolchain.mjs';
+import { ensureChromeLibraries, resolveChromeExecutable } from './lib/browser-toolchain.mjs';
 import { freePort, startFixtureDaemon, startSameOriginGateway } from './lib/gates.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -515,6 +515,17 @@ try {
   if (chrome === undefined) {
     console.error('阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）。');
     await finish(evidence, 2);
+  }
+  // 宿主缺共享库（如 libnspr4）同属前置不成立：能补则补，补不了 exit 2（禁硬跑假红）
+  const chromeLibs = ensureChromeLibraries(chrome);
+  if (!chromeLibs.ok) {
+    console.error(
+      `阻塞：Chromium 缺共享库（${chromeLibs.missing.join(', ')}）且本机无可补目录（DF_CHROME_LIB_DIR 未指向可用库）。`,
+    );
+    await finish(evidence, 2);
+  }
+  if (chromeLibs.libraryPath !== null) {
+    log(`Chromium 共享库经 LD_LIBRARY_PATH 补入：${chromeLibs.libraryPath}`);
   }
 
   try {

@@ -59,6 +59,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   DAEMON_ROUTE_PREFIX,
+  ensureChromeLibraries,
   forwardDaemonRequests,
   resolveChromeExecutable,
 } from './lib/browser-toolchain.mjs';
@@ -502,6 +503,17 @@ async function main() {
   const chrome = resolveChrome();
   if (chrome === undefined) {
     await finish(2, '阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）');
+  }
+  // 宿主缺共享库（如 libnspr4）属「前置不成立」：能补则补（~/.opt 解包库），补不了 exit 2
+  const chromeLibs = ensureChromeLibraries(chrome);
+  if (!chromeLibs.ok) {
+    await finish(
+      2,
+      `阻塞：Chromium 缺共享库（${chromeLibs.missing.join(', ')}）且本机无可补目录（DF_CHROME_LIB_DIR 未指向可用库）`,
+    );
+  }
+  if (chromeLibs.libraryPath !== null) {
+    notes.push(`Chromium 共享库经 LD_LIBRARY_PATH 补入：${chromeLibs.libraryPath}`);
   }
   // 站点端口先定：daemon 的 CORS 白名单要按真实站点来源配置（真实跨源，不靠转发）
   const plannedWebPort = webUrl === undefined ? await freePort(3226) : null;
