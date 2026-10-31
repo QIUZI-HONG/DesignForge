@@ -99,8 +99,9 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 - 常规链路（CI 与本地同一条）：`pnpm install --frozen-lockfile` → `pnpm lint` →
   `pnpm typecheck` → `pnpm test`；本地等价命令 `pnpm verify`。
 - **浏览器门禁（挂点，随票接入）**：`verify-figma-page|component|states|baseline`（逐页/逐组件对照）、
-  `verify-canvas`（画布挂载 6 断言）、`e2e:smoke`（10 步冒烟：拖画→持久化→导出/导入往返）、
-  壳内渲染一致性断言（FE-12）。
+  `verify-canvas`（画布挂载 6 断言）、`verify-command-palette`（票 04：面板成品形态——遮罩/居中卡片/
+  计算样式生效 + 速查卡视口内；脚本就绪，浏览器级复核待主会话登记）、`e2e:smoke`（10 步冒烟：
+  拖画→持久化→导出/导入往返）、壳内渲染一致性断言（FE-12）。
 - **驱动口径**：`playwright-core 1.63.0` 锁 `chromium-1243`，headless + **生产构建**。
   **不要用 `next dev` 跑 live 浏览器门禁/取证**：Next 16 Turbopack dev 源在本机不加载
   客户端引导件（槽位/评审面挂不上，整树停在 SSR 空槽），断言会以「看不见入口」假红；
