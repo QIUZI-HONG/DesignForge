@@ -28,6 +28,8 @@ export interface SceneRenderStats extends RenderStats {
   effectsRendered: number;
   rulers: boolean;
   labels: number;
+  /** 页面参考线 + 拖拽预览的绘制条数（票 12；门禁据此断言「参考线画出来了」）。 */
+  guides: number;
   /** 是否绘制了拖画草稿（创建工具）。 */
   draft: boolean;
   devicePixelRatio: number;
@@ -79,6 +81,7 @@ function emptyStats(palette: CanvasPalette): SceneRenderStats {
     effectsRendered: 0,
     rulers: false,
     labels: 0,
+    guides: 0,
     draft: false,
     devicePixelRatio: 1,
     canvasCssSize: { width: 0, height: 0 },
@@ -182,6 +185,7 @@ export function createSceneRenderer(options: SceneRendererOptions): SceneRendere
         effectsRendered: scene.effectsRendered,
         rulers: overlayCounters.rulers,
         labels: overlayCounters.labels,
+        guides: overlayCounters.guides,
         devicePixelRatio: dpr,
         canvasCssSize: { ...size },
       };

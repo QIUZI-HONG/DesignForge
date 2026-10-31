@@ -11,7 +11,7 @@
  * 同源只读、按需查询，不新造协议、不逐帧上行、无独立上报链路（daemon 遥测仅收汇总）。
  */
 
-import { resolveNode, serializeDocument } from '@dforge/engine';
+import { guidesOf, resolveNode, serializeDocument } from '@dforge/engine';
 
 import type { FramePerfSnapshot } from '../render/frame-perf';
 import type { SceneRenderStats } from '../render/renderer';
@@ -60,6 +60,8 @@ export interface CanvasDebugHandle {
   pageId: () => string;
   documentName: () => string;
   documentId: () => string | null;
+  /** 页面参考线（票 12 门禁读点：拖出/删除/持久化断言都经它读真值）。 */
+  guides: () => Array<{ id: string; axis: string; position: number }>;
   hud: () => string | null;
   editingText: () => { nodeId: string; characters: string } | null;
   /** 文本节点内容（门禁断言文本提交；非文本节点 → null）。 */
@@ -136,6 +138,12 @@ export function sessionDebugHandle(options: {
     pageId: () => session.page().id,
     documentName: () => session.document().name,
     documentId: options.documentId ?? (() => null),
+    guides: () =>
+      guidesOf(session.page()).map((guide) => ({
+        id: guide.id,
+        axis: guide.axis,
+        position: guide.position,
+      })),
     hud: () => session.store.getState().hud,
     editingText: () => {
       const editing = session.store.getState().editing;
