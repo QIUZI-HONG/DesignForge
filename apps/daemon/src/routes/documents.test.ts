@@ -110,9 +110,8 @@ describe('documents · 列表与读取', () => {
         payload: { name: '页面 2' },
       });
       expect(createdPage.statusCode).toBe(201);
-      const pageUpdatedAt = (
-        createdPage.payload as { result: { page: { updatedAt: string } } }
-      ).result.page.updatedAt;
+      const pageUpdatedAt = (createdPage.payload as { result: { page: { updatedAt: string } } })
+        .result.page.updatedAt;
 
       const { statusCode, payload } = await injectJson(daemon.app, {
         method: 'GET',
@@ -142,9 +141,10 @@ describe('documents · 列表与读取', () => {
       const times = result.documents.map((doc) => Date.parse(doc.updatedAt));
       expect((times[0] ?? Number.NaN) > (times[1] ?? Number.NaN)).toBe(true);
       // 用例名承诺的页数：乙 2 页、甲 1 页
-      expect(
-        Object.fromEntries(result.documents.map((doc) => [doc.id, doc.pageCount])),
-      ).toEqual({ 乙: 2, 甲: 1 });
+      expect(Object.fromEntries(result.documents.map((doc) => [doc.id, doc.pageCount]))).toEqual({
+        乙: 2,
+        甲: 1,
+      });
       for (const document of result.documents) {
         expect(document.sizeBytes).toBeGreaterThan(0);
       }
