@@ -26,6 +26,26 @@ pnpm test                    # 逐包 vitest
 pnpm verify                  # 逐包 lint+typecheck+test 串跑（CI 同链）；CI 另跑非浏览器门禁（见下）
 ```
 
+### 市场索引与 daemon 接线（票 #15）
+
+`df market collect && df market score && df market index` 缺省把四层数据面写到**当前目录的 `data/`**，
+索引落 `data/ads/df.marketplace.index.v1.json`（BM25 检索索引同目录）。daemon 按序探测市场索引
+（数据根缺省 `~/.dforge`，`DF_DATA_ROOT` / `--data-root` 可覆盖）：
+
+1. `<数据根>/market/df.marketplace.index.v1.json`
+2. `<数据根>/market/ads/df.marketplace.index.v1.json`
+3. `<数据根>/ads/df.marketplace.index.v1.json`（与 CLI 缺省 ADS 落点同根）
+
+`df market index` 成功后会把索引绝对落点与两种接线方式打印出来，任选其一即可让市场页脱离空态：
+
+- 指定索引文件（推荐，不动 daemon 数据根）：
+  `DF_MARKET_INDEX=<项目>/data/ads/df.marketplace.index.v1.json pnpm --filter @dforge/daemon dev`
+- 复制到 daemon 数据根（索引与检索索引一并搬运，随查随生效）：
+  `mkdir -p ~/.dforge/market/ads && cp <项目>/data/ads/*.json ~/.dforge/market/ads/`
+
+`DF_MARKET_INDEX` 也可写作 daemon 的 `--market-index <path>`（显式参数优先于环境变量）。
+注意 `DF_DATA_ROOT` 同时承载 daemon 的 config 与凭据，**不要**指向 git 跟踪的目录。
+
 凭据注入（DeepSeek API key；**勿把 key 贴进聊天/提交**）：环境变量 `DF_DEEPSEEK_API_KEY`（daemon 启动即读，只读回退源）或 `df config set-key --stdin`（管道注入 → 本地凭据库 0600 加密落库，不回显、不进 shell 历史、输出仅掩码如 `sk-…abcd`；仓库内等价写法 `echo -n 'sk-…' | node tools/cli/bin/df.mjs config set-key --stdin`）。
 
 桌面壳（Electron，桌面端集 `dfHost` 最小桥 + 安全基线；默认装载 web 产物，dev 态可指 dev server）：

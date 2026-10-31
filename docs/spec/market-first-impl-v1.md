@@ -50,6 +50,15 @@
 | 证据 JSON | `data/evidence/<runId>.json`（提交入库或随报告附） | 字段口径见 §6.2 |
 | 跑通报告 | `docs/research/` 新增报告文件 | 判据链逐项结论 + 证据索引 + 差异说明 |
 
+### 3.1 落点与 daemon 接线（票 #15）
+
+- **CLI 缺省落点**：`<CWD>/data/ads/`（`--data` 可改根）；索引与检索索引同目录。
+- **daemon 缺省探测**（数据根缺省 `~/.dforge`，`DF_DATA_ROOT` / `--data-root` 可覆盖）：
+  `<数据根>/market/` → `<数据根>/market/ads/` → `<数据根>/ads/`（最后一项与 CLI 缺省 ADS 同根）。
+- **跨根接线**（`df market index` 成功后输出）：`DF_MARKET_INDEX=<索引绝对路径>` 启动 daemon，
+  或把 `<data>/ads/*.json` 复制到 `<daemon 数据根>/market/ads/`。
+- **回归**：`apps/daemon/src/market/index-handoff.e2e.test.ts`（CLI 缺省产物 → daemon 缺省探测命中）。
+
 ## 4. 跑通判据链（#10.3，六环全绿）
 
 | # | 环 | 断言（可机器判定） | 证据 |
