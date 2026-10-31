@@ -74,6 +74,18 @@ export interface DocumentResponse {
   document: DocumentSummary;
 }
 
+/**
+ * `GET /documents/:documentId` 响应（单对象 + manifest 页列表）。
+ *
+ * 页列表是保存/读取的**寻址真值**：删页后 daemon 页 id 按跳号分配，不再与位置同名
+ * （`page-2` 可能已不存在），消费方必须按本列表逐页寻址，禁止按位置猜 `page-{N}`。
+ */
+export interface DocumentDetailResponse {
+  document: DocumentSummary;
+  /** manifest 页列表（顺序 = 页面顺序）。 */
+  pages: DfgPageMeta[];
+}
+
 /** `DELETE /documents/:documentId` 响应。 */
 export interface DocumentDeleteResponse {
   id: string;

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { type Point, worldQuad } from '../geometry/index';
 import { createIdFactory } from '../model/ids';
 import {
   childrenOf,
@@ -372,5 +373,135 @@ describe('commands · helpers（语义级构造）', () => {
     s2.undo();
     expect(JSON.parse(JSON.stringify(s2.document))).toEqual(before2);
     void createGroup;
+  });
+});
+
+/**
+ * 票 05 · 编组坐标系换算：容器定位与子项补丁一律经父坐标系逆换算。
+ * 现有夹具把父级画板全放在 (0,0)，掩盖了「世界 AABB 被直接当父相对坐标」的缺陷——
+ * 本组用例特意把父级画板放在非零坐标 / 带旋转，并与解组形成对称往返断言。
+ */
+describe('commands · 编组坐标系（父级非零偏移/旋转）', () => {
+  /** 父级非零坐标夹具：fe(100,80,200×200[,rot]) ⊃ [r1(10,10,50,50), r2(70,30,40,20[,rot])]。 */
+  function offsetDoc(frameRotation = 0, childRotation = 0): DesignDocument {
+    let doc = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+    doc = insertNode(
+      doc,
+      'p1',
+      createFrame({ id: 'fe', x: 100, y: 80, width: 200, height: 200, rotation: frameRotation }),
+      null,
+    );
+    doc = insertNodes(
+      doc,
+      'p1',
+      [
+        createRect({ id: 'r1', x: 10, y: 10, width: 50, height: 50 }),
+        createRect({ id: 'r2', x: 70, y: 30, width: 40, height: 20, rotation: childRotation }),
+      ],
+      'fe',
+    );
+    return doc;
+  }
+
+  /** 节点世界四角快照（世界形状不变断言用）。 */
+  function worldQuadsOf(doc: DesignDocument, ids: readonly string[]): Record<string, Point[]> {
+    const page = getPage(doc, 'p1');
+    return Object.fromEntries(ids.map((id) => [id, worldQuad(page, id) ?? []]));
+  }
+
+  /** 断言各节点世界四角与快照逐点一致（容差 1e-8，覆盖父级旋转下的矩阵逆换算浮点噪声）。 */
+  function expectWorldQuadsUnchanged(doc: DesignDocument, before: Record<string, Point[]>): void {
+    const page = getPage(doc, 'p1');
+    for (const [id, quad] of Object.entries(before)) {
+      const after = worldQuad(page, id) ?? [];
+      expect(after).toHaveLength(quad.length);
+      after.forEach((point, index) => {
+        const expected = quad[index];
+        if (!expected) return;
+        expect(point.x).toBeCloseTo(expected.x, 8);
+        expect(point.y).toBeCloseTo(expected.y, 8);
+      });
+    }
+  }
+
+  it('编组：容器落位与子项补丁经父坐标系逆换算（父级非零偏移时整组不瞬移）', () => {
+    const s = new CommandStack(offsetDoc());
+    const before = worldQuadsOf(s.document, ['r1', 'r2']);
+    const page = getPage(s.document, 'p1');
+    s.dispatch(groupNodesCommands(page, 'p1', ['r1', 'r2'], { groupId: 'g1' }));
+    const after = getPage(s.document, 'p1');
+    const group = requireNode(after, 'g1');
+    // 组 x/y 语义为相对父容器：应等于选中并集在 fe 局部坐标系的 AABB (10,10,100,50)，
+    // 而非世界 AABB (110,90,100,50)——后者会把整组瞬移一个父偏移
+    expect([group.x, group.y, group.width, group.height]).toEqual([10, 10, 100, 50]);
+    expect(getChildrenIds(after, 'g1')).toEqual(['r1', 'r2']);
+    // 子项补丁落在组局部坐标系：r1 → (0,0)、r2 → (60,20)，自转角保持
+    expect(requireNode(after, 'r1')).toMatchObject({ x: 0, y: 0, rotation: 0 });
+    expect(requireNode(after, 'r2')).toMatchObject({ x: 60, y: 20, rotation: 0 });
+    // 各子节点世界形状逐角不变
+    expectWorldQuadsUnchanged(s.document, before);
+  });
+
+  it('编组：父级带旋转时子项旋转补丁减去父系角，世界形状不变', () => {
+    const s = new CommandStack(offsetDoc(30, 20));
+    const initial = JSON.parse(JSON.stringify(s.document));
+    const before = worldQuadsOf(s.document, ['r1', 'r2']);
+    const page = getPage(s.document, 'p1');
+    s.dispatch(groupNodesCommands(page, 'p1', ['r1', 'r2'], { groupId: 'g1' }));
+    const after = getPage(s.document, 'p1');
+    // 旋转补丁 = 世界角 − 父系角：r2 应为 20（而非世界角 30+20=50）
+    expect(requireNode(after, 'r1').rotation).toBe(0);
+    expect(requireNode(after, 'r2').rotation).toBe(20);
+    // 子项世界形状逐角不变（位置与旋转都经父坐标系逆换算）
+    expectWorldQuadsUnchanged(s.document, before);
+    // 撤销精确还原
+    expect(s.undo()).toBe(true);
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(initial);
+  });
+
+  it('对称往返：成组→解组→成组逐字段恒等（父级非零偏移）', () => {
+    const s = new CommandStack(offsetDoc());
+    const page = getPage(s.document, 'p1');
+    s.dispatch(groupNodesCommands(page, 'p1', ['r1', 'r2'], { groupId: 'g1' }));
+    const afterFirstGroup = JSON.parse(JSON.stringify(s.document));
+    // 解组把子项精确送回 fe 局部原坐标（与编组互为逆运算）
+    s.dispatch(dissolveGroupCommands(getPage(s.document, 'p1'), 'p1', 'g1'));
+    const dissolved = getPage(s.document, 'p1');
+    expect(requireNode(dissolved, 'r1')).toMatchObject({ x: 10, y: 10, rotation: 0 });
+    expect(requireNode(dissolved, 'r2')).toMatchObject({ x: 70, y: 30, rotation: 0 });
+    // 再成组：与第一次成组结果逐字段恒等
+    s.dispatch(
+      groupNodesCommands(getPage(s.document, 'p1'), 'p1', ['r1', 'r2'], { groupId: 'g1' }),
+    );
+    expect(JSON.parse(JSON.stringify(s.document))).toEqual(afterFirstGroup);
+  });
+
+  it('对称往返：成组→解组→成组逐字段恒等（父级带旋转，浮点容差）', () => {
+    const s = new CommandStack(offsetDoc(30, 20));
+    const page = getPage(s.document, 'p1');
+    s.dispatch(groupNodesCommands(page, 'p1', ['r1', 'r2'], { groupId: 'g1' }));
+    const afterFirstGroup = JSON.parse(JSON.stringify(s.document));
+    s.dispatch(dissolveGroupCommands(getPage(s.document, 'p1'), 'p1', 'g1'));
+    const dissolved = getPage(s.document, 'p1');
+    // 解组把子项送回 fe 局部原坐标（旋转父系下坐标有 ~1e-13 矩阵逆换算噪声）
+    expect(requireNode(dissolved, 'r1').x).toBeCloseTo(10, 8);
+    expect(requireNode(dissolved, 'r1').y).toBeCloseTo(10, 8);
+    expect(requireNode(dissolved, 'r2').x).toBeCloseTo(70, 8);
+    expect(requireNode(dissolved, 'r2').y).toBeCloseTo(30, 8);
+    // 再成组：与第一次成组逐字段恒等（旋转角精确，坐标在浮点容差内）
+    s.dispatch(
+      groupNodesCommands(getPage(s.document, 'p1'), 'p1', ['r1', 'r2'], { groupId: 'g1' }),
+    );
+    const first = getPage(afterFirstGroup, 'p1');
+    const second = getPage(s.document, 'p1');
+    for (const id of ['g1', 'r1', 'r2']) {
+      const a = requireNode(first, id);
+      const b = requireNode(second, id);
+      expect(b.rotation).toBe(a.rotation);
+      expect(b.x).toBeCloseTo(a.x, 8);
+      expect(b.y).toBeCloseTo(a.y, 8);
+      expect(b.width).toBeCloseTo(a.width, 8);
+      expect(b.height).toBeCloseTo(a.height, 8);
+    }
   });
 });

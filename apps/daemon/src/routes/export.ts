@@ -11,7 +11,7 @@ import { DAEMON_ROUTES, isExportFormat, isNonEmptyString } from '@dforge/contrac
 import type { FastifyInstance } from 'fastify';
 
 import type { DaemonContext } from '../app.ts';
-import { EXPORT_MAX_SCALE, renderExport } from '../export/index.ts';
+import { EXPORT_MAX_SCALE, ExportCanvasTooLargeError, renderExport } from '../export/index.ts';
 import { ensureDir, sha256Hex } from '../fs-atomic.ts';
 import { sendFail, sendOk } from '../http.ts';
 import { resolveWithin } from '../path-safety.ts';
@@ -60,6 +60,15 @@ export function registerExportRoutes(app: FastifyInstance, context: DaemonContex
         ...(record.scale === undefined ? {} : { scale: record.scale as number }),
       });
     } catch (error) {
+      // 尺寸超限是**请求方错误**（4xx + 结构化上下文），不是渲染故障（§D1 护栏）
+      if (error instanceof ExportCanvasTooLargeError) {
+        return sendFail(reply, 'export_canvas_too_large', error.message, {
+          width: error.width,
+          height: error.height,
+          scale: error.scale,
+          maxEdge: error.maxEdge,
+        });
+      }
       return sendFail(reply, 'export_render_failed', `渲染失败：${String(error).slice(0, 200)}`);
     }
 
