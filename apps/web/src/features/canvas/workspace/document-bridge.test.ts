@@ -441,6 +441,13 @@ describe('保存（⌘S / 顶栏按钮）', () => {
     // 幂等：再次保存页数不反弹
     expect((await workspace.documents.save()).ok).toBe(true);
     expect(doc?.pages.size).toBe(2);
+
+    // 重开：页数一致、顺序不错位（旧实现把孤儿页读回复活、内容错位一页）
+    const reopened = makeWorkspace(daemon);
+    expect((await reopened.documents.load('未命名文件')).ok).toBe(true);
+    const reopenedPages = reopened.canvas.document().pages;
+    expect(reopenedPages.map((page) => page.name)).toEqual(['页面 1', '第三页']);
+    expect(reopenedPages.length).toBe(2);
   });
 
   it('同名两会话保存互不覆盖：daemon 同名文档已含内容 → 保存报冲突，原内容原样', async () => {
