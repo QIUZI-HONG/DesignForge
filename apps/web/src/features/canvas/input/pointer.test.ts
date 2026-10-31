@@ -174,3 +174,54 @@ describe('指针适配器', () => {
     expect(session.store.getState().interaction.kind).toBe('idle');
   });
 });
+
+describe('画布外松开收口（§E4 回归）', () => {
+  it('拖动中在画布外松开：window 兜底结束交互，节点按最后已知位置提交、不粘光标', () => {
+    element.dispatchEvent(pointerEvent('pointerdown', { x: 30, y: 20 }));
+    element.dispatchEvent(pointerEvent('pointermove', { x: 70, y: 60 }));
+    expect(session.store.getState().interaction.kind).toBe('move');
+
+    // 松开落在画布外的 body 上：element 级监听收不到，window 级兜底必须收尾
+    document.body.dispatchEvent(pointerEvent('pointerup', { x: 600, y: 300 }));
+    expect(session.store.getState().interaction.kind).toBe('idle');
+
+    // 提交的是「最后已知交互位置」（delta 40,40），不是画布外的松开点（不得瞬移）
+    expect(session.page().nodes.n_rect?.x).toBe(50);
+    expect(session.page().nodes.n_rect?.y).toBe(50);
+
+    // 移回画布（无按键）只是悬停：节点不再跟着光标走
+    element.dispatchEvent(pointerEvent('pointermove', { x: 300, y: 300 }));
+    expect(session.page().nodes.n_rect?.x).toBe(50);
+  });
+
+  it('建画草稿在画布外松开：按草稿原样提交，不残留 draft', () => {
+    session.setTool('rect');
+    element.dispatchEvent(pointerEvent('pointerdown', { x: 30, y: 20 }));
+    element.dispatchEvent(pointerEvent('pointermove', { x: 100, y: 100 }));
+    expect(session.store.getState().draft).toEqual({ x: 30, y: 20, width: 70, height: 80 });
+
+    document.body.dispatchEvent(pointerEvent('pointerup', { x: 600, y: 300 }));
+    expect(session.store.getState().draft).toBeNull();
+    expect(session.store.getState().tool).toBe('select');
+    // 草稿矩形原样落文档（不是松开点撑出的新矩形）
+    const created = Object.values(session.page().nodes).find((node) => node.id !== 'n_rect');
+    expect(created?.width).toBe(70);
+    expect(created?.height).toBe(80);
+    expect(created?.x).toBe(30);
+  });
+
+  it('平移拖出画布松开：交互收尾', () => {
+    element.dispatchEvent(pointerEvent('pointerdown', { x: 30, y: 20 }, { button: 1 }));
+    expect(session.store.getState().interaction.kind).toBe('pan');
+    document.body.dispatchEvent(pointerEvent('pointerup', { x: 600, y: 300 }, { button: 1 }));
+    expect(session.store.getState().interaction.kind).toBe('idle');
+  });
+
+  it('pointercancel 兜底取消交互（与 Esc 同径）：节点不提交移动', () => {
+    element.dispatchEvent(pointerEvent('pointerdown', { x: 30, y: 20 }));
+    expect(session.store.getState().interaction.kind).toBe('move');
+    document.body.dispatchEvent(new Event('pointercancel', { bubbles: true }));
+    expect(session.store.getState().interaction.kind).toBe('idle');
+    expect(session.page().nodes.n_rect?.x).toBe(10);
+  });
+});
