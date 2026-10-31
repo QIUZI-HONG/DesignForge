@@ -41,8 +41,13 @@ interface FakeDocument {
 interface FakeDaemon {
   fetchImpl: typeof fetch;
   documents: Map<string, FakeDocument>;
-  /** 预置一份已落盘文档（页面正文按 encodePageBody 信封写入）。 */
+  /** 预置一份已落盘文档（页面正文按 encodePageBody 信封写入；页 id 连续 page-1..N）。 */
   seed(documentId: string, pages: ScenePage[]): void;
+  /**
+   * 预置一份任意形状的落盘文档（daemon 侧页 id / 页名 / 正文逐页显式给出）——
+   * 模拟删页后页 id 跳号、外来内容等「manifest 页 id 与位置不同名」的真实 daemon 状态。
+   */
+  seedRaw(documentId: string, pages: Array<{ id: string; name: string; body: unknown }>): void;
   /** 让下一次请求失败（模拟 daemon 掉线/写盘失败）。 */
   failNext(status: number, code: DfErrorCode, message: string): void;
 }
@@ -170,6 +175,13 @@ function createFakeDaemon(): FakeDaemon {
       });
       documents.set(documentId, target);
     },
+    seedRaw(documentId, pages) {
+      const target: FakeDocument = { name: documentId, pages: new Map() };
+      for (const page of pages) {
+        target.pages.set(page.id, { name: page.name, body: page.body });
+      }
+      documents.set(documentId, target);
+    },
     failNext(status, code, message) {
       failure = { status, code, message };
     },
@@ -180,6 +192,12 @@ function createFakeDaemon(): FakeDaemon {
 function pageWithRect(pageId: string, rectId: string): ScenePage {
   const rect = createRect({ id: rectId, x: 40, y: 60, width: 120, height: 80 });
   return createPage({ id: pageId, name: '页面 1', rootIds: [rectId], nodes: { [rectId]: rect } });
+}
+
+/** 单页 → 画布信封正文（seedRaw 用：模拟 daemon 里已被写过的页正文）。 */
+function pageEnvelope(page: ScenePage): unknown {
+  const envelope = createDocument({ id: 'doc_seed', name: 'doc_seed', pages: [page] });
+  return encodePageBody(envelope, page);
 }
 
 /** 造一个注入了夹具 daemon 的工作区。 */
@@ -259,6 +277,63 @@ describe('载入（?documentId= → daemon 文档）', () => {
     };
     expect(stored.$format).toBe('dforge.canvas.page');
     expect(stored.page.nodes[rectId]).toBeDefined();
+  });
+
+  it('读取由 daemon 页列表驱动：页 id 跳号（删过页）也完整读回，顺序与 manifest 一致', async () => {
+    const daemon = createFakeDaemon();
+    // daemon 侧删过页：manifest 页 id 跳号（page-2..4 已不存在）——按位置猜 page-{N} 会漏读
+    daemon.seedRaw('跳号文档', [
+      {
+        id: 'page-1',
+        name: '第一页',
+        body: pageEnvelope(createPage({ id: 'page-a', name: '第一页' })),
+      },
+      {
+        id: 'page-5',
+        name: '第三页',
+        body: pageEnvelope(createPage({ id: 'page-c', name: '第三页' })),
+      },
+    ]);
+    const workspace = makeWorkspace(daemon);
+
+    const result = await workspace.documents.load('跳号文档');
+    expect(result.ok).toBe(true);
+    const pages = workspace.canvas.document().pages;
+    expect(pages.map((page) => page.name)).toEqual(['第一页', '第三页']);
+    expect(pages.map((page) => page.id)).toEqual(['page-a', 'page-c']);
+  });
+
+  it('空首页约定以 daemon 汇报为准：首 页 id/名取 manifest（不假设 page-1），保存不另建页', async () => {
+    const daemon = createFakeDaemon();
+    // 新建后 daemon 侧经历过删页重建：空首页的页 id 已不是 page-1
+    daemon.seedRaw('重建的文件', [{ id: 'page-7', name: '首页', body: {} }]);
+    const workspace = makeWorkspace(daemon);
+
+    const result = await workspace.documents.load('重建的文件');
+    expect(result.ok).toBe(true);
+    expect(workspace.canvas.page().id).toBe('page-7');
+    expect(workspace.canvas.page().name).toBe('首页');
+
+    // 画一笔再保存：写回 daemon 汇报的那一页（不另建），页数仍为 1
+    workspace.canvas.createRect({ x: 1, y: 1, width: 8, height: 8 });
+    expect((await workspace.documents.save()).ok).toBe(true);
+    const doc = daemon.documents.get('重建的文件');
+    expect(doc?.pages.size).toBe(1);
+    expect([...(doc?.pages.keys() ?? [])][0]).toBe('page-7');
+  });
+
+  it('外来/损坏正文不静默吞掉：任一页解不开即整文档报结构非法', async () => {
+    const daemon = createFakeDaemon();
+    daemon.seedRaw('混入外来内容', [
+      { id: 'page-1', name: '页面 1', body: pageEnvelope(pageWithRect('page-a', 'n_a')) },
+      { id: 'page-2', name: '外来页', body: { someForeign: 'data' } },
+    ]);
+    const workspace = makeWorkspace(daemon);
+
+    const result = await workspace.documents.load('混入外来内容');
+    // 旧实现在首个解不开的页处静默截断（返回前 1 页、谎报成功）
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('结构非法');
   });
 });
 

@@ -291,13 +291,18 @@ export async function saveDesignDocument(
 }
 
 /**
- * 读取设计文档（顺序探测 `page-{N}` 直到缺失）。
+ * 读取设计文档（逐页读回 → 引擎 `parseDocument` 结构校验）。
  *
- * **空文档口径**（D-2 闭环的必要一环）：daemon 的「新建设计文件」只写 `{}` 作为页正文
- * （daemon 只做 opaque JSON 存储，不写设计语义）。因此「首屏正文是空对象」= 这份文档
- * 尚无设计内容 → 给一份含一个空页面的文档（页面 id 与 daemon 的 `page-1` 对齐），
- * 用户从首页点开新文件就是**空画布可画**，而不是「结构非法」错误态。
- * 反过来：正文是非空但非本格式的 JSON（外来/损坏内容）仍按结构错误上报——不静默吞掉别人的数据。
+ * 口径（修复 test-remediation #04 · 页 id 位置映射 vs 跳号、64 页硬上限）：
+ * - **由 daemon 汇报的 manifest 页列表驱动**：逐项 readPage，页数与顺序以 daemon 为准，
+ *   不做任何 `page-{N}` 位置猜测、不设页数上限（旧实现顺序探测到首个缺失即停——
+ *   跳号页读不全，且硬编码 64 页截断更大的文档）；
+ * - **空文档口径**（D-2 闭环的必要一环）：daemon 的「新建设计文件」只写 `{}` 作为唯一页正文
+ *   （daemon 只做 opaque JSON 存储，不写设计语义）。因此「唯一页正文是空对象」= 这份文档
+ *   尚无设计内容 → 给一份含一个空页面的文档（页 id/页名以 daemon manifest 汇报为准），
+ *   用户从首页点开新文件就是**空画布可画**，而不是「结构非法」错误态；
+ * - **不静默吞数据**：manifest 列出的页读不到正文、或正文是非本格式的 JSON（外来/损坏内容）
+ *   → 整文档按错误上报（旧实现在首个读不到/解不开的页处静默截断并谎报成功）。
  */
 export async function loadDesignDocument(
   client: DocumentsClient,
@@ -305,23 +310,29 @@ export async function loadDesignDocument(
 ): Promise<ClientResult<DesignDocument>> {
   const summary = await client.getDocument(documentId);
   if (!summary.ok) return summary;
+  const daemonPages = summary.value.pages;
   const pages: ScenePage[] = [];
   let tokens: TokenSet | null = null;
-  let firstBodyEmpty = false;
-  for (let index = 0; index < 64; index += 1) {
-    const body = await client.readPage(documentId, daemonPageId(index));
-    if (!body.ok) break;
+  for (const [index, daemonPage] of daemonPages.entries()) {
+    const body = await client.readPage(documentId, daemonPage.id);
+    if (!body.ok) {
+      // manifest 列了这页但正文读不到（克隆/损坏的 .dfg）：整文档报错，不静默截断
+      return { ok: false, error: `页面正文不可读（${daemonPage.id}）：${body.error}` };
+    }
     const decoded = decodePageBody(body.value);
     if (decoded === null) {
-      if (index === 0) firstBodyEmpty = isEmptyBody(body.value);
-      break;
+      if (index === 0 && daemonPages.length === 1 && isEmptyBody(body.value)) {
+        // 新建文档的空白首页：页 id/页名沿用 daemon manifest 汇报（数据真值，不是界面文案）
+        pages.push(createPage({ id: daemonPage.id, name: daemonPage.name }));
+        continue;
+      }
+      return {
+        ok: false,
+        error: `文档结构非法：页面 ${daemonPage.id}（${daemonPage.name}）的正文不是设界画布格式（外来/损坏内容）`,
+      };
     }
     pages.push(decoded.page);
     tokens = tokens ?? decoded.tokens;
-  }
-  if (pages.length === 0 && firstBodyEmpty) {
-    // 新建文档的空白首页：名字沿用 daemon 的默认页面名（数据默认值，不是界面文案）
-    pages.push(createPage({ id: daemonPageId(0), name: '页面 1' }));
   }
   try {
     const parsed = parseDocument({
