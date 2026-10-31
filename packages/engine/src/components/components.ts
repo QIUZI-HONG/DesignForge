@@ -9,7 +9,6 @@
 
 import { parentIdOf, wrapIntoContainerCommands } from '../commands/helpers';
 import type { Command } from '../commands/types';
-import { worldBoundsOfNodes } from '../geometry/transform';
 import type { IdFactory } from '../model/ids';
 import { ID_PREFIX, systemIdFactory } from '../model/ids';
 import type {
@@ -75,7 +74,8 @@ export function countInstancesOf(page: ScenePage, componentId: ComponentId): num
 
 /**
  * 提升为主组件：以选中节点并集为边界创建组件容器，并把选中节点移入（世界形状不变）。
- * 与编组同构，只是容器类型为 `component`（C17「创建组件」）。
+ * 与编组同构，只是容器类型为 `component`（C17「创建组件」）；
+ * 容器几何由 `wrapIntoContainerCommands` 统一经父坐标系逆换算落位（票 05）。
  */
 export function createComponentCommands(
   page: ScenePage,
@@ -91,8 +91,6 @@ export function createComponentCommands(
 ): Command[] {
   const roots = sortByZOrder(page, topmostIds(page, nodeIds));
   if (roots.length === 0) return [];
-  const bounds = worldBoundsOfNodes(page, roots);
-  if (!bounds) return [];
   const parents = new Set(roots.map((id) => parentIdOf(page, id)));
   if (parents.size > 1) {
     throw domainError('invalid-argument', '创建组件要求所选节点处于同一父级');
@@ -103,10 +101,6 @@ export function createComponentCommands(
   const component = createComponent({
     id: componentId,
     name: options.name ?? '组件',
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
     variantProperties: options.variantProperties ?? null,
     componentSetId: options.componentSetId ?? null,
   });

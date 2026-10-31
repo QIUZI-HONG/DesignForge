@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { CommandStack, groupNodesCommands } from '../commands/index';
+import { type Point, worldQuad } from '../geometry/index';
 import {
   childrenOf,
   createComponent,
   createComponentSet,
   createDocument,
+  createFrame,
   createPage,
   createRect,
   type DesignDocument,
 } from '../model/index';
-import { getPage, insertNode, requireNode } from '../scene/index';
+import { getPage, insertNode, insertNodes, requireNode } from '../scene/index';
 import { resolveInstanceTree } from '../scene/instance';
 import {
   countInstancesOf,
@@ -80,6 +82,48 @@ function doc(): DesignDocument {
   return document;
 }
 
+/** 节点世界四角快照（世界形状不变断言用，票 05）。 */
+function worldQuadsOf(doc: DesignDocument, ids: readonly string[]): Record<string, Point[]> {
+  const page = getPage(doc, 'p1');
+  return Object.fromEntries(ids.map((id) => [id, worldQuad(page, id) ?? []]));
+}
+
+/** 断言各节点世界四角与快照逐点一致（容差 1e-8，覆盖父级旋转下的矩阵逆换算浮点噪声）。 */
+function expectWorldQuadsUnchanged(doc: DesignDocument, before: Record<string, Point[]>): void {
+  const page = getPage(doc, 'p1');
+  for (const [id, quad] of Object.entries(before)) {
+    const after = worldQuad(page, id) ?? [];
+    expect(after).toHaveLength(quad.length);
+    after.forEach((point, index) => {
+      const expected = quad[index];
+      if (!expected) return;
+      expect(point.x).toBeCloseTo(expected.x, 8);
+      expect(point.y).toBeCloseTo(expected.y, 8);
+    });
+  }
+}
+
+/** 父级非零坐标夹具：fe(100,80,200×200[,rot]) ⊃ [sel1(10,10,50,50), sel2(70,30,40,20[,rot])]。 */
+function offsetDoc(frameRotation = 0, childRotation = 0): DesignDocument {
+  let document = createDocument({ id: 'd1', pages: [createPage({ id: 'p1' })] });
+  document = insertNode(
+    document,
+    'p1',
+    createFrame({ id: 'fe', x: 100, y: 80, width: 200, height: 200, rotation: frameRotation }),
+    null,
+  );
+  document = insertNodes(
+    document,
+    'p1',
+    [
+      createRect({ id: 'sel1', x: 10, y: 10, width: 50, height: 50 }),
+      createRect({ id: 'sel2', x: 70, y: 30, width: 40, height: 20, rotation: childRotation }),
+    ],
+    'fe',
+  );
+  return document;
+}
+
 describe('components · 组件清单（C4 资产面板）', () => {
   it('列出主组件与组件集，统计实例数', () => {
     let document = doc();
@@ -111,6 +155,46 @@ describe('components · 创建组件与实例（C17）', () => {
     expect(requireNode(after, 'sel1')).toMatchObject({ x: 0, y: 0 }); // 世界形状不变（组内相对）
     stack.undo();
     expect(getPage(stack.document, 'p1').nodes.comp1).toBeUndefined();
+  });
+
+  it('提升为主组件：父级非零偏移下落位经父坐标系逆换算（不瞬移）', () => {
+    const document = offsetDoc();
+    const page = getPage(document, 'p1');
+    const stack = new CommandStack(document);
+    stack.dispatch(
+      createComponentCommands(page, 'p1', ['sel1', 'sel2'], { componentId: 'comp1', name: '按钮' }),
+    );
+    const after = getPage(stack.document, 'p1');
+    const component = requireNode(after, 'comp1');
+    expect(component.type).toBe('component');
+    expect(component.name).toBe('按钮');
+    // 组件 x/y 相对父容器 fe：选中并集的 fe 局部 AABB (10,10,100,50)，而非世界 AABB (110,90,…)
+    expect([component.x, component.y, component.width, component.height]).toEqual([
+      10, 10, 100, 50,
+    ]);
+    expect(childrenOf(component)).toEqual(['sel1', 'sel2']);
+    // 子项补丁落在组件局部坐标系：sel1 → (0,0)、sel2 → (60,20)
+    expect(requireNode(after, 'sel1')).toMatchObject({ x: 0, y: 0, rotation: 0 });
+    expect(requireNode(after, 'sel2')).toMatchObject({ x: 60, y: 20, rotation: 0 });
+  });
+
+  it('提升为主组件：父级带旋转时子项世界形状不变（旋转补丁减父系角）', () => {
+    const document = offsetDoc(30, 20);
+    const initial = JSON.parse(JSON.stringify(document));
+    const page = getPage(document, 'p1');
+    const before = worldQuadsOf(document, ['sel1', 'sel2']);
+    const stack = new CommandStack(document);
+    stack.dispatch(createComponentCommands(page, 'p1', ['sel1', 'sel2'], { componentId: 'comp1' }));
+    const after = getPage(stack.document, 'p1');
+    // 组件相对父级无旋转；子项旋转补丁 = 自身相对 fe 的角度（而非世界角 30/50）
+    expect(requireNode(after, 'comp1').rotation).toBe(0);
+    expect(requireNode(after, 'sel1').rotation).toBe(0);
+    expect(requireNode(after, 'sel2').rotation).toBe(20);
+    // 子项世界形状逐角不变
+    expectWorldQuadsUnchanged(stack.document, before);
+    // 撤销精确还原
+    expect(stack.undo()).toBe(true);
+    expect(JSON.parse(JSON.stringify(stack.document))).toEqual(initial);
   });
 
   it('实例化：不复制子树，解析出的子节点来自主组件', () => {
