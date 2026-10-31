@@ -65,6 +65,7 @@ describe('/editor · 服务端首帧（空槽形态）', () => {
     expect(listEditorSlotItems('canvas')).toEqual([]);
     expect(listEditorSlotItems('left-panel')).toEqual([]);
     expect(listEditorSlotItems('right-panel')).toEqual([]);
+    expect(listEditorSlotItems('left-panel-tabs')).toEqual([]);
     expect(getCommand('view.zoomFit')).toBeUndefined();
   });
 });
@@ -111,6 +112,11 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
         'fe-07-comment-layer',
       ]);
       expect(listEditorSlotItems('left-panel').map((item) => item.id)).toEqual(['fe-04-panels']);
+      // 票 16：左栏页签族扩展——「市场」入口随声明表挂载（页签体只在选中时渲染）
+      expect(listEditorSlotItems('left-panel-tabs').map((item) => item.id)).toEqual([
+        'p2-market',
+      ]);
+      expect(listEditorSlotItems('left-panel-tabs')[0]?.label?.()).toBe('市场');
       expect(listEditorSlotItems('right-panel').map((item) => item.id)).toEqual([
         'fe-06-right',
         'fe-07-comments-panel',
@@ -173,6 +179,7 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
       'fe-06-canvas',
       'fe-07-comment-layer',
     ]);
+    expect(listEditorSlotItems('left-panel-tabs').map((item) => item.id)).toEqual(['p2-market']);
     expect(getCommandsSnapshot().length).toBe(commandCount);
   });
 });
