@@ -17,9 +17,11 @@ import {
   handleSpaceDown,
   handleSpaceUp,
   type KeyInput,
+  type KeyReleaseEvent,
   SHORTCUTS,
   type ShortcutContext,
   shortcutTable,
+  shouldReleaseKeyboard,
 } from './keyboard';
 
 const CONTEXT: ShortcutContext = {
@@ -196,5 +198,71 @@ describe('快捷键分派', () => {
     const spy = vi.spyOn(session, 'copy');
     expect(handleKeyDown(session, key('c', { meta: true, alt: true }), CONTEXT)).toBeNull();
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('交互控件焦点下的放行守卫（票 10 · 报告 §E3）', () => {
+  /** 造 DOM 形状的按键事件（KeyboardEvent 子集；node 环境无 DOM，鸭子类型即可）。 */
+  function domKey(
+    keyName: string,
+    options: { meta?: boolean; ctrl?: boolean } = {},
+  ): KeyReleaseEvent {
+    return {
+      key: keyName,
+      metaKey: options.meta ?? false,
+      ctrlKey: options.ctrl ?? false,
+      altKey: false,
+    };
+  }
+
+  /** 造目标元素（只带守卫用到的形状）。 */
+  function el(shape: {
+    tagName?: string;
+    isContentEditable?: boolean;
+    contenteditable?: string | null;
+  }): EventTarget {
+    return {
+      tagName: shape.tagName,
+      isContentEditable: shape.isContentEditable,
+      getAttribute: (name: string) =>
+        name === 'contenteditable' ? (shape.contenteditable ?? null) : null,
+    } as unknown as EventTarget;
+  }
+
+  it('按钮/链接/下拉焦点：空格与 Enter 放行（原生激活键，画布不得劫持）', () => {
+    for (const tagName of ['BUTTON', 'A', 'SELECT']) {
+      expect(shouldReleaseKeyboard(el({ tagName }), domKey(' '))).toBe(true);
+      expect(shouldReleaseKeyboard(el({ tagName }), domKey('Enter'))).toBe(true);
+    }
+  });
+
+  it('按钮焦点下带 ⌘/Ctrl 的按键不放行（组合键仍走画布分派，不回归）', () => {
+    const button = el({ tagName: 'BUTTON' });
+    expect(shouldReleaseKeyboard(button, domKey(' ', { meta: true }))).toBe(false);
+    expect(shouldReleaseKeyboard(button, domKey('Enter', { ctrl: true }))).toBe(false);
+    expect(shouldReleaseKeyboard(button, domKey('z', { meta: true }))).toBe(false);
+  });
+
+  it('输入框/文本域/contentEditable 焦点：所有按键放行（文本与光标归浏览器）', () => {
+    for (const target of [
+      el({ tagName: 'INPUT' }),
+      el({ tagName: 'TEXTAREA' }),
+      el({ isContentEditable: true }),
+      el({ contenteditable: 'true' }),
+    ]) {
+      expect(shouldReleaseKeyboard(target, domKey(' '))).toBe(true);
+      expect(shouldReleaseKeyboard(target, domKey('Enter'))).toBe(true);
+      expect(shouldReleaseKeyboard(target, domKey('z', { meta: true }))).toBe(true);
+    }
+    // contenteditable="false" 不是可编辑区
+    expect(
+      shouldReleaseKeyboard(el({ contenteditable: 'false', tagName: 'DIV' }), domKey(' ')),
+    ).toBe(false);
+  });
+
+  it('画布本体焦点不误放行：空格仍进平移预备、Enter 仍走快捷键分派', () => {
+    expect(shouldReleaseKeyboard(el({ tagName: 'BODY' }), domKey(' '))).toBe(false);
+    expect(shouldReleaseKeyboard(el({ tagName: 'BODY' }), domKey('Enter'))).toBe(false);
+    expect(shouldReleaseKeyboard(null, domKey(' '))).toBe(false);
   });
 });
