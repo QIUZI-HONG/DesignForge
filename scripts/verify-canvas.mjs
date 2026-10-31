@@ -409,7 +409,7 @@ async function ensureDaemon(webPort) {
   const started = startProcess(process.execPath, [join(REPO_ROOT, 'apps/daemon/src/main.ts')], {
     env: {
       DF_WORKSPACE_DIR: workspaceDir,
-      DF_DATA_ROOT: dataRoot,
+      DF_DATA_ROOT: dataRootDir,
       DF_PORT: String(port),
       DF_HOST: '127.0.0.1',
       // 受控 CORS：只放行本次站点来源（daemon 默认白名单不含随机端口）
