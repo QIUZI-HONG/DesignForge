@@ -31,8 +31,11 @@ export type AiStepId = (typeof AI_STEPS)[number];
 /** 可见步骤 id（「done」为派生段，不在机器时序里）。 */
 export type AiVisibleStepId = (typeof AI_VISIBLE_STEPS)[number];
 
+/** 单步状态全集（i18n 动态键 `ai.step.status.${status}` 的取值钉点与类型同源）。 */
+export const AI_STEP_STATUSES = ['pending', 'active', 'done', 'failed'] as const;
+
 /** 单步状态。 */
-export type AiStepStatus = 'pending' | 'active' | 'done' | 'failed';
+export type AiStepStatus = (typeof AI_STEP_STATUSES)[number];
 
 /** 运行阶段（idle 未开始 / running 进行中 / done 完成 / failed 失败待重试）。 */
 export type AiRunPhase = 'idle' | 'running' | 'done' | 'failed';

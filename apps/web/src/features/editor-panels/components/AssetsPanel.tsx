@@ -48,6 +48,16 @@ import { usePanelsSession } from './panels-context';
 
 import '../editor-panels.css';
 
+/**
+ * i18n 纪律（P2-6 口径统一，与 AiDrawer 同一条规则，真源 `src/i18n/catalog-coverage.test.ts`
+ * 文件头）：**静态键**（单引号字面量取词）由 catalog-coverage 守卫（目录缺词条即红）；
+ * **动态键**（模板串拼前缀）无法静态枚举，由各功能域用例钉住全部取值（AiDrawer 步骤/降级族
+ * 见 `src/i18n/index.test.ts` 的 P2-6 段与 AiDrawer.test.tsx 的 it.each）。本面板的
+ * TOKEN_TYPE_LABEL_KEYS / addProblemMessage 用显式罗列满足「可检索」——同一纪律的静态
+ * 写法，不是对动态键的额外禁令。（注记里不写取词调用的字面形态：catalog-coverage
+ * 扫源码正则会把注释里的示例当真引用。）
+ */
+
 /** 新建令牌可选的类型（DTCG `$type` 全集，与引擎 `TokenType` 同一清单）。 */
 const TOKEN_TYPES: readonly TokenType[] = [
   'color',
@@ -60,7 +70,7 @@ const TOKEN_TYPES: readonly TokenType[] = [
   'typography',
 ];
 
-/** 类型 → i18n 键（显式罗列，禁动态拼键：可检索、漏译即裸键可见）。 */
+/** 类型 → i18n 键（显式罗列：可检索、漏译即裸键可见——口径见文件头「i18n 纪律」）。 */
 const TOKEN_TYPE_LABEL_KEYS: Record<TokenType, string> = {
   color: 'panels.assets.tokenAdd.type.color',
   dimension: 'panels.assets.tokenAdd.type.dimension',
@@ -149,7 +159,7 @@ export function AssetsPanel({
     closeAddForm();
   };
 
-  /** 错误分因 → i18n 文案（键显式罗列，可检索；禁动态拼键）。 */
+  /** 错误分因 → i18n 文案（switch 显式罗列：键可检索、漏译即裸键可见——口径同上）。 */
   const addProblemMessage = (code: TokenNameProblemCode): string => {
     switch (code) {
       case 'empty':

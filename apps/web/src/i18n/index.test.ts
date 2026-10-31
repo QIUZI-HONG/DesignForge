@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import en from '../../messages/en.json';
 import zhCN from '../../messages/zh-CN.json';
+import { AI_VISIBLE_STEPS, AI_STEP_STATUSES } from '@/features/ai/steps';
 import { FALLBACK_LOCALE, PRIMARY_LOCALE, t } from './index';
 
 describe('@dforge/web i18n 冒烟', () => {
@@ -130,6 +131,33 @@ describe('票 10 · Inspector 效果区键名经 i18n（spec P1-6）', () => {
     for (const old of ['dropShadow', 'innerShadow', 'layerBlur']) {
       expect(zhLocal[`inspector.effect.${old}`]).toBeUndefined();
       expect(enCatalogLocal[`inspector.effect.${old}`]).toBeUndefined();
+    }
+  });
+});
+
+describe('P2-6 · 动态拼键纪律的「功能域钉值」半边（AiDrawer 步骤族）', () => {
+  // 口径统一（P2-6）：静态键由 catalog-coverage.test 守卫；动态键（t(`prefix.${value}`)）
+  // 由各功能域用例钉住**全部**取值（catalog-coverage 文件头的既定纪律）。AiDrawer 的
+  // 步骤/状态标签走动态键——这里枚举 steps.ts 导出的全集逐键断言不回键（degrade 族
+  // 已由 AiDrawer.test.tsx 的 it.each 钉住，不重复）。
+  const catalog = zhCN as unknown as Record<string, string>;
+  const enCatalog = en as unknown as Record<string, string>;
+
+  it('可见步骤 id 全集（AI_VISIBLE_STEPS）在两目录都有词条（t() 不回键）', () => {
+    for (const id of AI_VISIBLE_STEPS) {
+      const key = `ai.step.${id}`;
+      expect(catalog[key]).toBeTruthy();
+      expect(catalog[key]).not.toBe(key);
+      expect(enCatalog[key]).toBeTruthy();
+    }
+  });
+
+  it('步骤状态全集（pending/active/done/failed）在两目录都有词条', () => {
+    for (const status of AI_STEP_STATUSES) {
+      const key = `ai.step.status.${status}`;
+      expect(catalog[key]).toBeTruthy();
+      expect(catalog[key]).not.toBe(key);
+      expect(enCatalog[key]).toBeTruthy();
     }
   });
 });
