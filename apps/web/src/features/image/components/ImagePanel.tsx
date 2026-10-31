@@ -162,6 +162,19 @@ export function ImagePanel(props: ImagePanelProps) {
     run.status !== null && (run.status.state === 'queued' || run.status.state === 'running');
   const busy = run.submitting || activeRun;
 
+  const emptyPositive = positive.trim().length === 0;
+  // 探测已有结论且服务未启动：提交必然失败 → 一并置灰（未启动态是一等状态，横幅之外入口也要可解释）
+  const comfyUnreachable = run.probe !== null && !run.probe.reachable;
+  // 禁用原因与真实状态一致（票 07 · spec P1-3）：运行中走 loading 语义不给原因；
+  // 服务未启动是当前第一阻塞（先于表单校验），其次才是空提示词
+  const submitReason = busy
+    ? undefined
+    : comfyUnreachable
+      ? t('image.probe.unreachable.title')
+      : emptyPositive
+        ? t('image.action.submit.disabled')
+        : undefined;
+
   const inputs = (): ImageRunInputs => ({
     positive: positive.trim(),
     ...(negative.trim().length === 0 ? {} : { negative: negative.trim() }),
@@ -175,7 +188,8 @@ export function ImagePanel(props: ImagePanelProps) {
       <Button
         variant="primary"
         onClick={() => run.submit(inputs())}
-        disabled={busy || positive.trim().length === 0}
+        disabled={busy || emptyPositive || comfyUnreachable}
+        {...(submitReason === undefined ? {} : { disabledReason: submitReason })}
         loading={busy}
         loadingLabel={t('image.action.submitting')}
       >

@@ -15,9 +15,13 @@
  */
 import { apiFailure, apiSuccess } from '@dforge/contracts';
 import { createDocument, createPage } from '@dforge/engine';
+import { act, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CanvasHudProvider,
+  EditorShell,
   executeCommand,
   getCommand,
   resetCommandRegistry,
@@ -35,6 +39,7 @@ import { useWorkspaceUi } from './ui-state';
 import {
   createEditorWorkspace,
   EMPTY_PRESET,
+  getWorkspace,
   resetWorkspace,
   setWorkspace,
 } from './workspace-session';
@@ -187,5 +192,69 @@ describe('文档载入锁（复核 J1：随工作区生命周期复位，SPA 导
     await vi.waitFor(() => {
       expect(second.canvas.document().name).toBe('文档 A');
     });
+  });
+});
+
+describe('edit.undo / edit.redo · 置灰原因（票 07 · spec P1-3）', () => {
+  /** 装配工作区与命令，挂整壳（顶栏含撤销/重做入口）。 */
+  function renderEditorWithCommands() {
+    setWorkspace(createEditorWorkspace(EMPTY_PRESET));
+    registerWorkspaceCommands();
+    render(
+      <CanvasHudProvider>
+        <EditorShell />
+      </CanvasHudProvider>,
+    );
+  }
+
+  /** 一次真实编辑（整文档替换进命令栈 → 撤销栈非空）。 */
+  function replaceDocument() {
+    getWorkspace().panels.stack.dispatch(
+      {
+        type: 'document.replace',
+        document: createDocument({
+          id: 'doc-1',
+          name: '测试文档',
+          pages: [createPage({ id: 'page-1' })],
+        }),
+      },
+      { label: '载入文档' },
+    );
+  }
+
+  it('撤销置灰时悬停给原因提示（不回显名称）；有操作后点亮，原因随真实状态消失', async () => {
+    renderEditorWithCommands();
+    const user = userEvent.setup();
+
+    const undo = screen.getByRole('button', { name: '撤销' });
+    expect(undo.hasAttribute('disabled')).toBe(true);
+    await user.hover(undo);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('没有可撤销的操作');
+
+    // 一次编辑 → 撤销点亮（入口状态跟随命令栈真值，不留过期原因）
+    act(() => {
+      replaceDocument();
+    });
+    const enabled = screen.getByRole('button', { name: '撤销' });
+    expect(enabled.hasAttribute('disabled')).toBe(false);
+    await user.unhover(enabled);
+  });
+
+  it('重做置灰时悬停给原因提示；撤销执行后重做点亮', async () => {
+    renderEditorWithCommands();
+    const user = userEvent.setup();
+
+    const redo = screen.getByRole('button', { name: '重做' });
+    expect(redo.hasAttribute('disabled')).toBe(true);
+    await user.hover(redo);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('没有可重做的操作');
+    await user.unhover(redo);
+
+    act(() => {
+      replaceDocument();
+    });
+    await user.click(screen.getByRole('button', { name: '撤销' }));
+    const enabledRedo = screen.getByRole('button', { name: '重做' });
+    expect(enabledRedo.hasAttribute('disabled')).toBe(false);
   });
 });

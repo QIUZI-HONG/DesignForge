@@ -129,6 +129,35 @@ describe('出图面板（F5）', () => {
     expect((screen.getByRole('spinbutton', { name: '宽' }) as HTMLInputElement).value).toBe('576');
   });
 
+  it('未检测到 ComfyUI：提交置灰悬停给服务原因（票 07 · spec P1-3）', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const port = fakeImagePort({ probeSequence: [probeUnreachable()] });
+    render(<ImagePanel port={port} defaultOpen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('未检测到本地 ComfyUI 服务')).toBeTruthy();
+    });
+    const submit = screen.getByRole('button', { name: '生成图片' }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    await user.hover(submit);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('未检测到本地 ComfyUI 服务');
+  });
+
+  it('服务可达但提示词为空：悬停给输入原因；输入后可点（票 07 · spec P1-3）', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<ImagePanel port={fakeImagePort({})} defaultOpen />);
+
+    const submit = screen.getByRole('button', { name: '生成图片' }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    await user.hover(submit);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('请先输入提示词');
+    await user.unhover(submit);
+
+    await user.type(screen.getByRole('textbox', { name: '提示词' }), 'wasteland gear icon');
+    const enabled = screen.getByRole('button', { name: '生成图片' }) as HTMLButtonElement;
+    expect(enabled.disabled).toBe(false);
+  });
+
   it('未启动态：面板给出未检测到服务的提示与「重新探测」动作（真跑探测接口）', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const port = fakeImagePort({ probeSequence: [probeUnreachable(), probeUnreachable()] });

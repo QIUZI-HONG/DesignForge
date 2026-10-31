@@ -239,6 +239,31 @@ describe('AI 抽屉（F4）', () => {
     await screen.findByText('已生成按钮组');
   });
 
+  it('空输入置灰悬停给原因提示（票 07 · spec P1-3）；输入后可点，运行中不误报原因', async () => {
+    const user = userEvent.setup();
+    const port = controllableAiPort();
+    render(<AiDrawer port={port} defaultOpen />);
+
+    const submit = screen.getByRole('button', { name: '生成' }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    await user.hover(submit);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('请先输入描述');
+    await user.unhover(submit);
+
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    const enabled = screen.getByRole('button', { name: '生成' }) as HTMLButtonElement;
+    expect(enabled.disabled).toBe(false);
+
+    // 运行中的禁用走 loading 语义（转圈 + aria-busy）：不挂「请先输入描述」这类过期原因
+    await user.click(enabled);
+    const running = screen.getByRole('button', { name: '正在生成' });
+    await user.hover(running);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    port.release();
+    await screen.findByText('已生成按钮组');
+  });
+
   it('未配置 key 时给出降级提示（来自 /ai/status，不报错）', async () => {
     const port = fakeAiPort({ runs: [[]] });
     render(<AiDrawer port={port} defaultOpen />);

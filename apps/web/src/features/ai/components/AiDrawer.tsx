@@ -176,13 +176,17 @@ export function AiDrawer(props: AiDrawerProps) {
   const { state, status, submit, retry } = useAiRun({ port });
   const [prompt, setPrompt] = useState('');
   const running = state.phase === 'running';
+  const emptyPrompt = prompt.trim().length === 0;
 
   const footer = (
     <div className="dfg-ai__actions">
       <Button
         variant="primary"
         onClick={() => submit(prompt)}
-        disabled={running || prompt.trim().length === 0}
+        disabled={running || emptyPrompt}
+        // 禁用原因与真实状态一致（票 07 · spec P1-3）：空输入才给原因；
+        // 运行中走 loading 语义（转圈 + aria-busy），不挂过期原因
+        {...(running || !emptyPrompt ? {} : { disabledReason: t('ai.action.submit.disabled') })}
         loading={running}
         loadingLabel={t('ai.action.submitting')}
       >
