@@ -59,6 +59,7 @@ export {
   Tabs,
   type TabsProps,
 } from './Tabs';
+export { TechnicalDetails, type TechnicalDetailsProps } from './TechnicalDetails';
 export {
   type ToastAction,
   type ToastHandle,

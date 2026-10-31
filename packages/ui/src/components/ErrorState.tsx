@@ -28,6 +28,8 @@ export interface ErrorStateProps {
   code?: string;
   /** 诊断信息折叠的标题（i18n 文案由调用方给）；给了才折叠错误码。 */
   diagnosticsLabel?: string;
+  /** 折叠区内的补充技术信息（如原始错误 message，票 06 / spec P1-2）；跟错误码同区展示。 */
+  diagnosticsDetail?: ReactNode;
   /** 重试回调；与 `retryLabel` 同时给出才渲染重试按钮。 */
   onRetry?: () => void;
   /** 重试按钮文案（由调用方给）。 */
@@ -45,6 +47,7 @@ export function ErrorState({
   description,
   code,
   diagnosticsLabel,
+  diagnosticsDetail,
   onRetry,
   retryLabel,
   retrying = false,
@@ -63,6 +66,9 @@ export function ErrorState({
         <details className="dfg-state__diagnostics">
           <summary className="dfg-state__diagnostics-toggle">{diagnosticsLabel}</summary>
           <span className="dfg-state__code">{code}</span>
+          {diagnosticsDetail === undefined ? null : (
+            <span className="dfg-state__diagnostics-detail">{diagnosticsDetail}</span>
+          )}
         </details>
       )}
       {showRetry ? (
