@@ -93,18 +93,29 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   （`✗` 违规明细 + `?` 未判定明细，结论行点名未判定计数）——阻塞信息不得被违规结论吞掉；
   规则同时写在两守卫模块头。`guard-vocab` 报告**始终**带 `registry`（登记词表 + 放行别名）与
   `limits`（静态判据外形态），`--registry` 可人类可读打印（登记面评审可见，不得静默）。
+- **守卫实况（2026-10-31 test-remediation 批次 · 票 16）**：浏览器门禁 `scripts/verify-canvas.mjs`
+  （挂载 6 断言 + 白名单 13 类接线 + C9/C11 外观 + **四回归场景**：CanvasKit 失败→摘标签→重试成功、
+  画布外松开交互收口、浮层工具条跟手、按钮焦点激活键放行）与 `scripts/e2e-smoke.mjs`
+  （场景化冒烟：home / nav / canvas 拖画→持久化→导出/导入往返 / editor + 编辑器真实门禁）
+  **已实现真断言**（三态退出码：违规 1 / 前置不成立 2 / 通过 0），CI 以「**阻塞语义断言**」接入
+  （无 Chromium → 必须 exit 2 + 日志点名「阻塞」，同 figma-baseline 模式），
+  **正式判定（要求 exit 0）待 CI 具备 Chromium**；`verify-canvas` 的截图对照段仍阻塞于
+  参照集未冻结（REF-01 属他票：功能全过 + 无参照集 → exit 2，禁自截图假绿）。
+  四回归场景的断言载体是 `verify-canvas`（真浏览器 + 调试句柄读真实运行态），`e2e:smoke` 侧不重复钉。
 
 ## 门禁清单（本段）
 
 - 常规链路（CI 与本地同一条）：`pnpm install --frozen-lockfile` → `pnpm lint` →
   `pnpm typecheck` → `pnpm test`；本地等价命令 `pnpm verify`。
 - **浏览器门禁（挂点，随票接入）**：`verify-figma-page|component|states|baseline`（逐页/逐组件对照）、
-  `verify-canvas`（画布挂载 6 断言）、`e2e:smoke`（10 步冒烟：拖画→持久化→导出/导入往返）、
-  壳内渲染一致性断言（FE-12）。
+  壳内渲染一致性断言（FE-12）。**已转真**（见上方 2026-10-31 守卫实况）：`verify-canvas`
+  （挂载 6 断言 + 13 类接线 + 四回归）、`e2e:smoke`（场景化冒烟，含拖画→持久化→导出/导入往返）。
 - **驱动口径**：`playwright-core 1.63.0` 锁 `chromium-1243`，headless + **生产构建**。
   **不要用 `next dev` 跑 live 浏览器门禁/取证**：Next 16 Turbopack dev 源在本机不加载
   客户端引导件（槽位/评审面挂不上，整树停在 SSR 空槽），断言会以「看不见入口」假红；
-  一律 `next build` + `next start`（批次 4 实测，C 包偏离登记）。
+  一律 `next build` + `next start`（批次 4 实测，C 包偏离登记；票 16 起 `verify-canvas`
+  亦收口到该口径）。daemon/站点端口显式且远离 3000/4318，临时数据根落仓外证据目录（禁 `/tmp`），
+  严禁连真实 daemon / 读写 `~/.dforge`。
   Node 级测试看不见浏览器专属故障（被遮挡的下拉、`window.setTimeout` 的 Illegal invocation、
   React 版本门禁）——浏览器门禁就是逮住它们的地方。
 - 对抗性门禁（如「字体已加载、禁止静默回退」）必须真断言，不能只断言「页面能打开」。
