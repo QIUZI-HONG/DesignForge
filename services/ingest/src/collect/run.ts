@@ -32,7 +32,7 @@ import {
 } from './client.ts';
 import { buildEvidence } from './evidence.ts';
 import type { FetchLike } from './http.ts';
-import { sha256Hex } from './http.ts';
+import { REQUEST_TIMEOUT_MS, sha256Hex, withRequestTimeout } from './http.ts';
 import {
   defaultViewOnlyLicense,
   digestForRoot,
@@ -437,6 +437,12 @@ export interface CollectOptions {
   token?: { token: string; source: 'env' | 'gh' } | null;
   /** 单次请求最大尝试数（默认 5；测试注入 1 以快速验证失败路径）。 */
   maxAttempts?: number;
+  /**
+   * 单请求超时毫秒（票 12 / 证据 §D3；默认 `REQUEST_TIMEOUT_MS` = 30s）。
+   * 挂起的上游按超时失败 → 既有网络错误语义重试/记账/留痕，整轮必然收敛；
+   * 测试注入小值以快速验证超时路径。
+   */
+  requestTimeoutMs?: number;
   /** 进度输出（CLI 用；默认静默）。 */
   log?: (line: string) => void;
 }
@@ -673,8 +679,13 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
     } else {
       token = resolution.token;
       log(`凭据来源：${resolution.source}`);
-      const productionFetch: FetchLike =
-        opts.fetchImpl ?? ((url, init) => fetch(url, init) as Promise<Response>);
+      // 单请求超时（票 12 / 证据 §D3）：真网与测试注入 fetch 一律经 withRequestTimeout——
+      // 挂起的上游按超时失败并走既有网络错误语义（重试/记账/留痕），整轮必然收敛。
+      const requestTimeoutMs = opts.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
+      const productionFetch: FetchLike = withRequestTimeout(
+        opts.fetchImpl ?? ((url, init) => fetch(url, init) as Promise<Response>),
+        requestTimeoutMs,
+      );
       const recordingFetch = createRecordingFetch(
         productionFetch,
         (line) => recordedLines.push(line),
