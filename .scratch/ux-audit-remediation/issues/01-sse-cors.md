@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done（已并入 ux-audit-remediation 6226039，浏览器项待复核）
 
-- [ ] daemon 路由测试：流式响应对白名单 Origin 返回 `access-control-allow-origin` 回显头（复用既有流式 content-type 断言手法）
-- [ ] daemon 路由测试：流式响应对非白名单 Origin 不带放行头；`Origin: null` 带放行头
+- [x] daemon 路由测试：流式响应对白名单 Origin 返回 `access-control-allow-origin` 回显头（复用既有流式 content-type 断言手法）
+- [x] daemon 路由测试：流式响应对非白名单 Origin 不带放行头；`Origin: null` 带放行头
 - [ ] curl A/B 复验：同一端点流式与非流式的 CORS 头一致
 - [ ] 浏览器实测（未配置 key）：AI 提交走完步骤流，呈现降级结果与建议清单，无 CORS 报错
 - [ ] 重试按钮在传输层修复后可用于真实重试（不再必败）

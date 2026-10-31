@@ -4,8 +4,8 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done（已并入 ux-audit-remediation 6bd5ab1，浏览器项待复核）
 
-- [ ] 组件测试：提交失败后 `document.activeElement` 在对话框内；Esc 关闭对话框
-- [ ] 组件测试：「取消」路径与成功路径行为不变
+- [x] 组件测试：提交失败后 `document.activeElement` 在对话框内；Esc 关闭对话框
+- [x] 组件测试：「取消」路径与成功路径行为不变
 - [ ] 浏览器实测：重名提交失败 → Esc 关闭 → 重开流程正常
