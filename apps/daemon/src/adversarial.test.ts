@@ -306,7 +306,7 @@ describe('对抗 · 凭据纪律（哨兵值全链路无明文）', () => {
 });
 
 describe('对抗 · CORS 边界', () => {
-  it('白名单回显、非白名单不回 CORS 头、null 放行、伪造子域拒绝', async () => {
+  it('白名单回显、非白名单不回 CORS 头、null 不放行（沙箱 iframe 形态）、伪造子域拒绝', async () => {
     const daemon = await createTestDaemon();
     try {
       const allowed = await daemon.app.inject({
@@ -321,16 +321,11 @@ describe('对抗 · CORS 边界', () => {
         'http://evil.com',
         'http://localhost:3000.evil.tld',
         'http://localhost:3000.',
+        'null',
       ]) {
         const res = await daemon.app.inject({ method: 'GET', url: '/health', headers: { origin } });
         expect(res.headers['access-control-allow-origin'], origin).toBeUndefined();
       }
-      const nullOrigin = await daemon.app.inject({
-        method: 'GET',
-        url: '/health',
-        headers: { origin: 'null' },
-      });
-      expect(nullOrigin.headers['access-control-allow-origin']).toBe('null');
 
       const preflight = await daemon.app.inject({
         method: 'OPTIONS',
@@ -402,7 +397,7 @@ describe('对抗 · 导出（魔数与像素）', () => {
       });
       expect(badScale.statusCode).toBe(400);
 
-      // 巨大画布：无尺寸钳制 —— 极端值以 export_render_failed 收场（不崩）
+      // 巨大画布：尺寸护栏在分配任何像素缓冲前拒绝（§D1 修复）——4xx + 结构化原因
       await injectJson(daemon.app, {
         method: 'PUT',
         url: '/documents/exp/pages/page-1',
@@ -413,7 +408,14 @@ describe('对抗 · 导出（魔数与像素）', () => {
         url: '/export',
         payload: { documentId: 'exp', pageId: 'page-1', format: 'png' },
       });
-      expect(huge.payload).toMatchObject({ ok: false, error: { code: 'export_render_failed' } });
+      expect(huge.statusCode).toBe(400);
+      expect(huge.payload).toMatchObject({
+        ok: false,
+        error: {
+          code: 'export_canvas_too_large',
+          details: { width: 1_000_000, height: 1_000_000, scale: 1, maxEdge: 8192 },
+        },
+      });
     } finally {
       await daemon.cleanup();
     }

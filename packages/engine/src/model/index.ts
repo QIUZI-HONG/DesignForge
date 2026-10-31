@@ -40,6 +40,7 @@ export type {
   TextNode,
 } from './node';
 export {
+  applicablePatchKeys,
   childrenOf,
   createComponent,
   createComponentSet,

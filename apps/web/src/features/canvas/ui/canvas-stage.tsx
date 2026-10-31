@@ -22,7 +22,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '@/i18n';
 
 import { selectionFrameOf } from '../input/hit';
-import { dispatchKeyDown, handleSpaceDown, handleSpaceUp } from '../input/keyboard';
+import {
+  dispatchKeyDown,
+  handleSpaceDown,
+  handleSpaceUp,
+  shouldReleaseKeyboard,
+} from '../input/keyboard';
 import { attachPointerAdapter } from '../input/pointer';
 import { createFrameLoop, type FrameLoop } from '../render/frame-loop';
 import type { FrameTiming } from '../render/frame-perf';
@@ -309,9 +314,11 @@ export function CanvasStage({
     const shell = shellRef.current;
     if (shell === null) return undefined;
     const onKeyDown = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null;
-      // 输入框/文本域内的按键不劫持（文本覆盖层自己处理）
-      if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      // 交互控件焦点下的按键放行（票 10 · 报告 §E3）：文本录入面（输入框/文本域/
+      // contentEditable）全放行；按钮/链接/下拉的激活键（空格/Enter）不劫持——
+      // 否则 preventDefault 吞掉按钮原生激活、画布误进平移预备、Enter 误触 editText。
+      // 带 ⌘/Ctrl 的组合键不放行，仍走下面的快捷键分派。
+      if (shouldReleaseKeyboard(event.target, event)) return;
       if (event.key === ' ') {
         event.preventDefault();
         handleSpaceDown(session);

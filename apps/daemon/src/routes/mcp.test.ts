@@ -150,6 +150,60 @@ describe('mcp · 确认桩（dryRun → 一次性 ackToken → 审计）', () =>
     }
   });
 
+  // 证据 test-2026-10-31 §D2：深嵌套 args 在桩的 JSON.stringify（argsDigest，递归）处栈溢出 → 500；
+  // 修复后与 documents 同口径：入口按深度拒为 4xx
+  it('深嵌套 args（万层级、约 120KB）→ 400 bad_request 而不是 500；不落审计、后续浅提案不受影响', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      // 手拼原始 JSON 字符串：测试进程自己 JSON.stringify 万层结构也会栈溢出
+      const deep = `{"tool":"df_apply_patch","caller":"mcp:zcode","args":${'{"a":'.repeat(20_000)}1${'}'.repeat(20_000)}}`;
+      const res = await daemon.app.inject({
+        method: 'POST',
+        url: '/mcp/proposals',
+        headers: { 'content-type': 'application/json' },
+        payload: deep,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ ok: false, error: { code: 'bad_request' } });
+
+      // 提案被拒即未登记：审计应为空
+      const audit = await injectJson(daemon.app, { method: 'GET', url: '/mcp/audit' });
+      expect((audit.payload as { result: { records: unknown[] } }).result.records).toEqual([]);
+
+      // 拒绝不污染 daemon 状态：浅提案照常 201
+      const shallow = await propose(daemon);
+      expect(shallow.statusCode).toBe(201);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('args 深度恰好等于上限（与 documents 同口径 1024）照常提案；超一层即拒', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const atLimit = `{"tool":"df_apply_patch","caller":"mcp:zcode","args":${'{"a":'.repeat(1_024)}1${'}'.repeat(1_024)}}`;
+      const ok = await daemon.app.inject({
+        method: 'POST',
+        url: '/mcp/proposals',
+        headers: { 'content-type': 'application/json' },
+        payload: atLimit,
+      });
+      expect(ok.statusCode).toBe(201);
+
+      const overLimit = `{"tool":"df_apply_patch","caller":"mcp:zcode","args":${'{"a":'.repeat(1_025)}1${'}'.repeat(1_025)}}`;
+      const rejected = await daemon.app.inject({
+        method: 'POST',
+        url: '/mcp/proposals',
+        headers: { 'content-type': 'application/json' },
+        payload: overLimit,
+      });
+      expect(rejected.statusCode).toBe(400);
+      expect(rejected.json()).toMatchObject({ ok: false, error: { code: 'bad_request' } });
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('非法 caller / 缺 ackToken 参数 → 400 bad_request', async () => {
     const daemon = await createTestDaemon();
     try {

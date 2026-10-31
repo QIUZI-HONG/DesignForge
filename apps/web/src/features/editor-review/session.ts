@@ -12,6 +12,21 @@
  *
  * 为什么视口是「来源接口」而不是具体 store：画布（FE-06）需要高频 `setState` + rAF，
  * 面板只需要读；接口只暴露 `getViewport` + `subscribeViewport`，两侧互不锁死实现。
+ *
+ * **文档标识随工作区文档动态解析**（#03 / 证据 §A3，方案定案）：
+ * 缺陷现场是 `documentId` 在会话首次创建时冻结（冻结到占位文档 `doc-editor`），而评审会话
+ * 是路由级单例、跨 SPA 导航存活——整页会话所有文档共用一个 localStorage 键：文档 A 的
+ * 评论出现在文档 B 上；对 B「恢复」A 的快照把 A 整体写进 B。候选方案二选一：
+ * - **动态解析（本票采用）**：`documentId` 随当前栈的文档 id 动态解析，评论/版本 store 经
+ *   `attachDocument` 重挂到新文档的持久化桶。理由：文档端口（`documentPort`）已经动态解析
+ *   栈/页面，「标识」天然属于同一接缝，零新增跨 feature 耦合；且 `loadDesignDocument` 用
+ *   daemon 文档 id 命名引擎文档（见 canvas/persistence/documents-client.ts），当前文档 id
+ *   即 daemon 身份，无需再接文档桥；
+ * - 按 daemon 文档桥 id 分桶（未采用）：桥的 `documentId` 未落盘时为 null，仍要回退到引擎
+ *   id，两套身份并存口径更复杂，且评审会话要多一条进 canvas 桥的依赖。
+ * 已知边界（有意不做）：未落盘文档首次保存后 daemon 侧 id 才出现，引擎文档 id 不随保存
+ * 迁移——「未命名草稿 → 首次落盘」的评论不跨身份迁移，跨文档隔离语义不受影响（票面验收
+ * 只约束跨文档隔离）。
  */
 import {
   type Command,
@@ -100,7 +115,10 @@ export function createViewportStore(initial: Viewport = createViewport()): Viewp
 export interface ReviewSessionOptions {
   /** 现成文档（壳层加载的文档）；省略则新建空文档。 */
   document?: DesignDocument;
-  /** 文档 id（评论/版本持久化键空间；省略取 `document.id`）。 */
+  /**
+   * 文档 id（评论/版本持久化键空间）：显式给定时键空间创建起固定（独立挂载/门禁取样/单测）；
+   * 省略则动态跟随当前文档（载入/导入换文档即换桶，见模块头「方案定案」）。
+   */
   documentId?: string;
   /** 当前页面 id（省略取文档首页）。 */
   pageId?: PageId;
@@ -131,7 +149,10 @@ export interface ReviewSessionOptions {
 export interface ReviewSession {
   /** 文档真值的命令栈（注入端口时按端口动态解析——载入/换栈后跟随）。 */
   readonly stack: CommandStack;
-  /** 持久化键空间（会话创建时固定；评论/版本按它隔离）。 */
+  /**
+   * 持久化键空间（评论/版本按它隔离）：显式给定时固定；省略时**随当前文档动态解析**
+   * （换文档即换桶，跨文档隔离——#03 / 证据 §A3）。
+   */
   readonly documentId: string;
   /** 当前页面 id（评论落在当前页；注入端口时跟随工作区）。 */
   readonly pageId: PageId;
@@ -163,7 +184,14 @@ export function createReviewSession(options: ReviewSessionOptions = {}): ReviewS
   /** 当前页面 id：缺省取创建时文档首页（`findPage` 兜底——换文档后旧 id 失效不炸）。 */
   const fallbackPageId = options.pageId ?? (document.pages[0]?.id as PageId);
   const getPageId = (): PageId => port?.getPageId() ?? fallbackPageId;
-  const documentId = options.documentId ?? getStack().document.id;
+  /**
+   * 文档标识（#03 / 证据 §A3）：不再在创建时冻结——省略显式 `documentId` 时**随当前栈的
+   * 文档动态解析**（工作区载入/导入 = 对同一栈 `document.replace` 换血，引擎文档 id 即
+   * daemon 文档 id，见 canvas/persistence/documents-client.ts `loadDesignDocument`）；
+   * 显式给定时固定（键空间显式给定语义，独立挂载/门禁取样/单测用）。
+   */
+  const resolveDocumentId = (): string => options.documentId ?? getStack().document.id;
+  const documentId = resolveDocumentId();
 
   const run = (commands: Command | readonly Command[], label: string): void => {
     const list = Array.isArray(commands) ? (commands as readonly Command[]) : [commands as Command];
@@ -195,17 +223,42 @@ export function createReviewSession(options: ReviewSessionOptions = {}): ReviewS
   if (options.backend !== undefined) versionOptions.backend = options.backend;
   if (options.onWriteError !== undefined) versionOptions.onWriteError = options.onWriteError;
 
+  const comments = createCommentsStore(commentsOptions);
+  const versions = createVersionStore(versionOptions);
+
+  // —— 换文档重挂（跨文档隔离的执行点，#03 / 证据 §A3）——
+  // 文档真值一变就重解析身份；变了就把评论/版本 store 重挂到新文档的持久化桶
+  // （旧桶原样保留——切回原文档数据原样回来）。触发源与文档端口同一条订阅链：
+  // 载入/导入是同一栈上的 `document.replace`（栈订阅可见），工作区整体被替换时端口
+  // 的 `subscribeWorkspace` 也转发到这里。只在动态模式挂 watcher（显式 `documentId`
+  // 是固定键空间，见 `resolveDocumentId` 注释）；退订随会话同寿命（路由级单例），
+  // 与本文件 `subscribe` 的口径一致。
+  if (options.documentId === undefined) {
+    let attachedDocumentId = documentId;
+    const reattachIfDocumentChanged = (): void => {
+      const nextId = resolveDocumentId();
+      if (nextId === attachedDocumentId) return;
+      attachedDocumentId = nextId;
+      comments.getState().attachDocument(nextId);
+      versions.getState().attachDocument(nextId);
+    };
+    if (port !== undefined) port.subscribe(reattachIfDocumentChanged);
+    else ownStack.subscribe(reattachIfDocumentChanged);
+  }
+
   return {
     get stack() {
       return getStack();
     },
-    documentId,
+    get documentId() {
+      return resolveDocumentId();
+    },
     get pageId() {
       return getPageId();
     },
     viewport: options.viewport ?? createViewportStore(),
-    comments: createCommentsStore(commentsOptions),
-    versions: createVersionStore(versionOptions),
+    comments,
+    versions,
     present: createPresentStore(),
     getSnapshot: () => getStack().getSnapshot(),
     subscribe: (listener) => {

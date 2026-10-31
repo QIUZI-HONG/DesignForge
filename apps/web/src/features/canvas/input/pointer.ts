@@ -7,6 +7,11 @@
  *
  * 坐标口径：容器内 **CSS 像素**。渲染器内部按 `dpr` 放大 backing store，
  * 因此「指针坐标空间」与「视口平移/缩放空间」始终一致（不需要乘 dpr）。
+ *
+ * 交互收口（§E4）：pointerdown 进入交互/建画草稿即尝试 `setPointerCapture`（真实浏览器里
+ * 拖出画布仍持续收到 move/up）；另设 window 级 `pointerup`/`pointercancel` 兜底监听——
+ * 捕获未生效（jsdom、个别浏览器异常）时画布外松开也能结束交互，且按「最后已知交互位置」
+ * 结算（画布外从未见过的 move 不得让节点瞬移）。Esc 取消路径在 keyboard 层，不经此处。
  */
 
 import type { Modifiers } from '@dforge/engine';
@@ -95,6 +100,20 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
   const requestRender = options.requestRender ?? ((): void => undefined);
   const isCanvasSurface = options.isCanvasSurface ?? defaultSurfaceCheck(element);
 
+  /**
+   * 指针捕获（真实浏览器）：拖出画布后 move/up 仍重定向到容器，交互跟随不中断。
+   * jsdom 未实现 `setPointerCapture`（typeof 守卫跳过）——回归用例打在 window 级兜底
+   * 监听上（用例策略票 #09 内定案：window 兜底的可测性优先）。
+   */
+  const capturePointer = (event: PointerEvent): void => {
+    if (typeof element.setPointerCapture !== 'function') return;
+    try {
+      element.setPointerCapture(event.pointerId);
+    } catch {
+      // 指针可能已释放（InvalidPointerId）：不影响交互本身，window 级兜底仍在
+    }
+  };
+
   const onPointerDown = (event: PointerEvent): void => {
     if (!isCanvasSurface(event.target)) return;
     // 中键：阻止 autoscroll；右键：交给 contextmenu（这里不动默认行为）
@@ -111,6 +130,11 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
         deep: event.metaKey || event.ctrlKey,
       }),
     );
+    // 只有真的进入交互/建画草稿才捕获：文本编辑等由覆盖层接管的状态不得抢事件
+    const afterDown = session.store.getState();
+    if (afterDown.interaction.kind !== 'idle' || afterDown.draft !== null) {
+      capturePointer(event);
+    }
     requestRender();
   };
 
@@ -136,17 +160,63 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
     requestRender();
   };
 
+  /** pointerUp 结算（输入点由调用方决定：画布上用事件点，window 兜底用最后已知交互点）。 */
+  const settleUp = (
+    point: { screen: { x: number; y: number }; world: { x: number; y: number } },
+    modifiers: Modifiers,
+  ): void => {
+    guard(session, () =>
+      session.pointerUp({
+        screen: point.screen,
+        world: point.world,
+        modifiers,
+      }),
+    );
+    requestRender();
+  };
+
+  /**
+   * window 兜底的结算输入：优先取**交互已知的最后位置**。
+   * 理由：捕获未生效时（jsdom、个别浏览器异常），画布外的 move 从未到达——若按松开点结算，
+   * 节点会瞬移到用户从未拖到的位置。按「最后已知位置」结算 = 提交用户在画布上实际看到的状态
+   * （与捕获生效时浏览器持续重定向 move 的结果一致）。
+   */
+  const lastKnownUpPoint = (
+    event: PointerEvent,
+  ): { screen: { x: number; y: number }; world: { x: number; y: number } } => {
+    const interaction = session.store.getState().interaction;
+    if (interaction.kind === 'pan') {
+      const screen = interaction.currentScreen;
+      return { screen, world: toWorld(session, screen) };
+    }
+    if (interaction.kind !== 'idle') {
+      return { screen: toScreen(session, interaction.current), world: interaction.current };
+    }
+    // 建画草稿：pointerUp 的草稿分支不读坐标，给事件自身的位置即可
+    const local = localPoint(element, event);
+    return { screen: local, world: toWorld(session, local) };
+  };
+
   const onPointerUp = (event: PointerEvent): void => {
     if (event.button === 2) return;
     if (!isCanvasSurface(event.target)) return;
     const local = localPoint(element, event);
-    guard(session, () =>
-      session.pointerUp({
-        screen: local,
-        world: toWorld(session, local),
-        modifiers: modifiersOf(event),
-      }),
-    );
+    settleUp({ screen: local, world: toWorld(session, local) }, modifiersOf(event));
+  };
+
+  const onWindowPointerUp = (event: PointerEvent): void => {
+    // 画布表面上的松开由 element 级监听结算（冒泡到 window 时已结算，这里直接跳过）
+    if (isCanvasSurface(event.target)) return;
+    const state = session.store.getState();
+    if (state.interaction.kind === 'idle' && state.draft === null) return; // 无未结算交互
+    settleUp(lastKnownUpPoint(event), modifiersOf(event));
+  };
+
+  const onWindowPointerCancel = (): void => {
+    // 指针被系统取消（触摸打断/设备切换）：与 Esc 同径，取消而非提交
+    const state = session.store.getState();
+    if (state.interaction.kind === 'idle' && state.draft === null) return;
+    guard(session, () => session.cancelActiveInteraction());
     requestRender();
   };
 
@@ -199,6 +269,10 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
   element.addEventListener('wheel', onWheel, { passive: false });
   element.addEventListener('contextmenu', onContextMenu);
   element.addEventListener('dblclick', onDoubleClick);
+  // window 级兜底（§E4）：画布外松开/取消也能结束交互——节点不再「粘」在光标上。
+  // 常驻监听（事件内按状态早退），而非按下时挂/松开时摘：无簿记、无漏摘泄漏面。
+  window.addEventListener('pointerup', onWindowPointerUp);
+  window.addEventListener('pointercancel', onWindowPointerCancel);
 
   return {
     dispose(): void {
@@ -209,6 +283,8 @@ export function attachPointerAdapter(options: PointerAdapterOptions): PointerAda
       element.removeEventListener('wheel', onWheel);
       element.removeEventListener('contextmenu', onContextMenu);
       element.removeEventListener('dblclick', onDoubleClick);
+      window.removeEventListener('pointerup', onWindowPointerUp);
+      window.removeEventListener('pointercancel', onWindowPointerCancel);
     },
   };
 }
@@ -219,5 +295,14 @@ function toWorld(session: CanvasSession, local: { x: number; y: number }) {
   return {
     x: (local.x - viewport.panX) / viewport.zoom,
     y: (local.y - viewport.panY) / viewport.zoom,
+  };
+}
+
+/** 世界坐标 → 屏幕（容器内 CSS 像素；toWorld 的逆变换，window 兜底结算用）。 */
+function toScreen(session: CanvasSession, world: { x: number; y: number }) {
+  const viewport = session.viewport();
+  return {
+    x: world.x * viewport.zoom + viewport.panX,
+    y: world.y * viewport.zoom + viewport.panY,
   };
 }

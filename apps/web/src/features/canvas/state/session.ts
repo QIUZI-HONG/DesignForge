@@ -826,7 +826,13 @@ export function createCanvasSession(options: CanvasSessionOptions): CanvasSessio
         }
       }
       if (payload === null) return;
-      const commands = pasteCommands(payload, { pageId: store.getState().pageId, ids });
+      // 同文档粘贴：按载荷记录的原父级各归各父级（B4）——画板内/顶层混选的副本不再被裁剪吞掉
+      const commands = pasteCommands(payload, {
+        pageId: store.getState().pageId,
+        page: page(),
+        restoreParents: true,
+        ids,
+      });
       if (commands.length === 0) return;
       if (!dispatchGuarded(commands, '粘贴')) return;
       const inserted: NodeId[] = [];
