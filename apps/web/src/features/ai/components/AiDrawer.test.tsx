@@ -14,8 +14,8 @@ import type { AiDegradeReason } from '@dforge/contracts';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import zhCN from '../../../../messages/zh-CN.json';
 import { t } from '@/i18n';
+import zhCN from '../../../../messages/zh-CN.json';
 import { controllableAiPort, degradedResponse, fakeAiPort, okResponse } from '../test-utils';
 import { AiDrawer } from './AiDrawer';
 
@@ -68,7 +68,7 @@ describe('AI 抽屉（F4）', () => {
     expect(port.streamCalls).toBe(1);
   });
 
-  it('降级态：与真态同构渲染 + 显式角标「本地模板」+ 建议动作', async () => {
+  it('降级态：与真态同构渲染 + 显式角标「本地建议」+ 建议动作（文案均来自 zh-CN 目录）', async () => {
     const user = userEvent.setup();
     const port = fakeAiPort({
       runs: [
@@ -89,12 +89,23 @@ describe('AI 抽屉（F4）', () => {
     await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
     await user.click(screen.getByRole('button', { name: '生成' }));
 
-    const badge = await screen.findByText('本地模板');
+    const badge = await screen.findByText(t('ai.badge.localTemplate'));
     expect(badge.getAttribute('data-df-badge')).toBe('local-template');
+    // 角标说明同样来自目录（title 悬停文案），不再声称「由本地模板生成」
+    expect(badge.getAttribute('title')).toBe(t('ai.badge.localTemplate.desc'));
+    expect(catalog['ai.badge.localTemplate.desc']).not.toContain('本地模板');
+    // 降级且无内容时：说明「本次没有 AI 生成内容」（不假装有产出）
+    expect(await screen.findByText(t('ai.result.degradedEmpty'))).toBeTruthy();
     // 降级也走完可见三段（同构：完成段同样打勾），并且给出可操作建议
     expect(stepRow('done')?.getAttribute('data-df-step-status')).toBe('done');
     expect(screen.getByText('未配置 DeepSeek API key')).toBeTruthy();
     expect(screen.getByRole('button', { name: '去配置 key' })).toBeTruthy();
+  });
+
+  it('抽屉副标题来自 zh-CN 目录（票 02：不再暗示会修改文档）', async () => {
+    render(<AiDrawer port={fakeAiPort({ runs: [] })} defaultOpen />);
+    expect(screen.getByText(t('ai.subtitle'))).toBeTruthy();
+    expect(catalog['ai.subtitle']).toContain('不会改动文档');
   });
 
   it('真态不出角标（角标只由 degraded 决定）', async () => {
@@ -117,7 +128,7 @@ describe('AI 抽屉（F4）', () => {
     await user.type(screen.getByRole('textbox', { name: '描述修改' }), '画一个图标');
     await user.click(screen.getByRole('button', { name: '生成' }));
     await screen.findByText('已生成按钮组');
-    expect(screen.queryByText('本地模板')).toBeNull();
+    expect(screen.queryByText(t('ai.badge.localTemplate'))).toBeNull();
   });
 
   it('失败可重试：失败落在所在步上，点重试后重新从 queued 走完', async () => {

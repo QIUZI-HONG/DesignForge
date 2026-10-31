@@ -6,7 +6,12 @@
  * - 假端口：把契约事件序列变成「真 SSE 文本块」喂给适配层（不真调云端）；
  * - 可控端口：chatStream 由测试显式放行，用来观察运行中（loading/disabled）态。
  */
-import type { AiChatResponse, AiDegradeReason, AiStatusResponse, AiStreamEvent } from '@dforge/contracts';
+import type {
+  AiChatResponse,
+  AiDegradeReason,
+  AiStatusResponse,
+  AiStreamEvent,
+} from '@dforge/contracts';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 

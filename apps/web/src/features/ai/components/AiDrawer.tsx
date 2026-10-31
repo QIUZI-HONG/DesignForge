@@ -216,7 +216,7 @@ export function AiDrawer(props: AiDrawerProps) {
           {state.content.length > 0 ? (
             <p className="dfg-ai__content">{state.content}</p>
           ) : state.phase === 'done' && state.degraded ? (
-            <p className="dfg-ai__suggestion-detail">{t('ai.badge.localTemplate.desc')}</p>
+            <p className="dfg-ai__suggestion-detail">{t('ai.result.degradedEmpty')}</p>
           ) : state.phase === 'idle' ? (
             <p className="dfg-ai__suggestion-detail">{t('ai.result.empty')}</p>
           ) : null}

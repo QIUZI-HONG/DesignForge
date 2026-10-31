@@ -360,7 +360,7 @@ async function main() {
       cloudCalls: 0,
     };
 
-    // —— UI 段（D1 挂载断言，真浏览器）：趁 daemon 仍无凭据，断言抽屉可见「本地模板」降级态 ——
+    // —— UI 段（D1 挂载断言，真浏览器）：趁 daemon 仍无凭据，断言抽屉可见「本地建议」降级态 ——
     evidence.uiEvidence = await probeUiMount({
       daemonUrl: baseUrl,
       degradedHint: statusA.json?.result?.degradedHint ?? '',
