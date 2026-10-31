@@ -412,7 +412,9 @@ describe('export · 失败态', () => {
         payload: { documentId: id, pageId: 'page-1', format: 'png' },
       });
       expect(statusCode).toBe(400);
-      const error = (payload as { error: { code: string; message: string; details?: Record<string, unknown> } }).error;
+      const error = (
+        payload as { error: { code: string; message: string; details?: Record<string, unknown> } }
+      ).error;
       expect(error.code).toBe('export_canvas_too_large');
       expect(error.message).toContain('8192');
       expect(error.details).toMatchObject({ width: 8193, height: 1, scale: 1, maxEdge: 8192 });

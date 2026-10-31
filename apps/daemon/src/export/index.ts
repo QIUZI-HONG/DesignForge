@@ -49,11 +49,7 @@ export class ExportCanvasTooLargeError extends Error {
 }
 
 /** 校验导出输出尺寸（单边 = 逻辑边长 × scale），超限抛 `ExportCanvasTooLargeError`。 */
-export function assertExportSizeWithinLimit(
-  width: number,
-  height: number,
-  scale: number,
-): void {
+export function assertExportSizeWithinLimit(width: number, height: number, scale: number): void {
   const outWidth = Math.max(1, Math.round(width * scale));
   const outHeight = Math.max(1, Math.round(height * scale));
   if (outWidth > EXPORT_MAX_EDGE_PX || outHeight > EXPORT_MAX_EDGE_PX) {
