@@ -1,8 +1,9 @@
 /**
  * AI 流式适配测试（seam：`createAiRunReader` 的输入文本 → 状态更新序列）。
  *
- * 断言口径：喂**真实 daemon 帧格式**的 SSE 文本（含跨块切断、噪声帧），
- * 断言四步时序、声明式内容累积、降级同构与失败落点。
+ * 断言口径（票 02 / spec P0-3）：喂**真实 daemon 帧格式**的 SSE 文本（含跨块切断、噪声帧），
+ * 断言三段可见时序（排队 → 模型生成 → 完成；done 帧直接收口，不再推进 validate/compile）、
+ * 声明式内容累积、降级同构与失败落点。
  * 本模块是步骤时序的单一真源——`scripts/verify-ai-two-state.mjs` 用同一模块对真 daemon 取证。
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -45,8 +46,8 @@ const okDone = {
   },
 };
 
-describe('AI 流式适配（queued → llm → validate → compile）', () => {
-  it('无 key 降级流：四步同构走完，落位降级标记与建议清单（UI 不分叉）', () => {
+describe('AI 流式适配（可见三段：queued → llm → 完成收口）', () => {
+  it('无 key 降级流：三段同构走完，落位降级标记与建议清单（UI 不分叉）', () => {
     const reader = createAiRunReader();
     reader.begin();
     const updates = reader.pushText(
@@ -61,7 +62,7 @@ describe('AI 流式适配（queued → llm → validate → compile）', () => {
     const transitions = updates.flatMap((update) =>
       update.transition === null ? [] : [update.transition.step],
     );
-    expect(transitions).toEqual(['llm', 'validate', 'compile']);
+    expect(transitions).toEqual(['llm']);
 
     const state = reader.snapshot();
     expect(state.steps).toEqual({ queued: 'done', llm: 'done', validate: 'done', compile: 'done' });
@@ -69,9 +70,12 @@ describe('AI 流式适配（queued → llm → validate → compile）', () => {
     expect(state.degraded).toBe(true);
     expect(state.degradedReason).toBe('no-credentials');
     expect(state.suggestions).toHaveLength(1);
-    // 时序：四步全在（含 begin 的 queued），时间戳单调不减
+    // 时序：排队 → 模型生成（含 begin 的 queued），时间戳单调不减；
+    // 「校验/编译」不发生——不进时间线（P5 扩展位接入时恢复）
     const timeline = reader.timeline();
-    expect(timeline.map((entry) => entry.step)).toEqual(['queued', 'llm', 'validate', 'compile']);
+    expect(timeline.map((entry) => entry.step)).toEqual(['queued', 'llm']);
+    expect(timeline.map((entry) => entry.step)).not.toContain('validate');
+    expect(timeline.map((entry) => entry.step)).not.toContain('compile');
     expect(
       timeline.every(
         (entry, index) => index === 0 || entry.atMs >= (timeline[index - 1]?.atMs ?? 0),
@@ -165,8 +169,19 @@ describe('AI 流式适配（queued → llm → validate → compile）', () => {
     const now = vi.fn().mockReturnValueOnce(100).mockReturnValueOnce(250).mockReturnValue(400);
     const reader = createAiRunReader({ now });
     reader.begin();
+    reader.pushText(
+      frame({
+        type: 'start',
+        runId: 'ai_4',
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        degraded: false,
+      }),
+    );
+    // done 帧直接收口（无 validate/compile 转移）：时间线停在两段
     reader.pushText(frame(okDone));
     const timeline = reader.timeline();
+    expect(timeline.map((entry) => entry.step)).toEqual(['queued', 'llm']);
     expect(timeline[0]?.atMs).toBe(100);
     expect(timeline[1]?.atMs).toBe(250);
   });

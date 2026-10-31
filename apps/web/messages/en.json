@@ -685,6 +685,7 @@
   "ai.steps.label": "Generation steps",
   "ai.step.queued": "Queued",
   "ai.step.llm": "Model",
+  "ai.step.done": "Done",
   "ai.step.validate": "Validate",
   "ai.step.compile": "Compile",
   "ai.step.status.pending": "Pending",

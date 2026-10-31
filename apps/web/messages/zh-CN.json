@@ -685,6 +685,7 @@
   "ai.steps.label": "生成步骤",
   "ai.step.queued": "排队",
   "ai.step.llm": "模型生成",
+  "ai.step.done": "完成",
   "ai.step.validate": "校验",
   "ai.step.compile": "编译",
   "ai.step.status.pending": "等待",

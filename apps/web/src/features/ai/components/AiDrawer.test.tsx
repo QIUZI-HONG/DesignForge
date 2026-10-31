@@ -20,7 +20,7 @@ import { AiDrawer } from './AiDrawer';
 const stepRow = (id: string) => document.querySelector(`[data-df-step="${id}"]`);
 
 describe('AI 抽屉（F4）', () => {
-  it('提交自然语言 → 四步流转并渲染结果（queued/llm/validate/compile 全程可见）', async () => {
+  it('提交自然语言 → 三段流转并渲染结果（排队 → 模型生成 → 完成；不再出现校验/编译）', async () => {
     const user = userEvent.setup();
     const port = fakeAiPort({
       runs: [
@@ -45,12 +45,20 @@ describe('AI 抽屉（F4）', () => {
     await waitFor(() => {
       expect(screen.getByText('按钮组已生成')).toBeTruthy();
     });
-    // 四步全部收敛为已完成的语义
-    for (const id of ['queued', 'llm', 'validate', 'compile']) {
+    // 三段全部收敛为已完成（票 02 / spec P0-3：可见流只有排队 → 模型生成 → 完成）
+    for (const id of ['queued', 'llm', 'done']) {
       expect(stepRow(id)?.getAttribute('data-df-step-status')).toBe('done');
     }
+    // 「校验/编译」并未真实发生——UI 不渲染（P5 扩展位接入时恢复）
+    expect(stepRow('validate')).toBeNull();
+    expect(stepRow('compile')).toBeNull();
     // 步骤文案是中文（ADR-0003），步骤 id 只做挂点
-    expect(within(screen.getByRole('list', { name: '生成步骤' })).getByText('排队')).toBeTruthy();
+    const stepList = within(screen.getByRole('list', { name: '生成步骤' }));
+    expect(stepList.getByText('排队')).toBeTruthy();
+    expect(stepList.getByText('模型生成')).toBeTruthy();
+    expect(stepList.getByText('完成')).toBeTruthy();
+    expect(stepList.queryByText('校验')).toBeNull();
+    expect(stepList.queryByText('编译')).toBeNull();
     expect(port.streamCalls).toBe(1);
   });
 
@@ -77,8 +85,8 @@ describe('AI 抽屉（F4）', () => {
 
     const badge = await screen.findByText('本地模板');
     expect(badge.getAttribute('data-df-badge')).toBe('local-template');
-    // 降级也走完四步（同构），并且给出可操作建议
-    expect(stepRow('compile')?.getAttribute('data-df-step-status')).toBe('done');
+    // 降级也走完可见三段（同构：完成段同样打勾），并且给出可操作建议
+    expect(stepRow('done')?.getAttribute('data-df-step-status')).toBe('done');
     expect(screen.getByText('未配置 DeepSeek API key')).toBeTruthy();
     expect(screen.getByRole('button', { name: '去配置 key' })).toBeTruthy();
   });
