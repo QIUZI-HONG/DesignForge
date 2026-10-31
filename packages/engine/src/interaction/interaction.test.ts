@@ -447,7 +447,13 @@ describe('interaction · 缩放（父级坐标换算 + 旋转节点，票 06）'
       const page = getPage(doc, 'p1');
       const context: InteractionContext = { page, pageId: 'p1', zoom: 1 };
       // 对侧锚点（w 边中点）世界位置——修前与修后各测一次，必须重合
-      const anchorWorldOf = (node: { x: number; y: number; width: number; height: number; rotation: number }) => {
+      const anchorWorldOf = (node: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        rotation: number;
+      }) => {
         const cx = node.x + node.width / 2;
         const cy = node.y + node.height / 2;
         const anchor = rotateVector({ x: -node.width / 2, y: 0 }, node.rotation);
@@ -525,7 +531,12 @@ describe('interaction · 缩放（父级坐标换算 + 旋转节点，票 06）'
     // 任意偏离比例线的指针：Shift 投影后宽高比仍为 2:1
     state = updateInteraction(
       state,
-      { type: 'pointer.move', point: { x: 380, y: 220 }, screen: { x: 380, y: 220 }, modifiers: { shift: true } },
+      {
+        type: 'pointer.move',
+        point: { x: 380, y: 220 },
+        screen: { x: 380, y: 220 },
+        modifiers: { shift: true },
+      },
       context,
     );
     if (state.kind !== 'resize') throw new Error('应为缩放态');
