@@ -43,3 +43,16 @@ blockers:
 ## 未做的其他项（round-2 G1 补记）
 
 - **失败/部分导出是否阻止覆盖上一次好产物**：`routes/export.ts` 仍是无条件写盘 + HTTP 200（`complete:false` 只反映在响应字段与遥测里），空白产物会覆盖上一次好产物。本轮决定不改写盘语义：G1 的 HTTP 回归要求"corrupt envelope → 200 + complete:false"（不 5xx），把"部分产物"改判 5xx 会把它误报成"没有产物"；改判"complete:false 就不落盘"会破坏 routes/export.test.ts 已确立的 200/字节流契约。诚实性通过 `complete` 字段 + UI/遥测/门禁传播；防止覆盖留给后续票（若产品决定要"失败导出保旧产物"，应新立一票）。
+
+## 收口：空白/部分产物不再静默覆盖好产物（round-2 G1 二次补记 · fix/v2r-b-export-honesty）
+
+上面那条「不改写盘语义」的 deferral **已被本轮推翻并按 G1 要求落地**（覆盖丢的是用户本地产物，属数据损失，不能只靠字段诚实）。状态码语义不动（仍 200，见上段理由），**隔离落在文件名上**：
+
+- `apps/daemon/src/export/index.ts` 新增 `incompleteArtifactFileName(fileName, format)` → `<规范名>.incomplete.<format>`。
+- `apps/daemon/src/routes/export.ts`：`rendered.complete === true` → 写规范名（与改前一致）；`false` → **一律**写 `.incomplete` 侧文件，规范名字节永不被动；`artifact.fileName/filePath` 同步指向实际落盘名（响应载荷与磁盘逐字节一致，不出现「说写了、盘上没有」）。
+- `packages/contracts/src/export/index.ts`：`ExportResultPayload.preservedPreviousArtifactPath: string | null` —— 部分产物且规范名上确有一份旧产物时给出被保留的路径，否则 `null`。
+- 回归：`routes/export.test.ts` 新增两态覆盖用例（SVG + PNG 各一条，PNG 那条同时钉「旧产物像素仍是红矩形 / 新产物像素是页面底色」，正是二轮实测 GOOD 236 字节 → BLANK 7164 字节 的路径）；`export/index.test.ts` 钉隔离名与 `renderExport` 完整性透传。
+- 门禁：`verify-daemon` / `verify-figma-inspect` 的导出步现在断 `result.complete === true`，夹具（1–2 节点）走规范名，`.incomplete` 分支由单元/HTTP 缝覆盖（`scene.test.ts` 2001+ 与截断子树计数、`routes/export.test.ts` 预算与坏信封）——ST-1 说的「构造性失明」用「确定性到达截断/跳过分支的用例」这一支补齐，不在门禁脚本侧扩 2001 节点夹具。
+
+实跑（`~/df-evidence/v2r-b/`）：`--filter @dforge/daemon lint` 0；`@dforge/contracts` + `@dforge/daemon` + `@dforge/web` test 0（13/19/167 文件）；`pnpm run typecheck` 0（修掉上一版遗留的 `exactOptionalPropertyTypes` 红：`routes/export.test.ts` 的 `putBodyAndExport` 返回类型）。
+

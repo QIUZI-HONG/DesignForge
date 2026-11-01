@@ -80,6 +80,21 @@ export function effectiveScale(format: ExportFormat, scale: number | undefined):
   return Math.min(Math.max(1, Math.round(scale)), EXPORT_MAX_SCALE);
 }
 
+/**
+ * 部分/空白产物（`complete === false`）的**隔离文件名**。
+ *
+ * 为什么需要：路由原先无条件把产物写到规范名 `<doc>-<page>.<format>`，于是「坏信封 →
+ * 1440×900 空白 PNG」会**静默顶掉上一次的好产物**（票 18 二轮 G1 实测：GOOD 236 字节 →
+ * BLANK 7164 字节，UI 仍显示「已导出」）。HTTP 仍需 200（部分产物本身有效，5xx 会把它
+ * 误报成「没有产物」），所以隔离靠**文件名**而不是状态码：不完整的一律落 `.incomplete`
+ * 侧文件，规范名永不被动。
+ */
+export function incompleteArtifactFileName(fileName: string, format: ExportFormat): string {
+  const suffix = `.${format}`;
+  const stem = fileName.endsWith(suffix) ? fileName.slice(0, -suffix.length) : fileName;
+  return `${stem}.incomplete${suffix}`;
+}
+
 /** 渲染导出产物（不落盘——落盘由路由层负责）。 */
 export function renderExport(options: {
   format: ExportFormat;

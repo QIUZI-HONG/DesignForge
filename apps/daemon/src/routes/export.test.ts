@@ -526,7 +526,11 @@ describe('export · 未判定/零产物不得认证为完整（票 18 红线，H
   async function putBodyAndExport(
     daemon: TestDaemon,
     body: unknown,
-  ): Promise<{ putStatus: number; statusCode: number; result?: Record<string, unknown> }> {
+  ): Promise<{
+    putStatus: number;
+    statusCode: number;
+    result: Record<string, unknown> | undefined;
+  }> {
     const created = await injectJson(daemon.app, {
       method: 'POST',
       url: '/documents',
@@ -612,6 +616,99 @@ describe('export · 未判定/零产物不得认证为完整（票 18 红线，H
       expect(result?.complete).toBe(true);
     } finally {
       await daemon.cleanup();
+    }
+  });
+});
+
+describe('export · 部分/空白产物不得静默覆盖上一次好产物（票 18 二轮 G1）', () => {
+  /** 本段用到的响应形状子集。 */
+  interface ExportResultShape {
+    artifact: { fileName: string; filePath: string; base64: string; length: number };
+    skippedNodes: number;
+    truncatedNodes: number;
+    complete: boolean;
+    preservedPreviousArtifactPath: string | null;
+  }
+
+  function exportResult(payload: unknown): ExportResultShape {
+    return (payload as { result: ExportResultShape }).result;
+  }
+
+  /** 先导一份完整产物，再把同一页改成空白信封并重导，返回两次的 result + 好产物字节。 */
+  async function overwriteProbe(format: 'svg' | 'png') {
+    const daemon = await createTestDaemon();
+    const documentId = await seedDocument(daemon);
+    const good = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/export',
+      payload: { documentId, pageId: 'page-1', format },
+    });
+    expect(good.statusCode).toBe(200);
+    const goodResult = exportResult(good.payload);
+    expect(goodResult.complete).toBe(true);
+    expect(goodResult.preservedPreviousArtifactPath).toBeNull();
+    const canonicalPath = goodResult.artifact.filePath;
+    const goodBytes = await readFile(canonicalPath);
+    // 规范名上的落盘字节 == 响应载荷（先钉住基线，再谈「没被动过」）
+    expect(goodBytes).toEqual(Buffer.from(goodResult.artifact.base64, 'base64'));
+
+    // 同一页改成坏信封：抽取走到空白产物（二轮实测 7164 字节空白 PNG）
+    const broken = await injectJson(daemon.app, {
+      method: 'PUT',
+      url: `/documents/${encodeURIComponent(documentId)}/pages/page-1`,
+      payload: {
+        body: { $format: 'dforge.canvas.page', $version: 1, page: null, tokens: {} },
+      },
+    });
+    expect(broken.statusCode).toBe(200);
+    const bad = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/export',
+      payload: { documentId, pageId: 'page-1', format },
+    });
+    expect(bad.statusCode).toBe(200);
+    const badResult = exportResult(bad.payload);
+    return { daemon, documentId, canonicalPath, goodBytes, goodResult, badResult };
+  }
+
+  it('SVG：空白产物的字节不进规范名，上一次好产物一字节未动，且如实给出被保留的路径', async () => {
+    const probed = await overwriteProbe('svg');
+    try {
+      const { badResult, canonicalPath, goodBytes } = probed;
+      expect(badResult.complete).toBe(false);
+      // 上一次好产物被保住（不是「覆盖后再也找不回」）
+      expect(badResult.preservedPreviousArtifactPath).toBe(canonicalPath);
+      expect(await readFile(canonicalPath)).toEqual(goodBytes);
+      // 本次字节落在隔离侧文件，且与响应载荷逐字节一致（不出现「说写了、盘上没有」）
+      expect(badResult.artifact.filePath).not.toBe(canonicalPath);
+      expect(badResult.artifact.fileName).toBe(`${probed.documentId}-page-1.incomplete.svg`);
+      expect(await readFile(badResult.artifact.filePath)).toEqual(
+        Buffer.from(badResult.artifact.base64, 'base64'),
+      );
+    } finally {
+      await probed.daemon.cleanup();
+    }
+  });
+
+  it('PNG：二轮实测的「7164 字节空白 PNG 顶掉好产物」路径已被隔离', async () => {
+    const probed = await overwriteProbe('png');
+    try {
+      const { badResult, canonicalPath, goodBytes } = probed;
+      expect(badResult.complete).toBe(false);
+      expect(badResult.preservedPreviousArtifactPath).toBe(canonicalPath);
+      const stillGood = await readFile(canonicalPath);
+      expect(stillGood).toEqual(goodBytes);
+      expect(stillGood.subarray(0, 8)).toEqual(
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      );
+      // 空白产物自身的像素必须是页面底色（证明它确实是「没走到任何节点」的产物，不是误判）
+      const blank = decodePng(Buffer.from(badResult.artifact.base64, 'base64'));
+      expect(blank.pixel(0, 0)).toEqual([255, 255, 255, 255]);
+      // 好产物里仍能看到原来的红色矩形（第 10,10 像素起）
+      const good = decodePng(goodBytes);
+      expect(good.pixel(20, 20)).toEqual([255, 0, 0, 255]);
+    } finally {
+      await probed.daemon.cleanup();
     }
   });
 });

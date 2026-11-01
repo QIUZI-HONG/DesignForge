@@ -62,6 +62,13 @@ export interface ExportResultPayload {
   truncatedNodes: number;
   /** 产物是否完整（两类真损失皆为零且提取对账通过才 true；隐藏层不计）。 */
   complete: boolean;
+  /**
+   * 本次为**部分/空白产物**（`complete === false`）且导出目录里已有同名规范产物时，
+   * 该字段给出被**原样保留、未被覆盖**的那条路径；否则为 `null`。
+   * 口径（票 18 二轮 G1）：`complete:false` 的字节一律隔离落 `.incomplete.<format>` 侧文件，
+   * 绝不覆盖上一次的好产物——「UI 显示已导出、磁盘上的好产物被空白 PNG 顶掉」不允许出现。
+   */
+  preservedPreviousArtifactPath: string | null;
   /** PNG 可用最大倍率（UI 据此收口档位）。 */
   maxScale: number;
 }
