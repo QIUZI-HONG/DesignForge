@@ -14,16 +14,19 @@
  */
 import { apiFailure, apiSuccess, type DfErrorCode } from '@dforge/contracts';
 import {
+  createComponent,
   createDocument,
+  createIdFactory,
   createInstance,
   createPage,
   createRect,
   type DesignDocument,
   type ScenePage,
+  validateDocument,
 } from '@dforge/engine';
 import { describe, expect, it } from 'vitest';
-
 import { createDocumentsClient, encodePageBody } from '../persistence/documents-client';
+import { type ClipboardPort, createCanvasSession } from '../state/session';
 import { createDocumentBridge } from './document-bridge';
 import { createEditorWorkspace, EMPTY_PRESET } from './workspace-session';
 
@@ -571,6 +574,90 @@ describe('保存前结构校验（票 17 · blocker 2：写不校验、读全校
     expect((await workspace.documents.load('合法文档')).ok).toBe(true);
     expect((await workspace.documents.save()).ok).toBe(true);
     expect(workspace.documents.store.getState().status).toBe('saved');
+  });
+});
+
+describe('端到端（票 17 · blocker 4：复制→粘贴到另一页→保存→重开零覆盖段）', () => {
+  /** 内存剪贴板端口（跨会话/跨文档粘贴走系统剪贴板序列化路径）。 */
+  function memoryClipboard(): ClipboardPort {
+    let text = '';
+    return {
+      async write(value) {
+        text = value;
+      },
+      async read() {
+        return text === '' ? null : text;
+      },
+    };
+  }
+
+  it('实例复制到无主组件的另一页粘贴：降级为普通帧 → 保存合法 → 重开不锁死', async () => {
+    const daemon = createFakeDaemon();
+    // 页 A：主组件 c1 + 指向它的实例 i1（合法）；页 B：空（没有 c1）
+    const comp = createComponent({ id: 'c1', name: '按钮', x: 0, y: 0, width: 60, height: 24 });
+    const inst = createInstance({
+      id: 'i1',
+      name: '实例',
+      componentId: 'c1',
+      x: 80,
+      y: 0,
+      width: 60,
+      height: 24,
+    });
+    const pageA = createPage({
+      id: 'page-A',
+      name: 'A',
+      rootIds: ['c1', 'i1'],
+      nodes: { c1: comp, i1: inst },
+    });
+    const pageB = createPage({ id: 'page-B', name: 'B' });
+    daemon.seed('跨页粘贴稿', [pageA, pageB]);
+    const workspace = makeWorkspace(daemon);
+    expect((await workspace.documents.load('跨页粘贴稿')).ok).toBe(true);
+
+    const port = memoryClipboard();
+    const sharedStack = workspace.panels.stack;
+    // 会话 A：在页 A 选中实例并复制（写进系统剪贴板端口）
+    const sessionA = createCanvasSession({
+      stack: sharedStack,
+      document: workspace.canvas.document(),
+      pageId: 'page-A',
+      clipboard: port,
+      ids: createIdFactory(900),
+    });
+    sessionA.setSelection(['i1']);
+    sessionA.copy();
+
+    // 会话 B：同一份命令栈、目标页 B（无 c1）——生产接页签切换后就是这条路径
+    const sessionB = createCanvasSession({
+      stack: sharedStack,
+      document: workspace.canvas.document(),
+      pageId: 'page-B',
+      clipboard: port,
+      ids: createIdFactory(950),
+    });
+    await sessionB.paste();
+
+    // 粘贴产物：页 B 上只有一个降级后的普通帧，绝无悬空实例
+    const pageBNow = sharedStack.getSnapshot().pages.find((p) => p.id === 'page-B');
+    const pastedNodes = Object.values(pageBNow?.nodes ?? {});
+    expect(pastedNodes.length).toBe(1);
+    expect(pastedNodes[0]?.type).toBe('frame');
+    // 整份文档结构合法（无 missing-component）——写侧校验能放行
+    expect(validateDocument(sharedStack.getSnapshot())).toEqual([]);
+
+    // 保存：写读对称，合法文档正常落盘
+    expect((await workspace.documents.save()).ok).toBe(true);
+    expect(workspace.documents.store.getState().status).toBe('saved');
+
+    // 重开：全新会话载入同一文档不再报「结构非法」（旧缺陷：一次粘贴写坏 = 永久打不开）
+    const reopened = makeWorkspace(daemon);
+    const result = await reopened.documents.load('跨页粘贴稿');
+    expect(result.ok).toBe(true);
+    const reopenedB = reopened.canvas.document().pages.find((p) => p.id === 'page-B');
+    const reopenedNodes = Object.values(reopenedB?.nodes ?? {});
+    expect(reopenedNodes.length).toBe(1);
+    expect(reopenedNodes[0]?.type).toBe('frame');
   });
 });
 
