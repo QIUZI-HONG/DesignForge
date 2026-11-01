@@ -91,6 +91,11 @@ export async function claimCommit(
       return {
         claimPath,
         release: async (): Promise<void> => {
+          // 只删自己那一笔：`claimPath` 是**确定名字**（`.commit-<baseToken>`），过期接管后同
+          // 一路径上挂的是别人的声明。无条件 rm 会把接管者的在飞声明摘掉，让第三个写者以为
+          // 无人在飞——「同一 base 恰一个提交者」这条保证就此打穿（三轮 S2）。
+          const held = await readFile(claimPath, 'utf8').catch(() => null);
+          if (held !== null && held !== content) return;
           await rm(claimPath, { force: true });
         },
       };

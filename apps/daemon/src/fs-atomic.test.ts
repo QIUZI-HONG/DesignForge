@@ -6,13 +6,13 @@
  * 因此这里钉死三件事：暂存期目标名不变、`discard()` 零残留、`publish()` 失败也零残留。
  */
 
-import { mkdir, mkdtemp, readdir, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { removeTree, stageFileAtomic, writeFileAtomic } from './fs-atomic.ts';
+import { claimCommit, removeTree, stageFileAtomic, writeFileAtomic } from './fs-atomic.ts';
 
 describe('fs-atomic · 暂存与发布分离', () => {
   let dir: string;
@@ -84,5 +84,36 @@ describe('fs-atomic · 暂存与发布分离', () => {
     await expect(writeFileAtomic(join(dir, 'page-2.json'), detached, 0o644)).rejects.toThrow();
 
     expect(await readdir(dir)).toEqual(['page-1.json']);
+  });
+});
+
+describe('fs-atomic · 独占声明的释放（三轮 S2）', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'df-claim-'));
+  });
+
+  afterEach(async () => {
+    await removeTree(dir);
+  });
+
+  it('release 只删自己那一笔：声明易主后不得摘掉接管者的在飞声明', async () => {
+    const mine = await claimCommit(dir, 'base-token', 'nonce-mine\n');
+    // 过期接管后的实况：`.commit-<baseToken>` 是**确定名字**，同一个路径上现在挂着别人的内容
+    await writeFile(join(dir, '.commit-base-token'), 'nonce-theirs\n', 'utf8');
+
+    await mine.release();
+
+    // 无条件 rm 会让第三个写者以为无人在飞，把「恰一个提交者」的保证打穿
+    expect(await readFile(join(dir, '.commit-base-token'), 'utf8')).toBe('nonce-theirs\n');
+  });
+
+  it('仍是我方那份时 release 照常释放：名字不得被自己的残留永久占住', async () => {
+    const mine = await claimCommit(dir, 'base-token', 'nonce-mine\n');
+
+    await mine.release();
+
+    expect(await readdir(dir)).toEqual([]);
   });
 });

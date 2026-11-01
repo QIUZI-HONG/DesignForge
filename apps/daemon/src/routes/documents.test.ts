@@ -638,6 +638,46 @@ describe('documents · 画布页正文引用完整性守门（票 17）', () => 
     }
   });
 
+  it('422 引用清单的另一半：条数少但每条极长（id 是任意长字符串）也必须有界（三轮 SEC-A）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '守门长名');
+      const url = `/documents/${encodeURIComponent(id)}/pages/page-1`;
+      // 上一条钉的是「条数无界」；这一条钉同一枚币的另一面：只有 2 条 issue，但每条里的
+      // `componentId` 是 20 万字符——store 把 issue 原样 join 进 message，又原样塞进
+      // details.issues，响应跟着正文里的字符串线性膨胀（条数截断对此完全无效）。
+      const ghost = '幽'.repeat(120_000);
+      const nodes: Record<string, unknown> = {
+        i1: { type: 'instance', id: 'i1', componentId: ghost },
+        i2: { type: 'instance', id: 'i2', componentId: ghost },
+      };
+      const rejected = await injectJson(daemon.app, {
+        method: 'PUT',
+        url,
+        payload: { body: canvasBody(nodes, ['i1', 'i2']) },
+      });
+      expect(rejected.statusCode, rejected.raw.slice(0, 400)).toBe(422);
+      const error = (
+        rejected.payload as {
+          error: { message: string; details: { issues: string[]; issueCount?: number } };
+        }
+      ).error;
+      expect(error.details.issues.length).toBe(2);
+      for (const issue of error.details.issues) {
+        expect(
+          issue.length,
+          `单条 issue 无上限（长度 ${String(issue.length)}）`,
+        ).toBeLessThanOrEqual(200);
+      }
+      expect(error.details.issues[0], '截断必须留可读标记').toContain('本条已截断');
+      // 响应整体字节有界，且长正文一个字符都不许被原样吐出
+      expect(rejected.raw.length).toBeLessThan(32 * 1024);
+      expect(rejected.raw).not.toContain(ghost.slice(0, 20_000));
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('恶意正文让守门自身抛异常（节点 id 不可转字符串）→ 422 类型化拒绝，不逃 500、不回显异常文本', async () => {
     const daemon = await createTestDaemon();
     try {

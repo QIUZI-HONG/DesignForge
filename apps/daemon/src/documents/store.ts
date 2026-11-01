@@ -188,6 +188,101 @@ async function bodyTargetIsDirectory(pagePath: string): Promise<boolean> {
   return existing !== null && existing.isDirectory();
 }
 
+const PAGE_FILE_SUFFIX = '.json';
+
+/**
+ * 提交协议里算「这一笔没做成」的**竞态型** fs 错误码（三轮 D1）。
+ *
+ * 口径与 `create()` 侧对齐（SE-5 已裁决，见 `documents.atomicity.test.ts` 的 F4 段注释）：
+ * ENOENT/ENOTDIR 是文档目录被并发删掉、EEXIST 是同一 base 已有提交者在飞——都是冲突，重试
+ * 用尽后类型化 409，`失败即盘上没变`。其余（EACCES/EPERM/ENOSPC/EIO…）是**宿主环境坏了**，
+ * 不是用户的并发冲突：继续走 F4 的契约（500 internal + `details.reason`，原始异常进 daemon
+ * 日志）。把它们也说成 409 会让客户端以为重试能成功，并把运维唯一的信号（500 与日志）抹平。
+ */
+const RACE_ERRNO_CODES: readonly string[] = ['ENOENT', 'ENOTDIR', 'EEXIST'];
+
+function isRaceErrno(error: unknown): boolean {
+  return RACE_ERRNO_CODES.includes((error as NodeJS.ErrnoException).code ?? '');
+}
+
+/**
+ * 422 引用清单的**条数**上限：与 web 侧 `documents-client.ts` 的 `MAX_REPORTED_ISSUES` 同口径。
+ */
+const MAX_REPORTED_ISSUES = 8;
+
+/**
+ * 422 单条引用的**字符**上限（三轮 SEC-A）。
+ *
+ * 为什么需要：只截条数拦不住响应膨胀——`missing-component：实例 <id> …` 里的 `<id>` 是正文
+ * 里任意长度的字符串，两条指向 50 万字符幽灵组件的悬空引用就是 1MB 响应（且 message 与
+ * details.issues 各带一份）。评审实测的形状是「3000 条短 issue」，已按条数截；这条是同一
+ * 枚币的另一面：条数少、每条长。截断标记必须可读，不许把正文原样吐出。
+ */
+const MAX_ISSUE_LABEL_CHARS = 160;
+
+function capIssueLabel(issue: string): string {
+  return issue.length <= MAX_ISSUE_LABEL_CHARS
+    ? issue
+    : `${issue.slice(0, MAX_ISSUE_LABEL_CHARS)}…（本条已截断）`;
+}
+
+/**
+ * 空壳目录（无 manifest 的 `.dfg`）里**不属于守护进程**的条目（三轮 D2）。
+ *
+ * 为什么只看名字不够：白名单原判据是「条目名 ∈ {manifest.json, pages, *.tmp, .commit-*}」，
+ * 于是外来者借用这些名字就能把整棵外来树交给递归删除——实测 `secret.tmp/inner/keys.pem`、
+ * `.commit-zzz/inner/keys.pem`（两个都是**目录**）与 `pages/inner/keys.pem` 三例全部 200 且
+ * 内容被删。守护进程只会把 manifest.json / `*.tmp` / `.commit-<token>` 写成**文件**，只会
+ * 往 pages/ **目录**里放 `<合法页 id>.json` 和写正文留下的 `*.tmp`。形态与名字都不符才算自有，
+ * 读不到形态或路径越界一律当外来（拒绝递归删，宁可留下删不掉的残骸也不能删错东西）。
+ */
+async function foreignShellEntries(dir: string, entries: readonly string[]): Promise<string[]> {
+  const foreign: string[] = [];
+  for (const entry of entries) {
+    const entryPath = await resolveWithin(dir, entry);
+    if (entryPath === null) {
+      foreign.push(entry);
+      continue;
+    }
+    const info = await lstat(entryPath).catch(() => null);
+    if (info === null) {
+      foreign.push(entry);
+      continue;
+    }
+    if (entry === 'pages') {
+      if (!info.isDirectory()) {
+        foreign.push(entry);
+        continue;
+      }
+      const pageEntries = await readdir(entryPath).catch(() => null);
+      if (pageEntries === null) {
+        foreign.push(entry);
+        continue;
+      }
+      for (const pageEntry of pageEntries) {
+        const pagePath = await resolveWithin(entryPath, pageEntry);
+        if (pagePath === null) {
+          foreign.push(`pages/${pageEntry}`);
+          continue;
+        }
+        const pageInfo = await lstat(pagePath).catch(() => null);
+        const ownPageFile =
+          pageInfo?.isFile() === true &&
+          (pageEntry.endsWith('.tmp') ||
+            (pageEntry.endsWith(PAGE_FILE_SUFFIX) &&
+              isValidPageId(pageEntry.slice(0, -PAGE_FILE_SUFFIX.length))));
+        if (!ownPageFile) foreign.push(`pages/${pageEntry}`);
+      }
+      continue;
+    }
+    const ownFile =
+      info.isFile() &&
+      (entry === 'manifest.json' || entry.endsWith('.tmp') || entry.startsWith('.commit-'));
+    if (!ownFile) foreign.push(entry);
+  }
+  return foreign;
+}
+
 /**
  * 正文发布目标在**提交点之后**变形的分类（DA-3）：`publish()` 是 `rename(temp -> 正文路径)`，
  * 提交点之前已用 `bodyTargetIsDirectory` 挡掉「同名条目是目录」这一类，但目标仍可在此之后
@@ -422,11 +517,27 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
     plan: (manifest: DfgManifest) => Promise<ManifestPlan<T>>,
   ): Promise<StoreResult<T>> => {
     let attemptedVersion: number | null = null;
-    let preemptedBy: 'claim' | 'base' | 'readback' | 'unknown' = 'unknown';
+    let preemptedBy: 'claim' | 'plan' | 'manifest-write' | 'base' | 'readback' | 'unknown' =
+      'unknown';
+    // 落败那一笔的 errno：并发删除给 ENOENT、权限风暴给 EACCES。带上它是为了把「真并发冲突」
+    // 和「fs 层失败被本协议收敛成 409」在响应里区分开（三轮 D1 实测：未包住的 fs 调用把
+    // 36/2880 笔保存塌成 500 internal，且 details 只有一句 ENOENT）。
+    let lastErrno: string | null = null;
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt += 1) {
       const base = await readManifestRawAt(paths, documentId);
       if (!base.ok) return base.result;
-      const planned = await plan(base.manifest);
+      let planned: ManifestPlan<T>;
+      try {
+        planned = await plan(base.manifest);
+      } catch (error) {
+        // plan 里唯一会抛的是暂存正文（stageFileAtomic）。文档目录被并发删掉时它报 ENOENT，
+        // 这一笔还没提交、盘上未变，和「声明被抢」同类：按落败重试（三轮 D1 的 500 主峰之一）。
+        // 权限/磁盘类不是竞态，仍按 F4 的契约由 daemon 顶层出 500 + 日志。
+        if (!isRaceErrno(error)) throw error;
+        preemptedBy = 'plan';
+        lastErrno = (error as NodeJS.ErrnoException).code ?? 'unknown';
+        continue;
+      }
       if (!planned.ok) return planned.result;
       attemptedVersion = planned.next.version;
       const staged = planned.staged;
@@ -443,11 +554,13 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
         );
       } catch (error) {
         await staged?.discard().catch(() => undefined);
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-          preemptedBy = 'claim';
-          continue;
-        }
-        throw error;
+        // 三轮 D1 实测 14/36 条 500 出在这条裸抛上：目录被并发删掉后声明建不出来（ENOENT），
+        // 和 EEXIST 对调用方是同一件事——这一笔提交不出去，盘上仍是提交前的内容。权限类不是
+        // 竞态，仍按 F4 出 500。
+        if (!isRaceErrno(error)) throw error;
+        preemptedBy = 'claim';
+        lastErrno = (error as NodeJS.ErrnoException).code ?? 'unknown';
+        continue;
       }
       try {
         // CAS 前置：改名之前盘上必须仍是我读到的那份 base
@@ -457,7 +570,18 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           await staged?.discard().catch(() => undefined);
           continue;
         }
-        await writeFileAtomic(paths.manifestPath, ourBytes, DOC_FILE_MODE);
+        try {
+          await writeFileAtomic(paths.manifestPath, ourBytes, DOC_FILE_MODE);
+        } catch (error) {
+          // 三轮 D1 的主峰（实测 22/36 条 500）：并发删除让 rename 到 manifest.json 报 ENOENT。
+          // 提交点**还没过**（复读确认尚未做）：作废暂存正文后按落败重试。权限类不是竞态，
+          // 仍按 F4 的契约由 daemon 顶层出 500 + 原始异常进日志。
+          if (!isRaceErrno(error)) throw error;
+          preemptedBy = 'manifest-write';
+          lastErrno = (error as NodeJS.ErrnoException).code ?? 'unknown';
+          await staged?.discard().catch(() => undefined);
+          continue;
+        }
         // 复读确认：比**字节全等**（含本次独有身份），不是比解析后的值
         const back = await readFile(paths.manifestPath, 'utf8').catch(() => null);
         if (back !== ourBytes) {
@@ -497,6 +621,7 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
         // 本次提交（含正文）从未出现在盘上：失败即盘上没变（票 19 blocker 1）
         published: false,
         preemptedBy,
+        errno: lastErrno,
       },
     };
   };
@@ -701,18 +826,13 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           const shell = await lstat(paths.value.dir).catch(() => null);
           if (shell === null || !shell.isDirectory() || shell.isSymbolicLink()) return manifest;
           // 对象级收口（F6）：无 manifest 的目录只可能是 create() 中途失败留下的空壳，
-          // 递归删只对「条目全属守护进程自有名（manifest.json / pages/ / *.tmp / .commit-*）」成立；
+          // 递归删只对「条目全是守护进程自有的名字**和形态**」成立（见 foreignShellEntries：
+          // manifest.json/*.tmp/.commit-* 必须是文件，pages 必须是只装自有文件的目录）；
           // 混入外来内容即拒绝——绝不能把用户自己塞进 .dfg/ 的文件一并递归删掉。
           // `.commit-*` 是提交声明（DA-2）：崩溃残留也归守护进程自有，否则名字会被自己的残留占住。
           const shellEntries = await readdir(paths.value.dir).catch(() => null);
           if (shellEntries === null) return manifest;
-          const foreign = shellEntries.filter(
-            (entry) =>
-              entry !== 'manifest.json' &&
-              entry !== 'pages' &&
-              !entry.endsWith('.tmp') &&
-              !entry.startsWith('.commit-'),
-          );
+          const foreign = await foreignShellEntries(paths.value.dir, shellEntries);
           if (foreign.length > 0) {
             return {
               ok: false,
@@ -833,10 +953,12 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
         };
       }
       if (integrity !== null) {
-        // 引用清单必须截断（F5）：全量拼接 1MB 请求可炸出 2MB 响应。与 web 侧
-        // documents-client.ts:281-282 同口径——最多 8 条 + 总数，消息与 details.issues 都截。
-        const shown = integrity.slice(0, 8);
-        const suffix = integrity.length > 8 ? `…共 ${String(integrity.length)} 条` : '';
+        // 引用清单必须截断（F5 + 三轮 SEC-A）：全量拼接 1MB 请求可炸出 2MB 响应。与 web 侧
+        // documents-client.ts:281-282 同口径——最多 8 条 + 总数；每条本身也要截，否则「条数少、
+        // 每条长」的正文（id 是任意长字符串）照样把响应顶上天。
+        const shown = integrity.slice(0, MAX_REPORTED_ISSUES).map((issue) => capIssueLabel(issue));
+        const suffix =
+          integrity.length > MAX_REPORTED_ISSUES ? `…共 ${String(integrity.length)} 条` : '';
         return {
           ok: false,
           code: 'doc_invalid_structure',

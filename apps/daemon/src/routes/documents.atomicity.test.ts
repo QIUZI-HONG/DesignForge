@@ -72,7 +72,7 @@ async function sequentialSaves(
   pageId: string,
   count: number,
   owner: string,
-): Promise<{ status: number; sent: unknown; json: Record<string, unknown> }[]> {
+): Promise<(HttpResult & { sent: unknown })[]> {
   const results = [];
   for (let index = 0; index < count; index += 1) {
     const sent = { owner, index };
@@ -83,6 +83,33 @@ async function sequentialSaves(
     results.push({ ...result, sent });
   }
   return results;
+}
+
+/** 盘上的提交残骸：文档目录里的 `.commit-*` 声明 + `pages/` 里未发布的 `.tmp` 正文。 */
+async function commitResidue(docDir: string): Promise<string[]> {
+  const shell = await readdir(docDir).catch(() => [] as string[]);
+  const pages = await readdir(join(docDir, 'pages')).catch(() => [] as string[]);
+  return [
+    ...shell.filter((entry) => entry.startsWith('.commit-')),
+    ...pages.filter((entry) => entry.endsWith('.tmp')).map((entry) => `pages/${entry}`),
+  ];
+}
+
+/**
+ * 盯住**提交声明**本身：`.commit-<base>` 一出现就说明这一笔已经越过「读 base」，
+ * 正处在声明→CAS→rename→复读这几步里；此时动手才叫落在提交窗口中间。
+ *
+ * 为什么不能只靠「同时发保存和删除」：三轮实测里，DELETE 的往返（解析 JSON + 校验空壳 +
+ * 带重试 rm）比保存剩下的几步还慢，往往抢在声明之前就把目录收走，保存只是干净地 404——
+ * 窗口根本没开，绿是空的。观察到声明再动手，把命中从「撞运气」变成「每轮都从窗口里切」。
+ */
+async function watchClaimFile(docDir: string, budgetMs: number): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const shell = await readdir(docDir).catch(() => [] as string[]);
+    if (shell.some((entry) => entry.startsWith('.commit-'))) return true;
+    if (Date.now() >= deadline) return false;
+  }
 }
 
 describe('documents · create() 失败不得留下残骸，也不得伤及既有文档', () => {
@@ -212,6 +239,66 @@ describe('documents · 无 manifest 空壳目录必须可回收', () => {
       const bin = await readFile(join(shellDir, 'backup', 'data.bin'), 'utf8');
       expect(bin.length).toBe(4096);
       expect((await readdir(shellDir)).sort()).toContain('notes.txt');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('空壳里**借用白名单名字**的外来树不得被递归删（三轮 D2：白名单原判据只看名字）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const shellDir = join(daemon.workspaceDir, 'name-theft.dfg');
+      // 三轮 D2 实测三例全被 200 + destroyed：`*.tmp`/`.commit-*` 名下建**目录**、
+      // 以及把外来树塞进 `pages/` 里——白名单只比对名字，形态一概不看。
+      await mkdir(join(shellDir, 'secret.tmp', 'inner'), { recursive: true });
+      await writeFile(join(shellDir, 'secret.tmp', 'inner', 'keys.pem'), 'PRIVATE-A', 'utf8');
+      await mkdir(join(shellDir, '.commit-zzz', 'inner'), { recursive: true });
+      await writeFile(join(shellDir, '.commit-zzz', 'inner', 'keys.pem'), 'PRIVATE-E', 'utf8');
+      await mkdir(join(shellDir, 'pages', 'inner'), { recursive: true });
+      await writeFile(join(shellDir, 'pages', 'inner', 'keys.pem'), 'PRIVATE-B', 'utf8');
+
+      const removed = await injectJson(daemon.app, {
+        method: 'DELETE',
+        url: '/documents/name-theft',
+      });
+      expect(removed.statusCode, removed.raw).toBe(400);
+      expect((removed.payload as { error: { code: string } }).error.code).toBe('doc_invalid_id');
+
+      // 拒绝即零删除：三棵外来树都必须在盘上
+      expect(await readFile(join(shellDir, 'secret.tmp', 'inner', 'keys.pem'), 'utf8')).toBe(
+        'PRIVATE-A',
+      );
+      expect(await readFile(join(shellDir, '.commit-zzz', 'inner', 'keys.pem'), 'utf8')).toBe(
+        'PRIVATE-E',
+      );
+      expect(await readFile(join(shellDir, 'pages', 'inner', 'keys.pem'), 'utf8')).toBe(
+        'PRIVATE-B',
+      );
+      // 拒因要点名到具体条目，不能只报「含外来内容」
+      const details = (removed.payload as { error: { details?: { foreignEntries?: string[] } } })
+        .error.details;
+      expect(details?.foreignEntries).toContain('pages/inner');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('空壳里守护进程自有形态的条目仍可收口（页文件 + 崩溃残留 tmp/claim 都是文件）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const shellDir = join(daemon.workspaceDir, 'own-shape.dfg');
+      await mkdir(join(shellDir, 'pages'), { recursive: true });
+      // create() 中途失败的真实形态：先写正文（store.ts 的 page-1.json），manifest 还没落地
+      await writeFile(join(shellDir, 'pages', 'page-1.json'), '{}\n', 'utf8');
+      await writeFile(join(shellDir, 'pages', '.aabbccdd.tmp'), 'x', 'utf8');
+      await writeFile(join(shellDir, '.commit-0123456789abcdef'), 'x', 'utf8');
+
+      const removed = await injectJson(daemon.app, {
+        method: 'DELETE',
+        url: '/documents/own-shape',
+      });
+      expect(removed.statusCode, removed.raw).toBe(200);
+      expect(await readdir(daemon.workspaceDir)).toEqual([]);
     } finally {
       await daemon.cleanup();
     }
@@ -566,6 +653,9 @@ describe('documents · 提交身份与 CAS：败者必须拿到带类型 conflic
       expect(error.details.attemptedVersion).toBe(versionBefore + 1);
       expect(error.details.manifestVersionOnDisk).toBe(versionBefore);
       expect(error.details.preemptedBy).toBe('claim');
+      // 三轮 D1 新增的可观测面：落败的 errno 必须如实带出（EEXIST=声明被占，与 ENOENT 族
+      // 在响应里分得开，运维不必翻日志猜是哪一类）
+      expect(error.details.errno, JSON.stringify(error.details)).toBe('EEXIST');
 
       // 「失败 = 盘上没变」钉到字节级：manifest 一字节未动
       expect(await readFile(manifestPath, 'utf8')).toBe(manifestBefore);
@@ -592,6 +682,54 @@ describe('documents · 提交身份与 CAS：败者必须拿到带类型 conflic
       ).toEqual([]);
     } finally {
       if (claimPath !== '') await rm(claimPath, { force: true }).catch(() => undefined);
+      await daemon.cleanup();
+    }
+  });
+
+  it('提交路径里的 fs 错误必须分类：pages 被换成普通文件 → 409 带 preemptedBy/errno，不许 500（三轮 D1）', async () => {
+    // 三轮 D1 的确定性替身：HEAD 上 `plan` 的暂存写把 fs 错误裸抛出去——`pages` 不是目录时
+    // mkdir 撞 EEXIST，同一笔保存**每一轮**都塌成 `500 internal`（实测 HEAD 与修复后各跑 3 遍：
+    // 500/500/500 对 409/409/409）。跨进程 TOCTOU 窗口靠撞运气只有 1/3 检出率，这类形状错误
+    // 则可以钉死，所以两条都要：本条负责「分类本身」，下面的赛跑负责「真并发下也不出 5xx」。
+    const daemon = await createTestDaemon();
+    try {
+      const { id, docDir } = await createDoc(daemon.app, daemon.workspaceDir, 'pages 是文件');
+      const pagesPath = join(docDir, 'pages');
+      const manifestPath = join(docDir, 'manifest.json');
+      const manifestBefore = await readFile(manifestPath, 'utf8');
+      await removeTree(pagesPath);
+      await writeFile(pagesPath, '不是目录\n', { mode: 0o600 });
+
+      const lost = await savePage(daemon.app, id, { marker: '探针正文' });
+      expect(lost.statusCode, lost.raw).toBe(409);
+      const error = (
+        lost.payload as {
+          error: { code: string; message: string; details: Record<string, unknown> };
+        }
+      ).error;
+      expect(error.code).toBe('conflict');
+      // 失败即盘上没变：manifest 一字节未动，被拒正文也不许以 .tmp 留在树里
+      expect(await readFile(manifestPath, 'utf8'), '被拒的保存动了 manifest').toBe(manifestBefore);
+      expect(error.details.published, JSON.stringify(error.details)).toBe(false);
+      expect(error.details.preemptedBy, JSON.stringify(error.details)).toBe('plan');
+      expect(error.details.errno, JSON.stringify(error.details)).toBe('EEXIST');
+      expect(lost.raw, '失败响应回显了宿主绝对路径').not.toContain(daemon.workspaceDir);
+      // 分类不许靠翻日志：形状错误也要在 details 里说清落在哪一步
+      expect(error.message).toContain('plan');
+
+      // 拒得不永久：把 `pages` 恢复成目录后同一笔保存照常成功（证明上面是判定落败，不是死锁）
+      await removeTree(pagesPath);
+      await mkdir(pagesPath, { recursive: true });
+      const retry = await savePage(daemon.app, id, { marker: '恢复后正文' });
+      expect(retry.statusCode, retry.raw).toBe(200);
+      expect(JSON.parse(await readFile(join(pagesPath, 'page-1.json'), 'utf8'))).toEqual({
+        marker: '恢复后正文',
+      });
+      expect(
+        (await readdir(pagesPath)).filter((entry) => entry.endsWith('.tmp')),
+        '恢复后的提交留下 .tmp',
+      ).toEqual([]);
+    } finally {
       await daemon.cleanup();
     }
   });
@@ -913,4 +1051,139 @@ describe('documents · create/delete 竞态不得塌成 500（票 19 · SE-5）'
     ).toEqual([]);
     expect(docDirEntries.sort()).toEqual(['manifest.json', 'pages']);
   });
+
+  it('交叉「保存 × 删除」竞态：ENOENT 族必须落类型化 409/404，一笔 5xx 都不许有（三轮 D1）', async () => {
+    const ID = '保存删除竞态';
+    const first = await httpJson(`${urlA}/documents`, { method: 'POST', payload: { name: ID } });
+    expect(first.status, first.raw).toBe(201);
+
+    interface Op {
+      status: number;
+      code: string | null;
+      raw: string;
+      /** 窗口证据：500 的 `details.reason`（修复前）或 409 的 `details.errno`（修复后）。 */
+      errno: string | null;
+      /** 提交点已过（manifest 前移成功）——只有 DA-3 的发布失败会带这个标记。 */
+      manifestCommitted: boolean;
+    }
+    const toOp = (res: { status: number; json: Record<string, unknown>; raw: string }): Op => {
+      const error = res.json.error as
+        | { code?: string; details?: Record<string, unknown> }
+        | undefined;
+      const errno =
+        typeof error?.details?.reason === 'string'
+          ? error.details.reason
+          : typeof error?.details?.errno === 'string'
+            ? error.details.errno
+            : null;
+      return {
+        status: res.status,
+        code: res.status >= 400 ? (error?.code ?? null) : null,
+        raw: res.raw,
+        errno,
+        manifestCommitted: error?.details?.manifestCommitted === true,
+      };
+    };
+    const send = async (url: string, init: { method: string; payload?: unknown }): Promise<Op> =>
+      toOp(await httpJson(url, init));
+
+    // 三轮 D1 实测的形状：保存正在飞（提交声明已建、manifest 还没 rename），另一路写者把整个
+    // 文档目录摘掉 → claimCommit 之后的 base 复读 / manifest rename 报 ENOENT。HEAD 上这类败笔
+    // 裸抛出 catch，一路塌成 500 internal；协议里没有一条路径能把「这一笔没做成」如实说出来。
+    // 打法（对照实测两轮修正）：① 大正文只会拉长**声明之前**的暂存写，删除落进去后保存的
+    // ensureDir 会把目录重建，反而干净提交成功——所以正文取小；② 走协议的 DELETE 往返比保存
+    // 剩下的几步慢，60 轮里窗口几乎没开过——所以由测试进程扮演「不在协议里的第三方」，
+    // 一见 `.commit-*` 声明就立刻 rm（亚毫秒级），刀才落得进窗口。
+    // 如实交代检出力：这个窗口绝大多数落点在**提交点之后**（实测 60 轮里约 59 笔是
+    // doc_invalid_body/DA-3 那一支），HEAD 的裸抛 500 只有约 1/3 的轮次能撞出来——所以本条
+    // 是「真并发下绝不出 5xx、失败必类型化、盘上必无残骸」的**兜底网**；分类本身的确定性
+    // 证明在前面那条 pages-as-file（HEAD 上 3/3 塌 500，修复后 3/3 出 409）。
+    const createdId = (first.json.result as { document: { id: string } }).document.id;
+    const docDir = join(workspaceDir, `${createdId}.dfg`);
+    const ROUNDS = 60;
+    const results: Op[] = [];
+    const saves: Op[] = [];
+    let windowsSeen = 0;
+    for (let round = 0; round < ROUNDS; round += 1) {
+      // 先扫上一轮的残骸再动手：残骸非空说明「失败=盘上没变」这条已经被破坏了，
+      // 让下一轮的窗口观察建立在一个已污染的状态上没有意义，直接把这一轮判红。
+      const residue = await commitResidue(docDir);
+      expect(residue, `第 ${String(round)} 轮开始前文档目录已有提交残骸`).toEqual([]);
+      // 上一轮的删除已把文档收走：重建（201 / 409 doc_exists，两者都是类型化）
+      results.push(await send(`${urlB}/documents`, { method: 'POST', payload: { name: ID } }));
+      const saving = send(`${urlA}/documents/${encodeURIComponent(ID)}/pages/page-1`, {
+        method: 'PUT',
+        payload: { body: { round } },
+      });
+      const opened = await watchClaimFile(docDir, 60);
+      if (opened) {
+        await removeTree(docDir).catch(() => undefined);
+        windowsSeen += 1;
+      }
+      // 另一实例按协议收尾（多半只剩 404，但它的响应同样必须类型化、不回显宿主路径）
+      results.push(await send(`${urlB}/documents/${encodeURIComponent(ID)}`, { method: 'DELETE' }));
+      saves.push(await saving);
+    }
+    results.push(...saves);
+    const raceOps = results.filter((item) => item.errno === 'ENOENT' || item.errno === 'ENOTDIR');
+    // 覆盖自证：「观察到提交声明」= 那一笔确实飞到了读 base 之后、提交点之前，
+    // 删除正是落在这段里。观察不到就说明打法失效——宁可红着回来改打法，
+    // 也不交一个「不可能失败」的绿。
+    expect(
+      windowsSeen,
+      `${String(ROUNDS)} 轮都没观察到 .commit-* 声明：盯盘器/打法失效，本条已退化成空过`,
+    ).toBeGreaterThan(0);
+
+    const serverErrors = results.filter((op) => op.status >= 500);
+    expect(
+      serverErrors.map((op) => op.status),
+      `保存×删除竞态出现 ${String(serverErrors.length)} 笔 5xx（旧缺陷：裸抛的 ENOENT 直落 500）`,
+    ).toEqual([]);
+    // 带 errnos 的败笔分两种合法形状，都必须类型化、都不许是 5xx：
+    // - 提交点**之前**被抢先（claim / CAS / readback）→ conflict（409），这一笔没写成，客户端重试即可；
+    // - 提交点**之后**正文发布目标消失（DA-3：manifest 已前移、published:false）→ doc_invalid_body，
+    //   这一笔已部分生效，报 conflict 会谎称「什么都没动」，而读侧会如实报正文不可用（票 21 裁决不回滚）。
+    for (const op of raceOps) {
+      if (op.manifestCommitted) {
+        expect(op.code, op.raw).toBe('doc_invalid_body');
+        expect(op.status, op.raw).toBe(DF_ERROR_HTTP_STATUS.doc_invalid_body);
+      } else {
+        expect(op.code, op.raw).toBe('conflict');
+        expect(op.status, op.raw).toBe(409);
+      }
+    }
+
+    const allowedCodes = [
+      'conflict',
+      'doc_not_found',
+      'doc_exists',
+      'doc_invalid_id',
+      'doc_invalid_manifest',
+      'doc_invalid_body',
+    ];
+    for (const op of results) {
+      if (op.status < 400) continue;
+      expect(op.code, op.raw).not.toBeNull();
+      expect(allowedCodes, op.raw).toContain(op.code ?? '');
+      expect(
+        DF_ERROR_HTTP_STATUS[op.code as DfErrorCode],
+        `${String(op.code)} 状态码错位：${op.raw}`,
+      ).toBe(op.status);
+      expect(op.raw, '失败响应回显了宿主绝对路径').not.toContain(workspaceDir);
+    }
+
+    // 竞态后必须收得回来：删净（404）或存在（200），再同名重建拿 201
+    const quiesce = await send(`${urlA}/documents/${encodeURIComponent(ID)}`, { method: 'DELETE' });
+    expect([200, 404], `竞态后收口 DELETE 非类型化：${quiesce.status} ${quiesce.raw}`).toContain(
+      quiesce.status,
+    );
+    const rebuild = await send(`${urlB}/documents`, { method: 'POST', payload: { name: ID } });
+    expect(rebuild.status, rebuild.raw).toBe(201);
+    const saved = await send(`${urlA}/documents/${encodeURIComponent(ID)}/pages/page-1`, {
+      method: 'PUT',
+      payload: { body: { after: '竞态结束后的一笔正常保存' } },
+    });
+    expect(saved.status, saved.raw).toBe(200);
+    // 风暴体量是击中窗口的必要条件（见上）；这里只放宽超时，不放宽任何断言。
+  }, 30_000);
 });
