@@ -68,7 +68,10 @@
           },
           "comp_a": {
             "blendMode": "normal",
-            "children": ["comp_child", "comp_child2"],
+            "children": [
+              "comp_child",
+              "comp_child2"
+            ],
             "componentSetId": null,
             "cornerRadius": 0,
             "effects": [],
@@ -162,7 +165,10 @@
               "wrap": false
             },
             "blendMode": "normal",
-            "children": ["auto_1", "auto_2"],
+            "children": [
+              "auto_1",
+              "auto_2"
+            ],
             "clipsContent": true,
             "cornerRadius": 0,
             "effects": [],
@@ -190,7 +196,14 @@
           "frame_root": {
             "autoLayout": null,
             "blendMode": "normal",
-            "children": ["rect_a", "rect_b", "text_a", "n_2000", "frame_auto", "inst_1000"],
+            "children": [
+              "rect_a",
+              "rect_b",
+              "text_a",
+              "n_2000",
+              "frame_auto",
+              "inst_1000"
+            ],
             "clipsContent": true,
             "cornerRadius": 0,
             "effects": [],
@@ -216,8 +229,10 @@
             "y": 0
           },
           "inst_1000": {
+            "autoLayout": null,
             "blendMode": "normal",
-            "componentId": "comp_a",
+            "children": [],
+            "clipsContent": true,
             "cornerRadius": 0,
             "effects": [],
             "fills": [
@@ -233,22 +248,9 @@
             "locked": false,
             "name": "实例",
             "opacity": 1,
-            "overrides": {
-              "comp_child": {
-                "fills": [
-                  {
-                    "color": "#9747FF",
-                    "opacity": 1,
-                    "type": "solid",
-                    "visible": true
-                  }
-                ],
-                "width": 96
-              }
-            },
             "rotation": 0,
             "strokes": [],
-            "type": "instance",
+            "type": "frame",
             "visible": true,
             "width": 100,
             "x": 410,
@@ -414,7 +416,11 @@
             "y": 120
           }
         },
-        "rootIds": ["frame_root", "comp_a", "inst_a"]
+        "rootIds": [
+          "frame_root",
+          "comp_a",
+          "inst_a"
+        ]
       }
     ],
     "tokens": {}

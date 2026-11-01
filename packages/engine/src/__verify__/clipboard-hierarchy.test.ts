@@ -106,7 +106,7 @@ describe('[verify] 剪贴板 · 跨页复制粘贴', () => {
     expect(getPage(stack.document, 'p2').rootIds).toEqual(['q1']);
   });
 
-  it('复制实例：外部主组件引用跨页保留（componentRemap 可替换）', () => {
+  it('复制实例：跨页粘贴无人接手（无 componentRemap）时降级为普通帧，不得留下悬空引用', () => {
     const doc = twoPageDoc();
     const withInstance = insertNode(
       doc,
@@ -118,13 +118,16 @@ describe('[verify] 剪贴板 · 跨页复制粘贴', () => {
     const payload = copyNodes(getPage(withInstance, 'p1'), 'p1', ['i1']);
     stack.dispatch(pasteCommands(payload, { pageId: 'p2', ids: createIdFactory(300) }));
     const page2 = getPage(stack.document, 'p2');
-    const pastedInstance = Object.values(page2.nodes).find((node) => node.type === 'instance');
-    expect(pastedInstance?.type).toBe('instance');
-    // 载荷外的引用（主组件 c1 在 p1）保持原值 → p2 上的实例指向 p1 的组件
-    expect((pastedInstance as { componentId: string }).componentId).toBe('c1');
-    // 结构校验会如实报出「主组件不在本页」
-    const issues = validateDocument(stack.document);
-    expect(issues.map((issue) => issue.code)).toContain('missing-component');
+    // p2 上除原矩形 q1 外只有一个粘贴产物
+    const pastedIds = page2.rootIds.filter((id) => id !== 'q1');
+    expect(pastedIds).toHaveLength(1);
+    const pasted = page2.nodes[pastedIds[0] as string];
+    // 主组件 c1 不在目标页、也没有 remap 接手 → 实例降级为普通帧（几何保持载荷原值 + 粘贴偏移）
+    expect(pasted?.type).toBe('frame');
+    expect(pasted).toMatchObject({ x: 410, y: 130, width: 100, height: 100 });
+    // 判据（票 17）：粘贴不再产出悬空引用——整文档结构校验为空
+    // （旧行为把「componentId 保留为 c1 + validateDocument 报 missing-component」钉成期望，已修正）
+    expect(validateDocument(stack.document)).toEqual([]);
   });
 
   it('副本（duplicate）：紧随原节点、偏移可为 0、id 不冲突', () => {

@@ -125,7 +125,7 @@ describe('clipboard · 粘贴（id 重映射）', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('跨页面粘贴：实例保留对主组件的引用（P0 口径：主组件仍在原页面）', () => {
+  it('跨页面粘贴：主组件既不在载荷也无 remap/页快照可证 → 降级为普通帧（票 17：不留悬空引用）', () => {
     let document = doc();
     document = insertNode(
       document,
@@ -140,9 +140,10 @@ describe('clipboard · 粘贴（id 重映射）', () => {
     stack.dispatch(pasteCommands(payload, { pageId: 'p2' }));
     const after = getPage(stack.document, 'p2');
     const pasted = Object.values(after.nodes)[0];
-    expect(pasted?.type).toBe('instance');
-    if (pasted?.type !== 'instance') return;
-    expect(pasted.componentId).toBe('c1');
+    // 旧口径「保留 c1 引用（P0）」会把悬空引用钉成期望行为——粘贴落页即文档结构非法（票 17）
+    expect(pasted?.type).toBe('frame');
+    expect(pasted).not.toHaveProperty('componentId');
+    expect(pasted).not.toHaveProperty('overrides');
   });
 
   it('副本（Cmd+D）：留在同父级、紧随原节点、可撤销', () => {
