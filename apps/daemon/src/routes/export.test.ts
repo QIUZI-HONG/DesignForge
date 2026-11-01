@@ -354,7 +354,12 @@ describe('export · web 真实信封保存 → 导出（§A1 核心闭环）', (
       expect(statusCode).toBe(200);
       const result = (
         payload as {
-          result: { artifact: { base64: string; length: number }; skippedNodes: number };
+          result: {
+            artifact: { base64: string; length: number };
+            skippedNodes: number;
+            truncatedNodes: number;
+            complete: boolean;
+          };
         }
       ).result;
       // 产物非空且远大于「空场景」的下限（§A1 现状是空白 1440×900）
@@ -369,8 +374,11 @@ describe('export · web 真实信封保存 → 导出（§A1 核心闭环）', (
       expect(png.pixel(190, 60)).toEqual([0, 0, 255, 255]);
       // 远角是页面底色 #F5F5F5（信封的 page.backgroundColor 生效）
       expect(png.pixel(215, 5)).toEqual([245, 245, 245, 255]);
-      // 隐藏矩形 + 实例（组件语义不解析）→ skippedNodes = 2
-      expect(result.skippedNodes).toBe(2);
+      // 隐藏矩形 = 非损失（不进 skipped）；仅实例（组件语义不解析）算真损失 → skippedNodes = 1
+      expect(result.skippedNodes).toBe(1);
+      expect(result.truncatedNodes).toBe(0);
+      // 实例未展开是实打实的损失 → complete=false（隐藏层单独不会把它拉成 false）
+      expect(result.complete).toBe(false);
     } finally {
       await daemon.cleanup();
     }
@@ -507,6 +515,101 @@ describe('export · 节点预算截断必须如实上报', () => {
       expect(result.complete).toBe(true);
       expect(result.truncatedNodes).toBe(0);
       expect(result.skippedNodes).toBe(0);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
+describe('export · 未判定/零产物不得认证为完整（票 18 红线，HTTP 缝）', () => {
+  /** 直接 PUT 任意正文（含坏信封）并导出，返回 HTTP 状态 + result（或 error）。 */
+  async function putBodyAndExport(
+    daemon: TestDaemon,
+    body: unknown,
+  ): Promise<{ putStatus: number; statusCode: number; result?: Record<string, unknown> }> {
+    const created = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/documents',
+      payload: { name: `坏信封-${Math.random().toString(36).slice(2)}` },
+    });
+    const documentId = (created.payload as { result: { document: { id: string } } }).result.document
+      .id;
+    const saved = await injectJson(daemon.app, {
+      method: 'PUT',
+      url: `/documents/${encodeURIComponent(documentId)}/pages/page-1`,
+      payload: { body },
+    });
+    const exported = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/export',
+      payload: { documentId, pageId: 'page-1', format: 'svg' },
+    });
+    return {
+      putStatus: saved.statusCode,
+      statusCode: exported.statusCode,
+      result: (exported.payload as { result?: Record<string, unknown> }).result,
+    };
+  }
+
+  it('坏信封（page:null）：HTTP 200 但必须 complete=false（不得把空白产物认证为完整）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const { putStatus, statusCode, result } = await putBodyAndExport(daemon, {
+        $format: 'dforge.canvas.page',
+        $version: 1,
+        page: null,
+        tokens: {},
+      });
+      expect(putStatus).toBe(200);
+      expect(statusCode).toBe(200);
+      expect(result).toBeDefined();
+      expect(result?.complete).toBe(false);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('信封有可渲染节点但 rootIds 为空：产物空 → complete=false', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const nodes: Record<string, unknown> = {};
+      for (let index = 0; index < 5; index += 1) {
+        const id = `rect-${String(index)}`;
+        nodes[id] = {
+          id,
+          type: 'rect',
+          x: index * 12,
+          y: 0,
+          width: 10,
+          height: 10,
+          visible: true,
+          fills: [],
+          children: [],
+        };
+      }
+      const { putStatus, statusCode, result } = await putBodyAndExport(daemon, {
+        $format: 'dforge.canvas.page',
+        $version: 1,
+        page: { id: 'page-1', nodes, rootIds: [], backgroundColor: '#FFFFFF' },
+        tokens: {},
+      });
+      expect(putStatus).toBe(200);
+      expect(statusCode).toBe(200);
+      expect(result).toBeDefined();
+      expect(result?.complete).toBe(false);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('全新空页正文 "{}"：无节点无损失 → complete=true（诚实的空页面，与上两条区分开）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const { putStatus, statusCode, result } = await putBodyAndExport(daemon, {});
+      expect(putStatus).toBe(200);
+      expect(statusCode).toBe(200);
+      expect(result).toBeDefined();
+      expect(result?.complete).toBe(true);
     } finally {
       await daemon.cleanup();
     }

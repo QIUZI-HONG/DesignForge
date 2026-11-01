@@ -160,7 +160,9 @@ describe('ExportPanel · 三档导出', () => {
     fireEvent.click(screen.getByRole('button', { name: '导出 PNG' }));
 
     expect(await screen.findByText(/部分导出 export_p1\.png（4096 字节）/)).toBeDefined();
-    expect(screen.getByText(/1 个节点未进入产物/)).toBeDefined();
+    // 未进入产物的节点数是**下界**（实例等无法展开的子树可能更大），文案必须用「至少」——
+    // 不得把计数当精确保证（契约：消费方判完整/部分看 complete，不得拿计数当保证）
+    expect(screen.getByText(/至少 1 个节点未进入产物/)).toBeDefined();
     // 「已导出 …」是完整语义，部分产物不得复用（票 18 的假绿后果正在这一行）
     expect(screen.queryByText(/已导出 export_p1\.png/)).toBeNull();
   });

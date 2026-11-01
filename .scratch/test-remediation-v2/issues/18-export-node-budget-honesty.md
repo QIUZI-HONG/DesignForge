@@ -31,3 +31,15 @@ blockers:
 
 工单正文行号取自 main@a838281，已过期。新基线上的实况坐标、上一轮已做掉的部分、剩余缺口与判据修正：
 `~/df-evidence/test-remediation-v2/notes/baseline-audit.md` 同名小节（开工前必读）。
+
+## 追加：门禁脚本消费侧（round-2 G3 补记 · fix/v2r-b-export-honesty）
+
+本票三条 blocker 都写在**生产侧**（scene/routes/UI），门禁脚本 `scripts/verify-daemon.mjs`、`scripts/verify-figma-inspect.mjs` 从未列进本票 blockers——历史后果：`/export` 两步只验 sha256/length 自洽与魔数，恰好就是空白/截断产物也能全绿的自洽口径，等于把 honesty 交给消费者自己读 `complete`，而两个消费侧门禁一次都没读过它。
+
+本轮已在这两个脚本的每格式导出循环里补 `export.<format>.complete === true` 断言（step id 带格式名；字段缺失/false 判失败 exit 1，不再跳过）。诚实口径同时写进脚本注释：当前冒烟/功能夹具是 1–2 个节点的极小页面（远低于 `MAX_NODES = 2000`），所以这两步今天**恒过是"构造上看不见"**，不是"已验证大页面截断诚实"；把 `complete` 立为可执行红线只是把契约兜住，真正的大页面截断回归仍需由 `scene.test.ts`/`routes/export.test.ts` 承担。
+
+**未做（deferral）**：给 verify-daemon/verify-figma-inspect 加"构造 >2000 节点页面 → 断言 complete:false 且 truncatedNodes>0"的实跑用例——脚本现用夹具都是极小页面，扩到预算越界需要新引一份 2001+ 节点 fixture 到脚本侧，本票未扩；判为可延后，Node 单元/HTTP 缝已有覆盖。
+
+## 未做的其他项（round-2 G1 补记）
+
+- **失败/部分导出是否阻止覆盖上一次好产物**：`routes/export.ts` 仍是无条件写盘 + HTTP 200（`complete:false` 只反映在响应字段与遥测里），空白产物会覆盖上一次好产物。本轮决定不改写盘语义：G1 的 HTTP 回归要求"corrupt envelope → 200 + complete:false"（不 5xx），把"部分产物"改判 5xx 会把它误报成"没有产物"；改判"complete:false 就不落盘"会破坏 routes/export.test.ts 已确立的 200/字节流契约。诚实性通过 `complete` 字段 + UI/遥测/门禁传播；防止覆盖留给后续票（若产品决定要"失败导出保旧产物"，应新立一票）。

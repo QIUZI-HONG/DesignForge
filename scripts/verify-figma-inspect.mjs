@@ -322,6 +322,16 @@ async function runFunctional() {
 
     record('http-200', response.status === 200, `HTTP ${String(response.status)}`);
     record('envelope-ok', response.json?.ok === true, '信封 ok:true');
+    // 诚实口径：sha256/length/魔数只证明「产物自洽」，不证明「产物完整」——
+    // 空白/截断的载荷同样能全部通过上述校验。夹具是 2 节点的极小页面（远低于 scene.ts
+    // 的 MAX_NODES=2000），今天这一步恒过是「构造上看不见」而非「已验证截断诚实」；
+    // 这里把 `complete === true` 立为可执行红线，缺失或 false 判失败（不跳过）。
+    const complete = response.json?.result?.complete;
+    record(
+      'complete',
+      response.status === 200 && complete === true,
+      `result.complete=${String(complete)}（须为 true；缺失/false 不放行空白或截断产物）`,
+    );
     if (artifact === undefined) {
       record('artifact', false, '响应缺 artifact');
       unit.status = 'failed';

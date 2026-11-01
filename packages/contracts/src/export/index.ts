@@ -46,18 +46,21 @@ export interface ExportArtifact {
 /**
  * `POST /export` 成功响应的 result 载荷。
  *
- * `complete` 是「产物是否覆盖页面全部可渲染节点」的对外保证：节点预算截断
- * （`truncatedNodes`）与结构非法跳过（`skippedNodes`）任一非零即为 false。
- * 两个计数是**诊断下界**（被截断容器的整棵子树不再遍历），消费方判「完整/部分」
- * 必须看 `complete`，不得拿计数当保证。
+ * `complete` 是「产物是否覆盖页面全部可渲染节点」的**唯一对外保证**：仅当
+ * 预算截断（`truncatedNodes`）与结构非法/无渲染语义跳过（`skippedNodes`）皆为零、
+ * 且提取**对账通过**（节点表里可达/孤立的可渲染节点都被计入两类之一）时才 true。
+ * 隐藏层（`visible===false`，应用侧从不渲染、连子树）是**非损失**，不计入以上两类、
+ * 不参与 `complete` 判定。两个计数供 UI 说明规模：因实例等无法展开的子树不计入，
+ * 它们对「真实未导出节点」而言是**下界**——消费方判「完整/部分」必须看 `complete`，
+ * 不得拿计数当保证。
  */
 export interface ExportResultPayload {
   artifact: ExportArtifact;
-  /** 因结构非法/无渲染语义被跳过的节点数。 */
+  /** 因结构非法/无渲染语义被跳过的节点数（真损失；隐藏层不在此列）。 */
   skippedNodes: number;
-  /** 因节点预算被丢弃的节点数。 */
+  /** 因节点预算被丢弃的节点数（真损失；含被拒容器整棵子树）。 */
   truncatedNodes: number;
-  /** 产物是否完整（两类缺失皆为零才 true）。 */
+  /** 产物是否完整（两类真损失皆为零且提取对账通过才 true；隐藏层不计）。 */
   complete: boolean;
   /** PNG 可用最大倍率（UI 据此收口档位）。 */
   maxScale: number;
