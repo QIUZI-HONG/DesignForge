@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDfgManifest } from '@dforge/contracts';
 import { describe, expect, it } from 'vitest';
@@ -69,6 +69,92 @@ describe('documents · 创建与目录态', () => {
       });
       expect(invalid.statusCode).toBe(400);
       expect((invalid.payload as { error: { code: string } }).error.code).toBe('doc_invalid_name');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('数据根被文件占据（ENOENT/ENOTDIR 竞态族的确定性替身）→ 409 conflict，不回显路径、零盘上变化', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      // 评审实测定不了位的是 create/delete 竞态：`rename …tmp -> manifest.json` ENOENT，
+      // message 带绝对路径直落 500（store.ts create 提交段）。竞态在单进程里不可复现，
+      // 但其错误族（ENOENT/ENOTDIR）可经「数据根变形」确定性触达 mkdir 阶段的同一映射：
+      // 把 workspace 根换成普通文件 → mkdir(root/id.dfg) 必 ENOTDIR。
+      await rm(daemon.workspaceDir, { recursive: true, force: true });
+      await writeFile(daemon.workspaceDir, '这是一个文件，不是数据根目录');
+      const res = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '目录被占' },
+      });
+      expect(res.statusCode, res.raw).toBe(409);
+      const error = (
+        res.payload as { error: { code: string; details: { phase?: string; documentId?: string } } }
+      ).error;
+      expect(error.code).toBe('conflict');
+      expect(error.details.phase).toBe('mkdir');
+      expect(error.details.documentId).toBe('目录被占');
+      // 安全口径与 F1-F4 一致：响应不回显宿主绝对路径
+      expect(res.raw).not.toContain(daemon.tempDir);
+      expect(res.raw).not.toContain(daemon.workspaceDir);
+      // 拒了就是零盘上变化：占据根的文件原样在位
+      expect(await readFile(daemon.workspaceDir, 'utf8')).toBe('这是一个文件，不是数据根目录');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('无 manifest 空壳占名时 create → 类型化 409（phase=mkdir），不许谎报 doc_exists', async () => {
+    // SE-5 的「并发删除/外部占用」形状可以确定性构造：目录在位、manifest 从未写出
+    // （这正是 create/delete 竞速后盘上会留下的东西）。此时回 `doc_exists` 是在撒谎——
+    // 那份「同名文档」既读不出来（GET 404），也删不掉前占住名字。
+    const daemon = await createTestDaemon();
+    try {
+      const id = '竞态空壳';
+      const docDir = join(daemon.workspaceDir, `${id}.dfg`);
+      await mkdir(join(docDir, 'pages'), { recursive: true });
+      await writeFile(join(docDir, 'pages', 'page-1.json'), '{}\n', 'utf8');
+
+      const res = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: id },
+      });
+      expect(res.statusCode, res.raw).toBe(409);
+      const error = (
+        res.payload as {
+          error: {
+            code: string;
+            message: string;
+            details: { phase?: string; documentId?: string };
+          };
+        }
+      ).error;
+      expect(error.code).toBe('conflict');
+      expect(error.details.phase).toBe('mkdir');
+      expect(error.details.documentId).toBe(id);
+      expect(error.message.length).toBeGreaterThan(0);
+      expect(res.raw).not.toContain(daemon.tempDir);
+
+      // 「已存在」的说法必须与读侧一致：空壳不是文档（GET 404），但可以被删掉后重建
+      const readBack = await injectJson(daemon.app, {
+        method: 'GET',
+        url: `/documents/${encodeURIComponent(id)}`,
+      });
+      expect(readBack.statusCode).toBe(404);
+      const removed = await injectJson(daemon.app, {
+        method: 'DELETE',
+        url: `/documents/${encodeURIComponent(id)}`,
+      });
+      expect(removed.statusCode, removed.raw).toBe(200);
+      const recreated = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: id },
+      });
+      expect(recreated.statusCode, recreated.raw).toBe(201);
+      expect(await readdir(docDir)).toEqual(['manifest.json', 'pages']);
     } finally {
       await daemon.cleanup();
     }
@@ -508,6 +594,78 @@ describe('documents · 画布页正文引用完整性守门（票 17）', () => 
       const read = await injectJson(daemon.app, { method: 'GET', url });
       expect((read.payload as { result: { body: unknown } }).result.body).toEqual(good);
       expect(await readFile(pagePath, 'utf8')).toBe(bodyBefore);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('422 引用清单必须截断（8 条 + 总数）：巨量悬空引用的响应字节有界', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '守门无界');
+      const url = `/documents/${encodeURIComponent(id)}/pages/page-1`;
+      // 一批悬空实例引用（每个实例指向不存在的主组件）。修复前 store.ts 全量 join 每一条 issue
+      // 且原样塞进 details.issues → 响应随引用数线性膨胀（评审实测 1MB 请求 → 2MB 响应）。
+      const nodes: Record<string, unknown> = {};
+      const rootIds: string[] = [];
+      const total = 3000;
+      for (let i = 0; i < total; i += 1) {
+        const nid = `i${String(i)}`;
+        nodes[nid] = { type: 'instance', id: nid, componentId: `ghost-${String(i)}` };
+        rootIds.push(nid);
+      }
+
+      const rejected = await injectJson(daemon.app, {
+        method: 'PUT',
+        url,
+        payload: { body: canvasBody(nodes, rootIds) },
+      });
+      expect(rejected.statusCode).toBe(422);
+      // 响应字节必须远小于 32KB（钉死「422 无上限」）
+      expect(rejected.raw.length).toBeLessThan(32 * 1024);
+      const error = (
+        rejected.payload as {
+          error: { message: string; details: { issues: string[]; issueCount?: number } };
+        }
+      ).error;
+      expect(error.details.issues.length).toBeLessThanOrEqual(8);
+      expect(error.message).toContain('missing-component');
+      // 总数如实交代：被截断的条数仍以 issueCount/消息里的总数呈现
+      expect(error.details.issueCount).toBe(total);
+      expect(error.message).toContain(String(total));
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('恶意正文让守门自身抛异常（节点 id 不可转字符串）→ 422 类型化拒绝，不逃 500、不回显异常文本', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '守门恶意');
+      const url = `/documents/${encodeURIComponent(id)}/pages/page-1`;
+      const manifestPath = join(daemon.workspaceDir, `${id}.dfg`, 'manifest.json');
+      const before = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number };
+
+      // {toString: 1}：ToPrimitive 发现 toString 不可调用 → 守门里 String(node.id) 抛
+      // TypeError（评审实测：异常一路逃出 store，500 原样回显 "Cannot convert …"）。
+      // 这是客户端输入问题，必须落 4xx 类型化拒绝——且绝不把正文写下去。
+      const hostile = canvasBody(
+        { i1: { type: 'instance', id: { toString: 1 }, componentId: '幽灵' } },
+        ['i1'],
+      );
+      const rejected = await injectJson(daemon.app, {
+        method: 'PUT',
+        url,
+        payload: { body: hostile },
+      });
+      expect(rejected.statusCode, rejected.raw).toBe(422);
+      expect((rejected.payload as { error: { code: string } }).error.code).toBe(
+        'doc_invalid_structure',
+      );
+      expect(rejected.raw).not.toContain('Cannot convert');
+      // 拒绝 = 零盘上变化（提交点之前、锁之前拒绝）
+      const after = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number };
+      expect(after.version).toBe(before.version);
     } finally {
       await daemon.cleanup();
     }

@@ -61,4 +61,28 @@ describe('fs-atomic · 暂存与发布分离', () => {
 
     expect(await readdir(dir)).toEqual(['blocked', 'page-1.json']);
   });
+
+  it('open 之后写阶段失败（分离缓冲区抛错）也不留临时文件：失败即零残留', async () => {
+    // 构造「open 已成功、writeFile 才抛错」的确定时序：先建一个 Uint8Array，再把它底层的
+    // ArrayBuffer 转移（detach），writeFile 分离缓冲会抛 TypeError——临时文件此刻已被 open 创建，
+    // 若 stageFileAtomic 不在写失败时清理就会泄漏 .tmp（票 19 标题承诺「失败 = 盘上没变」的反例）。
+    const buffer = new ArrayBuffer(8);
+    const detached = new Uint8Array(buffer);
+    structuredClone(buffer, { transfer: [buffer] });
+    expect(detached.byteLength).toBe(0);
+
+    await expect(stageFileAtomic(target, detached, 0o644)).rejects.toThrow();
+
+    expect(await readdir(dir)).toEqual(['page-1.json']);
+  });
+
+  it('writeFileAtomic 写阶段失败同样零残留（继承 stageFileAtomic 的清理）', async () => {
+    const buffer = new ArrayBuffer(8);
+    const detached = new Uint8Array(buffer);
+    structuredClone(buffer, { transfer: [buffer] });
+
+    await expect(writeFileAtomic(join(dir, 'page-2.json'), detached, 0o644)).rejects.toThrow();
+
+    expect(await readdir(dir)).toEqual(['page-1.json']);
+  });
 });
