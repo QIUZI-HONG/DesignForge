@@ -146,6 +146,55 @@ describe('clipboard · 粘贴（id 重映射）', () => {
     expect(pasted).not.toHaveProperty('overrides');
   });
 
+  it('同页粘贴（带页快照）：主组件仍在目标页 → 实例保持实例、引用原样（不误降级）', () => {
+    let document = doc();
+    document = insertNode(
+      document,
+      'p1',
+      createInstance({ id: 'i1', componentId: 'c1', x: 300, y: 0 }),
+      null,
+    );
+    const page = getPage(document, 'p1');
+    const payload = copyNodes(page, 'p1', ['i1']);
+    const stack = new CommandStack(document);
+    stack.dispatch(
+      pasteCommands(payload, { pageId: 'p1', parentId: null, ids: createIdFactory(600), page }),
+    );
+    const after = getPage(stack.document, 'p1');
+    const originals = new Set(['c1', 'cr1', 'layer', 'cr3', 'top', 'i1']);
+    const pastedInstances = Object.values(after.nodes).filter(
+      (node) => !originals.has(node.id) && node.type === 'instance',
+    );
+    // 副本用新 id，但类型保持实例且仍指回同页主组件 c1（页快照可证在位 → 不降级）
+    expect(pastedInstances).toHaveLength(1);
+    expect(pastedInstances[0]).toMatchObject({ componentId: 'c1' });
+  });
+
+  it('componentRemap 接手：跨文档粘贴按替换表改写主组件引用（调用方断言有效，原样放行）', () => {
+    let document = doc();
+    document = insertNode(
+      document,
+      'p1',
+      createInstance({ id: 'i1', componentId: 'c1', x: 300, y: 0 }),
+      null,
+    );
+    document = addPage(document, createPage({ id: 'p2', name: '第二页' }));
+    const payload = copyNodes(getPage(document, 'p1'), 'p1', ['i1']);
+    const stack = new CommandStack(document);
+    stack.dispatch(
+      pasteCommands(payload, {
+        pageId: 'p2',
+        ids: createIdFactory(700),
+        componentRemap: { c1: 'c1' },
+      }),
+    );
+    const after = getPage(stack.document, 'p2');
+    const pasted = Object.values(after.nodes)[0];
+    expect(pasted?.type).toBe('instance');
+    if (pasted?.type !== 'instance') return;
+    expect(pasted.componentId).toBe('c1');
+  });
+
   it('副本（Cmd+D）：留在同父级、紧随原节点、可撤销', () => {
     const document = doc();
     const page = getPage(document, 'p1');
