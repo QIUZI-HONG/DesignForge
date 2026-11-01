@@ -183,28 +183,45 @@ export function useOverlayBehavior({
      * 只收得到**从层内冒泡上来的**按键：焦点在 body 时事件路径里没有这一层，于是「Esc 关不掉」与
      * 「Tab 能逃到画布背后」同时发生，而 `aria-modal="true"` 还在对读屏器称「模态里」。
      *
-     * 判据取「刚离散的那个元素已不可聚焦」而不是「此刻 `activeElement` 是 body」：
-     * 一次正常转移（Tab 从末位回到首位）在派发序列里**也**经过 body，按后者判就会把焦点从
-     * 目标元素抢回容器——实测把既有的「Tab 回环」用例判红。前者只在真的逃逸时成立。
-     * 同理，用户真的点了层外的别的元素（离散元素仍可聚焦）不动它：陷阱的不变量是「焦点不落空」，
-     * 不是「焦点不许离开」，把浮层变成抢焦点的牢笼会打断层外自有控件（下拉、吐司）。
+     * 三条判据，缺一就错：
+     * ① **离散的是本层的元素**（在容器内，或正是本层最后一次持焦者）。少了这条，层外的控件
+     *    自己禁用一下也会把焦点被拽进浮层——那是票 26 的失焦面，不归本层管。
+     * ② 它**已不能再持有焦点**：四类表单控件（button/input/select/textarea）带 `disabled`，或已被摘出文档。
+     *    不取「此刻 `activeElement` 是 body」：一次正常转移（Tab 从末位回到首位）在派发序列里**也**经过
+     *    body，按后者判会把焦点从刚拿到的目标抢回容器——实测把既有的「Tab 回环」用例判红。
+     *    （被 `fieldset[disabled]` 连带禁用的控件不在 ② 之内：那是同一形状的漏洞，记在票 26，别当已覆盖。）
+     * ③ 层内**没有别的元素正持着焦**：用户真的把焦点交给层外的自有控件时不动它——陷阱的不变量是
+     *    「焦点不落空」，不是「焦点不许离开」，把浮层变成抢焦点的牢笼会打断下拉与吐司。
      *
      * 两条事件都要听：disabled 走 `focusout`，元素被摘出文档在规范里只保证 `blur`
      * （`focusout` 在 removed 路径上历史上各浏览器不一致；jsdom 30 两条都不发，见 `overlay.test.tsx` 的注）。
-     * `blur` 不冒泡，所以在 document 的捕获阶段收。
+     * `blur` 不冒泡，所以在 document 的捕获阶段收。`focusin` 只为 ① 维护那个锚。
      *
      * jsdom 30 还有一处偏离要防着「判据写得像测到了」：它的 unfocusingSteps 见旧目标已不可聚焦就直接
      * 返回（`jsdom/lib/jsdom/living/helpers/focusing.js:194`），所以「点一下 → 断言焦点没在 body」在
      * 单元测试里恒过。真浏览器那条完整链路（点生成 → disabled → Esc 关不掉）由 Chromium 门禁
-     * `scripts/verify-ai-two-state.mjs` 的 UI 段第④步 `ui.drawer.closes` 钉住。
+     * `scripts/verify-ai-two-state.mjs` 的 `ui.drawer.closes` 钉住——**该门禁是挂点**：只在本仓
+     * `verify:ai-two-state` 手动跑（实测 `~/df-evidence/25/`），未进 `.github/workflows/ci.yml`，
+     * 归属见人工决定 5（浏览器段谁来做、何时做）。
      */
     let reclaiming = false;
+    // 本层最后一次拿到焦点的元素。摘出文档的路径上事件目标已经不在 DOM 里，
+    // 「离散的是不是本层的」只能靠这个锚判断
+    let lastFocusInside: HTMLElement | null = null;
+    const noteFocusInside = (event: Event): void => {
+      const target = event.target;
+      if (target instanceof HTMLElement && containerRef.current?.contains(target))
+        lastFocusInside = target;
+    };
     const reclaimIfOrphaned = (event: Event): void => {
       if (!isTopLayer(layer)) return;
       const container = containerRef.current;
       if (container === null || !container.isConnected) return;
       const origin = event.target;
       if (!(origin instanceof HTMLElement)) return;
+      // 只管**本层**的离散事件：层外的控件自己禁用或被摘，不该把焦点拽进浮层——
+      // 那是票 26 的失焦面，不归这里管（没有容器可接回的是它，不是本层）。
+      if (!container.contains(origin) && origin !== lastFocusInside) return;
       if (!isDisabledFormControl(origin) && origin.isConnected) return;
       const active = document.activeElement;
       // 「层内已有别的元素持焦」就不抢：接回只补「焦点在层内已无处可去」这一种形状。
@@ -219,9 +236,11 @@ export function useOverlayBehavior({
       container.focus();
       reclaiming = false;
     };
+    document.addEventListener('focusin', noteFocusInside);
     document.addEventListener('focusout', reclaimIfOrphaned);
     document.addEventListener('blur', reclaimIfOrphaned, true);
     return () => {
+      document.removeEventListener('focusin', noteFocusInside);
       document.removeEventListener('focusout', reclaimIfOrphaned);
       document.removeEventListener('blur', reclaimIfOrphaned, true);
       const wasTop = topLayer() === layer;

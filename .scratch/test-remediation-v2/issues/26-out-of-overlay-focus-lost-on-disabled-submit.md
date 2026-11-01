@@ -5,13 +5,19 @@
 （`isDisabled = disabled === true || loading`，`:59`）——规范里 disabled 的表单控件不可聚焦，
 焦点所在元素一变 disabled，浏览器就把焦点交回 `<body>`，用户丢失当前位置。
 
-**范围（票 25 blocker 5 的实测扫描，16 处 `loading=` 里层外的 11 处）**：
-`apps/web/src/features/canvas/workspace/save-control.tsx:37`、`canvas/studio/canvas-studio.tsx:434`、
-`settings/components/sections.tsx:155,159,214`、`settings/components/cold-start.tsx:140`、
-`settings/components/save-footer.tsx:52`、`inspect-export/components/ExportPanel.tsx:106`、
-`mcp/components/McpConfirmBar.tsx:198`、`home/components/HomeTopbar.tsx:149`、
-`packages/ui/src/components/ErrorState.tsx:70`（页面/面板共用，15 个调用点全在层外）。
-层内 5 处不在此列——已由票 25 的 `useOverlayBehavior` 中央收口覆盖。
+**范围（票 25 blocker 5 的同族扫描；口径按**症状**数，不是按 prop 名）**：
+`Button loading=` 的层外 11 处——`apps/web/src/features/canvas/workspace/save-control.tsx:37`、
+`canvas/studio/canvas-studio.tsx:434`、`settings/components/sections.tsx:155,159,214`、
+`settings/components/cold-start.tsx:140`、`settings/components/save-footer.tsx:52`、
+`inspect-export/components/ExportPanel.tsx:106`、`mcp/components/McpConfirmBar.tsx:198`、
+`home/components/HomeTopbar.tsx:149`、`packages/ui/src/components/ErrorState.tsx:70`（页面/面板共用，15 个调用点全在层外）；
+**同一症状但走 `disabled=` 直绑飞行状态的另外 6 处**（第一轮只数 `loading=` 会漏，复核时补上）——
+`settings/components/section-form.tsx:34,47,69,85`（保存期间被禁用的输入框与开关：光标正在填的字段被踢掉焦点，比按钮更疼）、
+`app/market/page.tsx:183`（加载更多按钮）、`inspect-export/components/ExportPanel.tsx:108`。
+层内 5 处不在此列——已由票 25 的 `useOverlayBehavior` 中央收口覆盖，且该收口**只认本层离散的事件**
+（`use-overlay.ts` 判据 ①），不会把层外控件的焦点拽进浮层。
+还有一条形状要一并处理：被 `fieldset[disabled]` 连带禁用的控件（`use-overlay.ts` 判据 ② 明写不覆盖），
+以及 `inert` 子树——同一失焦后果，选择器口径要用「不能再持有焦点」而不是「这四类标签带 disabled」。
 
 **与票 25 的分工**：票 25 的解法是「把焦点接回浮层容器」，这里**没有容器可接回**，照抄必然错。
 两条可选口径，本票要先选一条再动手（选完在工单里记原因，不许两处混用）：

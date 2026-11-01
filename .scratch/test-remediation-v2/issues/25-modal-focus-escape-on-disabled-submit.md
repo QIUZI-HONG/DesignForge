@@ -44,13 +44,21 @@ blockers:
   不取「此刻 `activeElement` 是 body」**：一次正常焦点转移在派发序列里**也**经过 body，按后者判会把焦点从刚拿到的
   目标元素抢回容器——实测把既有的「Tab 回环」用例判红。另加一次性标志：接回动作自身会让旧持焦者再发一次 blur
   落回同一处理器，不许自激。**Esc/Tab 那条链在 jsdom 里不是判别腿**（HEAD 也绿，理由同上），已如实写进测试注释；
-  真判据是 Chromium 门禁第④步。
+  真判据是 Chromium 门禁的 `ui.drawer.closes`。
+  **改判留痕（独立复核提出的，本轮接受）**：本条原文写的是「若 `document.activeElement` 落到浮层之外（含 `body`）
+  就把焦点交还给容器」——那条**更宽**的不变式没有照抄，两条实测理由：① 按「activeElement 在层外」判会把
+  合法交给吐司/下拉/层外自有控件的焦点抢回来（浮层变成牢笼），② 正常 Tab 转移的中间态就命中它（实测判红既有回环用例）。
+  本轮落地的是「**本层**的控件因 `disabled`/摘除而不能再持焦时接回」。**注意这是收窄，不是等价**：
+  「`aria-modal="true"` 声称背景 inert，但背景其实没被 inert，焦点仍可合法离层、离层后这层就聋」这条差距**依旧存在**，
+  单列票 27，别当本票已覆盖。
 - [x] `Button` 侧取舍：**保留原生 `disabled`，本条不改动 Button**。异步期间焦点由浮层接管（上一条），
   不改 `aria-disabled` 是因为 F15（灰化 + tooltip 原因）与 16 处调用方都依赖原生 disabled 的表单语义，
   换实现要把「拦截激活行为」在每处重做一遍——收益不如风险。
-- [x] 复跑 `pnpm run verify:ai-two-state`：UI 段七步全 `[ok]`，含新点亮的 `ui.drawer.closes —— Esc → 抽屉关闭（面板卸载）`；
+- [x] 复跑 `pnpm run verify:ai-two-state`：段 A 六步 + UI 段六步全 `[ok]`，含票 25 修复后新点亮的
+  `ui.drawer.closes —— Esc → 抽屉关闭（面板卸载）`；
   段 B 默认跳过 9 项，**步骤 21 项失败 0 项、退出码 2**（不是 0，也不是 1）。
-  日志 `~/df-evidence/25/verify-ai-two-state.after-fix.log`，截图 `~/df-evidence/fe-10/ui-ai-drawer.png`。
+  日志 `~/df-evidence/25/verify-ai-two-state.after-fix.log`，截图 `~/df-evidence/25/ui-ai-drawer.png`
+  （门禁自身写死的证据路径另有 `~/df-evidence/fe-10/`，两处同一张）。
 - [x] 同族异步按钮已核一遍（16 处 `loading=`）：**层内 5 处**（`AiDrawer.tsx:116`、`CreateDocumentDialog.tsx:81`、
   `DeleteConfirmDialog.tsx:48`、`ImagePanel.tsx:179`（JSX 定义在 173-187，经 `footer={footer}` 传入 `Drawer`，
   按行号判会误判成层外）、`DiagnosticsPanel.tsx:147`）由本次中央收口一并覆盖——修在 `useOverlayBehavior`，不在调用方。
@@ -59,6 +67,13 @@ blockers:
   `ErrorState.tsx:70`（页面/面板共用，15 个调用点全在层外））不在 `aria-modal` 层里，没有焦点陷阱可破，
   但**仍会把焦点交回 `<body>`**（键盘用户点完丢失当前位置）。
   那是同一形状的**通用**失焦缺陷，范围与判据都不同于本票，另立票 26，不静默丢弃。
+  **扫描口径已纠正（独立复核提出的，本轮接受）**：上面这份名单是按 `loading=` 这个 **prop 名**数的，会漏掉
+  「`disabled=` 直接绑在飞行状态上」的同一症状。按症状重数一遍，层外另有
+  `settings/components/section-form.tsx:34,47,69,85`（保存期间被禁用的输入框/开关——光标正在填的字段被踢掉焦点，
+  比按钮更疼）、`settings/components/sections.tsx:88,151,211`（把 `disabled` 透传给字段）、
+  `app/market/page.tsx:183`（加载更多）、`inspect-export/components/ExportPanel.tsx:108`；
+  层内另有 `AiDrawer.tsx:115,156`、`DiagnosticsPanel.tsx:190,217,252`（由本票中央收口覆盖）。
+  票 26 的名单与判据按这份补全的口径改写过。
 
 ## 完成记录（2026-11-02 · `integration/test-remediation-v2`）
 

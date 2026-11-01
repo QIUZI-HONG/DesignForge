@@ -215,17 +215,21 @@ describe('浮层 · 异步提交期间的焦点（票 25：焦点不得滞留层
    * 把浏览器**一定会发出的那两个事件**演出来：被测的接回逻辑读的是事件，不是 jsdom 的焦点簿记。
    * 走原生事件而不走 userEvent：它自己维护焦点簿记，会把刚接回的焦点又放回那个已禁用的控件（实测），
    * 演出来的就不是被测形状。「点一下生成 → 断言焦点还在层内」这类写法在 jsdom **不会红**，是假判据，本文件不写。
-   * 完整链路（真浏览器点「生成」→ disabled → Esc 关不掉）由门禁
-   * `scripts/verify-ai-two-state.mjs` 的 UI 段第④步钉住，
-   * 修复前后的日志都在 `~/df-evidence/v2-review3/verify-ai-two-state.r3-final.log`。
+   * 完整链路（真浏览器点「生成」→ disabled → Esc 关不掉）由门禁 `scripts/verify-ai-two-state.mjs` 的
+   * `ui.drawer.closes` 钉住：修复前该步 FAIL、门禁退 1（`~/df-evidence/v2-review3/verify-ai-two-state.r3-final.log`），
+   * 修复后 `[ok]`、退诚实的 2（`~/df-evidence/25/verify-ai-two-state.after-fix.log`）。
    *
    * 卸载路径同样只能靠真浏览器：jsdom 30 里摘除聚焦元素**不发** blur/focusout（实测），
    * 实现里仍听 `blur`（规范只保证这一条），本文件不假装能测到。
    */
-  function AsyncSubmitDrawerHost() {
+  /**
+   * 抽屉宿主：footer 里放一个「点一下就自禁用」的提交按钮；`withOutsideControl` 再挂一个层外自有控件，
+   * 用来钉「接回不许把层变成抢焦点的牢笼」这一侧的判据。
+   */
+  function AsyncSubmitDrawerHost({ withOutsideControl = false }: { withOutsideControl?: boolean }) {
     const [open, setOpen] = useState(true);
     const [running, setRunning] = useState(false);
-    return (
+    const drawer = (
       <Drawer
         open={open}
         onOpenChange={setOpen}
@@ -239,6 +243,13 @@ describe('浮层 · 异步提交期间的焦点（票 25：焦点不得滞留层
       >
         <p>抽屉内容</p>
       </Drawer>
+    );
+    if (!withOutsideControl) return drawer;
+    return (
+      <>
+        <Button onClick={() => {}}>层外按钮</Button>
+        {drawer}
+      </>
     );
   }
 
@@ -300,35 +311,11 @@ describe('浮层 · 异步提交期间的焦点（票 25：焦点不得滞留层
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  /** 层外自有控件 + 一直开着的抽屉：钉「接回不许把层变成抢焦点的牢笼」。 */
-  function OutsideControlDrawerHost() {
-    const [open, setOpen] = useState(true);
-    const [running, setRunning] = useState(false);
-    return (
-      <>
-        <Button onClick={() => {}}>层外按钮</Button>
-        <Drawer
-          open={open}
-          onOpenChange={setOpen}
-          title="AI 助手"
-          closeLabel="关闭面板"
-          footer={
-            <Button loading={running} onClick={() => setRunning(true)}>
-              生成
-            </Button>
-          }
-        >
-          <p>抽屉内容</p>
-        </Drawer>
-      </>
-    );
-  }
-
   it('焦点在层外时这层是聋的：同一次 Esc 到不了层——反向腿，证明接回那条不是空转', () => {
     // portal 让 React 树与 DOM 树分家：层外的元素不在遮罩的祖先链上，按键冒泡不到那一层。
     // 这条不依赖接回实现，实现怎么写都不该让它变绿；它钉的是因果——上面那条能关掉抽屉，
     // 靠的正是先把焦点接回层内。
-    render(<OutsideControlDrawerHost />);
+    render(<AsyncSubmitDrawerHost withOutsideControl />);
     const outside = screen.getByRole('button', { name: '层外按钮' });
     outside.focus();
     expect(document.activeElement).toBe(outside);
@@ -337,7 +324,7 @@ describe('浮层 · 异步提交期间的焦点（票 25：焦点不得滞留层
   });
 
   it('用户把焦点交给层外的自有控件时不抢回：不变量是「焦点不落空」，不是「不许离开」', () => {
-    render(<OutsideControlDrawerHost />);
+    render(<AsyncSubmitDrawerHost withOutsideControl />);
     const outside = screen.getByRole('button', { name: '层外按钮' });
     // 先让抽屉自己拿一次焦点，再从层外把焦点要走：模拟「浮层开着，用户去点画布背后的控件」
     evictFocusFromSubmit();
@@ -345,6 +332,39 @@ describe('浮层 · 异步提交期间的焦点（票 25：焦点不得滞留层
     // 离散元素是**仍可聚焦**的按钮（不是刚被禁用的那个），接回逻辑必须放行——
     // 否则下拉、吐司、画布背后的控件全被浮层锁死
     expect(document.activeElement).toBe(outside);
+  });
+
+  /** 层外的异步提交按钮：它自己禁用**不该**把焦点拽进浮层（那是票 26 的失焦面，不归本层管）。 */
+  function OutsideAsyncSubmitHost() {
+    const [running, setRunning] = useState(false);
+    return (
+      <>
+        <Button loading={running} onClick={() => setRunning(true)}>
+          层外保存
+        </Button>
+        <Drawer open onOpenChange={() => {}} title="AI 助手" closeLabel="关闭面板">
+          <p>抽屉内容</p>
+        </Drawer>
+      </>
+    );
+  }
+
+  it('层外控件自己禁用时不许把焦点拽进浮层：接回只管本层离散的事件', () => {
+    // 判别腿：接回若不认「离散的是不是本层的」，这里焦点会被抢进对话框——
+    // 抽屉开着时点画布背后的「保存」，光标就凭空跳进抽屉，用户正在填的表单被打断。
+    // 落点只断「不在对话框」：浏览器里此刻焦点在 body，jsdom 会把它留在已禁用的按钮上，
+    // 两种形状都不许它出现在层内。
+    render(<OutsideAsyncSubmitHost />);
+    const dialog = screen.getByRole('dialog', { name: 'AI 助手' });
+    const outside = screen.getByRole('button', { name: '层外保存' }) as HTMLButtonElement;
+    outside.focus();
+    act(() => {
+      outside.click();
+    });
+    expect(outside.disabled).toBe(true);
+    fireEvent.blur(outside);
+    fireEvent.focusOut(outside);
+    expect(document.activeElement).not.toBe(dialog);
   });
 
   it('浮层关闭后焦点归还打开它的按钮（接回逻辑不得盖掉关闭交接）', async () => {
