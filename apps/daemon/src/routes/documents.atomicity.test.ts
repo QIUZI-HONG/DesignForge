@@ -14,7 +14,7 @@
  * 纪律：全部走临时数据目录（testing/harness.ts），不碰 `~/.dforge`。
  */
 
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -200,6 +200,46 @@ describe('documents · 无 manifest 空壳目录必须可回收', () => {
         'page-1.json',
       ]);
     } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
+describe('documents · 保存失败不得把正文以 .tmp 泄漏在 pages/（票 19 标题承诺）', () => {
+  it('manifest 提交失败（文档目录 EACCES、pages/ 仍可写）时，被拒正文必须作废、pages/ 回到调用前', async () => {
+    const daemon = await createTestDaemon();
+    let docDir = '';
+    try {
+      const created = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '泄漏守门' },
+      });
+      expect(created.statusCode, created.raw).toBe(201);
+      const id = (created.payload as { result: { document: { id: string } } }).result.document.id;
+      docDir = join(daemon.workspaceDir, `${id}.dfg`);
+      const pagesDir = join(docDir, 'pages');
+      const before = (await readdir(pagesDir)).sort();
+
+      // 复现评审现场：文档目录本身不可写（pages/ 仍可写）——正文暂存会成功、
+      // manifest 提交（同目录临时文件 rename）会 EACCES。commitManifest 若没有
+      // try/finally 作废已暂存正文，那半截正文就以 .tmp 永久留在 pages/ 里。
+      await chmod(docDir, 0o555);
+      // 无论最终是 409 还是（F4 收口前的）500，都不许把被拒正文留在盘上。
+      await injectJson(daemon.app, {
+        method: 'PUT',
+        url: `/documents/${encodeURIComponent(id)}/pages/page-1`,
+        payload: { body: { marker: '被拒的正文' } },
+      });
+
+      const after = (await readdir(pagesDir)).sort();
+      expect(
+        after.filter((entry) => entry.endsWith('.tmp')),
+        'pages/ 泄漏了被拒正文的 .tmp',
+      ).toEqual([]);
+      expect(after, 'pages/ 目录必须回到调用前的样子').toEqual(before);
+    } finally {
+      if (docDir !== '') await chmod(docDir, 0o755).catch(() => undefined);
       await daemon.cleanup();
     }
   });

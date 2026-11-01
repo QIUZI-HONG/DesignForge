@@ -275,15 +275,25 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       if (!planned.ok) return planned.result;
       attemptedVersion = planned.next.version;
       const serialized = `${JSON.stringify(planned.next, null, 2)}\n`;
-      await writeFileAtomic(paths.manifestPath, serialized, DOC_FILE_MODE);
-      const confirm = await readJsonFileOrNull(paths.manifestPath);
-      if (confirm.ok && JSON.stringify(confirm.value) === JSON.stringify(planned.next)) {
-        // 提交点已过：现在才把正文发布到目标名
-        if (planned.staged !== undefined) await planned.staged.publish();
-        return { ok: true, value: planned.value };
+      // 提交点确认（含发布正文）之前任何一步抛错——manifest 写、复读、publish、discard——
+      // 都必须作废本次已暂存的正文，否则「失败的保存」把半截正文以 .tmp 永久留在 pages/，
+      // 直接违背票 19 标题承诺「保存失败 = 盘上没变」。committed 只在发布成功后置真。
+      let committed = false;
+      try {
+        await writeFileAtomic(paths.manifestPath, serialized, DOC_FILE_MODE);
+        const confirm = await readJsonFileOrNull(paths.manifestPath);
+        if (confirm.ok && JSON.stringify(confirm.value) === JSON.stringify(planned.next)) {
+          // 提交点已过：现在才把正文发布到目标名
+          if (planned.staged !== undefined) await planned.staged.publish();
+          committed = true;
+          return { ok: true, value: planned.value };
+        }
+        // 本次提交没落上：作废暂存正文，绝不让失败方的内容留在页文件里（也不盖掉别人的正文）
+      } finally {
+        if (!committed && planned.staged !== undefined) {
+          await planned.staged.discard().catch(() => undefined);
+        }
       }
-      // 本次提交没落上：作废暂存正文，绝不让失败方的内容留在页文件里（也不盖掉别人的正文）
-      if (planned.staged !== undefined) await planned.staged.discard();
     }
     const current = await readJsonFileOrNull(paths.manifestPath);
     return {

@@ -51,9 +51,14 @@ export async function stageFileAtomic(
   try {
     await handle.writeFile(data);
     await handle.sync();
-  } finally {
-    await handle.close();
+  } catch (error) {
+    // open 已成功、写/同步阶段才失败（ENOSPC/EIO/分离缓冲等）：临时文件此刻已在盘上，
+    // 必须就地清掉——否则「失败」的一方把半截内容以 .tmp 留在目录里，违背「失败 = 盘上没变」。
+    await handle.close().catch(() => undefined);
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
   }
+  await handle.close();
   return {
     tempPath,
     publish: async (): Promise<void> => {
