@@ -50,6 +50,14 @@ export async function writeFileAtomic(
   await syncDir(dir);
 }
 
+/**
+ * 递归删除目录树，带瞬时错误重试（ENOTEMPTY/EBUSY：在途写入与删竞速）。
+ * 生产路径（回滚、删除文档）与测试清理共用同一口径，不在各处手写 `rm` 参数。
+ */
+export async function removeTree(dir: string): Promise<void> {
+  await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+}
+
 /** 读取 JSON 文件；缺失/解析失败返回结构化原因（不抛异常）。 */
 export async function readJsonFileOrNull(filePath: string): Promise<JsonFileResult> {
   let raw: string;
