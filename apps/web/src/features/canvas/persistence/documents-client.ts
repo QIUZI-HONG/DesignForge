@@ -9,7 +9,7 @@
  */
 
 import { DAEMON_ROUTES } from '@dforge/contracts';
-import type { DesignDocument, ScenePage } from '@dforge/engine';
+import type { DesignDocument, DocumentIssue, ScenePage } from '@dforge/engine';
 import {
   createPage,
   emptyTokenSet,
@@ -17,6 +17,7 @@ import {
   type TokenSet,
   validateDocument,
 } from '@dforge/engine';
+import { t } from '@/i18n';
 
 /** 页面正文信封。 */
 export interface CanvasPageBody {
@@ -255,6 +256,44 @@ export function daemonPageId(index: number): string {
   return `page-${index + 1}`;
 }
 
+/** 一次上报的结构问题上限（超出折叠成「另有 N 项」，避免提示被长清单淹没）。 */
+const MAX_REPORTED_ISSUES = 8;
+
+/**
+ * 问题落点（复核 H1）：引擎 issue 自带 `pageId`/`nodeId`，页名取文档真值——
+ * 用户能看到「哪一页的哪个图层」，而不是一串内部 id。
+ */
+function issueLocator(document: DesignDocument, issue: DocumentIssue): string {
+  const parts: string[] = [];
+  if (issue.pageId !== undefined) {
+    const page = document.pages.find((item) => item.id === issue.pageId);
+    parts.push(
+      page === undefined
+        ? t('editor.save.locatorPageId', { id: issue.pageId })
+        : t('editor.save.locatorPage', { id: issue.pageId, name: page.name }),
+    );
+  }
+  if (issue.nodeId !== undefined) parts.push(t('editor.save.locatorNode', { id: issue.nodeId }));
+  return parts.length === 0 ? '' : `（${parts.join(' · ')}）`;
+}
+
+/**
+ * 结构非法的拒绝文案（复核 H1：旧文案只贴问题码，用户看不出该怎么办）。
+ * 口径：**问题码 + 落点（页名/页 id/节点 id）+ 可行动的恢复路径（撤销后重试）**。
+ * 本函数只在动任何写盘之前被调用（盘上零变化），文案据此写明「未写盘」。
+ */
+function invalidStructureMessage(document: DesignDocument, issues: DocumentIssue[]): string {
+  const listed = issues
+    .slice(0, MAX_REPORTED_ISSUES)
+    .map((issue) => `${issue.code}：${issue.message}${issueLocator(document, issue)}`)
+    .join('；');
+  const rest =
+    issues.length > MAX_REPORTED_ISSUES
+      ? t('editor.save.moreIssues', { count: issues.length - MAX_REPORTED_ISSUES })
+      : '';
+  return t('editor.save.invalidStructure', { issues: `${listed}${rest}` });
+}
+
 /**
  * 保存整个设计文档（以 daemon 的 manifest 页列表为寻址真值）。
  *
@@ -278,14 +317,7 @@ export async function saveDesignDocument(
 ): Promise<ClientResult<{ documentId: string; pageIds: string[] }>> {
   const issues = validateDocument(document);
   if (issues.length > 0) {
-    const summary = issues
-      .slice(0, 8)
-      .map((issue) => `${issue.code}:${issue.message}`)
-      .join('；');
-    return {
-      ok: false,
-      error: `文档结构非法，已拒绝保存（未写盘）：${summary}${issues.length > 8 ? '…' : ''}`,
-    };
+    return { ok: false, error: invalidStructureMessage(document, issues) };
   }
   const detail = await client.getDocument(documentId);
   if (!detail.ok) return detail;

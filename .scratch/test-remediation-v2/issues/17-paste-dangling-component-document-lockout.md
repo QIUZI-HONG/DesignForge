@@ -41,3 +41,14 @@ blockers:
 
 工单正文行号取自 main@a838281，已过期。新基线上的实况坐标、上一轮已做掉的部分、剩余缺口与判据修正：
 `~/df-evidence/test-remediation-v2/notes/baseline-audit.md` 同名小节（开工前必读）。
+
+## 二轮复核补记（2026-11-01 · 分支 `fix/v2r-c-ref-integrity`）
+
+票 17 写侧门落地后，二轮实跑暴露三条后续，均已在本轮收口（证据 `~/df-evidence/v2r-c/`）：
+
+1. **CL-1 · 删除路径不留悬空引用**（`2520478`）：本票只做了**粘贴**侧，**删除**主组件仍是裸 `node.remove`（`packages/engine/src/commands/helpers.ts:40-47` → `commands/apply.ts:96-116` → `scene/mutate.ts:145-163` 不扫实例），留下的悬空引用被本票新加的**整份级**写侧门拒绝——实测连干净的 p2 也存不了。定级说明：这不是回归（改之前删得下去但重开永久锁定＝票 23 主题；改之后盘不动、撤销可逆），剩余工作就是**不再产生悬空引用**。`deleteNodesCommands` 现按 `clipboard.settleComponentRefs` 同一条口径收口依赖者（实例降级为普通帧、悬空组件集引用置 null），并与删除本身**合成同一条事务**（一次撤销同时复原），用既有命令表达（`node.remove` + 同 id 回插 / `node.restore`），不新增命令类型。覆盖面缺口同步补：`invariants.test.ts` 的操作脚本原先从不删 `c1`，现含删主组件与删组件集两笔意图级事务。回归缝：`packages/engine/src/commands/delete-settle.test.ts`（新）。
+2. **H1 · 写侧拒绝文案可行动**（`96a2f04`）：`documents-client` 的拒绝文案旧版只有 `code:message` 串，用户看不出是哪一页哪一层、也看不出撤销可解。现文案含问题码 + 落点（页名/页 id/节点 id）+「未写盘 · 撤销后重试」，走 i18n（zh-CN / en 各 5 个 `editor.save.*` key，成对）。
+3. **SE-1 / SE-3 · daemon 守门的强度与说实话**（`f73b07f`）：SE-1 是缺陷（恶意节点形状令守门 `String()` 抛 `TypeError` → 500 且回显内部信息；现非字符串 id 一律带类型拒绝，签名 `string[] | null` 不变）；SE-3 的范围口径（只镜像 2 码、其余 11 类对直连写入者不设防、`$format` 绕过不产生锁定）已改写为实测一致，现状由 `apps/daemon/src/documents/canvas-integrity.test.ts` 钉住，**要不要补齐 13 码留作票 23 的「待人工决定 1」**，本轮不代答。
+
+另立 **票 24**（`issues/24-cross-document-paste-provenance.md`）：跨文档粘贴 id 相撞会静默重绑到无关组件（CL-2，既有缺陷、非本 diff 引入）——本票 `settleComponentRefs` 证明的是**存在性**而非**同一性**，不在本票范围内扩判据。
+
