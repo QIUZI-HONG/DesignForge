@@ -47,6 +47,35 @@ function headerOf(response: { headers: Record<string, unknown> }, name: string):
   return response.headers[name];
 }
 
+/** 假上游 SSE 帧（本文件独立持有，与 `routes/ai.test.ts` 的同形——线路级用例不出网）。 */
+const FAKE_AI_KEY = 'sk-fake-abcdefghijklmn';
+
+function upstreamSseResponse(frames: string[]): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const frame of frames) controller.enqueue(encoder.encode(frame));
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { 'content-type': 'text/event-stream' } },
+  );
+}
+
+/** 真实 socket 上发一次跨源流式请求（`stream:true`）并把整条 SSE 体读完。 */
+async function fetchStreamWithOrigin(
+  baseUrl: string,
+  origin: string,
+): Promise<{ response: Response; body: string }> {
+  const response = await fetch(`${baseUrl}/ai/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+  });
+  return { response, body: await response.text() };
+}
+
 async function withDaemon<T>(run: (daemon: TestDaemon) => Promise<T>): Promise<T> {
   const daemon = await createTestDaemon();
   try {
@@ -346,5 +375,51 @@ describe('cors · 注入覆盖（测试/部署可配）', () => {
       expect((response.json() as { error: { code: string } }).error.code).toBe('doc_not_found');
       expect(headerOf(response, 'access-control-allow-origin')).toBe('http://localhost:3000');
     });
+  });
+});
+
+describe('cors · 流式（SSE）线路级放行头（票 02 · 真 socket）', () => {
+  /** 假上游：两个 delta + stop + [DONE]，与消费方 `apps/web/src/features/ai/stream.ts` 读的形态一致。 */
+  const fakeUpstream = async (): Promise<Response> =>
+    upstreamSseResponse([
+      'data: {"choices":[{"delta":{"content":"你好"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"，设界"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+
+  it('白名单 Origin（显式白名单 + 壳静态随机端口）的 stream 响应：线路上有 allow-origin，逐帧体不被破坏', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    const staticFixture = await startLoopbackStaticFixture();
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      for (const origin of [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        staticFixture.origin,
+      ]) {
+        const { response, body } = await fetchStreamWithOrigin(baseUrl, origin);
+        // ① 线路上真的有放行头（inject 看不见这条缺口——票 02 的全部要害）
+        expect(response.status, origin).toBe(200);
+        expect(response.headers.get('access-control-allow-origin'), origin).toBe(origin);
+        expect(String(response.headers.get('vary') ?? '').toLowerCase(), origin).toContain(
+          'origin',
+        );
+        // ② SSE 通道形状没被修复动到：content-type 与逐帧体保持原样
+        expect(response.headers.get('content-type'), origin).toContain('text/event-stream');
+        expect(body, origin).toContain('event: delta');
+        expect(body, origin).toContain('"delta":"你好"');
+        expect(body, origin).toContain('"delta":"，设界"');
+        expect(body, origin).toContain('event: done');
+        expect(body, origin).toContain('"content":"你好，设界"');
+        // ③ 头集合里不得出现通配或凭据放行（默认收紧不放宽）
+        expect(response.headers.get('access-control-allow-origin'), origin).not.toBe('*');
+        expect(response.headers.get('access-control-allow-credentials'), origin).toBeNull();
+        expect(body, origin).not.toContain(FAKE_AI_KEY);
+      }
+    } finally {
+      await staticFixture.close();
+      await daemon.cleanup();
+    }
   });
 });
