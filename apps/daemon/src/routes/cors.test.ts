@@ -422,4 +422,34 @@ describe('cors · 流式（SSE）线路级放行头（票 02 · 真 socket）', 
       await daemon.cleanup();
     }
   });
+
+  it('反面（S2）：白名单外 Origin 的 stream 线路**一个 access-control-* 都没有**，但帧照常出（拒绝只发生在浏览器读数侧）', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      for (const origin of [
+        'http://evil.example.com',
+        'null',
+        // 回环主机规则的伪装口：127.0.0.2 与「localhost 前缀 + 攻击域」都不是回环来源
+        'http://127.0.0.2:53211',
+        'http://localhost:3000.evil.example',
+      ]) {
+        const { response, body } = await fetchStreamWithOrigin(baseUrl, origin);
+        // 服务端语义不变（不引入 403「伪安全」），拒绝只表现为浏览器读不到
+        expect(response.status, origin).toBe(200);
+        expect(
+          [...response.headers.keys()].filter((name) => name.startsWith('access-control-')),
+          origin,
+        ).toEqual([]);
+        // 缓存仍须按来源分桶：vary: Origin 是白名单外也照发的口径
+        expect(String(response.headers.get('vary') ?? '').toLowerCase(), origin).toContain(
+          'origin',
+        );
+        expect(response.headers.get('content-type'), origin).toContain('text/event-stream');
+        expect(body, origin).toContain('event: done');
+      }
+    } finally {
+      await daemon.cleanup();
+    }
+  });
 });
