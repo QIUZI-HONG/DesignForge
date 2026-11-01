@@ -265,6 +265,61 @@ describe('画布页守门 · 非信封正文的 opaque 口径（钉现状）', (
   });
 });
 
+describe('画布页守门 · 只看自有键，且「不抛」的承诺只覆盖解析域（三轮 SEC-B/SEC-C）', () => {
+  /** 走一遍真实来源的形状：正文是 JSON.parse 的产物，不是手搭的对象。 */
+  const parsed = (json: string): unknown => JSON.parse(json) as unknown;
+  const canvasJson = (nodes: string, rootIds: string): string =>
+    `{"$format":"dforge.canvas.page","$version":1,"page":{"rootIds":[${rootIds}],"nodes":{${nodes}}}}`;
+
+  it('解析域内的极端键（__proto__/constructor/toString）当引用目标 → 不抛，按缺失拒绝', () => {
+    // 实例把主组件指向 '__proto__' / 'constructor'：Object.prototype 上的东西不是本页节点，
+    // 引擎读侧按 hasOwn 判缺失 → 守门必须同判（放行=能写不可读，正是本文件要堵的那类锁定路径）
+    const body = parsed(
+      canvasJson(
+        '"i1":{"id":"i1","type":"instance","componentId":"__proto__"},' +
+          '"i2":{"id":"i2","type":"instance","componentId":"constructor"},' +
+          '"i3":{"id":"i3","type":"instance","componentId":"toString"}',
+        '"i1","i2","i3"',
+      ),
+    );
+    expect(() => canvasPageReferenceIssues(body)).not.toThrow();
+    expect(codesOf(canvasPageReferenceIssues(body))).toEqual([
+      'missing-component',
+      'missing-component',
+      'missing-component',
+    ]);
+  });
+
+  it('原型链上的同名节点不算「在主件在位」：只认自有键（与引擎 hasOwn 同码同强度）', () => {
+    // 手搭一个 nodes：`component` 只挂在原型上（JSON.parse 造不出这形状，但守门与引擎的
+    // 判定口径必须一致——引擎 validate.ts 全程 Object.hasOwn，这里跟进同一口径）
+    const host = { i1: { ...nodeOf('i1', 'instance'), componentId: 'c1' } };
+    Object.setPrototypeOf(host, { c1: componentNode('c1') });
+    const body = {
+      $format: 'dforge.canvas.page',
+      $version: 1,
+      page: { rootIds: ['i1'], nodes: host },
+    };
+    expect(Object.hasOwn(host, 'c1'), '夹具前提：c1 只在原型上').toBe(false);
+    expect(codesOf(canvasPageReferenceIssues(body))).toEqual(['missing-component']);
+  });
+
+  it('nodes 自身带 __proto__ 自有键（JSON.parse 造得出）→ 不抛，按自有键口径逐条判', () => {
+    const body = parsed(
+      '{"$format":"dforge.canvas.page","$version":1,' +
+        '"page":{"rootIds":["i1"],"nodes":{"__proto__":{"type":"component"},"i1":{"id":"i1","type":"instance","componentId":"nope"}}}}',
+    );
+    expect(() => canvasPageReferenceIssues(body)).not.toThrow();
+    // `__proto__` 在这里是 JSON.parse 造出的**自有**数据键，守门按普通节点逐条判：
+    // 它自称 component 却没有组件集 → missing-component-set；i1 指向不存在的 'nope' → missing-component。
+    // 关键不是码数，而是「原型 pollution 的名字进不来判定」——这条与上一条合起来钉住 hasOwn 口径。
+    expect(codesOf(canvasPageReferenceIssues(body))).toEqual([
+      'missing-component-set',
+      'missing-component',
+    ]);
+  });
+});
+
 describe('画布页守门 · 恶意节点形状不得抛进通用错误面（SE-1）', () => {
   it('实例 id 为可转形恶意对象 → 不抛，按 missing-component 带类型拒绝', () => {
     const body = canvasBody(

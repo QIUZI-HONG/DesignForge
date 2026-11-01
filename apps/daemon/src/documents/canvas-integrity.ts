@@ -50,7 +50,14 @@ function labelOfId(id: unknown): string {
  * 非本信封的正文一律返回 null（维持 opaque 口径，外来格式不受本守门影响）。
  * 返回形状是**字符串清单 / null**：调用方 `store.ts` 直接 `join('；')` 拼进 422 的
  * message，改签名会连带改动 store（另一命名所有权），故此处只增强健壮性不动契约。
- * 全函数：任意畸形正文都不得抛，只回问题清单或 null。
+ *
+ * 不抛的口径说到哪儿为止（三轮 S2 修正，旧注释「任意畸形正文都不得抛」是代码给不了的保证）：
+ * 本函数只承诺处理 **JSON.parse 出来的值**——那类值没有访问器、没有 Proxy、属性读不会抛，
+ * 而正文的唯一来源就是路由解析后的载荷（`routes/documents.ts` 把 Fastify 解析的 JSON 直接
+ * 交给 store）。带 getter/Proxy 的对象不在这个输入域里：真要喂进来，`record.$format` 这一次
+ * 属性读就能抛出，而那是调用方违约，不是这里的缺陷——所以不为其包 try（包了反而把
+ * 「调用方传了非 JSON 值」这件事吞成静默放行）。测试钉的是解析域内的极端键
+ * （`__proto__` / `constructor` / 非对象值），不是解析域外的形状。
  */
 export function canvasPageReferenceIssues(body: unknown): string[] | null {
   if (typeof body !== 'object' || body === null) return null;
@@ -62,7 +69,7 @@ export function canvasPageReferenceIssues(body: unknown): string[] | null {
   if (typeof nodes !== 'object' || nodes === null) return null;
   const table = nodes as Record<string, unknown>;
   const nodeOf = (id: unknown): Record<string, unknown> | null => {
-    if (typeof id !== 'string') return null;
+    if (typeof id !== 'string' || !Object.hasOwn(table, id)) return null;
     const node = table[id];
     return typeof node === 'object' && node !== null ? (node as Record<string, unknown>) : null;
   };
