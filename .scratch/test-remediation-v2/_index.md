@@ -121,6 +121,11 @@
 - 工单原文的「置 loading 后断言焦点仍在层内」在 jsdom 30 **恒过**（`unfocusingSteps` 见旧目标不可聚焦即 return，`focusing.js:194`），已换成事件驱动口径；「Esc 关不掉」的真判据在 Chromium：`verify:ai-two-state` 由 **1 → 诚实的 2**，新点亮 `ui.drawer.closes [ok]`，段 B 仍按票 22 显式 SKIP。
 - 修在 `useOverlayBehavior`（层内共用），`Button` 未改：异步期间焦点由浮层接管。同族扫描的**层外 11 处**另立票 26，不静默丢弃。
 - 全仓复算：`pnpm run verify`（lint + typecheck + `pnpm -r test`）**退出码 0**、`pnpm run test:scripts` 0。
+- **收口后全量门禁复算跑在 tip `94091d7`**（16 项 + 原子性 ×10 + 快照零 diff + 数据根逐字节对照），
+  证据 `~/df-evidence/final-94091d7/`：退出 0 十项（含 `verify:daemon` 54 步失败 0、`verify:image-two-state` 真浏览器 0），
+  退出 2 六项（canvas / ai-two-state / figma-inspect = REF-01 与段 B SKIP；deps / channel-pairing / mcp-contract = 守卫未实现），
+  `complete` 消费方命中 7 处（含 `verify-daemon.mjs:466` 的**负向**判据），`~/.dforge` `cmp -s` 前后逐字节相同，跑完 `git status` 干净。
+  **本分支不称全绿**：出 2 的六项不是通过，浏览器门禁仍是挂点（未进 `.github/workflows/ci.yml`）。
 - **修复后独立复核（两轴 fresh reviewer，各自独立跑测）**各提 1 条 Important，指向同一条真实缺陷：
   接回处理器装在 document 上却**没校验离散元素是否属于本层**——层外控件自己禁用一下，焦点会被拽进抽屉，
   而实现注释当时写的是「点了层外的别的元素不动它」（注释口头给了代码没给的保证，本仓红线）。
