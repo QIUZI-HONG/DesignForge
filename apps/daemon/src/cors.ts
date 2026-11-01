@@ -19,7 +19,10 @@
  *   「打包壳 = Origin null」的前提已失效；静态模式的跨源配对由上面的回环任意端口规则承担；
  * - **非白名单来源：不加任何 CORS 头（让浏览器自行拒绝），但 API 语义不变**
  *   （服务端照常处理，不引入 403「伪安全」——真正的访问控制边界在回环监听 +
- *   Host 校验（access-control.ts）与未来令牌；「一次性握手 token」登记为后续票）。
+ *   Host 校验（access-control.ts）与未来令牌；「一次性握手 token」登记为后续票）；
+ * - **头集合只有一个真源 `corsResponseHeaders`**：普通响应经钩子缓冲到 `reply`，
+ *   流式（SSE）响应经 `reply.raw.writeHead()` 直接上线——后者绕开缓冲，必须自己把
+ *   判定结果写进头里（票 02：漏了这条，跨源浏览器「放行预检、拒收正文」，AI 流式全盲）。
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -35,6 +38,9 @@ export const CORS_ALLOWED_HEADERS = ['content-type'] as const;
 
 /** 预检缓存：短（600s），开发期改白名单不必等长缓存过期。 */
 export const CORS_MAX_AGE_SECONDS = 600;
+
+/** `vary` 值：响应随来源变化，缓存（含共享缓存）必须按 Origin 分桶。 */
+export const CORS_VARY_ORIGIN = 'Origin' as const;
 
 /** 覆盖白名单的环境变量（逗号分隔；主名 + DF_ 前缀别名，兼容仓库既有命名）。 */
 export const CORS_ORIGINS_ENV = 'DFORGE_CORS_ORIGINS' as const;
@@ -115,7 +121,35 @@ export function corsOriginsFromEnv(env: Record<string, string | undefined>): str
 }
 
 /**
+ * CORS **响应头单一真源**（票 02）：给出某个来源应回的头集合，预检附加头除外。
+ *
+ * 为什么需要它：`registerCors` 的钩子把 `vary` / `access-control-allow-origin` 缓冲在
+ * `reply` 上，靠 Fastify 的 `reply.send()` 落地；而流式（SSE）分支走 `reply.raw.writeHead()`
+ * + 手工分帧，整体绕开缓冲——于是线上「预检有头、正文没头」，浏览器放行握手却拒读正文
+ * （跨源 AI 流式一个字都拿不到）。钩子与 SSE 两条写路径**必须**从这里取同一套头，
+ * 不许各写各的（一处收紧一处放宽即为洞）。
+ *
+ * 口径与钩子一致，且只收紧不放宽：
+ * - 无 `Origin`（或非字符串的畸形重复头）→ 空集合，不加任何 CORS 头；
+ * - 有 `Origin` → 恒带 `vary: Origin`；
+ * - 仅当策略放行（显式白名单精确命中或回环主机任意端口）→ 回显该 `Origin`，
+ *   **永不用 `*`**；白名单外（含 `null`）不放行。
+ */
+export function corsResponseHeaders(
+  origin: string | string[] | undefined,
+  policy: CorsPolicy,
+): Record<string, string> {
+  if (typeof origin !== 'string' || origin.length === 0) return {};
+  const headers: Record<string, string> = { vary: CORS_VARY_ORIGIN };
+  if (policy.isAllowed(origin)) {
+    headers['access-control-allow-origin'] = origin;
+  }
+  return headers;
+}
+
+/**
  * 注册 CORS 钩子（onRequest，早于路由）：
+ * - 头集合一律取自 `corsResponseHeaders`（与 SSE raw 写路径同源），本函数只做落地与预检短路；
  * - 有 Origin 且在白名单 → 回 `access-control-allow-origin`（回显）+ `vary: Origin`；
  *   命中预检（OPTIONS + access-control-request-method）→ 204 短路，带方法/头/缓存头；
  * - 有 Origin 但不在白名单 → 只加 `vary: Origin`，不加放行头（请求仍按原语义处理）；
@@ -124,15 +158,12 @@ export function corsOriginsFromEnv(env: Record<string, string | undefined>): str
 export function registerCors(app: FastifyInstance, policy: CorsPolicy): void {
   app.addHook('onRequest', async (request, reply) => {
     const origin = request.headers.origin;
-    if (typeof origin !== 'string' || origin.length === 0) {
+    for (const [name, value] of Object.entries(corsResponseHeaders(origin, policy))) {
+      reply.header(name, value);
+    }
+    if (typeof origin !== 'string' || !policy.isAllowed(origin)) {
       return;
     }
-    // 响应内容随 Origin 变化：缓存（含共享缓存）必须区分
-    reply.header('vary', 'Origin');
-    if (!policy.isAllowed(origin)) {
-      return;
-    }
-    reply.header('access-control-allow-origin', origin);
 
     const requestedMethod = request.headers['access-control-request-method'];
     if (request.method === 'OPTIONS' && typeof requestedMethod === 'string') {

@@ -109,6 +109,60 @@ async function readStreamText(response) {
   return text;
 }
 
+/** 解析 SSE 文本为事件帧数组（`data:` 行 JSON；与 routes/ai.ts 的帧格式同口径）。 */
+function parseSseFrames(text) {
+  const events = [];
+  for (const block of text.split('\n\n')) {
+    const dataLine = block.split('\n').find((line) => line.startsWith('data:'));
+    if (dataLine === undefined) continue;
+    try {
+      events.push(JSON.parse(dataLine.slice(5).trim()));
+    } catch {
+      // 非 JSON 帧（如 [DONE]）忽略——结构判据在下面按 type 过滤
+    }
+  }
+  return events;
+}
+
+/** 建议 kind 合法枚举（contracts AiSuggestionKind）。 */
+const SUGGESTION_KINDS = new Set([
+  'configure-credentials',
+  'retry-later',
+  'check-network',
+  'manual-edit',
+]);
+
+/**
+ * 降级响应语义判据（票 03 加固）：suggestions 不是「键存在」而是要**可操作**——
+ * 条数下限 1、逐条 kind 合法 + title 非空、finishReason=degraded、usage=null（不造用量）、
+ * content=''（空正文是设计，可操作性由建议清单承接）。返回 [ok, detail]。
+ */
+function degradedShapeAudit(result, expectReason) {
+  if (result === null || typeof result !== 'object') return [false, '响应体缺失'];
+  const problems = [];
+  if (result.degraded !== true) problems.push('degraded 非 true');
+  if (result.degradedReason !== expectReason)
+    problems.push(`degradedReason=${String(result.degradedReason)}`);
+  if (result.finishReason !== 'degraded')
+    problems.push(`finishReason=${String(result.finishReason)}（伪装成功）`);
+  if (result.usage !== null) problems.push('usage 非 null（无上游不得有用量）');
+  if (result.content !== '') problems.push('降级 content 应为空串（设计口径）');
+  const suggestions = Array.isArray(result.suggestions) ? result.suggestions : null;
+  if (suggestions === null) return [false, problems.concat('suggestions 非数组').join('；')];
+  if (suggestions.length < 1) problems.push('suggestions 为空（降级面板成死路）');
+  for (const s of suggestions) {
+    if (!SUGGESTION_KINDS.has(s?.kind)) problems.push(`kind 非法：${String(s?.kind)}`);
+    if (typeof s?.title !== 'string' || s.title.trim().length === 0)
+      problems.push(`title 空：${JSON.stringify(s)}`);
+    if (!(s?.detail === null || typeof s?.detail === 'string'))
+      problems.push(`detail 形状非法：${String(s?.kind)}`);
+  }
+  return [
+    problems.length === 0,
+    problems.length === 0 ? `语义判据全过（${suggestions.length} 条建议）` : problems.join('；'),
+  ];
+}
+
 /**
  * 本机 mock 上游（OpenAI-compatible）：
  * - POST /chat/completions（stream 或一次性）→ 分块 SSE / JSON；
@@ -233,6 +287,37 @@ async function probeUiMount({ daemonUrl, degradedHint }) {
         degradedHint.length > 0 && hint.includes(degradedHint),
         `抽屉可见降级提示「${hint.slice(0, 40)}」= /ai/status.degradedHint`,
       );
+
+      // ③′ 票 03 加固：降级态不是空白面板——真提交后渲染「本地模板」角标 + **非空建议清单**
+      //    + 结果区说明文案。字面量镜像 zh-CN 主目录 i18n 键（ai.badge.localTemplate /
+      //    ai.suggestion.actions / ai.badge.localTemplate.desc；门禁脚本不 import web i18n——
+      //    其依赖 @/ 别名与 JSON import attributes，node 直跑不可用）。
+      try {
+        await page.fill('[data-df-panel="ai"] textarea', '加一个主按钮');
+        await page.click('[data-df-panel="ai"] button:text-is("生成")');
+        await page.waitForSelector('[data-df-panel="ai"] [data-df-badge="local-template"]', {
+          timeout: 60_000,
+        });
+        const suggestionCount = await page
+          .locator('[data-df-panel="ai"] ul[aria-label="建议动作"] > li')
+          .count();
+        record(
+          'ui.degraded-suggestions',
+          suggestionCount >= 1,
+          `降级提交后建议清单渲染 ${suggestionCount} 条（≥1 才通过；空白面板=假降级判红）`,
+        );
+        const resultText = await page
+          .locator('[data-df-panel="ai"] [data-df-ai-result="done"]')
+          .first()
+          .innerText();
+        record(
+          'ui.degraded-result-nonblank',
+          resultText.includes('本地模板') && resultText.includes('降级结果'),
+          '结果区非空白且如实标注本地模板（不伪装模型输出）',
+        );
+      } catch (error) {
+        record('ui.degraded-suggestions', false, `降级提交核验未走通：${String(error)}`);
+      }
       await screenshot('ui-ai-drawer.png');
 
       // ④ Esc → 关闭（面板卸载）
@@ -295,8 +380,9 @@ async function main() {
       'A.status.unconfigured',
       statusA.status === 200 &&
         statusA.json?.result?.configured === false &&
-        typeof statusA.json?.result?.degradedHint === 'string',
-      `GET /ai/status → ${statusA.status}（configured=false + 降级提示）`,
+        typeof statusA.json?.result?.degradedHint === 'string' &&
+        statusA.json.result.degradedHint.trim().length > 0,
+      `GET /ai/status → ${statusA.status}（configured=false + 降级提示非空）`,
     );
 
     const streamA = await fetch(`${baseUrl}/ai/chat`, {
@@ -307,31 +393,51 @@ async function main() {
     const textA = await readStreamText(streamA);
     const drivenA = driveReader(textA);
     const timelineA = drivenA.timeline.map((entry) => entry.step);
+    // 票 03 加固：从「子串在场」升级为**解析 done 帧后逐字段语义判据**——
+    // `"suggestions":[]` 也含子串 `"suggestions"`，原判据对空清单假绿。
+    const framesA = parseSseFrames(textA);
+    const doneFrameA = framesA.find((event) => event?.type === 'done') ?? null;
+    const degradedAuditA = degradedShapeAudit(doneFrameA?.response ?? null, 'no-credentials');
     record(
       'A.stream.degraded-shape',
-      textA.includes('"degraded":true') &&
-        textA.includes('"degradedReason":"no-credentials"') &&
-        textA.includes('"suggestions"'),
-      '流式降级帧与真响应同构（degraded + degradedReason + suggestions）',
+      streamA.status === 200 &&
+        !textA.includes('event: error') &&
+        framesA.some((event) => event?.type === 'start' && event.degraded === true) &&
+        doneFrameA !== null &&
+        degradedAuditA[0] &&
+        (doneFrameA.response.suggestions ?? []).some((s) => s.kind === 'configure-credentials'),
+      `流式降级帧逐字段判据：${degradedAuditA[1]}（no-credentials 含配置凭据出口；不发 error 帧）`,
     );
     record(
       'A.stream.steps-timeline',
       timelineA.join('>') === 'queued>llm>validate>compile' &&
         drivenA.snapshot.phase === 'done' &&
-        drivenA.snapshot.degraded === true,
-      `四步时序 ${timelineA.join(' > ')}（角标「本地模板」依据 degraded=true）`,
+        drivenA.snapshot.degraded === true &&
+        Array.isArray(drivenA.snapshot.suggestions) &&
+        drivenA.snapshot.suggestions.length >= 1,
+      `四步时序 ${timelineA.join(' > ')}（角标「本地模板」依据 degraded=true；适配层建议清单非空）`,
     );
 
     const onceA = await call(baseUrl, 'POST', '/ai/chat', {
       messages: [{ role: 'user', content: '加一个主按钮' }],
     });
+    const onceAuditA = degradedShapeAudit(onceA.json?.result ?? null, 'no-credentials');
     record(
       'A.once.degraded-shape',
       onceA.status === 200 &&
-        onceA.json?.result?.degraded === true &&
-        Array.isArray(onceA.json?.result?.suggestions) &&
-        onceA.json?.result?.finishReason === 'degraded',
-      `一次性响应 → ${onceA.status}（与流式同一形状口径）`,
+        onceA.json?.ok === true &&
+        onceAuditA[0] &&
+        !onceA.text.includes(SENTINEL_KEY) &&
+        !onceA.text.includes(SENTINEL_FRAGMENT),
+      `一次性降级响应逐字段判据：${onceAuditA[1]}（响应体无 key 明文/片段）`,
+    );
+    record(
+      'A.stream.once-isomorphic',
+      doneFrameA !== null &&
+        onceA.json?.result !== undefined &&
+        Object.keys(doneFrameA.response).sort().join(',') ===
+          Object.keys(onceA.json.result).sort().join(','),
+      '流式 done 帧与一次性响应键集同构（前端不分支的契约基座）',
     );
 
     evidence.states.stateA = {

@@ -11,6 +11,7 @@ import { DAEMON_ROUTES, makeError, parseAiChatRequest } from '@dforge/contracts'
 import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import type { DaemonContext } from '../app.ts';
+import { corsResponseHeaders } from '../cors.ts';
 import { sendFail, sendOk } from '../http.ts';
 
 /** SSE 帧格式（event + data 双行，data 为契约 AiStreamEvent 的 JSON）。 */
@@ -28,12 +29,17 @@ async function writeStream(
   reply: FastifyReply,
   context: DaemonContext,
   body: unknown,
+  origin: string | string[] | undefined,
 ): Promise<void> {
   const raw = reply.raw;
   raw.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive',
+    // 票 02：本行是 `raw.writeHead` + 手工分帧，绕开了 CORS 钩子缓冲在 reply 上的头——
+    // 判定结果必须显式写进来，否则浏览器「放行预检、拒收正文」，跨源流式一个字都读不到。
+    // 头集合与钩子同源（`corsResponseHeaders`）：白名单外的 Origin 在这里同样拿不到放行头。
+    ...corsResponseHeaders(origin, context.corsPolicy),
   });
   // 客户端断开（关闭连接/AbortController）→ 立即中止上游推流（不做无谓的上游占用）
   const abort = new AbortController();
@@ -85,7 +91,7 @@ export function registerAiRoutes(app: FastifyInstance, context: DaemonContext): 
   app.post(DAEMON_ROUTES.aiChat.path, async (request, reply) => {
     // 客户端声明 stream:true 即先建 SSE 通道——参数非法也以契约 error 帧返回（不换形状）
     if (wantsStream(request.body)) {
-      await writeStream(reply, context, request.body);
+      await writeStream(reply, context, request.body, request.headers.origin);
       return reply;
     }
     const parsed = parseAiChatRequest(request.body);

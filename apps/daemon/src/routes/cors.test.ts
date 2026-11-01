@@ -9,6 +9,7 @@ import {
   CORS_ORIGINS_ENV,
   CORS_ORIGINS_ENV_ALIAS,
   corsOriginsFromEnv,
+  corsResponseHeaders,
   createCorsPolicy,
   DEFAULT_CORS_ORIGINS,
   parseCorsOrigins,
@@ -45,6 +46,59 @@ function startLoopbackStaticFixture(): Promise<{ origin: string; close: () => Pr
 /** 取响应头（Fastify inject 头名小写）。 */
 function headerOf(response: { headers: Record<string, unknown> }, name: string): unknown {
   return response.headers[name];
+}
+
+/** 假上游 SSE 帧（本文件独立持有，与 `routes/ai.test.ts` 的同形——线路级用例不出网）。 */
+const FAKE_AI_KEY = 'sk-fake-abcdefghijklmn';
+
+function upstreamSseResponse(frames: string[]): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const frame of frames) controller.enqueue(encoder.encode(frame));
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { 'content-type': 'text/event-stream' } },
+  );
+}
+
+/** 真实 socket 上发一次跨源流式请求（`stream:true`）并把整条 SSE 体读完。 */
+async function fetchStreamWithOrigin(
+  baseUrl: string,
+  origin?: string,
+): Promise<{ response: Response; body: string }> {
+  const response = await fetch(`${baseUrl}/ai/chat`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(origin === undefined ? {} : { origin }),
+    },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+  });
+  return { response, body: await response.text() };
+}
+
+/**
+ * 线路上实际出现的 CORS 相关头（真 socket 层，不经 `app.inject` 的缓冲视图）。
+ * 票 02 的判据就在这一层：raw 写路径绕开钩子时，inject 看不见缺失。
+ */
+function corsHeadersOnWire(response: Response): Record<string, string> {
+  const collected: Record<string, string> = {};
+  for (const [name, value] of response.headers.entries()) {
+    if (name === 'vary' || name.startsWith('access-control-')) {
+      collected[name] = value;
+    }
+  }
+  return collected;
+}
+
+/** 真实 socket 上打一次普通 JSON 端点（对照面：钩子缓冲出头的那条路）。 */
+async function fetchJsonWithOrigin(baseUrl: string, origin?: string): Promise<Response> {
+  return fetch(`${baseUrl}/health`, {
+    headers: origin === undefined ? {} : { origin },
+  });
 }
 
 async function withDaemon<T>(run: (daemon: TestDaemon) => Promise<T>): Promise<T> {
@@ -346,5 +400,195 @@ describe('cors · 注入覆盖（测试/部署可配）', () => {
       expect((response.json() as { error: { code: string } }).error.code).toBe('doc_not_found');
       expect(headerOf(response, 'access-control-allow-origin')).toBe('http://localhost:3000');
     });
+  });
+});
+
+describe('cors · 流式（SSE）线路级放行头（票 02 · 真 socket）', () => {
+  /** 假上游：两个 delta + stop + [DONE]，与消费方 `apps/web/src/features/ai/stream.ts` 读的形态一致。 */
+  const fakeUpstream = async (): Promise<Response> =>
+    upstreamSseResponse([
+      'data: {"choices":[{"delta":{"content":"你好"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"，设界"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+
+  it('白名单 Origin（显式白名单 + 壳静态随机端口）的 stream 响应：线路上有 allow-origin，逐帧体不被破坏', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    const staticFixture = await startLoopbackStaticFixture();
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      for (const origin of [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        staticFixture.origin,
+      ]) {
+        const { response, body } = await fetchStreamWithOrigin(baseUrl, origin);
+        // ① 线路上真的有放行头（inject 看不见这条缺口——票 02 的全部要害）
+        expect(response.status, origin).toBe(200);
+        expect(response.headers.get('access-control-allow-origin'), origin).toBe(origin);
+        expect(String(response.headers.get('vary') ?? '').toLowerCase(), origin).toContain(
+          'origin',
+        );
+        // ② SSE 通道形状没被修复动到：content-type 与逐帧体保持原样
+        expect(response.headers.get('content-type'), origin).toContain('text/event-stream');
+        expect(body, origin).toContain('event: delta');
+        expect(body, origin).toContain('"delta":"你好"');
+        expect(body, origin).toContain('"delta":"，设界"');
+        expect(body, origin).toContain('event: done');
+        expect(body, origin).toContain('"content":"你好，设界"');
+        // ③ 头集合里不得出现通配或凭据放行（默认收紧不放宽）
+        expect(response.headers.get('access-control-allow-origin'), origin).not.toBe('*');
+        expect(response.headers.get('access-control-allow-credentials'), origin).toBeNull();
+        expect(body, origin).not.toContain(FAKE_AI_KEY);
+      }
+    } finally {
+      await staticFixture.close();
+      await daemon.cleanup();
+    }
+  });
+
+  it('反面（S2）：白名单外 Origin 的 stream 线路**一个 access-control-* 都没有**，但帧照常出（拒绝只发生在浏览器读数侧）', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      for (const origin of [
+        'http://evil.example.com',
+        'null',
+        // 回环主机规则的伪装口：127.0.0.2 与「localhost 前缀 + 攻击域」都不是回环来源
+        'http://127.0.0.2:53211',
+        'http://localhost:3000.evil.example',
+      ]) {
+        const { response, body } = await fetchStreamWithOrigin(baseUrl, origin);
+        // 服务端语义不变（不引入 403「伪安全」），拒绝只表现为浏览器读不到
+        expect(response.status, origin).toBe(200);
+        expect(
+          [...response.headers.keys()].filter((name) => name.startsWith('access-control-')),
+          origin,
+        ).toEqual([]);
+        // 缓存仍须按来源分桶：vary: Origin 是白名单外也照发的口径
+        expect(String(response.headers.get('vary') ?? '').toLowerCase(), origin).toContain(
+          'origin',
+        );
+        expect(response.headers.get('content-type'), origin).toContain('text/event-stream');
+        expect(body, origin).toContain('event: done');
+      }
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('线路同口径：同一来源下 SSE 写路径与普通 JSON 写路径的 CORS 头集合逐项相等（两条路一个真源）', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      const cases: readonly (string | undefined)[] = [
+        'http://localhost:3000',
+        'http://evil.example.com',
+        'null',
+        undefined,
+      ];
+      for (const origin of cases) {
+        const label = origin ?? '<无 Origin>';
+        const { response: stream } = await fetchStreamWithOrigin(baseUrl, origin);
+        const json = await fetchJsonWithOrigin(baseUrl, origin);
+        expect(stream.status, label).toBe(200);
+        expect(json.status, label).toBe(200);
+        // 各写各的 = 洞：一条收紧一条放宽都会在这里红
+        expect(corsHeadersOnWire(stream), label).toEqual(corsHeadersOnWire(json));
+      }
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('流式端点的预检在线路上同样齐备（票 02 症状的另一半：放行预检、拒收正文）', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      const preflight = await fetch(`${baseUrl}/ai/chat`, {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'http://localhost:3000',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type',
+        },
+      });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get('access-control-allow-origin')).toBe('http://localhost:3000');
+      expect(preflight.headers.get('access-control-allow-methods')).toBe(
+        'GET,POST,PUT,PATCH,DELETE',
+      );
+      expect(preflight.headers.get('access-control-allow-headers')).toBe('content-type');
+      expect(preflight.headers.get('access-control-max-age')).toBe('600');
+
+      // 白名单外的预检：一条放行头都不给（浏览器据此拒绝，正文根本不发起）
+      const denied = await fetch(`${baseUrl}/ai/chat`, {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'http://evil.example.com',
+          'access-control-request-method': 'POST',
+        },
+      });
+      expect(
+        [...denied.headers.keys()].filter((name) => name.startsWith('access-control-')),
+      ).toEqual([]);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('同一条 SSE 通道的 error 帧也带放行头（参数非法时浏览器仍要能读到契约错误体）', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      const response = await fetch(`${baseUrl}/ai/chat`, {
+        method: 'POST',
+        // maxTokens=0 非法，但客户端已声明 stream:true → 通道形状不换，错误以帧表达
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:3000' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'x' }],
+          stream: true,
+          maxTokens: 0,
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:3000');
+      const body = await response.text();
+      expect(body).toContain('event: error');
+      expect(body).toContain('"code":"ai_invalid_request"');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
+describe('cors · 头集合单一真源（S3 · 票 02）', () => {
+  it('corsResponseHeaders 产出的头集合用字面量钉住：与普通 JSON 路径同口径，流式分支不得另拼一套', () => {
+    const policy = createCorsPolicy(['http://localhost:3000']);
+    // 白名单命中：回显 Origin + vary（期望值取 HTTP 规范的既定口径，不复算实现）
+    expect(corsResponseHeaders('http://localhost:3000', policy)).toEqual({
+      vary: 'Origin',
+      'access-control-allow-origin': 'http://localhost:3000',
+    });
+    // 票 14 的回环任意端口恒定规则在头集合里同样成立（壳静态模式的流式请求）
+    expect(corsResponseHeaders('http://127.0.0.1:53211', policy)).toEqual({
+      vary: 'Origin',
+      'access-control-allow-origin': 'http://127.0.0.1:53211',
+    });
+    // 白名单外（含 Origin: null）：只分桶缓存，不放行
+    expect(corsResponseHeaders('http://evil.example.com', policy)).toEqual({ vary: 'Origin' });
+    expect(corsResponseHeaders('null', policy)).toEqual({ vary: 'Origin' });
+    // 无 Origin / 重复 Origin 头（畸形）：一个 CORS 头都不加
+    expect(corsResponseHeaders(undefined, policy)).toEqual({});
+    expect(
+      corsResponseHeaders(['http://localhost:3000', 'http://evil.example.com'], policy),
+    ).toEqual({});
+    // 绝不通配、绝不放行凭据（本函数的键集合就是这两项，多一个都是放宽）
+    expect(Object.keys(corsResponseHeaders('http://localhost:3000', policy)).sort()).toEqual([
+      'access-control-allow-origin',
+      'vary',
+    ]);
   });
 });
