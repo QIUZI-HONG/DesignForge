@@ -322,6 +322,27 @@ async function runFunctional() {
 
     record('http-200', response.status === 200, `HTTP ${String(response.status)}`);
     record('envelope-ok', response.json?.ok === true, '信封 ok:true');
+    // 诚实口径：sha256/length/魔数只证明「产物自洽」，不证明「产物完整」——
+    // 空白/截断的载荷同样能全部通过上述校验。夹具是 2 节点的极小页面（远低于 scene.ts
+    // 的 MAX_NODES=2000），今天这一步恒过是「构造上看不见」而非「已验证截断诚实」；
+    // 这里把 `complete === true` 立为可执行红线，缺失或 false 判失败（不跳过）。
+    const complete = response.json?.result?.complete;
+    record(
+      'complete',
+      response.status === 200 && complete === true,
+      `result.complete=${String(complete)}（须为 true；缺失/false 不放行空白或截断产物）`,
+    );
+    // 计数同口径断言：夹具是 2 枚合法矩形/椭圆，任何非零的 skipped/truncated 都意味着
+    // 抽取走到了「结构跳过」或「预算截断」分支——产物有真损失，不得放行。
+    const skippedNodes = response.json?.result?.skippedNodes;
+    const truncatedNodes = response.json?.result?.truncatedNodes;
+    record(
+      'counts',
+      skippedNodes === 0 && truncatedNodes === 0,
+      `result.skippedNodes=${String(skippedNodes)} result.truncatedNodes=${String(
+        truncatedNodes,
+      )}（两者必须为 0）`,
+    );
     if (artifact === undefined) {
       record('artifact', false, '响应缺 artifact');
       unit.status = 'failed';

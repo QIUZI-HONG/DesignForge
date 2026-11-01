@@ -31,3 +31,46 @@ blockers:
 
 工单正文行号取自 main@a838281，已过期。新基线上的实况坐标、上一轮已做掉的部分、剩余缺口与判据修正：
 `~/df-evidence/test-remediation-v2/notes/baseline-audit.md` 同名小节（开工前必读）。
+
+## 追加：门禁脚本消费侧（round-2 G3 补记 · fix/v2r-b-export-honesty）
+
+本票三条 blocker 都写在**生产侧**（scene/routes/UI），门禁脚本 `scripts/verify-daemon.mjs`、`scripts/verify-figma-inspect.mjs` 从未列进本票 blockers——历史后果：`/export` 两步只验 sha256/length 自洽与魔数，恰好就是空白/截断产物也能全绿的自洽口径，等于把 honesty 交给消费者自己读 `complete`，而两个消费侧门禁一次都没读过它。
+
+本轮已在这两个脚本的每格式导出循环里补 `export.<format>.complete === true` 断言（step id 带格式名；字段缺失/false 判失败 exit 1，不再跳过）。诚实口径同时写进脚本注释：当前冒烟/功能夹具是 1–2 个节点的极小页面（远低于 `MAX_NODES = 2000`），所以这两步今天**恒过是"构造上看不见"**，不是"已验证大页面截断诚实"；把 `complete` 立为可执行红线只是把契约兜住，真正的大页面截断回归仍需由 `scene.test.ts`/`routes/export.test.ts` 承担。
+
+**未做（deferral）**：给 verify-daemon/verify-figma-inspect 加"构造 >2000 节点页面 → 断言 complete:false 且 truncatedNodes>0"的实跑用例——脚本现用夹具都是极小页面，扩到预算越界需要新引一份 2001+ 节点 fixture 到脚本侧，本票未扩；判为可延后，Node 单元/HTTP 缝已有覆盖。
+
+## 未做的其他项（round-2 G1 补记）
+
+- **失败/部分导出是否阻止覆盖上一次好产物**：`routes/export.ts` 仍是无条件写盘 + HTTP 200（`complete:false` 只反映在响应字段与遥测里），空白产物会覆盖上一次好产物。本轮决定不改写盘语义：G1 的 HTTP 回归要求"corrupt envelope → 200 + complete:false"（不 5xx），把"部分产物"改判 5xx 会把它误报成"没有产物"；改判"complete:false 就不落盘"会破坏 routes/export.test.ts 已确立的 200/字节流契约。诚实性通过 `complete` 字段 + UI/遥测/门禁传播；防止覆盖留给后续票（若产品决定要"失败导出保旧产物"，应新立一票）。
+
+## 收口：空白/部分产物不再静默覆盖好产物（round-2 G1 二次补记 · fix/v2r-b-export-honesty）
+
+上面那条「不改写盘语义」的 deferral **已被本轮推翻并按 G1 要求落地**（覆盖丢的是用户本地产物，属数据损失，不能只靠字段诚实）。状态码语义不动（仍 200，见上段理由），**隔离落在文件名上**：
+
+- `apps/daemon/src/export/index.ts` 新增 `incompleteArtifactFileName(fileName, format)` → `<规范名>.incomplete.<format>`。
+- `apps/daemon/src/routes/export.ts`：`rendered.complete === true` → 写规范名（与改前一致）；`false` → **一律**写 `.incomplete` 侧文件，规范名字节永不被动；`artifact.fileName/filePath` 同步指向实际落盘名（响应载荷与磁盘逐字节一致，不出现「说写了、盘上没有」）。
+- `packages/contracts/src/export/index.ts`：`ExportResultPayload.preservedPreviousArtifactPath: string | null` —— 部分产物且规范名上确有一份旧产物时给出被保留的路径，否则 `null`。
+- 回归：`routes/export.test.ts` 新增两态覆盖用例（SVG + PNG 各一条，PNG 那条同时钉「旧产物像素仍是红矩形 / 新产物像素是页面底色」，正是二轮实测 GOOD 236 字节 → BLANK 7164 字节 的路径）；`export/index.test.ts` 钉隔离名与 `renderExport` 完整性透传。
+- 门禁：`verify-daemon` / `verify-figma-inspect` 的导出步现在断 `result.complete === true`，夹具（1–2 节点）走规范名，`.incomplete` 分支由单元/HTTP 缝覆盖（`scene.test.ts` 2001+ 与截断子树计数、`routes/export.test.ts` 预算与坏信封）——ST-1 说的「构造性失明」用「确定性到达截断/跳过分支的用例」这一支补齐，不在门禁脚本侧扩 2001 节点夹具。
+
+实跑（`~/df-evidence/v2r-b/`）：`--filter @dforge/daemon lint` 0；`@dforge/contracts` + `@dforge/daemon` + `@dforge/web` test 0（13/19/167 文件）；`pnpm run typecheck` 0（修掉上一版遗留的 `exactOptionalPropertyTypes` 红：`routes/export.test.ts` 的 `putBodyAndExport` 返回类型）。
+
+## 追加：门禁侧计数红线（round-2 ST-1 二次补记 · fix/v2r-b-export-honesty）
+
+上面「门禁脚本消费侧」只立了 `complete === true` 一条；本轮按 finding 要求补上**计数断言**，两个门禁的每个导出步骤都是「状态 + `complete` + 两个真损失计数」三件一体：
+
+- `scripts/verify-daemon.mjs`：`export.<format>.complete` 之外新增 `export.<format>.counts`
+  （`skippedNodes === 0 && truncatedNodes === 0`，夹具是 1 枚合法矩形，非 0 即产物有真损失）。
+- `scripts/verify-figma-inspect.mjs`：`complete` 之后新增 `counts` 断言（同口径，夹具 2 枚节点）。
+- 「构造性失明」（夹具距 `MAX_NODES=2000` 差约 1999）按 finding 给的第二条路补：不在门禁里塞 2001 节点夹具，
+  而由 `scene.test.ts`（2001+ 容器与其子树逐枚计 `truncated`；隐藏子树计 `hidden`）与
+  `routes/export.test.ts`（HTTP 200 + `truncatedNodes>0` + `complete:false`；坏信封 `page:null`、`rootIds:[]`、
+  诚实空页 `'{}'` 三条）确定性地到达截断/跳过分支——分支覆盖有凭据，门禁红线有兜底。
+
+门禁实跑：`node scripts/verify-daemon.mjs` → **0**（48 步，`export.*.complete`/`export.*.counts` 9 步全 ok；
+证据 `gate-verify-daemon.log`）；`node scripts/verify-figma-inspect.mjs`（自起 `--port 0` 临时数据根 daemon）
+→ **2**，功能段 21 项断言全 ✓（含 3×complete、3×counts），阻塞原因是「参照集未冻结（REF-01）」——**2 不是通过**，
+且不属本票范围（`gate-verify-figma-inspect.log`）。
+
+
