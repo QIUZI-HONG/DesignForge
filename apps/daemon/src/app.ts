@@ -18,7 +18,7 @@ import type { ConfigStore } from './config/store.ts';
 import { createConfigStore } from './config/store.ts';
 import type { DaemonPaths } from './context.ts';
 import { DAEMON_VERSION, defaultDataRoot, resolveDaemonPaths } from './context.ts';
-import { corsOriginsFromEnv, createCorsPolicy, registerCors } from './cors.ts';
+import { type CorsPolicy, corsOriginsFromEnv, createCorsPolicy, registerCors } from './cors.ts';
 import type { CredentialStore } from './credentials/store.ts';
 import { createCredentialStore } from './credentials/store.ts';
 import type { DocumentStore } from './documents/store.ts';
@@ -89,6 +89,11 @@ export interface DaemonContext {
   fetchImpl: typeof fetch;
   now: () => Date;
   comfyProbeTtlMs: number;
+  /**
+   * CORS 策略（与 `registerCors` 钩子同一个实例）：流式（SSE）路由绕开钩子缓冲的头，
+   * 需要自己按同一判定出头——单一真源，不许两处各写各的（票 02）。
+   */
+  corsPolicy: CorsPolicy;
   startedAt: Date;
 }
 
@@ -123,6 +128,8 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? ((): Date => new Date());
+  // CORS 策略只构造一次：钩子与绕开钩子的流式写路径共用同一判定（票 02）
+  const corsPolicy = createCorsPolicy(options.corsOrigins ?? corsOriginsFromEnv(process.env));
 
   const context: DaemonContext = {
     paths,
@@ -160,6 +167,7 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
     fetchImpl,
     now,
     comfyProbeTtlMs: options.comfyProbeTtlMs ?? 60_000,
+    corsPolicy,
     startedAt: now(),
   };
 
@@ -170,7 +178,7 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
   registerHostValidation(app);
   // 受控 CORS：web 开发态（localhost:3000）与壳静态模式（127.0.0.1 随机端口）跨源直连；
   // 白名单外不放行（受控白名单，不通配）——详见 cors.ts 模块头注释
-  registerCors(app, createCorsPolicy(options.corsOrigins ?? corsOriginsFromEnv(process.env)));
+  registerCors(app, corsPolicy);
 
   // GET /health —— 基座握手（verify-daemon 与 FE-12 壳用它判活）
   app.get(DAEMON_ROUTES.health.path, () => ({
