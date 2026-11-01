@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDfgManifest } from '@dforge/contracts';
 import { describe, expect, it } from 'vitest';
@@ -69,6 +69,37 @@ describe('documents · 创建与目录态', () => {
       });
       expect(invalid.statusCode).toBe(400);
       expect((invalid.payload as { error: { code: string } }).error.code).toBe('doc_invalid_name');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('数据根被文件占据（ENOENT/ENOTDIR 竞态族的确定性替身）→ 409 conflict，不回显路径、零盘上变化', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      // 评审实测定不了位的是 create/delete 竞态：`rename …tmp -> manifest.json` ENOENT，
+      // message 带绝对路径直落 500（store.ts create 提交段）。竞态在单进程里不可复现，
+      // 但其错误族（ENOENT/ENOTDIR）可经「数据根变形」确定性触达 mkdir 阶段的同一映射：
+      // 把 workspace 根换成普通文件 → mkdir(root/id.dfg) 必 ENOTDIR。
+      await rm(daemon.workspaceDir, { recursive: true, force: true });
+      await writeFile(daemon.workspaceDir, '这是一个文件，不是数据根目录');
+      const res = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '目录被占' },
+      });
+      expect(res.statusCode, res.raw).toBe(409);
+      const error = (
+        res.payload as { error: { code: string; details: { phase?: string; documentId?: string } } }
+      ).error;
+      expect(error.code).toBe('conflict');
+      expect(error.details.phase).toBe('mkdir');
+      expect(error.details.documentId).toBe('目录被占');
+      // 安全口径与 F1-F4 一致：响应不回显宿主绝对路径
+      expect(res.raw).not.toContain(daemon.tempDir);
+      expect(res.raw).not.toContain(daemon.workspaceDir);
+      // 拒了就是零盘上变化：占据根的文件原样在位
+      expect(await readFile(daemon.workspaceDir, 'utf8')).toBe('这是一个文件，不是数据根目录');
     } finally {
       await daemon.cleanup();
     }
@@ -547,6 +578,39 @@ describe('documents · 画布页正文引用完整性守门（票 17）', () => 
       // 总数如实交代：被截断的条数仍以 issueCount/消息里的总数呈现
       expect(error.details.issueCount).toBe(total);
       expect(error.message).toContain(String(total));
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('恶意正文让守门自身抛异常（节点 id 不可转字符串）→ 422 类型化拒绝，不逃 500、不回显异常文本', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '守门恶意');
+      const url = `/documents/${encodeURIComponent(id)}/pages/page-1`;
+      const manifestPath = join(daemon.workspaceDir, `${id}.dfg`, 'manifest.json');
+      const before = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number };
+
+      // {toString: 1}：ToPrimitive 发现 toString 不可调用 → 守门里 String(node.id) 抛
+      // TypeError（评审实测：异常一路逃出 store，500 原样回显 "Cannot convert …"）。
+      // 这是客户端输入问题，必须落 4xx 类型化拒绝——且绝不把正文写下去。
+      const hostile = canvasBody(
+        { i1: { type: 'instance', id: { toString: 1 }, componentId: '幽灵' } },
+        ['i1'],
+      );
+      const rejected = await injectJson(daemon.app, {
+        method: 'PUT',
+        url,
+        payload: { body: hostile },
+      });
+      expect(rejected.statusCode, rejected.raw).toBe(422);
+      expect((rejected.payload as { error: { code: string } }).error.code).toBe(
+        'doc_invalid_structure',
+      );
+      expect(rejected.raw).not.toContain('Cannot convert');
+      // 拒绝 = 零盘上变化（提交点之前、锁之前拒绝）
+      const after = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number };
+      expect(after.version).toBe(before.version);
     } finally {
       await daemon.cleanup();
     }

@@ -158,6 +158,21 @@ async function bodyTargetIsDirectory(pagePath: string): Promise<boolean> {
   return existing !== null && existing.isDirectory();
 }
 
+/**
+ * create 阶段目录变形（F4 · 票 19 评审）：ENOENT/ENOTDIR 与评审实测 create/delete 竞态同族
+ * （`rename …tmp -> manifest.json` ENOENT，message 内嵌绝对路径）。类型化 conflict（409）——
+ * 消息与 details 只带 documentId/phase，不回显任何宿主路径。
+ */
+function createRaceLost(documentId: string, phase: 'mkdir' | 'commit'): StoreResult<never> {
+  return {
+    ok: false,
+    code: 'conflict',
+    message:
+      '文档创建期间目录缺失或变形（数据根被文件占据/文档目录被并发删除），本次创建未生效，请重试',
+    details: { documentId, phase },
+  };
+}
+
 /** manifest 提交计划：成功给出「下一个 manifest + 返回值（+ 提交点之后才发布的正文）」，失败给出统一存储错误。 */
 type ManifestPlan<T> =
   | { ok: true; next: DfgManifest; value: T; staged?: StagedFile }
@@ -369,15 +384,28 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       const paths = await resolveDocPaths(id);
       if (!paths.ok) return paths;
       return lock.run(id, async () => {
-        await ensureDir(paths.value.root);
-        try {
-          // 非递归 mkdir：目录已存在即原子冲突（并发/跨进程同名建文档恰一个 201）
-          await mkdir(paths.value.dir);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-            return { ok: false, code: 'doc_exists', message: '同名文档已存在', details: { id } };
+        // 非递归 mkdir：目录已存在即原子冲突（并发/跨进程同名建文档恰一个 201）。
+        // F4（票 19 评审）：ENOENT/ENOTDIR 一类的目录变形（数据根被文件占据/根被并发删除）
+        // 此前直接上抛 → 500 逐字回显含绝对路径的 message。现在统一映射为类型化 conflict（409）。
+        // 注意「ENOENT 第一次」只是数据根还不存在（首用/外部清理）：补建根后重试一次，此后再失败才算变形/竞态。
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            await mkdir(paths.value.dir);
+            break;
+          } catch (mkdirError) {
+            const code = (mkdirError as NodeJS.ErrnoException).code;
+            if (code === 'EEXIST') {
+              return { ok: false, code: 'doc_exists', message: '同名文档已存在', details: { id } };
+            }
+            if (code === 'ENOENT' && attempt === 0) {
+              await ensureDir(paths.value.root);
+              continue;
+            }
+            if (code === 'ENOENT' || code === 'ENOTDIR') {
+              return createRaceLost(id, 'mkdir');
+            }
+            throw mkdirError;
           }
-          throw error;
         }
         const now = new Date().toISOString();
         const manifest: DfgManifest = {
@@ -407,6 +435,10 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
         } catch (error) {
           // 只撤自己刚建的目录；回滚本身失败也要抛出，不掩盖「名字可能被残骸占住」
           await removeTree(paths.value.dir);
+          // F4：评审实测 create/delete 竞态在提交段 rename 抛 ENOENT（message 带绝对路径直落 500）。
+          // 目录已清理，对调用方返回类型化 conflict——竞态/外部删除是「同名目录此刻不归你写」，不是内部错误。
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'ENOENT' || code === 'ENOTDIR') return createRaceLost(id, 'commit');
           throw error;
         }
       });
@@ -585,8 +617,21 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
         };
       }
       // 引用完整性守门（票 17）：画布页信封的悬空组件引用拒绝落盘（盘上零变化——
-      // 在取锁/写正文之前拒绝；读回侧 parseDocument 全校验，写读同强度）
-      const integrity = canvasPageReferenceIssues(body);
+      // 在取锁/写正文之前拒绝；读回侧 parseDocument 全校验，写读同强度）。
+      // F4（票 19 评审）：守门对不可转字符串的节点标识（如 {toString:1}）会抛 TypeError——
+      // 评审实测异常逃出 store、500 逐字回显 "Cannot convert object to primitive value"。
+      // 那是客户端正文问题，一律收敛为类型化 422（拒绝落盘，盘上零变化），不许逃成 500。
+      let integrity: string[] | null;
+      try {
+        integrity = canvasPageReferenceIssues(body);
+      } catch {
+        return {
+          ok: false,
+          code: 'doc_invalid_structure',
+          message: '画布页正文结构无法解析（节点标识字段必须是可转字符串的值），已拒绝落盘',
+          details: { documentId, pageId, reason: 'integrity-check-aborted' },
+        };
+      }
       if (integrity !== null) {
         // 引用清单必须截断（F5）：全量拼接 1MB 请求可炸出 2MB 响应。与 web 侧
         // documents-client.ts:281-282 同口径——最多 8 条 + 总数，消息与 details.issues 都截。

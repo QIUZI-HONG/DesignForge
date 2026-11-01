@@ -210,13 +210,22 @@ function registerErrorHandlers(app: FastifyInstance): void {
   app.setErrorHandler((rawError, _request, reply) => {
     const error = rawError as { statusCode?: number; message?: string };
     const statusCode = typeof error.statusCode === 'number' ? error.statusCode : 500;
-    const message =
-      typeof error.message === 'string' ? error.message.slice(0, 300) : '未提供错误信息';
     if (statusCode >= 500) {
-      reply.status(500).send(apiFailure('internal', 'daemon 内部错误', { reason: message }));
+      // F4（票 19 评审）：500 不得逐字回显 err.message——Node fs 异常的 message 内嵌被操作
+      // 文件的**绝对路径**（EACCES/ENOENT/EEXIST 的临时 rename 路径尤其如此），截到 300 字符
+      // 路径原样在。path-safety.ts 纪律第 4 条：响应消息与 details 不含绝对路径。
+      // 对外只给稳定错误类摘要（message 冒号前的头，且必须是纯标识符/短语形状，含路径字符
+      // 一律替换为 internal-error）；原始异常进 daemon 日志（实测：自定义 setErrorHandler 后
+      // Fastify 不再自动记日志），对客户端脱敏、对运维不致盲。
+      app.log.error({ err: rawError }, 'daemon 内部错误（响应已脱敏）');
+      const head = typeof error.message === 'string' ? (error.message.split(':')[0] ?? '') : '';
+      const reason = /^[A-Za-z][A-Za-z0-9 ._'-]{0,47}$/.test(head) ? head : 'internal-error';
+      reply.status(500).send(apiFailure('internal', 'daemon 内部错误', { reason }));
       return;
     }
     // 4xx（含 Fastify 的 JSON 解析/校验错误）统一归入 bad_request
+    const message =
+      typeof error.message === 'string' ? error.message.slice(0, 300) : '未提供错误信息';
     reply
       .status(statusCode === 404 ? 404 : 400)
       .send(

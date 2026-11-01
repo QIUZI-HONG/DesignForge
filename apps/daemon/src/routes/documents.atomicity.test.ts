@@ -326,6 +326,46 @@ describe('documents · 发布目标不可替换必须在提交点之前拒绝（
   });
 });
 
+describe('documents · 500 响应不得回显宿主绝对路径（票 19 · F4）', () => {
+  it('manifest 提交 EACCES：500 + internal + reason=EACCES；响应无宿主路径，原始错误只进 daemon 日志', async () => {
+    const daemon = await createTestDaemon({ logger: true });
+    let docDir = '';
+    try {
+      const created = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '脱敏检查' },
+      });
+      expect(created.statusCode, created.raw).toBe(201);
+      const id = (created.payload as { result: { document: { id: string } } }).result.document.id;
+      docDir = join(daemon.workspaceDir, `${id}.dfg`);
+      await chmod(docDir, 0o555);
+      const res = await injectJson(daemon.app, {
+        method: 'PUT',
+        url: `/documents/${encodeURIComponent(id)}/pages/page-1`,
+        payload: { body: { marker: '必然失败的保存' } },
+      });
+      expect(res.statusCode).toBe(500);
+      const error = (res.payload as { error: { code: string; details: { reason?: string } } })
+        .error;
+      expect(error.code).toBe('internal');
+      // 稳定错误类摘要可用（运维可判别），但不含 message 里被操作文件的绝对路径
+      expect(error.details.reason).toBe('EACCES');
+      expect(res.raw, '500 响应体回显了宿主绝对路径').not.toContain(daemon.tempDir);
+      expect(res.raw).not.toContain(daemon.workspaceDir);
+      expect(res.raw).not.toContain(docDir);
+      // 原始异常（含路径）保留在 daemon 日志里——对客户端脱敏，不能对运维致盲
+      expect(
+        daemon.capturedLogs.some((line) => line.includes('EACCES') && line.includes(docDir)),
+        'daemon 日志丢失了原始异常',
+      ).toBe(true);
+    } finally {
+      if (docDir !== '') await chmod(docDir, 0o755).catch(() => undefined);
+      await daemon.cleanup();
+    }
+  });
+});
+
 /** 单次串行保存的结果（sent = 这次请求送上去的正文）。 */
 interface SaveOutcome {
   status: number;
