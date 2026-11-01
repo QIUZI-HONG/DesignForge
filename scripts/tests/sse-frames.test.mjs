@@ -38,7 +38,8 @@ test('daemon 帧形（event + 单行 data + 空行分隔）解析成事件数组
 });
 
 test('CRLF 终止符（\\r\\n\\r\\n）正确分帧', () => {
-  const text = 'event: start\r\ndata: {"type":"start"}\r\n\r\nevent: done\r\ndata: {"type":"done"}\r\n\r\n';
+  const text =
+    'event: start\r\ndata: {"type":"start"}\r\n\r\nevent: done\r\ndata: {"type":"done"}\r\n\r\n';
   const r = parseSseFrames(text);
   assert.equal(r.events.length, 2);
   assert.equal(r.dataLineCount, 2);
