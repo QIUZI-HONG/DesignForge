@@ -6,20 +6,71 @@
  *   今天既读不到（`doc_not_found`）也删不掉，名字从此被 `EEXIST` 永久占用；
  * - 「保存失败」必须等于「盘上没变」，或**如实说明盘上已变成什么样**（409 不许沉默）。
  *
+ * 覆盖面如实说明：跨进程 `conflict` 分支需要「外部提交正好挤进重试」这一时机，
+ * 无法在 HTTP 缝上做确定性构造（实测挤爆率 ≈1.3%，见 ~/df-evidence/v2-19/probe.mjs），
+ * 因此这里用**条件式断言**（一旦返回 409 就必须交代实况），把「失败不落正文」的
+ * 构造性保证交给 `fs-atomic.test.ts` 的原语用例钉死；真实跨进程文档锁另开后续票。
+ *
  * 纪律：全部走临时数据目录（testing/harness.ts），不碰 `~/.dforge`。
  */
 
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { createDaemonApp } from '../app.ts';
+import { removeTree } from '../fs-atomic.ts';
 import { createTestDaemon, injectJson } from '../testing/harness.ts';
 
 /** 复现 `create()` 在 mkdir 之后失败留下的现场：目录 + 正文在，manifest 从未写出。 */
 async function seedShellDocument(workspaceDir: string, id: string): Promise<void> {
   await mkdir(join(workspaceDir, `${id}.dfg`, 'pages'), { recursive: true });
   await writeFile(join(workspaceDir, `${id}.dfg`, 'pages', 'page-1.json'), '{}\n', 'utf8');
+}
+
+/** 真实 socket 的 JSON 往返（`app.inject` 看不出跨实例并发，只用 inject 会绕开本缺陷）。 */
+interface HttpResult {
+  status: number;
+  json: Record<string, unknown>;
+}
+
+async function httpJson(
+  url: string,
+  init: { method: string; payload?: unknown },
+): Promise<HttpResult> {
+  const response = await fetch(url, {
+    method: init.method,
+    headers: { 'content-type': 'application/json' },
+    ...(init.payload === undefined ? {} : { body: JSON.stringify(init.payload) }),
+  });
+  const text = await response.text();
+  return {
+    status: response.status,
+    json: text === '' ? {} : (JSON.parse(text) as HttpResult['json']),
+  };
+}
+
+/** 同一实例对同一页串行保存 count 次；第 i 次的正文带 i，便于事后判定盘上到底是谁的内容。 */
+async function sequentialSaves(
+  baseUrl: string,
+  documentId: string,
+  pageId: string,
+  count: number,
+  owner: string,
+): Promise<{ status: number; sent: unknown; json: Record<string, unknown> }[]> {
+  const results = [];
+  for (let index = 0; index < count; index += 1) {
+    const sent = { owner, index };
+    const result = await httpJson(
+      `${baseUrl}/documents/${encodeURIComponent(documentId)}/pages/${pageId}`,
+      { method: 'PUT', payload: { body: sent } },
+    );
+    results.push({ ...result, sent });
+  }
+  return results;
 }
 
 describe('documents · create() 失败不得留下残骸，也不得伤及既有文档', () => {
@@ -96,9 +147,11 @@ describe('documents · 无 manifest 空壳目录必须可回收', () => {
       // 空壳在列表里必须可见（否则用户无从知道名字被谁占着）
       const listed = await injectJson(daemon.app, { method: 'GET', url: '/documents' });
       expect(listed.statusCode, listed.raw).toBe(200);
-      const list = (listed.payload as {
-        result: { documents: unknown[]; warnings: { id: string; code: string }[] };
-      }).result;
+      const list = (
+        listed.payload as {
+          result: { documents: unknown[]; warnings: { id: string; code: string }[] };
+        }
+      ).result;
       expect(list.documents).toHaveLength(0);
       expect(list.warnings.map((warning) => warning.id)).toEqual(['壳文档']);
       expect(list.warnings[0]?.code).toBe('manifest_unreadable');
@@ -149,5 +202,105 @@ describe('documents · 无 manifest 空壳目录必须可回收', () => {
     } finally {
       await daemon.cleanup();
     }
+  });
+});
+
+/** 单次串行保存的结果（sent = 这次请求送上去的正文）。 */
+interface SaveOutcome {
+  status: number;
+  sent: unknown;
+  json: Record<string, unknown>;
+}
+
+describe('documents · 两个独立 daemon 实例共享同一数据根（跨实例并发）', () => {
+  const apps: FastifyInstance[] = [];
+  let root = '';
+  let workspaceDir = '';
+  let urlA = '';
+  let urlB = '';
+
+  beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), 'df-v2-19-'));
+    workspaceDir = join(root, 'workspace');
+    const endpoints: string[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const app = await createDaemonApp({
+        dataRoot: join(root, `data-${String(index)}`),
+        workspaceDir,
+        envApiKey: null,
+        logger: false,
+        fetchImpl: (async () => {
+          throw new Error('本用例禁止出网');
+        }) as unknown as typeof fetch,
+      });
+      apps.push(app);
+      endpoints.push(String(await app.listen({ port: 0, host: '127.0.0.1' })));
+    }
+    const [first, second] = endpoints;
+    urlA = first ?? '';
+    urlB = second ?? '';
+  });
+
+  afterAll(async () => {
+    await Promise.all(apps.map((app) => app.close()));
+    await removeTree(root);
+  });
+
+  it('两个实例并发保存同一页：磁盘 manifest 必须恰好对应一次成功保存，且正文就是那次保存送的内容', async () => {
+    const created = await httpJson(`${urlA}/documents`, {
+      method: 'POST',
+      payload: { name: '跨实例并发' },
+    });
+    expect(created.status).toBe(201);
+    const documentId = (created.json.result as { document: { id: string } }).document.id;
+
+    // 两个实例**同一页**各串行保存 60 次：每次都要重写整份 manifest，跨实例必然互踩
+    const [runA, runB] = await Promise.all([
+      sequentialSaves(urlA, documentId, 'page-1', 60, '实例1'),
+      sequentialSaves(urlB, documentId, 'page-1', 60, '实例2'),
+    ]);
+    const all: SaveOutcome[] = [...runA, ...runB];
+
+    // 失败必须是结构化 409，不许塌成 5xx
+    expect(all.filter((save) => save.status >= 500).map((save) => save.status)).toEqual([]);
+    for (const conflict of all.filter((save) => save.status === 409)) {
+      const error = conflict.json.error as {
+        code: string;
+        message: string;
+        details: Record<string, unknown>;
+      };
+      expect(error.code).toBe('conflict');
+      expect(error.message.length).toBeGreaterThan(0);
+      // 票 19 blocker 1：失败必须交代盘上到底变没变（禁止「失败但已变」而不说明）
+      expect(error.details.published, JSON.stringify(error.details)).toBe(false);
+      expect(typeof error.details.manifestVersionOnDisk).toBe('number');
+      expect(typeof error.details.attemptedVersion).toBe('number');
+    }
+
+    const manifest = JSON.parse(
+      await readFile(join(workspaceDir, `${documentId}.dfg`, 'manifest.json'), 'utf8'),
+    ) as { pages: { id: string; updatedAt: string }[] };
+    const entry = manifest.pages.find((page) => page.id === 'page-1');
+    expect(entry).toBeDefined();
+    // 盘上 manifest 的这次提交，必须能追溯到**恰好一次**报成功的保存
+    const owners = all.filter(
+      (save) =>
+        save.status === 200 &&
+        (save.json.result as { page: { updatedAt: string } }).page.updatedAt === entry?.updatedAt,
+    );
+    expect(
+      owners.length,
+      `manifest 里 page-1 的 updatedAt=${entry?.updatedAt} 对应 ${owners.length} 次「成功」保存（应为 1 次）`,
+    ).toBe(1);
+
+    // 且盘上正文必须就是那次成功保存送上去的内容——失败的保存不得把正文留在盘上
+    const disk = JSON.parse(
+      await readFile(join(workspaceDir, `${documentId}.dfg`, 'pages', 'page-1.json'), 'utf8'),
+    ) as unknown;
+    const owner = owners[0];
+    expect(disk, '盘上正文不属于当前 manifest 所对应的那次成功保存').toEqual(owner?.sent);
+
+    const files = (await readdir(join(workspaceDir, `${documentId}.dfg`, 'pages'))).sort();
+    expect(files).toEqual(manifest.pages.map((page) => `${page.id}.json`).sort());
   });
 });

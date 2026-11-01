@@ -13,7 +13,8 @@
  *   id 白名单 + `..`/绝对路径/`%00`/NFC/软链四类越界一律拒（Q1 路径穿越修复）；
  * - **按文档串行化**的 manifest 读改写（每文档一把异步锁）+ 原子写（临时文件 + rename）——
  *   并发下不丢已提交的页面（Q2 修复）；跨进程退化为写后重读比对 + 有界重试（`conflict`）；
- * - manifest 是提交点：页面正文先落盘、manifest 最后更新（读者只会看到一致的旧/新状态）。
+ * - manifest 是提交点：页面正文先**暂存**（同目录临时文件）、manifest 提交并复读确认后才发布，
+ *   失败则作废暂存——因此「保存失败」时盘上仍是提交前的内容（票 19）。读者只会看到一致的旧/新状态。
  */
 
 import { lstat, mkdir, readdir, rm, stat } from 'node:fs/promises';
@@ -35,7 +36,14 @@ import {
 } from '@dforge/contracts';
 
 import type { ConfigStore } from '../config/store.ts';
-import { ensureDir, readJsonFileOrNull, removeTree, writeFileAtomic } from '../fs-atomic.ts';
+import type { StagedFile } from '../fs-atomic.ts';
+import {
+  ensureDir,
+  readJsonFileOrNull,
+  removeTree,
+  stageFileAtomic,
+  writeFileAtomic,
+} from '../fs-atomic.ts';
 import { createKeyedMutex } from '../mutex.ts';
 import {
   exceedsJsonDepth,
@@ -133,9 +141,9 @@ function pageNotFound(documentId: string, pageId: string): StoreResult<never> {
   return { ok: false, code: 'not_found', message: '页面不存在', details: { documentId, pageId } };
 }
 
-/** manifest 提交计划：成功给出「下一个 manifest + 返回值」，失败给出统一存储错误。 */
+/** manifest 提交计划：成功给出「下一个 manifest + 返回值（+ 提交点之后才发布的正文）」，失败给出统一存储错误。 */
 type ManifestPlan<T> =
-  | { ok: true; next: DfgManifest; value: T }
+  | { ok: true; next: DfgManifest; value: T; staged?: StagedFile }
   | { ok: false; result: StoreResult<never> };
 
 /** 创建文档存储（workspaceDir 每次从 config 读取——支持运行时切换工作目录）。 */
@@ -242,33 +250,48 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
 
   /**
    * manifest 读改写提交（**必须在 `lock.run(documentId)` 内调用**）：
-   * 1. 读当前 manifest → 交给 `plan` 计算下一版（plan 内先落正文，manifest 是提交点）；
+   * 1. 读当前 manifest → 交给 `plan` 计算下一版（plan 把正文**暂存**，不发到目标名）；
    * 2. 原子写 manifest（临时文件 + rename）；
-   * 3. **写后重读比对内容**：一致才算提交成功；被其他进程覆盖则重读状态重算（有界重试）。
-   * 单进程下第 3 步恒真（零额外语义）；跨进程下收敛，重试用尽返回 `conflict`（409）。
+   * 3. **写后重读比对内容**：一致才算提交成功，此时才发布正文；
+   *    被其他进程覆盖则作废暂存正文、重读状态重算（有界重试）。
+   * 单进程下第 3 步恒真（零额外语义）；跨进程下收敛，重试用尽返回 `conflict`（409），
+   * 并在 `details` 里如实交代盘上实况（**失败即盘上没变**，票 19）。
    */
   const commitManifest = async <T>(
     documentId: string,
     paths: DocPaths,
     plan: (manifest: DfgManifest) => Promise<ManifestPlan<T>>,
   ): Promise<StoreResult<T>> => {
+    let attemptedVersion: number | null = null;
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt += 1) {
       const manifest = await readManifestAt(paths, documentId);
       if (!manifest.ok) return manifest;
       const planned = await plan(manifest.value);
       if (!planned.ok) return planned.result;
+      attemptedVersion = planned.next.version;
       const serialized = `${JSON.stringify(planned.next, null, 2)}\n`;
       await writeFileAtomic(paths.manifestPath, serialized, DOC_FILE_MODE);
       const confirm = await readJsonFileOrNull(paths.manifestPath);
       if (confirm.ok && JSON.stringify(confirm.value) === JSON.stringify(planned.next)) {
+        // 提交点已过：现在才把正文发布到目标名
+        if (planned.staged !== undefined) await planned.staged.publish();
         return { ok: true, value: planned.value };
       }
+      // 本次提交没落上：作废暂存正文，绝不让失败方的内容留在页文件里（也不盖掉别人的正文）
+      if (planned.staged !== undefined) await planned.staged.discard();
     }
+    const current = await readJsonFileOrNull(paths.manifestPath);
     return {
       ok: false,
       code: 'conflict',
-      message: `文档并发写入冲突：重试 ${MAX_COMMIT_ATTEMPTS} 次仍未提交成功`,
-      details: { documentId },
+      message: `文档并发写入冲突：重试 ${MAX_COMMIT_ATTEMPTS} 次仍未提交成功，本次保存未生效，盘上仍是提交前的内容`,
+      details: {
+        documentId,
+        attemptedVersion,
+        manifestVersionOnDisk:
+          current.ok && isDfgManifest(current.value) ? current.value.version : null,
+        published: false,
+      },
     };
   };
 
@@ -521,15 +544,21 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           if (page === undefined) return { ok: false, result: pageNotFound(documentId, pageId) };
           const now = new Date().toISOString();
           const nextPage: DfgPageMeta = { ...page, updatedAt: now };
-          // 提交顺序：正文先落盘、manifest 最后（崩溃时读者仍见一致状态）
-          await writeFileAtomic(pagePath, `${JSON.stringify(body, null, 2)}\n`, DOC_FILE_MODE);
+          // 正文只暂存不发布：manifest 才是提交点，提交成功（且复读确认）之后才 rename 到目标名。
+          // 早于提交点落盘会让「失败的保存」把正文留在盘上（409 却数据已变），
+          // 还可能盖掉别的进程已提交的正文（票 19）。
+          const staged = await stageFileAtomic(
+            pagePath,
+            `${JSON.stringify(body, null, 2)}\n`,
+            DOC_FILE_MODE,
+          );
           const next: DfgManifest = {
             ...current,
             version: current.version + 1,
             updatedAt: now,
             pages: current.pages.map((item) => (item.id === pageId ? nextPage : item)),
           };
-          return { ok: true, next, value: nextPage };
+          return { ok: true, next, value: nextPage, staged };
         });
       });
     },
@@ -556,14 +585,15 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           if (pagePath === null) return { ok: false, result: invalidPageId() };
           const now = new Date().toISOString();
           const page: DfgPageMeta = { id: pageId, name: name.trim(), updatedAt: now };
-          await writeFileAtomic(pagePath, '{}\n', DOC_FILE_MODE);
+          // 同 savePage：空正文也只暂存，提交点确认后才发布，失败不留下孤儿页文件。
+          const staged = await stageFileAtomic(pagePath, '{}\n', DOC_FILE_MODE);
           const next: DfgManifest = {
             ...current,
             version: current.version + 1,
             updatedAt: now,
             pages: [...current.pages, page],
           };
-          return { ok: true, next, value: page };
+          return { ok: true, next, value: page, staged };
         });
       });
     },

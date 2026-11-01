@@ -23,14 +23,27 @@ export async function ensureDir(dir: string, mode?: number): Promise<void> {
 }
 
 /**
- * 原子写文件：临时文件 + fsync + rename。
- * mode 缺省 0o600（凭据类敏感文本），显式传入可放宽（如 0o644 的文档正文）。
+ * 已落盘但**尚未发布**的暂存文件：内容已经 fsync 到同目录的临时名上，
+ * 由持有者决定何时让它出现在目标名上（`publish`）或作废（`discard`）。
  */
-export async function writeFileAtomic(
+export interface StagedFile {
+  /** 临时文件路径（同目录、点前缀 + 随机后缀，读者不会看到）。 */
+  tempPath: string;
+  /** 发布：rename 到目标名 + 目录 fsync；失败即清理临时文件并抛出。 */
+  publish: () => Promise<void>;
+  /** 作废：删掉临时文件（目标名保持原样）。 */
+  discard: () => Promise<void>;
+}
+
+/**
+ * 暂存写：临时文件 + fsync，但**不**rename。
+ * 需要「提交点之后才让内容可见」的场合用它（文档正文——manifest 才是提交点，票 19）。
+ */
+export async function stageFileAtomic(
   filePath: string,
   data: string | Uint8Array,
   mode = 0o600,
-): Promise<void> {
+): Promise<StagedFile> {
   const dir = dirname(filePath);
   await ensureDir(dir);
   const tempPath = join(dir, `.${randomBytes(6).toString('hex')}.tmp`);
@@ -41,13 +54,34 @@ export async function writeFileAtomic(
   } finally {
     await handle.close();
   }
-  try {
-    await rename(tempPath, filePath);
-  } catch (error) {
-    await rm(tempPath, { force: true });
-    throw error;
-  }
-  await syncDir(dir);
+  return {
+    tempPath,
+    publish: async (): Promise<void> => {
+      try {
+        await rename(tempPath, filePath);
+      } catch (error) {
+        await rm(tempPath, { force: true });
+        throw error;
+      }
+      await syncDir(dir);
+    },
+    discard: async (): Promise<void> => {
+      await rm(tempPath, { force: true });
+    },
+  };
+}
+
+/**
+ * 原子写文件：临时文件 + fsync + rename。
+ * mode 缺省 0o600（凭据类敏感文本），显式传入可放宽（如 0o644 的文档正文）。
+ */
+export async function writeFileAtomic(
+  filePath: string,
+  data: string | Uint8Array,
+  mode = 0o600,
+): Promise<void> {
+  const staged = await stageFileAtomic(filePath, data, mode);
+  await staged.publish();
 }
 
 /**
