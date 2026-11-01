@@ -59,3 +59,35 @@ blockers:
   这两步必须改写——留待那条路径落地时再修，本票不再扩面。
 - daemon 侧 `isAllowedAiBaseUrl`（`access-control.ts:79`）**未动**：这是票 01/A2 定下的 SSRF 边界，
   不在本轮 G4 范围内、也不是我 exclusive 的文件；因此选 C（脚本改），不选 A/B（改 daemon）。
+
+## 收口补记（round-2 G4 二次 · fix/v2r-b-export-honesty）
+
+在上面的裁决之上补齐三处「诚实度」细节，并把门禁自身的两条红线（不占常驻端口、不用 /tmp）落到本票文件里：
+
+1. **段 B 的帧账与段 A 同口径**：opt-in 分支新增 `B.stream.sse-frames-accounted`
+   （`dataLineCount === events.length + doneCount` 且 `malformedCount === 0` 且事件 ≥2），
+   delta 改为**从解析后的帧**取（原实现对线上正文做 `"type":"delta"` 正则——丢帧/跨行 JSON 无感，
+   正是 finding 说的「没有任何断言把帧数与线上绑定」）；默认跳过清单同步为 9 条 id，
+   覆盖面不再少报。旧的内联 `parseSseFrames`（每块只取第一条 `data:` + `catch {}` 静默丢帧）
+   已删除，唯一实现是 `scripts/lib/sse-frames.mjs`（`scripts/tests/sse-frames.test.mjs` 8 条自测）。
+2. **不再有任何「未出机」背书**：`cloudCalls: 0` 字段整体去掉（段 A/段 B/meta 三处），
+   改为 `egressAttemptedByGate`（只声明**本脚本代码路径**未发起 /ai/chat）+
+   `egressObservability: 'no-probe：…'`；meta 另落 `stepsSkipped` 与 `aiEgressOptInEnv`。
+   段 B 的路线裁决（skip + opt-in vs 可进白名单的环回替身上游）**仍留人工**，本票不代答：
+   默认路径就是 exit 2。
+3. **端口与现场目录（本仓红线）**：夹具 daemon 改为 `--port 0`（原来写死占常驻 4318；
+   三名整改实现者同机并发跑门禁时，后者会与常驻实例抢端口，红点与被测代码无关），
+   UI 段代理与 `waitForListening` 都按 daemon 打印的真实端口接线；
+   `verify-daemon.mjs` 同改。非 0 退出时保留的「现场」（daemon 数据根/workspace）
+   从 `os.tmpdir()` 迁到 `~/df-evidence/scratch/`——本仓禁用 /tmp，且它是证据的一部分。
+4. **catch 丢断言 id**：`ui.degraded-suggestions` / `ui.degraded-result-nonblank` 各走独立
+   try/catch 与独立 record，兜底文案如实写「判据不可评估」，不再把第二步的失败冒名成第一步。
+
+**实跑（`~/df-evidence/v2r-b/`，WSL Ubuntu，`LD_LIBRARY_PATH=/home/QIU/df-local-libs/usr/lib/x86_64-linux-gnu`）**：
+`node scripts/verify-ai-two-state.mjs` → **exit 2**（`gate-verify-ai-two-state.log`：步骤 15 项、
+失败 0 项、跳过 9 项；段 A 6 步含 `A.stream.sse-frames-accounted` 全 ok；daemon 监听
+`http://127.0.0.1:34421`，非常驻 4318）。UI 段本轮**阻塞**（`page.goto http://localhost:4420/editor`
+超时 120s——4420 上是被别的会话占用的既有 next dev），门禁按 §3 纪律如实打「阻塞：UI 段…」
+并仍退 2，**2 不是通过**。`node --test scripts/tests/*.test.mjs` → 0；`pnpm run lint:scripts` → 0
+（顺带去掉 `? true : false` 的 `noUselessTernary`，非抑制式修复）。
+

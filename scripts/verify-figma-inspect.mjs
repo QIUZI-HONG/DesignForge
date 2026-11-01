@@ -332,6 +332,17 @@ async function runFunctional() {
       response.status === 200 && complete === true,
       `result.complete=${String(complete)}（须为 true；缺失/false 不放行空白或截断产物）`,
     );
+    // 计数同口径断言：夹具是 2 枚合法矩形/椭圆，任何非零的 skipped/truncated 都意味着
+    // 抽取走到了「结构跳过」或「预算截断」分支——产物有真损失，不得放行。
+    const skippedNodes = response.json?.result?.skippedNodes;
+    const truncatedNodes = response.json?.result?.truncatedNodes;
+    record(
+      'counts',
+      skippedNodes === 0 && truncatedNodes === 0,
+      `result.skippedNodes=${String(skippedNodes)} result.truncatedNodes=${String(
+        truncatedNodes,
+      )}（两者必须为 0）`,
+    );
     if (artifact === undefined) {
       record('artifact', false, '响应缺 artifact');
       unit.status = 'failed';

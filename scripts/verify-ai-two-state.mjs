@@ -39,7 +39,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -348,7 +348,11 @@ async function probeUiMount({ daemonUrl, degradedHint }) {
 }
 
 async function main() {
-  const tempRoot = await mkdtemp(join(tmpdir(), 'df-verify-fe10-ai-'));
+  // 现场目录：仓库外、**不用 /tmp**（本仓纪律：临时数据根/保留现场一律落在 `~/df-evidence` 下，
+  // 避免重启丢失与「证据写在临时目录里当场查不到」）。
+  const scratchRoot = join(EVIDENCE_ROOT, 'scratch');
+  await mkdir(scratchRoot, { recursive: true });
+  const tempRoot = await mkdtemp(join(scratchRoot, 'verify-ai-two-state-'));
   const logChunks = [];
   let child = null;
   let mock = null;
@@ -384,6 +388,11 @@ async function main() {
         join(tempRoot, 'data'),
         '--workspace',
         join(tempRoot, 'workspace'),
+        // 端口纪律（本仓红线）：夹具 daemon **不占常驻 4318**，向内核要 0 号端口；
+        // `startDaemon` 会回读 `server.address().port` 并打印真实 URL，下面的
+        // `waitForListening` 与 UI 段代理都按那一条真实端口接线（不再假设 4318）。
+        '--port',
+        '0',
       ],
       {
         cwd: REPO_ROOT,
@@ -534,6 +543,7 @@ async function main() {
         'B.credentials.masked',
         'B.config.base-url',
         'B.status.configured',
+        'B.stream.sse-frames-accounted',
         'B.stream.steps-timeline',
         'B.stream.content-accumulated',
         'B.upstream.authorization',
@@ -559,7 +569,9 @@ async function main() {
       // 三态语义：阻塞（2）优先于「其他步全绿即 0」；违规（1）仍最优先。
       exitCode = 2;
     } else {
-      console.warn('[verify-ai-two-state] ⚠️ DF_ALLOW_AI_EGRESS=1 已开启：段 B 会真实出机至 api.deepseek.com。');
+      console.warn(
+        '[verify-ai-two-state] ⚠️ DF_ALLOW_AI_EGRESS=1 已开启：段 B 会真实出机至 api.deepseek.com。',
+      );
       const setKey = await call(baseUrl, 'PUT', '/config/credentials', { apiKey: SENTINEL_KEY });
       record(
         'B.credentials.masked',
@@ -589,12 +601,40 @@ async function main() {
       const streamB = await fetch(`${baseUrl}/ai/chat`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages: [{ role: 'user', content: '加一个主按钮' }], stream: true }),
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: '加一个主按钮' }],
+          stream: true,
+        }),
       });
       const textB = await readStreamText(streamB);
       const drivenB = driveReader(textB);
       const timelineB = drivenB.timeline.map((entry) => entry.step);
-      const deltas = [...textB.matchAll(/"type":"delta","delta":"([^"]*)"/g)].map((m) => m[1]);
+      // 帧账与段 A **同口径**：线上 data 行数 = 事件数 + DONE 数，畸形帧直接抛（不静默丢）。
+      let parsedB;
+      try {
+        parsedB = parseSseFrames(textB);
+        record(
+          'B.stream.sse-frames-accounted',
+          parsedB.dataLineCount === parsedB.events.length + parsedB.doneCount &&
+            parsedB.malformedCount === 0 &&
+            parsedB.events.length >= 2,
+          `线上 data 行 ${String(parsedB.dataLineCount)} = 事件 ${String(parsedB.events.length)} + DONE ${String(parsedB.doneCount)}（无静默丢帧；畸形已抛）`,
+        );
+      } catch (error) {
+        record('B.stream.sse-frames-accounted', false, `SSE 畸形帧：${String(error)}`);
+        parsedB = {
+          events: [],
+          dataLineCount: 0,
+          doneCount: 0,
+          commentCount: 0,
+          malformedCount: 1,
+        };
+      }
+      // delta 从**解析后的帧**取，不对原文做正则：正则对「丢帧 / 跨行 JSON」完全无感，
+      // 正是 finding 指的「没有任何断言把帧数与线上绑定」。
+      const deltas = parsedB.events
+        .filter((event) => event?.type === 'delta')
+        .map((event) => String(event?.delta ?? ''));
       record(
         'B.stream.steps-timeline',
         timelineB.join('>') === 'queued>llm>validate>compile' && drivenB.snapshot.phase === 'done',
@@ -650,8 +690,7 @@ async function main() {
           authorizationPresent: entry.authorization !== null,
         })),
         egressAttemptedByGate: true,
-        egressObservability:
-          'opt-in：段 B 已跑；脚本仍无上游探针，"未出机" 不由本门禁断言',
+        egressObservability: 'opt-in：段 B 已跑；脚本仍无上游探针，"未出机" 不由本门禁断言',
       };
     }
   } catch (error) {
@@ -693,8 +732,7 @@ async function main() {
     // 「本脚本代码路径未发起 /ai/chat」，段 B 默认跳过时该断言成立。
     egressObservability:
       'no-probe：脚本不观测上游、不声称未出机；只声明本脚本代码路径未发起 /ai/chat 到真实官方端',
-    egressAttemptedByGate:
-      process.env.DF_ALLOW_AI_EGRESS === '1' ? true : false,
+    egressAttemptedByGate: process.env.DF_ALLOW_AI_EGRESS === '1',
     aiEgressOptInEnv: process.env.DF_ALLOW_AI_EGRESS === '1' ? 'DF_ALLOW_AI_EGRESS=1' : 'unset',
   };
 

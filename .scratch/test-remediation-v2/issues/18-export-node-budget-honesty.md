@@ -56,3 +56,21 @@ blockers:
 
 实跑（`~/df-evidence/v2r-b/`）：`--filter @dforge/daemon lint` 0；`@dforge/contracts` + `@dforge/daemon` + `@dforge/web` test 0（13/19/167 文件）；`pnpm run typecheck` 0（修掉上一版遗留的 `exactOptionalPropertyTypes` 红：`routes/export.test.ts` 的 `putBodyAndExport` 返回类型）。
 
+## 追加：门禁侧计数红线（round-2 ST-1 二次补记 · fix/v2r-b-export-honesty）
+
+上面「门禁脚本消费侧」只立了 `complete === true` 一条；本轮按 finding 要求补上**计数断言**，两个门禁的每个导出步骤都是「状态 + `complete` + 两个真损失计数」三件一体：
+
+- `scripts/verify-daemon.mjs`：`export.<format>.complete` 之外新增 `export.<format>.counts`
+  （`skippedNodes === 0 && truncatedNodes === 0`，夹具是 1 枚合法矩形，非 0 即产物有真损失）。
+- `scripts/verify-figma-inspect.mjs`：`complete` 之后新增 `counts` 断言（同口径，夹具 2 枚节点）。
+- 「构造性失明」（夹具距 `MAX_NODES=2000` 差约 1999）按 finding 给的第二条路补：不在门禁里塞 2001 节点夹具，
+  而由 `scene.test.ts`（2001+ 容器与其子树逐枚计 `truncated`；隐藏子树计 `hidden`）与
+  `routes/export.test.ts`（HTTP 200 + `truncatedNodes>0` + `complete:false`；坏信封 `page:null`、`rootIds:[]`、
+  诚实空页 `'{}'` 三条）确定性地到达截断/跳过分支——分支覆盖有凭据，门禁红线有兜底。
+
+门禁实跑：`node scripts/verify-daemon.mjs` → **0**（48 步，`export.*.complete`/`export.*.counts` 9 步全 ok；
+证据 `gate-verify-daemon.log`）；`node scripts/verify-figma-inspect.mjs`（自起 `--port 0` 临时数据根 daemon）
+→ **2**，功能段 21 项断言全 ✓（含 3×complete、3×counts），阻塞原因是「参照集未冻结（REF-01）」——**2 不是通过**，
+且不属本票范围（`gate-verify-figma-inspect.log`）。
+
+
