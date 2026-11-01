@@ -67,14 +67,38 @@ function upstreamSseResponse(frames: string[]): Response {
 /** 真实 socket 上发一次跨源流式请求（`stream:true`）并把整条 SSE 体读完。 */
 async function fetchStreamWithOrigin(
   baseUrl: string,
-  origin: string,
+  origin?: string,
 ): Promise<{ response: Response; body: string }> {
   const response = await fetch(`${baseUrl}/ai/chat`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin },
+    headers: {
+      'content-type': 'application/json',
+      ...(origin === undefined ? {} : { origin }),
+    },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
   });
   return { response, body: await response.text() };
+}
+
+/**
+ * 线路上实际出现的 CORS 相关头（真 socket 层，不经 `app.inject` 的缓冲视图）。
+ * 票 02 的判据就在这一层：raw 写路径绕开钩子时，inject 看不见缺失。
+ */
+function corsHeadersOnWire(response: Response): Record<string, string> {
+  const collected: Record<string, string> = {};
+  for (const [name, value] of response.headers.entries()) {
+    if (name === 'vary' || name.startsWith('access-control-')) {
+      collected[name] = value;
+    }
+  }
+  return collected;
+}
+
+/** 真实 socket 上打一次普通 JSON 端点（对照面：钩子缓冲出头的那条路）。 */
+async function fetchJsonWithOrigin(baseUrl: string, origin?: string): Promise<Response> {
+  return fetch(`${baseUrl}/health`, {
+    headers: origin === undefined ? {} : { origin },
+  });
 }
 
 async function withDaemon<T>(run: (daemon: TestDaemon) => Promise<T>): Promise<T> {
@@ -449,6 +473,55 @@ describe('cors · 流式（SSE）线路级放行头（票 02 · 真 socket）', 
         expect(response.headers.get('content-type'), origin).toContain('text/event-stream');
         expect(body, origin).toContain('event: done');
       }
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('线路同口径：同一来源下 SSE 写路径与普通 JSON 写路径的 CORS 头集合逐项相等（两条路一个真源）', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      const cases: readonly (string | undefined)[] = [
+        'http://localhost:3000',
+        'http://evil.example.com',
+        'null',
+        undefined,
+      ];
+      for (const origin of cases) {
+        const label = origin ?? '<无 Origin>';
+        const { response: stream } = await fetchStreamWithOrigin(baseUrl, origin);
+        const json = await fetchJsonWithOrigin(baseUrl, origin);
+        expect(stream.status, label).toBe(200);
+        expect(json.status, label).toBe(200);
+        // 各写各的 = 洞：一条收紧一条放宽都会在这里红
+        expect(corsHeadersOnWire(stream), label).toEqual(corsHeadersOnWire(json));
+      }
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('同一条 SSE 通道的 error 帧也带放行头（参数非法时浏览器仍要能读到契约错误体）', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      const response = await fetch(`${baseUrl}/ai/chat`, {
+        method: 'POST',
+        // maxTokens=0 非法，但客户端已声明 stream:true → 通道形状不换，错误以帧表达
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:3000' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'x' }],
+          stream: true,
+          maxTokens: 0,
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:3000');
+      const body = await response.text();
+      expect(body).toContain('event: error');
+      expect(body).toContain('"code":"ai_invalid_request"');
     } finally {
       await daemon.cleanup();
     }
