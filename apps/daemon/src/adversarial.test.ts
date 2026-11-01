@@ -276,16 +276,19 @@ describe('对抗 · 凭据纪律（哨兵值全链路无明文）', () => {
       expect(cleared.payload).toMatchObject({ ok: true, result: { cleared: true } });
       await expect(stat(daemon.credentialsPath)).rejects.toThrow();
 
-      // 无 key：不触网（假 fetch 会抛错），返回同构降级
+      // —— 无 key：不触网（假 fetch 会抛错），返回同构降级。票 03 断言加固 ——
+      // 判据口径：降级以 200 + ok:true **同构信封**返回是设计（前端不分支），
+      // 但降级必须「自证降级」——degraded/finishReason/usage/content 逐字段钉死，
+      // 任何一格被伪装成成功（stop / 造 usage / 假 content）都会在这里变红。
       const chat = await injectJson(daemon.app, {
         method: 'POST',
         url: '/ai/chat',
         payload: { messages: [{ role: 'user', content: 'hi' }] },
       });
       expect(daemon.fetchCalls).toHaveLength(0);
+      expect(chat.statusCode).toBe(200);
+      expect((chat.payload as { ok?: boolean }).ok).toBe(true);
       const chatResult = (chat.payload as { result: Record<string, unknown> }).result;
-      expect(chatResult.degraded).toBe(true);
-      expect(chatResult.degradedReason).toBe('no-credentials');
       expect(Object.keys(chatResult).sort()).toEqual(
         [
           'content',
@@ -299,6 +302,83 @@ describe('对抗 · 凭据纪律（哨兵值全链路无明文）', () => {
           'usage',
         ].sort(),
       );
+      expect(chatResult.degraded).toBe(true);
+      expect(chatResult.degradedReason).toBe('no-credentials');
+      // 不许把降级伪装成成功：finishReason 只能是 'degraded'，无上游即无 usage
+      expect(chatResult.finishReason).toBe('degraded');
+      expect(chatResult.usage).toBeNull();
+      expect(chatResult.provider).toBe('deepseek');
+      expect(typeof chatResult.model).toBe('string');
+      expect((chatResult.model as string).length).toBeGreaterThan(0);
+      expect(chatResult.runId).toMatch(/^ai_[0-9a-f]{16}$/);
+      // 降级态 content 为空串是设计（同构信封 + 建议清单承接可操作性，见票 03 改判）；
+      // 「非空」判据落在 suggestions 上，不是 content 上。
+      expect(chatResult.content).toBe('');
+      const suggestions = chatResult.suggestions as {
+        kind: string;
+        title: string;
+        detail: unknown;
+      }[];
+      expect(Array.isArray(chatResult.suggestions)).toBe(true);
+      // 建议清单语义判据（不止「键存在」）：条数下限 + 逐条形状 + kind 合法枚举
+      expect(suggestions.length).toBeGreaterThanOrEqual(1);
+      const validKinds = new Set([
+        'configure-credentials',
+        'retry-later',
+        'check-network',
+        'manual-edit',
+      ]);
+      for (const suggestion of suggestions) {
+        expect(validKinds.has(suggestion.kind), JSON.stringify(suggestion)).toBe(true);
+        expect(suggestion.title.trim().length, suggestion.kind).toBeGreaterThan(0);
+        expect(
+          suggestion.detail === null || typeof suggestion.detail === 'string',
+          suggestion.kind,
+        ).toBe(true);
+      }
+      // no-credentials 必须给出「配置凭据」这个可操作出口（否则降级面板是死路）
+      expect(suggestions.map((suggestion) => suggestion.kind)).toContain('configure-credentials');
+      // 建议是本地模板文案，不得夹带任何 key 明文/片段
+      expect(chat.raw).not.toContain(sentinel);
+      expect(chat.raw.toLowerCase()).not.toContain('mfh4xyz');
+
+      // —— 流式（SSE）同一路径：降级走 done 帧收口，不发 error 帧、字段判据与一次性一致 ——
+      const stream = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json' },
+        payload: { messages: [{ role: 'user', content: 'hi' }], stream: true },
+      });
+      expect(daemon.fetchCalls).toHaveLength(0);
+      expect(stream.statusCode).toBe(200);
+      const frames = stream.payload
+        .split('\n\n')
+        .filter((block) => block.trim().length > 0)
+        .map((block) => {
+          const dataLine = block.split('\n').find((line) => line.startsWith('data:'));
+          return dataLine === undefined
+            ? null
+            : (JSON.parse(dataLine.slice(5)) as Record<string, unknown>);
+        })
+        .filter((frame): frame is Record<string, unknown> => frame !== null);
+      expect(frames.map((frame) => frame.type)).toEqual(['start', 'done']);
+      const startFrame = frames[0];
+      const doneFrame = frames[1];
+      expect(startFrame?.degraded).toBe(true);
+      expect(doneFrame?.type).toBe('done');
+      const streamResult = (doneFrame as { response: Record<string, unknown> }).response;
+      expect(Object.keys(streamResult).sort()).toEqual(Object.keys(chatResult).sort());
+      expect(streamResult.degraded).toBe(true);
+      expect(streamResult.degradedReason).toBe('no-credentials');
+      expect(streamResult.finishReason).toBe('degraded');
+      expect(streamResult.usage).toBeNull();
+      expect(streamResult.content).toBe('');
+      const streamSuggestions = streamResult.suggestions as { kind: string; title: string }[];
+      expect(streamSuggestions.length).toBeGreaterThanOrEqual(1);
+      expect(streamSuggestions.map((suggestion) => suggestion.kind)).toContain(
+        'configure-credentials',
+      );
+      expect(stream.payload).not.toContain(sentinel);
     } finally {
       await daemon.cleanup();
     }

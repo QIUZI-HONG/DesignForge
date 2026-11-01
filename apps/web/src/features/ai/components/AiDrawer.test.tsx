@@ -70,17 +70,70 @@ describe('AI 抽屉（F4）', () => {
         ],
       ],
     });
-    render(<AiDrawer port={port} defaultOpen onConfigureCredentials={() => undefined} />);
+    let configureClicks = 0;
+    render(
+      <AiDrawer
+        port={port}
+        defaultOpen
+        onConfigureCredentials={() => {
+          configureClicks += 1;
+        }}
+      />,
+    );
 
     await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
     await user.click(screen.getByRole('button', { name: '生成' }));
 
     const badge = await screen.findByText('本地模板');
     expect(badge.getAttribute('data-df-badge')).toBe('local-template');
-    // 降级也走完四步（同构），并且给出可操作建议
+    // 角标 title 即「降级结果」说明（来源如实，不冒充模型输出；i18n ai.badge.localTemplate.desc）
+    expect(badge.getAttribute('title')).toBe('降级结果：由本地模板生成，展示形态与在线结果一致。');
+    // 降级也走完四步（同构收口），结果区落在 done 态而不是停在假活动/空白
     expect(stepRow('compile')?.getAttribute('data-df-step-status')).toBe('done');
-    expect(screen.getByText('未配置 DeepSeek API key')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '去配置 key' })).toBeTruthy();
+    expect(document.querySelector('[data-df-ai-result="done"]')).not.toBeNull();
+    // 票 03 用户可见判据：降级态**不是空白面板**——content 为空时结果区给本地模板说明，
+    // 且不渲染模型正文节点（不显示假成功）
+    expect(screen.getByText('降级结果：由本地模板生成，展示形态与在线结果一致。')).toBeTruthy();
+    expect(document.querySelector('.dfg-ai__content')).toBeNull();
+    // 建议清单是可访问列表（role=list，名称「建议动作」），逐条 title 可见且至少一条
+    const list = screen.getByRole('list', { name: '建议动作' });
+    expect(within(list).getAllByRole('listitem').length).toBeGreaterThanOrEqual(1);
+    expect(within(list).getByText('未配置 DeepSeek API key')).toBeTruthy();
+    // 「去配置 key」是真可操作出口：点击确实触达配置回调
+    await user.click(screen.getByRole('button', { name: '去配置 key' }));
+    expect(configureClicks).toBe(1);
+  });
+
+  it('降级态（上游限流）：建议清单给出「重试/手动」出口，正文不编造', async () => {
+    const user = userEvent.setup();
+    const port = fakeAiPort({
+      runs: [
+        [
+          {
+            type: 'start',
+            runId: 'ai_rl',
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            degraded: true,
+          },
+          { type: 'done', response: degradedResponse('rate-limited') },
+        ],
+      ],
+    });
+    render(<AiDrawer port={port} defaultOpen />);
+    await user.type(screen.getByRole('textbox', { name: '描述修改' }), '加一个按钮组');
+    await user.click(screen.getByRole('button', { name: '生成' }));
+
+    await screen.findByText('触发上游限流（429）');
+    const list = screen.getByRole('list', { name: '建议动作' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(list).getByText('可先手动完成本次修改')).toBeTruthy();
+    const retryButton = within(list).getByRole('button', { name: '重试' });
+    // 点重试也不伪造成功：正文节点始终不出现，降级角标保持在位
+    //（不钉「重试按钮在 done 态是否重新发起」——降级态重试当前未接通，见票 03 完成记录）
+    await user.click(retryButton);
+    expect(document.querySelector('.dfg-ai__content')).toBeNull();
+    expect(screen.getByText('本地模板')).toBeTruthy();
   });
 
   it('真态不出角标（角标只由 degraded 决定）', async () => {
