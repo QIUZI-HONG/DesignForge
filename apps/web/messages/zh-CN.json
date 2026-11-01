@@ -604,6 +604,8 @@
   "editor.export.action.retry": "重试",
   "editor.export.state.running": "正在导出 {format}…",
   "editor.export.state.done": "已导出 {fileName}（{length} 字节）",
+  "editor.export.state.partial": "部分导出 {fileName}（{length} 字节）",
+  "editor.export.state.partialHint": "页面有 {missing} 个节点未进入产物（预算截断 {truncated}、结构跳过 {skipped}）——产物不是画布全貌",
   "editor.export.state.error": "导出失败：{message}",
   "editor.export.state.errorCode": "错误码：{code}",
   "editor.export.daemonOffline": "本地服务未启动，无法导出",

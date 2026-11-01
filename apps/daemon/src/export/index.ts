@@ -69,6 +69,8 @@ export interface RenderedExport {
   mimeType: string;
   fileName: string;
   skippedNodes: number;
+  truncatedNodes: number;
+  complete: boolean;
 }
 
 /** 计算有效 scale（PNG 限定 1–4；SVG/PDF 恒 1——矢量无倍率概念）。 */
@@ -99,6 +101,8 @@ export function renderExport(options: {
         mimeType: EXPORT_MIME_TYPES.svg,
         fileName,
         skippedNodes: scene.skippedNodes,
+        truncatedNodes: scene.truncatedNodes,
+        complete: scene.complete,
       };
     }
     case 'pdf':
@@ -107,6 +111,8 @@ export function renderExport(options: {
         mimeType: EXPORT_MIME_TYPES.pdf,
         fileName,
         skippedNodes: scene.skippedNodes,
+        truncatedNodes: scene.truncatedNodes,
+        complete: scene.complete,
       };
     default:
       return {
@@ -114,6 +120,8 @@ export function renderExport(options: {
         mimeType: EXPORT_MIME_TYPES.png,
         fileName,
         skippedNodes: scene.skippedNodes,
+        truncatedNodes: scene.truncatedNodes,
+        complete: scene.complete,
       };
   }
 }

@@ -261,3 +261,54 @@ describe('extractScene · dforge.canvas.page 信封分支', () => {
     expect(scene.nodes[0]?.fill).toBe('#00AA00');
   });
 });
+
+describe('extractScene · 节点预算必须如实上报', () => {
+  /** 顶层旧式形状（`{ width, height, background, children[] }`）的 N 个矩形。 */
+  function legacyRects(count: number): Record<string, unknown> {
+    const children: unknown[] = [];
+    for (let index = 0; index < count; index += 1) {
+      children.push({ kind: 'rect', x: index, y: 0, width: 10, height: 10 });
+    }
+    return { width: 1000, height: 100, background: '#FFFFFF', children };
+  }
+
+  it('顶层形状超出 2000 上限：超出部分计入截断，场景不是完整产物', () => {
+    const scene = extractScene(legacyRects(2001));
+    expect(scene.nodes).toHaveLength(2000);
+    expect(scene.truncatedNodes).toBe(1);
+    expect(scene.complete).toBe(false);
+    // 截断与「结构非法跳过」是两类事实，不得互相冒充
+    expect(scene.skippedNodes).toBe(0);
+  });
+
+  it('信封形状超出 2000 上限：同样如实截断（web 真实正文走这一支）', () => {
+    const nodes: Record<string, unknown> = {};
+    const rootIds: string[] = [];
+    for (let index = 0; index <= 2000; index += 1) {
+      const id = `rect-${String(index)}`;
+      nodes[id] = rectNode(id, { x: index, y: 0, width: 10, height: 10 });
+      rootIds.push(id);
+    }
+    const scene = extractScene(envelopePage({ nodes, rootIds }));
+    expect(scene.nodes).toHaveLength(2000);
+    expect(scene.truncatedNodes).toBe(1);
+    expect(scene.complete).toBe(false);
+  });
+
+  it('恰好等于上限：不算截断，产物为完整', () => {
+    expect(extractScene(legacyRects(2000)).complete).toBe(true);
+    expect(extractScene(legacyRects(2000)).truncatedNodes).toBe(0);
+  });
+
+  it('仅结构非法跳过（无截断）：也不得报完整', () => {
+    const scene = extractScene({
+      width: 100,
+      height: 100,
+      background: '#FFFFFF',
+      children: [{ kind: 'rect', x: 0, y: 0, width: 10, height: 10 }, { kind: 'bogus' }],
+    });
+    expect(scene.skippedNodes).toBe(1);
+    expect(scene.truncatedNodes).toBe(0);
+    expect(scene.complete).toBe(false);
+  });
+});

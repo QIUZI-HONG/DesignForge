@@ -604,6 +604,8 @@
   "editor.export.action.retry": "Retry",
   "editor.export.state.running": "Exporting {format}…",
   "editor.export.state.done": "Exported {fileName} ({length} bytes)",
+  "editor.export.state.partial": "Partial export {fileName} ({length} bytes)",
+  "editor.export.state.partialHint": "{missing} node(s) stayed out of the artifact (budget-truncated {truncated}, skipped {skipped}) — this is not the whole canvas",
   "editor.export.state.error": "Export failed: {message}",
   "editor.export.state.errorCode": "Error code: {code}",
   "editor.export.daemonOffline": "Local service is not running; export unavailable",

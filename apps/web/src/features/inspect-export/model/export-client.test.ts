@@ -84,11 +84,17 @@ describe('createExportClient · 请求形状', () => {
 });
 
 describe('createExportClient · 结果解包', () => {
-  it('成功：返回产物（含 length / sha256，供证据引用）', async () => {
+  it('成功：返回产物（含 length / sha256，供证据引用）与完整性事实', async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse(200, {
         ok: true,
-        result: { artifact: artifactPayload(), skippedNodes: 0, maxScale: 4 },
+        result: {
+          artifact: artifactPayload(),
+          skippedNodes: 0,
+          truncatedNodes: 0,
+          complete: true,
+          maxScale: 4,
+        },
       }),
     );
     const client = createExportClient({ fetchImpl: fetchImpl as unknown as typeof fetch });
@@ -102,6 +108,49 @@ describe('createExportClient · 结果解包', () => {
     expect(outcome.artifact.length).toBe(1234);
     expect(outcome.artifact.sha256).toHaveLength(64);
     expect(outcome.artifact.mimeType).toBe('image/png');
+    expect(outcome.complete).toBe(true);
+    expect(outcome.truncatedNodes).toBe(0);
+  });
+
+  it('部分产物（预算截断）：HTTP 200 也要把截断事实带出来，不得当成完整成功', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        result: {
+          artifact: artifactPayload(),
+          skippedNodes: 0,
+          truncatedNodes: 1,
+          complete: false,
+          maxScale: 4,
+        },
+      }),
+    );
+    const client = createExportClient({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const outcome = await client.exportDocument({
+      documentId: 'doc1',
+      pageId: 'p1',
+      format: 'svg',
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error('应成功');
+    expect(outcome.complete).toBe(false);
+    expect(outcome.truncatedNodes).toBe(1);
+    expect(outcome.skippedNodes).toBe(0);
+  });
+
+  it('响应不声明完整性：判为非法响应，不默认「完整」', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, { ok: true, result: { artifact: artifactPayload(), skippedNodes: 0 } }),
+    );
+    const client = createExportClient({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const outcome = await client.exportDocument({
+      documentId: 'doc1',
+      pageId: 'p1',
+      format: 'png',
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error('应失败');
+    expect(outcome.code).toBe('daemon_invalid_response');
   });
 
   it('daemon 500（渲染失败）：解包错误码与文案', async () => {

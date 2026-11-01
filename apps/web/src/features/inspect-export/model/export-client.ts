@@ -10,15 +10,27 @@ import {
   DAEMON_ROUTES,
   type ExportArtifact,
   type ExportRequest,
+  type ExportResultPayload,
   isApiFailure,
   isApiSuccess,
 } from '@dforge/contracts';
 
 import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
-/** 客户端结果：成功给产物；失败给稳定错误码 + 文案（面板映射为文案）。 */
+/**
+ * 客户端结果：成功给产物 + **完整性事实**；失败给稳定错误码 + 文案（面板映射为文案）。
+ *
+ * `complete: false` 表示产物是部分的（节点预算截断或结构非法跳过）——面板必须与「完整导出」
+ * 分开展示，不能只报「成功」。
+ */
 export type ExportOutcome =
-  | { ok: true; artifact: ExportArtifact }
+  | {
+      ok: true;
+      artifact: ExportArtifact;
+      complete: boolean;
+      skippedNodes: number;
+      truncatedNodes: number;
+    }
   | { ok: false; code: string; message: string };
 
 /** 客户端选项。 */
@@ -97,8 +109,28 @@ export function createExportClient(options: ExportClientOptions = {}): ExportCli
         };
       }
 
-      if (isApiSuccess<{ artifact: ExportArtifact }>(payload)) {
-        return { ok: true, artifact: payload.result.artifact };
+      if (isApiSuccess<ExportResultPayload>(payload)) {
+        const result: Partial<ExportResultPayload> = payload.result;
+        // 完整性事实必须由响应声明：缺字段一律判非法响应，不默认「完整」（假绿口径）
+        if (
+          result.artifact === undefined ||
+          typeof result.complete !== 'boolean' ||
+          typeof result.skippedNodes !== 'number' ||
+          typeof result.truncatedNodes !== 'number'
+        ) {
+          return {
+            ok: false,
+            code: 'daemon_invalid_response',
+            message: `响应未声明导出完整性（HTTP ${String(response.status)}）`,
+          };
+        }
+        return {
+          ok: true,
+          artifact: result.artifact,
+          complete: result.complete,
+          skippedNodes: result.skippedNodes,
+          truncatedNodes: result.truncatedNodes,
+        };
       }
       if (isApiFailure(payload)) {
         return { ok: false, code: payload.error.code, message: payload.error.message };

@@ -43,6 +43,26 @@ export interface ExportArtifact {
   filePath: string;
 }
 
+/**
+ * `POST /export` 成功响应的 result 载荷。
+ *
+ * `complete` 是「产物是否覆盖页面全部可渲染节点」的对外保证：节点预算截断
+ * （`truncatedNodes`）与结构非法跳过（`skippedNodes`）任一非零即为 false。
+ * 两个计数是**诊断下界**（被截断容器的整棵子树不再遍历），消费方判「完整/部分」
+ * 必须看 `complete`，不得拿计数当保证。
+ */
+export interface ExportResultPayload {
+  artifact: ExportArtifact;
+  /** 因结构非法/无渲染语义被跳过的节点数。 */
+  skippedNodes: number;
+  /** 因节点预算被丢弃的节点数。 */
+  truncatedNodes: number;
+  /** 产物是否完整（两类缺失皆为零才 true）。 */
+  complete: boolean;
+  /** PNG 可用最大倍率（UI 据此收口档位）。 */
+  maxScale: number;
+}
+
 /** 校验值是否为支持格式。 */
 export function isExportFormat(value: unknown): value is ExportFormat {
   return typeof value === 'string' && (EXPORT_FORMATS as readonly string[]).includes(value);

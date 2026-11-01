@@ -396,6 +396,100 @@ describe('export · web 真实信封保存 → 导出（§A1 核心闭环）', (
   });
 });
 
+describe('export · 节点预算截断必须如实上报', () => {
+  /** 按 web 信封形状落一份含 count 个顶层矩形的文档，返回文档 id。 */
+  async function seedWideDocument(daemon: TestDaemon, count: number): Promise<string> {
+    const nodes: Record<string, unknown> = {};
+    const rootIds: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const id = `rect-${String(index)}`;
+      nodes[id] = {
+        id,
+        name: id,
+        type: 'rect',
+        x: index,
+        y: 0,
+        width: 10,
+        height: 10,
+        visible: true,
+        fills: [],
+        children: [],
+      };
+      rootIds.push(id);
+    }
+    const created = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/documents',
+      payload: { name: '超限画布' },
+    });
+    const documentId = (created.payload as { result: { document: { id: string } } }).result.document
+      .id;
+    const saved = await injectJson(daemon.app, {
+      method: 'PUT',
+      url: `/documents/${encodeURIComponent(documentId)}/pages/page-1`,
+      payload: {
+        body: {
+          $format: 'dforge.canvas.page',
+          $version: 1,
+          page: { id: 'page-1', name: '页面 1', nodes, rootIds, backgroundColor: '#FFFFFF' },
+          tokens: {},
+        },
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    return documentId;
+  }
+
+  it('超出 2000 上限：HTTP 200 但响应必须声明部分产物（截断非零 + complete=false）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const documentId = await seedWideDocument(daemon, 2001);
+      const { statusCode, payload } = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId, pageId: 'page-1', format: 'svg' },
+      });
+      expect(statusCode).toBe(200);
+      const result = (
+        payload as {
+          result: {
+            artifact: { length: number };
+            skippedNodes: number;
+            truncatedNodes: number;
+            complete: boolean;
+          };
+        }
+      ).result;
+      expect(result.artifact.length).toBeGreaterThan(0);
+      expect(result.truncatedNodes).toBe(1);
+      expect(result.skippedNodes).toBe(0);
+      expect(result.complete).toBe(false);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('未触顶且无跳过：complete=true（不被误报成部分产物）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const documentId = await seedWideDocument(daemon, 5);
+      const { payload } = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId, pageId: 'page-1', format: 'svg' },
+      });
+      const result = (
+        payload as { result: { skippedNodes: number; truncatedNodes: number; complete: boolean } }
+      ).result;
+      expect(result.complete).toBe(true);
+      expect(result.truncatedNodes).toBe(0);
+      expect(result.skippedNodes).toBe(0);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
 describe('export · 失败态', () => {
   it('导出输出尺寸超限（页面边长 × scale > 8192）→ 400 export_canvas_too_large + 结构化原因', async () => {
     const daemon = await createTestDaemon();

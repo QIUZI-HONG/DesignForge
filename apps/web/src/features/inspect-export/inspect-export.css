@@ -220,6 +220,11 @@
   color: var(--dfg-color-success);
 }
 
+/* 部分产物（预算截断/结构跳过）：不是失败，但绝不能借用「已导出」的完整语义 */
+.dfx-export__meta--partial {
+  color: var(--dfg-color-warning);
+}
+
 .dfx-export__error {
   display: flex;
   align-items: flex-start;

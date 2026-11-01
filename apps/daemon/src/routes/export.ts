@@ -6,12 +6,17 @@
  */
 
 import { writeFile } from 'node:fs/promises';
-import type { ExportArtifact, ExportFormat } from '@dforge/contracts';
+import type { ExportArtifact, ExportFormat, ExportResultPayload } from '@dforge/contracts';
 import { DAEMON_ROUTES, isExportFormat, isNonEmptyString } from '@dforge/contracts';
 import type { FastifyInstance } from 'fastify';
 
 import type { DaemonContext } from '../app.ts';
-import { EXPORT_MAX_SCALE, ExportCanvasTooLargeError, renderExport } from '../export/index.ts';
+import {
+  EXPORT_MAX_SCALE,
+  ExportCanvasTooLargeError,
+  type RenderedExport,
+  renderExport,
+} from '../export/index.ts';
 import { ensureDir, sha256Hex } from '../fs-atomic.ts';
 import { sendFail, sendOk } from '../http.ts';
 import { resolveWithin } from '../path-safety.ts';
@@ -51,7 +56,7 @@ export function registerExportRoutes(app: FastifyInstance, context: DaemonContex
       return sendFail(reply, page.code, page.message, page.details);
     }
 
-    let rendered: { bytes: Buffer; mimeType: string; fileName: string; skippedNodes: number };
+    let rendered: RenderedExport;
     try {
       rendered = renderExport({
         format,
@@ -94,17 +99,28 @@ export function registerExportRoutes(app: FastifyInstance, context: DaemonContex
     context.telemetry
       .append({
         name: 'export.completed',
-        payload: { documentId, pageId, format, length: rendered.bytes.length },
+        payload: {
+          documentId,
+          pageId,
+          format,
+          length: rendered.bytes.length,
+          complete: rendered.complete,
+          skippedNodes: rendered.skippedNodes,
+          truncatedNodes: rendered.truncatedNodes,
+        },
         sessionId: null,
         appVersion: null,
         at: null,
       })
       .catch(() => undefined);
 
-    return sendOk(reply, {
+    const result: ExportResultPayload = {
       artifact,
       skippedNodes: rendered.skippedNodes,
+      truncatedNodes: rendered.truncatedNodes,
+      complete: rendered.complete,
       maxScale: EXPORT_MAX_SCALE,
-    });
+    };
+    return sendOk(reply, result);
   });
 }

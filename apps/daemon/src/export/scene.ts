@@ -32,6 +32,22 @@ export interface RenderScene {
   nodes: RenderNode[];
   /** 被跳过的未知节点计数（诊断用，不失败）。 */
   skippedNodes: number;
+  /** 因节点预算（`MAX_NODES`）被丢弃的节点计数（诊断用，不失败）。 */
+  truncatedNodes: number;
+  /** 产物是否覆盖页面全部可渲染节点：截断与跳过任一发生即 false。 */
+  complete: boolean;
+}
+
+/**
+ * 提取预算计数。
+ *
+ * `truncated` 只统计「走到预算闸门被拒」的节点：被拒容器其整棵子树不再遍历（这是
+ * `MAX_NODES` 作为计算边界的目的本身），所以它是**下界**；对外保证由 `complete` 承担。
+ */
+interface ExtractBudget {
+  skipped: number;
+  used: number;
+  truncated: number;
 }
 
 /** 默认画布（页面无显式尺寸时的兜底，对齐基准视口）。 */
@@ -111,7 +127,7 @@ function extractKind(node: Record<string, unknown>): RenderNode['kind'] {
   }
 }
 
-function extractNode(value: unknown, budget: { skipped: number; used: number }): RenderNode | null {
+function extractNode(value: unknown, budget: ExtractBudget): RenderNode | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const x = asFiniteNumber(record.x);
@@ -128,7 +144,10 @@ function extractNode(value: unknown, budget: { skipped: number; used: number }):
     return null;
   }
   budget.used += 1;
-  if (budget.used > MAX_NODES) return null;
+  if (budget.used > MAX_NODES) {
+    budget.truncated += 1;
+    return null;
+  }
 
   const rawText =
     typeof record.text === 'string'
@@ -194,7 +213,7 @@ export function extractScene(pageBody: unknown): RenderScene {
         ? pageBody
         : [];
 
-  const budget = { skipped: 0, used: 0 };
+  const budget = { skipped: 0, used: 0, truncated: 0 };
   const nodes: RenderNode[] = [];
   for (const root of roots) {
     const parsed = extractNode(root, budget);
@@ -207,6 +226,8 @@ export function extractScene(pageBody: unknown): RenderScene {
     background,
     nodes,
     skippedNodes: budget.skipped,
+    truncatedNodes: budget.truncated,
+    complete: budget.skipped === 0 && budget.truncated === 0,
   };
 }
 
@@ -227,7 +248,7 @@ function extractEnvelopeScene(page: Record<string, unknown>): RenderScene {
     ? page.rootIds
     : deriveEnvelopeRootIds(nodesRecord);
 
-  const budget = { skipped: 0, used: 0 };
+  const budget = { skipped: 0, used: 0, truncated: 0 };
   const bounds = { width: 0, height: 0 };
   const nodes: RenderNode[] = [];
   // visited 全程不清空：同一节点至多渲染一次（环/多父引用按跳过计，不挂死）
@@ -243,6 +264,8 @@ function extractEnvelopeScene(page: Record<string, unknown>): RenderScene {
     background,
     nodes,
     skippedNodes: budget.skipped,
+    truncatedNodes: budget.truncated,
+    complete: budget.skipped === 0 && budget.truncated === 0,
   };
 }
 
@@ -287,7 +310,7 @@ function envelopeKind(node: Record<string, unknown>): RenderNode['kind'] | null 
 function extractEnvelopeNode(
   nodeId: unknown,
   nodesRecord: Record<string, unknown>,
-  budget: { skipped: number; used: number },
+  budget: ExtractBudget,
   visited: Set<string>,
   bounds: { width: number; height: number },
 ): RenderNode | null {
@@ -327,7 +350,10 @@ function extractEnvelopeNode(
     return null;
   }
   budget.used += 1;
-  if (budget.used > MAX_NODES) return null;
+  if (budget.used > MAX_NODES) {
+    budget.truncated += 1;
+    return null;
+  }
 
   bounds.width = Math.max(bounds.width, x + width);
   bounds.height = Math.max(bounds.height, y + height);

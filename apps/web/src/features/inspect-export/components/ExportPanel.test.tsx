@@ -93,7 +93,15 @@ describe('ExportPanel · 三档导出', () => {
   });
 
   it('点 PNG：请求带 documentId/pageId/format，进行中按钮忙碌', async () => {
-    const { calls, pending } = setup([{ ok: true, artifact: artifactOf('png', 4096) }]);
+    const { calls, pending } = setup([
+      {
+        ok: true,
+        artifact: artifactOf('png', 4096),
+        complete: true,
+        skippedNodes: 0,
+        truncatedNodes: 0,
+      },
+    ]);
     fireEvent.click(screen.getByRole('button', { name: '导出 PNG' }));
     expect(calls).toEqual([{ documentId: 'doc1', pageId: 'p1', format: 'png' }]);
     const button = screen.getByRole('button', { name: /导出 PNG|正在导出 PNG/ });
@@ -104,7 +112,15 @@ describe('ExportPanel · 三档导出', () => {
   });
 
   it('完成态给出文件名与字节数', async () => {
-    const { client } = immediateClient([{ ok: true, artifact: artifactOf('svg', 2048) }]);
+    const { client } = immediateClient([
+      {
+        ok: true,
+        artifact: artifactOf('svg', 2048),
+        complete: true,
+        skippedNodes: 0,
+        truncatedNodes: 0,
+      },
+    ]);
     render(<ExportPanel documentId="doc1" pageId="p1" client={client} />);
     fireEvent.click(screen.getByRole('button', { name: '导出 SVG' }));
     expect(await screen.findByText('已导出 export_p1.svg（2048 字节）')).toBeDefined();
@@ -112,7 +128,13 @@ describe('ExportPanel · 三档导出', () => {
 
   it('三档各自独立（PDF 失败不影响 SVG 的完成态）', async () => {
     const { client } = immediateClient([
-      { ok: true, artifact: artifactOf('svg', 100) },
+      {
+        ok: true,
+        artifact: artifactOf('svg', 100),
+        complete: true,
+        skippedNodes: 0,
+        truncatedNodes: 0,
+      },
       { ok: false, code: 'export_render_failed', message: '渲染失败' },
     ]);
     render(<ExportPanel documentId="doc1" pageId="p1" client={client} />);
@@ -122,6 +144,41 @@ describe('ExportPanel · 三档导出', () => {
     expect(await screen.findByText('导出失败：渲染失败')).toBeDefined();
     // SVG 的完成态仍在（互不覆盖）
     expect(screen.getByText('已导出 export_p1.svg（100 字节）')).toBeDefined();
+  });
+
+  it('部分产物（complete=false）：如实显示「部分导出」，不再出现完整语义的「已导出」', async () => {
+    const { client } = immediateClient([
+      {
+        ok: true,
+        artifact: artifactOf('png', 4096),
+        complete: false,
+        skippedNodes: 0,
+        truncatedNodes: 1,
+      },
+    ]);
+    render(<ExportPanel documentId="doc1" pageId="p1" client={client} />);
+    fireEvent.click(screen.getByRole('button', { name: '导出 PNG' }));
+
+    expect(await screen.findByText(/部分导出 export_p1\.png（4096 字节）/)).toBeDefined();
+    expect(screen.getByText(/1 个节点未进入产物/)).toBeDefined();
+    // 「已导出 …」是完整语义，部分产物不得复用（票 18 的假绿后果正在这一行）
+    expect(screen.queryByText(/已导出 export_p1\.png/)).toBeNull();
+  });
+
+  it('完整产物（complete=true）：仍按「已导出」呈现，不出部分导出提示', async () => {
+    const { client } = immediateClient([
+      {
+        ok: true,
+        artifact: artifactOf('pdf', 512),
+        complete: true,
+        skippedNodes: 0,
+        truncatedNodes: 0,
+      },
+    ]);
+    render(<ExportPanel documentId="doc1" pageId="p1" client={client} />);
+    fireEvent.click(screen.getByRole('button', { name: '导出 PDF' }));
+    expect(await screen.findByText('已导出 export_p1.pdf（512 字节）')).toBeDefined();
+    expect(screen.queryByText(/部分导出/)).toBeNull();
   });
 });
 
@@ -148,7 +205,13 @@ describe('ExportPanel · 失败态与重试', () => {
   it('重试：成功后转完成态（同一档位，不重复计数）', async () => {
     const { client, calls } = immediateClient([
       { ok: false, code: 'export_render_failed', message: '渲染失败' },
-      { ok: true, artifact: artifactOf('pdf', 512) },
+      {
+        ok: true,
+        artifact: artifactOf('pdf', 512),
+        complete: true,
+        skippedNodes: 0,
+        truncatedNodes: 0,
+      },
     ]);
     render(<ExportPanel documentId="doc1" pageId="p1" client={client} />);
     fireEvent.click(screen.getByRole('button', { name: '导出 PDF' }));

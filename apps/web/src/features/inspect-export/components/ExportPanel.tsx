@@ -40,6 +40,10 @@ interface FormatState {
   message?: string;
   fileName?: string;
   length?: number;
+  /** 完成态的完整性事实（`false` = 部分产物，须与「已导出」分开呈现）。 */
+  complete?: boolean;
+  skipped?: number;
+  truncated?: number;
 }
 
 /** 导出面板 props。 */
@@ -70,6 +74,9 @@ export function ExportPanel({ documentId, pageId, client }: ExportPanelProps) {
         status: 'done',
         fileName: outcome.artifact.fileName,
         length: outcome.artifact.length,
+        complete: outcome.complete,
+        skipped: outcome.skippedNodes,
+        truncated: outcome.truncatedNodes,
       });
       return;
     }
@@ -117,12 +124,33 @@ export function ExportPanel({ documentId, pageId, client }: ExportPanelProps) {
 
               {state.status === 'done' ? (
                 <p
-                  className="dfx-export__meta dfx-export__meta--done"
-                  data-df-inspect={`export-${format}-done`}
+                  className={
+                    state.complete === false
+                      ? 'dfx-export__meta dfx-export__meta--partial'
+                      : 'dfx-export__meta dfx-export__meta--done'
+                  }
+                  data-df-inspect={
+                    state.complete === false ? `export-${format}-partial` : `export-${format}-done`
+                  }
                 >
-                  {t('editor.export.state.done', {
-                    fileName: state.fileName ?? '',
-                    length: state.length ?? 0,
+                  {state.complete === false
+                    ? t('editor.export.state.partial', {
+                        fileName: state.fileName ?? '',
+                        length: state.length ?? 0,
+                      })
+                    : t('editor.export.state.done', {
+                        fileName: state.fileName ?? '',
+                        length: state.length ?? 0,
+                      })}
+                </p>
+              ) : null}
+
+              {state.status === 'done' && state.complete === false ? (
+                <p className="dfx-export__meta" data-df-inspect={`export-${format}-partial-hint`}>
+                  {t('editor.export.state.partialHint', {
+                    missing: (state.skipped ?? 0) + (state.truncated ?? 0),
+                    truncated: state.truncated ?? 0,
+                    skipped: state.skipped ?? 0,
                   })}
                 </p>
               ) : null}
