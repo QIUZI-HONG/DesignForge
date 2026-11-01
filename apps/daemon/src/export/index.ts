@@ -88,11 +88,27 @@ export function effectiveScale(format: ExportFormat, scale: number | undefined):
  * BLANK 7164 字节，UI 仍显示「已导出」）。HTTP 仍需 200（部分产物本身有效，5xx 会把它
  * 误报成「没有产物」），所以隔离靠**文件名**而不是状态码：不完整的一律落 `.incomplete`
  * 侧文件，规范名永不被动。
+ *
+ * 为什么名字里要带**内容摘要**（三轮 E2）：侧文件名若只是规范名的纯函数，同一文档同一页的
+ * 两次不同部分结果会写进同一个侧文件——后一次静默替换前一次，而两次响应都各自报告
+ * 「原产物保持 + 部分产物另存于此 filePath」。实测四次（skipped=1 / skipped=3 / truncated=2 /
+ * 再来一次 skipped=1）落进 1 个文件，115 KB 的截断产物被 250 B 的空白替掉，前三个响应的
+ * `sha256`/`length`/`base64` 对自己报的 filePath 全部失效。带摘要后：不同字节必然不同名，
+ * 相同字节仍是幂等覆盖（内容一致，谈不上损失）。
  */
-export function incompleteArtifactFileName(fileName: string, format: ExportFormat): string {
+export function incompleteArtifactFileName(
+  fileName: string,
+  format: ExportFormat,
+  contentDigest: string,
+): string {
   const suffix = `.${format}`;
   const stem = fileName.endsWith(suffix) ? fileName.slice(0, -suffix.length) : fileName;
-  return `${stem}.incomplete${suffix}`;
+  // 摘要只取十六进制前 12 位作标签：文件名要可读可辨，且必须过滤掉任何非标识字符（路径安全）。
+  const tag = contentDigest
+    .replace(/[^0-9a-f]/gi, '')
+    .slice(0, 12)
+    .toLowerCase();
+  return `${stem}.incomplete-${tag || 'unknown'}${suffix}`;
 }
 
 /** 渲染导出产物（不落盘——落盘由路由层负责）。 */

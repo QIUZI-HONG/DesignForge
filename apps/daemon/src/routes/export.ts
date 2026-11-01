@@ -96,7 +96,7 @@ export function registerExportRoutes(app: FastifyInstance, context: DaemonContex
     if (rendered.complete) {
       await writeFile(filePath, rendered.bytes);
     } else {
-      writtenFileName = incompleteArtifactFileName(canonicalFileName, format);
+      writtenFileName = incompleteArtifactFileName(canonicalFileName, format, sha256);
       const sidecarPath = await resolveWithin(context.paths.exportsDir, writtenFileName);
       if (sidecarPath === null) {
         return sendFail(reply, 'export_render_failed', '产物文件名越界（已拒绝写入）');

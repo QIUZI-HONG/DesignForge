@@ -236,3 +236,52 @@ describe('extractScene · 预算越界按整棵子树计 truncated（下界不�
     expect(scene.hiddenNodes).toBe(1);
   });
 });
+
+describe('extractScene · 存量分支不作「看不见 = 完整」认证（三轮 E1 实测）', () => {
+  it('children 是对象映射而非数组：内容无从核对 → 计跳过且非完整', () => {
+    const scene = extractScene({
+      width: 100,
+      height: 100,
+      children: { a: { kind: 'rect', x: 0, y: 0, width: 10, height: 10 } },
+    });
+    expect(scene.nodes).toHaveLength(0);
+    expect(scene.skippedNodes).toBeGreaterThan(0);
+    expect(scene.complete).toBe(false);
+  });
+
+  it('nodes 是标量（根表坏了）：不得报完整', () => {
+    const scene = extractScene({ width: 100, height: 100, nodes: 'oops' });
+    expect(scene.skippedNodes).toBeGreaterThan(0);
+    expect(scene.complete).toBe(false);
+  });
+
+  it('未知顶层键挂着节点内容（children/nodes 缺席）：不得报完整', () => {
+    const scene = extractScene({ width: 100, height: 100, a: { kind: 'rect' } });
+    expect(scene.skippedNodes).toBeGreaterThan(0);
+    expect(scene.complete).toBe(false);
+  });
+
+  it('整份正文是标量：不是页面结构，不得报完整', () => {
+    const scene = extractScene('oops');
+    expect(scene.skippedNodes).toBe(1);
+    expect(scene.complete).toBe(false);
+  });
+
+  it('两张根表只有一张被消费：另一张非空的内容不得当作零损失', () => {
+    const scene = extractScene({
+      width: 100,
+      height: 100,
+      children: [{ kind: 'rect', x: 0, y: 0, width: 10, height: 10 }],
+      nodes: [{ kind: 'rect', x: 0, y: 0, width: 10, height: 10 }],
+    });
+    expect(scene.nodes).toHaveLength(1);
+    expect(scene.complete).toBe(false);
+  });
+
+  it('诚实的空正文仍判完整：{} / 纯布局 / 空根表（routes/export.test.ts:609 规定）', () => {
+    expect(extractScene({}).complete).toBe(true);
+    expect(extractScene({ width: 100, height: 100, background: '#FFFFFF' }).complete).toBe(true);
+    expect(extractScene({ width: 100, height: 100, children: [] }).complete).toBe(true);
+    expect(extractScene({ width: 100, height: 100, children: [], nodes: {} }).complete).toBe(true);
+  });
+});

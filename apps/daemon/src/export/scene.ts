@@ -199,6 +199,78 @@ function extractNode(value: unknown, budget: ExtractBudget): RenderNode | null {
   };
 }
 
+/** 存量分支已解释的布局/元信息键：其取值从不被渲染，故不计为「未消费内容」。 */
+const LEGACY_META_KEYS: readonly string[] = [
+  'width',
+  'height',
+  'background',
+  'name',
+  'id',
+  'title',
+  '$format',
+  '$version',
+];
+
+/** 存量分支里可能充当根节点表的键。 */
+const LEGACY_ROOT_KEYS: readonly string[] = ['children', 'nodes'];
+
+/** 取值里是否真的挂着内容（空数组/空对象不算）。 */
+function holdsContent(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object' && value !== null) return Object.keys(value).length > 0;
+  return false;
+}
+
+/** 是否为**空容器**（`{}` / `[]`）：结构在但内容零，与坏根表要区分开。 */
+function isEmptyContainer(value: unknown): boolean {
+  return (
+    (Array.isArray(value) || (typeof value === 'object' && value !== null)) && !holdsContent(value)
+  );
+}
+
+/**
+ * 存量（顶层形状）分支的「有内容却没被消费」计数（三轮 E1 实测）。
+ *
+ * 为什么需要：本分支原先只认 `children`/`nodes` 两个数组键，其余一律视而不见，于是
+ * `{ children: { a: { kind: 'rect' } } }`、`{ nodes: 'oops' }`、`{ a: { kind: 'rect' } }`
+ * 这类**确实带内容**的正文会报 `skippedNodes:0 / complete:true`，路由据此把空白产物写到
+ * 规范名上、静默顶掉上一次的好产物（实测 `destroyed=true`）。完整性口径值钱的地方就在这条
+ * 红线上，所以判据从「有没有读到键」换成「有没有内容没被渲染出来」。
+ *
+ * 口径：根表键声明了却不是数组 → 计 1（引擎真实页面用 `nodes: Record<id, node>`，落到本
+ * 分支就是这份内容不会被渲染，也无从核对里面有几个节点）；两张根表只有一张被消费，另一张
+ * 非空再计 1；其余顶层键挂着非空对象/数组各计 1（本分支不解释未知键，见文件头边界声明）；
+ * 正文不是对象（字符串/数字/布尔）计 1。计数是**下界**，`complete` 只需要它非零。
+ *
+ * 不算的情形：`{}`、纯布局正文、`{ children: [] }` 保持 `complete:true`——那是诚实的空页面
+ * （`routes/export.test.ts:609` 规定）。也正因此，本分支区分不了「真空页」和「被写坏的页面」
+ * （`documents/store.ts:617`/`:922` 读失败回写字面量 `'{}\n'`），那条只能由 store 侧收口。
+ */
+function countStrandedLegacyContent(
+  record: Record<string, unknown>,
+  pageBody: unknown,
+  rootsKey: string | null,
+): number {
+  if (pageBody === null || pageBody === undefined) return 0;
+  if (typeof pageBody !== 'object') return 1;
+  let stranded = 0;
+  for (const key of LEGACY_ROOT_KEYS) {
+    const value = record[key];
+    if (value === undefined || value === null) continue;
+    if (!Array.isArray(value)) {
+      // 空容器（`nodes: {}`）是「本就没有内容」，与坏根表区分开。
+      if (!isEmptyContainer(value)) stranded += 1;
+    } else if (key !== rootsKey && value.length > 0) {
+      stranded += 1;
+    }
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (LEGACY_ROOT_KEYS.includes(key) || LEGACY_META_KEYS.includes(key)) continue;
+    if (holdsContent(value)) stranded += 1;
+  }
+  return stranded;
+}
+
 /** 从 opaque 页面正文提取最小场景（宽容：坏节点跳过并计数，不抛错）。 */
 export function extractScene(pageBody: unknown): RenderScene {
   const record =
@@ -232,13 +304,17 @@ export function extractScene(pageBody: unknown): RenderScene {
   const height = asFiniteNumber(record.height) ?? DEFAULT_HEIGHT;
   const background = normalizeColor(record.background) ?? DEFAULT_BACKGROUND;
 
-  const roots: unknown[] = Array.isArray(record.children)
-    ? record.children
-    : Array.isArray(record.nodes)
-      ? record.nodes
-      : Array.isArray(pageBody)
-        ? pageBody
-        : [];
+  let roots: unknown[] = [];
+  let rootsKey: string | null = null;
+  if (Array.isArray(record.children)) {
+    roots = record.children;
+    rootsKey = 'children';
+  } else if (Array.isArray(record.nodes)) {
+    roots = record.nodes;
+    rootsKey = 'nodes';
+  } else if (Array.isArray(pageBody)) {
+    roots = pageBody;
+  }
 
   const budget = { skipped: 0, used: 0, truncated: 0, hidden: 0 };
   const nodes: RenderNode[] = [];
@@ -246,6 +322,7 @@ export function extractScene(pageBody: unknown): RenderScene {
     const parsed = extractNode(root, budget);
     if (parsed !== null) nodes.push(parsed);
   }
+  budget.skipped += countStrandedLegacyContent(record, pageBody, rootsKey);
 
   return {
     width: Math.max(1, Math.round(width)),

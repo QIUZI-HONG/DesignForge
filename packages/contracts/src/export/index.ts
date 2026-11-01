@@ -65,8 +65,10 @@ export interface ExportResultPayload {
   /**
    * 本次为**部分/空白产物**（`complete === false`）且导出目录里已有同名规范产物时，
    * 该字段给出被**原样保留、未被覆盖**的那条路径；否则为 `null`。
-   * 口径（票 18 二轮 G1）：`complete:false` 的字节一律隔离落 `.incomplete.<format>` 侧文件，
-   * 绝不覆盖上一次的好产物——「UI 显示已导出、磁盘上的好产物被空白 PNG 顶掉」不允许出现。
+   * 口径（票 18 二轮 G1）：`complete:false` 的字节一律隔离落 `.incomplete-<内容摘要前 12 位>.<format>`
+   * 侧文件，绝不覆盖上一次的好产物——「UI 显示已导出、磁盘上的好产物被空白 PNG 顶掉」不允许出现。
+   * 摘要进名字（三轮 E2）是为了让**不同**部分结果互不覆盖：名字只由规范名决定时，同页两次
+   * partial 会挤进同一个侧文件，后一次静默替换前一次，前一次响应的 sha/length 即失效。
    */
   preservedPreviousArtifactPath: string | null;
   /** PNG 可用最大倍率（UI 据此收口档位）。 */

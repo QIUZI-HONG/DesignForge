@@ -62,17 +62,44 @@ describe('export · 尺寸护栏（§D1：防多 GB 同步分配）', () => {
   });
 });
 
-describe('export · 不完整产物的隔离文件名（票 18 二轮 G1：不得覆盖好产物）', () => {
-  it('规范名保留扩展名，中间插 .incomplete（三种格式各一条）', () => {
-    expect(incompleteArtifactFileName('doc-page-1.svg', 'svg')).toBe('doc-page-1.incomplete.svg');
-    expect(incompleteArtifactFileName('doc-page-1.png', 'png')).toBe('doc-page-1.incomplete.png');
-    expect(incompleteArtifactFileName('doc-page-1.pdf', 'pdf')).toBe('doc-page-1.incomplete.pdf');
+describe('export · 不完整产物的隔离文件名（票 18 二轮 G1 + 三轮 E2）', () => {
+  it('规范名保留扩展名，中间插 .incomplete-<摘要标签>（三种格式各一条）', () => {
+    expect(incompleteArtifactFileName('doc-page-1.svg', 'svg', 'aabbccddeeff0011')).toBe(
+      'doc-page-1.incomplete-aabbccddeeff.svg',
+    );
+    expect(incompleteArtifactFileName('doc-page-1.png', 'png', 'aabbccddeeff0011')).toBe(
+      'doc-page-1.incomplete-aabbccddeeff.png',
+    );
+    expect(incompleteArtifactFileName('doc-page-1.pdf', 'pdf', 'aabbccddeeff0011')).toBe(
+      'doc-page-1.incomplete-aabbccddeeff.pdf',
+    );
   });
 
-  it('扩展名不匹配时不吞字符：原样作主体，仍追加 .incomplete.<format>', () => {
-    expect(incompleteArtifactFileName('doc-page-1', 'svg')).toBe('doc-page-1.incomplete.svg');
-    expect(incompleteArtifactFileName('doc-page-1.png', 'svg')).toBe(
-      'doc-page-1.png.incomplete.svg',
+  it('扩展名不匹配时不吞字符：原样作主体，仍追加 .incomplete-<摘要标签>.<format>', () => {
+    expect(incompleteArtifactFileName('doc-page-1', 'svg', 'aabbccddeeff0011')).toBe(
+      'doc-page-1.incomplete-aabbccddeeff.svg',
+    );
+    expect(incompleteArtifactFileName('doc-page-1.png', 'svg', 'aabbccddeeff0011')).toBe(
+      'doc-page-1.png.incomplete-aabbccddeeff.svg',
+    );
+  });
+
+  it('不同字节必然不同名（E2：四次部分结果曾挤进同一个侧文件互相顶掉）', () => {
+    const first = incompleteArtifactFileName('doc-page-1.svg', 'svg', '1111222233334444');
+    expect(incompleteArtifactFileName('doc-page-1.svg', 'svg', '9999888877776666')).not.toBe(first);
+    // 相同字节幂等：内容一致，覆盖谈不上损失。
+    expect(incompleteArtifactFileName('doc-page-1.svg', 'svg', '1111222233334444')).toBe(first);
+  });
+
+  it('摘要标签只留十六进制、截到 12 位，非摘要输入不得往文件名塞路径分隔符', () => {
+    expect(incompleteArtifactFileName('doc-page-1.svg', 'svg', '../../../../etc/passwd')).toBe(
+      'doc-page-1.incomplete-ecad.svg',
+    );
+    expect(incompleteArtifactFileName('doc-page-1.svg', 'svg', 'AABBCCDDEEFF00112233')).toBe(
+      'doc-page-1.incomplete-aabbccddeeff.svg',
+    );
+    expect(incompleteArtifactFileName('doc-page-1.svg', 'svg', 'zzzz')).toBe(
+      'doc-page-1.incomplete-unknown.svg',
     );
   });
 

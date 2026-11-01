@@ -404,6 +404,107 @@ async function runSmoke(baseUrl) {
     `POST /export(jpg) → ${badFormat.status}`,
   );
 
+  // ---- 导出负向腿：部分产物不得顶掉规范名，不同字节不得挤进同一个侧文件 ----
+  // 三条正向断言只证明「好产物落在规范名」；没有负向腿就会假绿——「看不见 = 完整」的回归
+  // （三轮 E1 实测：带内容却没被渲染的正文报 complete:true，空白产物直接覆盖上一次的好产物）
+  // 在正向腿上照样全绿。E2 实测：同一页四次部分导出挤进同一个侧文件，后一次把前一次顶掉，
+  // 前三个响应的 filePath/sha256/length 对自己报的那条路径全部失效。
+  const partialBaseline = await call(baseUrl, 'PUT', '/documents/冒烟文档/pages/page-1', {
+    body: pageBody,
+  });
+  const baselineExport = await call(baseUrl, 'POST', '/export', {
+    documentId: '冒烟文档',
+    pageId: 'page-1',
+    format: 'svg',
+  });
+  const baselineArtifact = baselineExport.json?.result?.artifact;
+  const canonicalSvgPath =
+    typeof baselineArtifact?.filePath === 'string' ? baselineArtifact.filePath : null;
+  let canonicalSvgBytes = null;
+  try {
+    canonicalSvgBytes = canonicalSvgPath === null ? null : await readFile(canonicalSvgPath);
+  } catch {
+    canonicalSvgBytes = null;
+  }
+  expectOk(
+    partialBaseline.status === 200 &&
+      baselineExport.status === 200 &&
+      baselineExport.json?.result?.complete === true &&
+      canonicalSvgBytes !== null,
+    'export.partial.baseline',
+    `PUT(好正文)+POST /export(svg) → ${partialBaseline.status}/${
+      baselineExport.status
+    }（规范名 ${canonicalSvgPath ?? '（未取到）'} 上须有好产物基线）`,
+  );
+
+  const partialBodies = [
+    {
+      width: 300,
+      height: 200,
+      background: '#FFFFFF',
+      children: { a: { kind: 'rect', x: 8, y: 8, width: 60, height: 40 } },
+    },
+    {
+      width: 320,
+      height: 220,
+      background: '#FFFFFF',
+      nodes: 'oops',
+      extra: { b: { kind: 'text' } },
+    },
+  ];
+  const partialSidecars = [];
+  for (const [index, body] of partialBodies.entries()) {
+    await call(baseUrl, 'PUT', '/documents/冒烟文档/pages/page-1', { body });
+    const partial = await call(baseUrl, 'POST', '/export', {
+      documentId: '冒烟文档',
+      pageId: 'page-1',
+      format: 'svg',
+    });
+    const result = partial.json?.result;
+    const artifact = result?.artifact;
+    expectOk(
+      partial.status === 200 && result?.complete === false && Number(result?.skippedNodes) > 0,
+      `export.partial.${index}.reported`,
+      `POST /export(有内容未渲染正文 #${index}) → ${partial.status} complete=${String(
+        result?.complete,
+      )} skippedNodes=${String(
+        result?.skippedNodes,
+      )}（须 false + >0；报 true 即「看不见=完整」回归，空白产物会顶掉好产物）`,
+    );
+    let isolation = false;
+    let isolationDetail = '';
+    try {
+      if (canonicalSvgPath === null || canonicalSvgBytes === null || !artifact) {
+        isolationDetail = '好产物基线缺失（见 export.partial.baseline）';
+      } else {
+        const onSidecar =
+          artifact.filePath !== canonicalSvgPath &&
+          /\.incomplete-[0-9a-f]{12}\.svg$/.test(String(artifact.fileName));
+        const preserved = result?.preservedPreviousArtifactPath === canonicalSvgPath;
+        const goodUntouched = (await readFile(canonicalSvgPath)).equals(canonicalSvgBytes);
+        const selfConsistent = (await readFile(artifact.filePath)).equals(
+          Buffer.from(artifact.base64, 'base64'),
+        );
+        isolation = onSidecar && preserved && goodUntouched && selfConsistent;
+        isolationDetail = `落侧文件=${onSidecar} 保留声明=${preserved} 规范名字节未动=${goodUntouched} 落盘与载荷一致=${selfConsistent}`;
+        if (onSidecar) partialSidecars.push(String(artifact.filePath));
+      }
+    } catch (error) {
+      isolationDetail = `读取失败：${String(error).slice(0, 120)}`;
+    }
+    expectOk(isolation, `export.partial.${index}.isolated`, isolationDetail);
+  }
+  expectOk(
+    partialSidecars.length === partialBodies.length &&
+      new Set(partialSidecars).size === partialSidecars.length,
+    'export.partial.distinct',
+    `${partialSidecars.length}/${partialBodies.length} 次部分产物落点去重后 ${
+      new Set(partialSidecars).size
+    } 个（E2：曾四次挤进同一个侧文件互相顶掉，前几次响应的 filePath 随之失效）`,
+  );
+  // 正文恢复成好夹具：后面的 MCP 桩仍引用这份文档，别把它留在坏正文上。
+  await call(baseUrl, 'PUT', '/documents/冒烟文档/pages/page-1', { body: pageBody });
+
   // ---- AI（两态：未配置降级 / 上游不可达降级；均不出网）----
   const aiStatus = await call(baseUrl, 'GET', '/ai/status');
   expectOk(
