@@ -10,7 +10,13 @@
 
 import { DAEMON_ROUTES } from '@dforge/contracts';
 import type { DesignDocument, ScenePage } from '@dforge/engine';
-import { createPage, emptyTokenSet, parseDocument, type TokenSet } from '@dforge/engine';
+import {
+  createPage,
+  emptyTokenSet,
+  parseDocument,
+  type TokenSet,
+  validateDocument,
+} from '@dforge/engine';
 
 /** 页面正文信封。 */
 export interface CanvasPageBody {
@@ -259,13 +265,28 @@ export function daemonPageId(index: number): string {
  *   位置恰与设计页序对齐）再写正文；
  * - **孤儿页清理**：全部页面写成功后，daemon 页列表中不在保留集里的页（位置超出当前页数的
  *   旧页）逐个删除——页数缩减的保存不留下会复活/无界增长的孤儿页；
- * - 全部以 daemon 汇报的页 id 为准，本函数不做任何 `page-{N}` 猜测。
+ * - 全部以 daemon 汇报的页 id 为准，本函数不做任何 `page-{N}` 猜测；
+ * - **写前结构校验（票 17 · blocker 2）**：动任何写盘之前先跑引擎 `validateDocument`——
+ *   悬空组件引用/多父/环等非法结构一旦落盘，读回侧 `parseDocument` 会整份打回（一次静默
+ *   写坏 = 文档永久打不开）。写读同强度：非法即整体拒绝（盘上零变化），错误原因带问题码，
+ *   经 i18n 包成顶栏「保存失败」提示文案。
  */
 export async function saveDesignDocument(
   client: DocumentsClient,
   documentId: string,
   document: DesignDocument,
 ): Promise<ClientResult<{ documentId: string; pageIds: string[] }>> {
+  const issues = validateDocument(document);
+  if (issues.length > 0) {
+    const summary = issues
+      .slice(0, 8)
+      .map((issue) => `${issue.code}:${issue.message}`)
+      .join('；');
+    return {
+      ok: false,
+      error: `文档结构非法，已拒绝保存（未写盘）：${summary}${issues.length > 8 ? '…' : ''}`,
+    };
+  }
   const detail = await client.getDocument(documentId);
   if (!detail.ok) return detail;
   const daemonPages = detail.value.pages;

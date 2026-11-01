@@ -3,6 +3,9 @@
  *
  * 正文以 opaque JSON 传输/存储（元数据强类型）——daemon 只校验 JSON 可解析与形状，
  * 不解析节点语义（Design IR 归 @dforge/engine，见契约包归属裁决）。
+ * 唯一例外：`dforge.canvas.page` 信封的**引用完整性守门**（票 17）——悬空组件引用
+ * 在 PUT 即拒绝（422 `doc_invalid_structure`，盘上零变化），拒绝「能写不可读」的
+ * 文档进盘；守门只查 id 引用存在性，不做形状/数学校验（见 `documents/canvas-integrity.ts`）。
  */
 
 import type { PageSaveRequest } from '@dforge/contracts';

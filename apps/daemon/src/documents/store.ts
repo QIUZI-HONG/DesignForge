@@ -8,7 +8,10 @@
  *   pages/<pageId>.json# 页面正文（opaque JSON——节点语义归 @dforge/engine）
  * ```
  * 纪律：
- * - **正文不解析节点语义**（只校验 JSON 可解析、形状与嵌套深度）；
+ * - **正文不解析节点语义**（只校验 JSON 可解析、形状与嵌套深度）；唯一例外是
+ *   `dforge.canvas.page` 信封的**引用完整性守门**（票 17：悬空组件引用拒绝落盘，
+ *   见 `canvas-integrity.ts`——读侧 `parseDocument` 全校验，写侧必须同强度，
+ *   否则一次静默写坏 = 文档永久打不开）；
  * - **所有**文件读写/删除路径都由 `resolveWithin`（path-safety.ts）产出：
  *   id 白名单 + `..`/绝对路径/`%00`/NFC/软链四类越界一律拒（Q1 路径穿越修复）；
  * - **按文档串行化**的 manifest 读改写（每文档一把异步锁）+ 原子写（临时文件 + rename）——
@@ -53,6 +56,7 @@ import {
   MAX_JSON_DEPTH,
   resolveWithin,
 } from '../path-safety.ts';
+import { canvasPageReferenceIssues } from './canvas-integrity.ts';
 
 /** 存储操作失败码（全部是 `@dforge/contracts` 里已登记的 DfErrorCode，路由层直接透传）。 */
 export type StoreErrorCode =
@@ -61,6 +65,7 @@ export type StoreErrorCode =
   | 'doc_invalid_name'
   | 'doc_invalid_id'
   | 'doc_invalid_body'
+  | 'doc_invalid_structure'
   | 'doc_invalid_manifest'
   | 'doc_last_page'
   | 'not_found'
@@ -534,6 +539,17 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           code: 'doc_invalid_body',
           message: `正文嵌套深度超过上限 ${MAX_JSON_DEPTH} 层（拒绝序列化以避免栈溢出）`,
           details: { documentId, pageId, maxDepth: MAX_JSON_DEPTH },
+        };
+      }
+      // 引用完整性守门（票 17）：画布页信封的悬空组件引用拒绝落盘（盘上零变化——
+      // 在取锁/写正文之前拒绝；读回侧 parseDocument 全校验，写读同强度）
+      const integrity = canvasPageReferenceIssues(body);
+      if (integrity !== null) {
+        return {
+          ok: false,
+          code: 'doc_invalid_structure',
+          message: `画布页正文引用不完整，已拒绝落盘：${integrity.join('；')}`,
+          details: { documentId, pageId, issues: integrity },
         };
       }
       const pagePath = await resolvePagePath(paths.value, documentId, pageId);

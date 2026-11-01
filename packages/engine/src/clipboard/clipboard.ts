@@ -4,7 +4,9 @@
  * 设计：剪贴板载荷是**自包含**的（顶层 id + 扁平节点前序快照），因此可跨页面、跨窗口传递
  * （`serializeClipboard` → JSON 字符串，落系统剪贴板由 FE-06 负责）。
  * 粘贴时做 **id 重映射**：所有 id 换新，内部引用（children / 实例主组件 / 覆盖路径）一并改写；
- * 指向载荷之外的引用（如外部主组件）保持原值，语义不变。
+ * 指向载荷之外的引用（如外部主组件）由 `componentRemap` 接手或经目标页快照确认仍在位；
+ * 两者都不成立时**粘贴即降级**（实例 → 普通帧；悬空组件集引用 → null）——
+ * 悬空引用不得进页面（票 17：写不校验、读全校验会让整份文档不可重开）。
  */
 
 import { parentIdOf, siblingIndexOf } from '../commands/helpers';
@@ -159,8 +161,10 @@ export function serializeClipboard(payload: ClipboardPayload): string {
  * 非有限数、顶层/子级引用悬空、重复 id/重复引用、多父、环、不可达节点（会被静默插成顶层 → 走私）。
  * 系统剪贴板是不受信输入，任何一处不合法都整包拒绝，而不是把畸形节点写进文档（B5）。
  *
- * 注：实例的**外部**主组件引用是合法载荷的一部分（跨页粘贴靠 `componentRemap` 接手），
- * 故不套用文档校验的 missing-component/missing-component-set。
+ * 注：实例的**外部**主组件引用是合法载荷的一部分（粘贴时由 `componentRemap` 接手，或经
+ * 目标页快照确认主组件仍在位；两者都不成立时 `pasteCommands` 把实例降级为普通帧），
+ * 故载荷自检不套用文档校验的 missing-component/missing-component-set——降级口径见
+ * `pasteCommands`（票 17：粘贴不得留下悬空引用）。
  */
 function validateClipboardPayload(payload: ClipboardPayload): DocumentIssue[] {
   const issues: DocumentIssue[] = [];
@@ -508,6 +512,48 @@ export function remapNode(
   return next as unknown as SceneNode;
 }
 
+/**
+ * 悬空组件引用降级（票 17）：remap 后的**外部**引用若无人接手——既不在载荷内（未被 id
+ * 重映射改写）、也没有显式 `componentRemap` 接手、目标页快照里又不存在被引用节点——
+ * 就地把实例降级为普通帧（几何/样式保持载荷原值；主组件虚节点不随复制）、
+ * 把悬空组件集引用置 null（变体主组件退为独立主组件），绝不把悬空引用写进页面。无目标页快照（跨文档粘贴）时存在性不可证 → 同样降级；
+ * 显式给出 `componentRemap` 则视为调用方断言目标引用有效，原样放行。
+ */
+function settleComponentRefs(
+  remapped: SceneNode,
+  original: SceneNode,
+  map: Map<NodeId, NodeId>,
+  componentRemap: Record<ComponentId, ComponentId>,
+  page: ScenePage | undefined,
+): SceneNode {
+  if (remapped.type === 'instance' && original.type === 'instance') {
+    const targetId = remapped.componentId;
+    // 载荷内主组件随复制（id 重映射接手）或显式 componentRemap 接手 → 引用有效
+    if (map.has(original.componentId) || original.componentId in componentRemap) return remapped;
+    if (page !== undefined && page.nodes[targetId]?.type === 'component') return remapped;
+    const next: Record<string, unknown> = { ...remapped };
+    delete next.componentId;
+    delete next.overrides;
+    next.type = 'frame';
+    next.children = [];
+    next.clipsContent = true;
+    next.autoLayout = null;
+    return next as unknown as SceneNode;
+  }
+  if (remapped.type === 'component' && original.type === 'component') {
+    if (original.componentSetId === null) return remapped;
+    // 组件集随复制在载荷内（id 重映射接手）或显式 remap 接手 → 引用有效
+    if (map.has(original.componentSetId) || original.componentSetId in componentRemap) {
+      return remapped;
+    }
+    const targetId = remapped.componentSetId;
+    if (targetId !== null && page?.nodes[targetId]?.type === 'component_set') return remapped;
+    // 悬空 → 退为独立主组件（票 17：粘贴不得留下悬空引用）
+    return { ...remapped, componentSetId: null };
+  }
+  return remapped;
+}
+
 /** 单个根节点的落位决策（粘贴/再制共用的中间表示）。 */
 interface RootPlacement {
   parentId: NodeId | null;
@@ -701,7 +747,13 @@ export function pasteCommands(payload: ClipboardPayload, options: PasteOptions):
       const newId = map.get(node.id);
       if (!newId) continue;
       const oldParent = oldParentOf.get(node.id) ?? null;
-      const remapped = remapNode(node, map, options.componentRemap ?? {});
+      const remapped = settleComponentRefs(
+        remapNode(node, map, options.componentRemap ?? {}),
+        node,
+        map,
+        options.componentRemap ?? {},
+        page,
+      );
       // 容器插入时清空 children，交由子节点的插入重建（叶子节点不带 children 字段）
       const insertNodeValue: SceneNode = isContainer(remapped)
         ? { ...remapped, children: [] }
