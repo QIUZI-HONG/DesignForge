@@ -9,6 +9,7 @@ import {
   CORS_ORIGINS_ENV,
   CORS_ORIGINS_ENV_ALIAS,
   corsOriginsFromEnv,
+  corsResponseHeaders,
   createCorsPolicy,
   DEFAULT_CORS_ORIGINS,
   parseCorsOrigins,
@@ -451,5 +452,34 @@ describe('cors · 流式（SSE）线路级放行头（票 02 · 真 socket）', 
     } finally {
       await daemon.cleanup();
     }
+  });
+});
+
+describe('cors · 头集合单一真源（S3 · 票 02）', () => {
+  it('corsResponseHeaders 产出的头集合用字面量钉住：与普通 JSON 路径同口径，流式分支不得另拼一套', () => {
+    const policy = createCorsPolicy(['http://localhost:3000']);
+    // 白名单命中：回显 Origin + vary（期望值取 HTTP 规范的既定口径，不复算实现）
+    expect(corsResponseHeaders('http://localhost:3000', policy)).toEqual({
+      vary: 'Origin',
+      'access-control-allow-origin': 'http://localhost:3000',
+    });
+    // 票 14 的回环任意端口恒定规则在头集合里同样成立（壳静态模式的流式请求）
+    expect(corsResponseHeaders('http://127.0.0.1:53211', policy)).toEqual({
+      vary: 'Origin',
+      'access-control-allow-origin': 'http://127.0.0.1:53211',
+    });
+    // 白名单外（含 Origin: null）：只分桶缓存，不放行
+    expect(corsResponseHeaders('http://evil.example.com', policy)).toEqual({ vary: 'Origin' });
+    expect(corsResponseHeaders('null', policy)).toEqual({ vary: 'Origin' });
+    // 无 Origin / 重复 Origin 头（畸形）：一个 CORS 头都不加
+    expect(corsResponseHeaders(undefined, policy)).toEqual({});
+    expect(
+      corsResponseHeaders(['http://localhost:3000', 'http://evil.example.com'], policy),
+    ).toEqual({});
+    // 绝不通配、绝不放行凭据（本函数的键集合就是这两项，多一个都是放宽）
+    expect(Object.keys(corsResponseHeaders('http://localhost:3000', policy)).sort()).toEqual([
+      'access-control-allow-origin',
+      'vary',
+    ]);
   });
 });
