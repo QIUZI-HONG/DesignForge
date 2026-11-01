@@ -167,6 +167,43 @@ describe('documents · 无 manifest 空壳目录必须可回收', () => {
     }
   });
 
+  it('空壳含外来文件（非守护进程自有名）→ DELETE 拒绝 4xx 且外来文件分毫未损', async () => {
+    const daemon = await createTestDaemon();
+    const shellId = 'orphan-shell';
+    try {
+      // 手造无 manifest 空壳：notes.txt + backup/ 子树，全是外来内容（非 manifest.json/pages//*.tmp）
+      const shellDir = join(daemon.workspaceDir, `${shellId}.dfg`);
+      await mkdir(join(shellDir, 'backup'), { recursive: true });
+      await writeFile(join(shellDir, 'notes.txt'), 'x'.repeat(1300), 'utf8');
+      await writeFile(join(shellDir, 'backup', 'data.bin'), 'y'.repeat(4096), 'utf8');
+      await writeFile(join(shellDir, 'backup', 'git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8').catch(
+        async () => {
+          await mkdir(join(shellDir, 'backup', 'git'), { recursive: true });
+          await writeFile(join(shellDir, 'backup', 'git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
+        },
+      );
+
+      const removed = await injectJson(daemon.app, {
+        method: 'DELETE',
+        url: `/documents/${shellId}`,
+      });
+      // 收口：递归删只放通「条目 ⊆ {manifest.json, pages/, *.tmp}」的空壳；混入外来文件即拒绝
+      expect(removed.statusCode, removed.raw).toBeLessThan(500);
+      expect([400, 409]).toContain(removed.statusCode);
+      const error = (removed.payload as { error: { code: string } }).error;
+      expect(typeof error.code).toBe('string');
+
+      // 关键：外来树必须原样存活——拒绝即零删除
+      const notes = await readFile(join(shellDir, 'notes.txt'), 'utf8');
+      expect(notes.length).toBe(1300);
+      const bin = await readFile(join(shellDir, 'backup', 'data.bin'), 'utf8');
+      expect(bin.length).toBe(4096);
+      expect((await readdir(shellDir)).sort()).toContain('notes.txt');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('删掉空壳后同名文档可以重建（名字被释放）', async () => {
     const daemon = await createTestDaemon();
     try {

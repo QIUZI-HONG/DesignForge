@@ -461,6 +461,23 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           if (manifest.code !== 'doc_not_found') return manifest;
           const shell = await lstat(paths.value.dir).catch(() => null);
           if (shell === null || !shell.isDirectory() || shell.isSymbolicLink()) return manifest;
+          // 对象级收口（F6）：无 manifest 的目录只可能是 create() 中途失败留下的空壳，
+          // 递归删只对「条目全属守护进程自有名（manifest.json / pages/ / *.tmp）」成立；
+          // 混入外来内容即拒绝——绝不能把用户自己塞进 .dfg/ 的文件一并递归删掉。
+          const shellEntries = await readdir(paths.value.dir).catch(() => null);
+          if (shellEntries === null) return manifest;
+          const foreign = shellEntries.filter(
+            (entry) => entry !== 'manifest.json' && entry !== 'pages' && !entry.endsWith('.tmp'),
+          );
+          if (foreign.length > 0) {
+            return {
+              ok: false,
+              code: 'doc_invalid_id',
+              message:
+                '无 manifest 的 .dfg 目录含非守护进程自有的条目，已拒绝递归删除（请先手动清理外来文件）',
+              details: { documentId, foreignEntries: foreign.slice(0, 8), foreignCount: foreign.length },
+            };
+          }
         }
         // 对象级删除守卫（Q1-3）：只允许删「数据根内的一个 .dfg 目录」——
         // 数据根本身 / 根的祖先 / 根内普通文件 / 软链一律拒绝（绝不做递归删）
