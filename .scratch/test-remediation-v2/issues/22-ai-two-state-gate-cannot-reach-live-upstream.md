@@ -84,10 +84,14 @@ blockers:
    try/catch 与独立 record，兜底文案如实写「判据不可评估」，不再把第二步的失败冒名成第一步。
 
 **实跑（`~/df-evidence/v2r-b/`，WSL Ubuntu，`LD_LIBRARY_PATH=/home/QIU/df-local-libs/usr/lib/x86_64-linux-gnu`）**：
-`node scripts/verify-ai-two-state.mjs` → **exit 2**（`gate-verify-ai-two-state.log`：步骤 15 项、
-失败 0 项、跳过 9 项；段 A 6 步含 `A.stream.sse-frames-accounted` 全 ok；daemon 监听
-`http://127.0.0.1:34421`，非常驻 4318）。UI 段本轮**阻塞**（`page.goto http://localhost:4420/editor`
-超时 120s——4420 上是被别的会话占用的既有 next dev），门禁按 §3 纪律如实打「阻塞：UI 段…」
-并仍退 2，**2 不是通过**。`node --test scripts/tests/*.test.mjs` → 0；`pnpm run lint:scripts` → 0
+`node scripts/verify-ai-two-state.mjs` → **exit 2**（合并集成分支 tip 后复跑，日志 `final-verify-ai-two-state.log`：
+步骤 15 项、失败 0 项、跳过 9 项；段 A 6 步含 `A.stream.sse-frames-accounted` 全 ok；daemon 监听
+`http://127.0.0.1:35605`，UI 段代理按同一真实端口接线，**非常驻 4318**；跑完 `ss -ltn` 见 4318/3000 未被占用）。
+UI 段本轮**阻塞**（`page.goto http://localhost:4420/editor` 超时 120s——4420 上是被别的会话占用的既有
+next dev 实例，`scripts/lib/ui-mount.mjs` 的「复用既有实例」策略在这种场景下会拿到对不上号的站点），
+门禁按 §3 纪律如实打「阻塞：UI 段…」并仍退 2，**2 不是通过**。
+`node --test scripts/tests/*.test.mjs` → 0；`pnpm run lint:scripts` → 0
 （顺带去掉 `? true : false` 的 `noUselessTernary`，非抑制式修复）。
+合并 `integration/test-remediation-v2`（tip `01cec5e`）后全量复跑：`pnpm run lint` 0 ·
+`pnpm run typecheck` 0 · `pnpm -r test` 0 · `verify:daemon` 0（48 步 0 失败）。
 
