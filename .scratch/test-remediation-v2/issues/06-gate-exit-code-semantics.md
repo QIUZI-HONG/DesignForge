@@ -17,3 +17,19 @@ blockers:
 - [ ] 对抗夹具入 `scripts/tests/`（同轮既有 failed 又有 blocked 的载荷），断言退出码为 1 且两类明细分列
 - [ ] 在 node 22 与 node 24 两种环境各跑一遍受影响门禁，退出码与结论文案一致
 - [ ] 复跑本轮 Phase A/B，`gate-summary*.tsv` 的 exit 列不得再出现「同因两码」
+
+## 第 2 批实况（2026-11-01 三轮 · 本票判据的一条**新实例**由本 diff 自己引入并已单文件收口）
+
+三轮 Standards 轴提出、独立验证轮 CONFIRMED（`~/df-evidence/v2-review3-fixture/`）：
+`scripts/verify-ai-two-state.mjs` 出现与 `verify-mk-04/05` 同构的**优先级倒置**——`:565-570`「段 B 默认跳过」先把 `exitCode = 2` 置上，
+而 `failed → 1` 锁在 `if (exitCode === 0)`（`:710-713`）门外，`:716-717` 的 uiEvidence 判定同样带这个前置；
+于是实跑日志读作「步骤 21 项，失败 2 项；退出码 2」——两项 `ok:false`（`:307-313`、`:327-331`）被当成纯阻塞，真违规从退出码里消失。
+基线 `1f05cf9` 上没有「默认跳过」分支（2 只来自真阻塞），所以这一形态是二轮 G4 修法带进来的回归，不是既有。
+
+已做：`fix/r3-a-gate-honesty` 只收 `verify-ai-two-state.mjs` 这一文件——判定改为由事实（`ok === false` / `skipped` / uiEvidence 状态）推导，违规优先于阻塞。
+**本票不因这一条关闭**，仍活的面：
+
+- [ ] `scripts/verify-mk-04.mjs:490-492`、`verify-mk-05.mjs:540` 两处优先级仍未修。
+- [ ] 其余门禁的同类倒置未逐族清点（本票第 1 条 blocked/launch 类归 2 的判据也还没落地）。
+- [ ] 「同轮既有 failed 又有 blocked」的对抗夹具仍未进 `scripts/tests/`——`fix/r3-a` 只单文件改退出码推导，没有把它推成族级机检；下一位接手请把 `verify-ai-two-state` 这一例作为夹具的第二个用例。
+- [ ] node 22 / node 24 双环境一致性未跑。

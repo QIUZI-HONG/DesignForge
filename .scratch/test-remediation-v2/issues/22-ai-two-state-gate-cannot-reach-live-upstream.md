@@ -95,3 +95,20 @@ next dev 实例，`scripts/lib/ui-mount.mjs` 的「复用既有实例」策略�
 合并 `integration/test-remediation-v2`（tip `01cec5e`）后全量复跑：`pnpm run lint` 0 ·
 `pnpm run typecheck` 0 · `pnpm -r test` 0 · `verify:daemon` 0（48 步 0 失败）。
 
+## 三轮补记（opt-in 那条路**仍然到不了被测路径**，且上面 §56 的顺延把话说小了一半）
+
+三轮 Spec 轴提出、主控在 HEAD 复核属实（`P1`）：`:585` 的 `PUT /config { ai: { baseUrl: mock.baseUrl } }` 被白名单**拒**
+（`access-control.ts isAllowedAiBaseUrl` 只收 `https://api.deepseek.com`），`:588` 如实记 `ok:false`，
+但 `:601` 之后**无条件** `POST ${baseUrl}/ai/chat`。因为 PUT 没生效，daemon 的 baseUrl 仍停在官方默认端，
+所以 `DF_ALLOW_AI_EGRESS=1` 这条路不是「把出机责任转嫁给操作者」这么轻——它是**门禁自己会真的向官方端发一次带哨兵 key 的请求**，
+而这一段照样覆盖不到 mock（`upstreamCalls` 恒空）。两条后果要分开记账：
+
+- 已在做：`fix/r3-a-gate-honesty` 给这条腿加「替身 baseUrl **确实生效**才发请求」的守卫——不生效就记显式带类型的 skip，
+  且证据文件不得再由「只数本机 mock」的计数器推任何出机结论。**这不改变本票的路线裁决**，只是把 opt-in 路径的危险去掉。
+- 仍活（本票 blocker 1 的 A/B 选项，**属人工决定，不代答**）：只要白名单不收环回替身，段 B 的「真上游通路」
+  在纯脚本层就**不可能被覆盖**——C 路线（默认 skip + exit 2）是诚实的，但它不是覆盖。想覆盖只有 A（夹具注入假上游）
+  或 B（测试态白名单扩展 env + 生效范围 attestation）。
+- 顺带记：`ui.degraded-*` 两步在 HEAD 上是 `record(id, false)`（`:307-313`、`:327-331`），即**违规级**判定；
+  而 §31 那句「段 B skip → 门禁强制 exit 2」把优先级倒置写成了判据。三轮 Standards 轴 S1 已在修（违规优先于阻塞），
+  修完这一段的本机读数会是 **1**，不是 2——那是诚实值，别为了「好看」把它调回 2。
+
