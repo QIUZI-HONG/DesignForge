@@ -35,7 +35,7 @@ import {
 } from '@dforge/contracts';
 
 import type { ConfigStore } from '../config/store.ts';
-import { ensureDir, readJsonFileOrNull, writeFileAtomic } from '../fs-atomic.ts';
+import { ensureDir, readJsonFileOrNull, removeTree, writeFileAtomic } from '../fs-atomic.ts';
 import { createKeyedMutex } from '../mutex.ts';
 import {
   exceedsJsonDepth,
@@ -339,15 +339,26 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           updatedAt: now,
           pages: [{ id: 'page-1', name: '页面 1', updatedAt: now }],
         };
-        const pagePath = await resolvePagePath(paths.value, id, 'page-1');
-        if (pagePath === null) return invalidPageId();
-        await writeFileAtomic(pagePath, '{}\n', DOC_FILE_MODE);
-        await writeFileAtomic(
-          paths.value.manifestPath,
-          `${JSON.stringify(manifest, null, 2)}\n`,
-          DOC_FILE_MODE,
-        );
-        return { ok: true, value: await summaryOf(id, paths.value, manifest) };
+        // mkdir 之后任何一步失败都必须撤掉刚建的目录：留下的无 manifest 空壳在读侧只会
+        // doc_not_found，而名字被 EEXIST 永久占住（票 19 的可观测后果）。
+        try {
+          const pagePath = await resolvePagePath(paths.value, id, 'page-1');
+          if (pagePath === null) {
+            await removeTree(paths.value.dir);
+            return invalidPageId();
+          }
+          await writeFileAtomic(pagePath, '{}\n', DOC_FILE_MODE);
+          await writeFileAtomic(
+            paths.value.manifestPath,
+            `${JSON.stringify(manifest, null, 2)}\n`,
+            DOC_FILE_MODE,
+          );
+          return { ok: true, value: await summaryOf(id, paths.value, manifest) };
+        } catch (error) {
+          // 只撤自己刚建的目录；回滚本身失败也要抛出，不掩盖「名字可能被残骸占住」
+          await removeTree(paths.value.dir);
+          throw error;
+        }
       });
     },
 
@@ -443,7 +454,7 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
         if (!recheck.ok || recheck.value.dir !== paths.value.dir) {
           return invalidDocumentId();
         }
-        await rm(paths.value.dir, { recursive: true, force: true });
+        await removeTree(paths.value.dir);
         return { ok: true, value: { id: documentId } };
       });
     },
