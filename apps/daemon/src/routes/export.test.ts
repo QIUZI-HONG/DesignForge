@@ -354,7 +354,12 @@ describe('export · web 真实信封保存 → 导出（§A1 核心闭环）', (
       expect(statusCode).toBe(200);
       const result = (
         payload as {
-          result: { artifact: { base64: string; length: number }; skippedNodes: number };
+          result: {
+            artifact: { base64: string; length: number };
+            skippedNodes: number;
+            truncatedNodes: number;
+            complete: boolean;
+          };
         }
       ).result;
       // 产物非空且远大于「空场景」的下限（§A1 现状是空白 1440×900）
@@ -369,8 +374,11 @@ describe('export · web 真实信封保存 → 导出（§A1 核心闭环）', (
       expect(png.pixel(190, 60)).toEqual([0, 0, 255, 255]);
       // 远角是页面底色 #F5F5F5（信封的 page.backgroundColor 生效）
       expect(png.pixel(215, 5)).toEqual([245, 245, 245, 255]);
-      // 隐藏矩形 + 实例（组件语义不解析）→ skippedNodes = 2
-      expect(result.skippedNodes).toBe(2);
+      // 隐藏矩形 = 非损失（不进 skipped）；仅实例（组件语义不解析）算真损失 → skippedNodes = 1
+      expect(result.skippedNodes).toBe(1);
+      expect(result.truncatedNodes).toBe(0);
+      // 实例未展开是实打实的损失 → complete=false（隐藏层单独不会把它拉成 false）
+      expect(result.complete).toBe(false);
     } finally {
       await daemon.cleanup();
     }
@@ -509,6 +517,198 @@ describe('export · 节点预算截断必须如实上报', () => {
       expect(result.skippedNodes).toBe(0);
     } finally {
       await daemon.cleanup();
+    }
+  });
+});
+
+describe('export · 未判定/零产物不得认证为完整（票 18 红线，HTTP 缝）', () => {
+  /** 直接 PUT 任意正文（含坏信封）并导出，返回 HTTP 状态 + result（或 error）。 */
+  async function putBodyAndExport(
+    daemon: TestDaemon,
+    body: unknown,
+  ): Promise<{
+    putStatus: number;
+    statusCode: number;
+    result: Record<string, unknown> | undefined;
+  }> {
+    const created = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/documents',
+      payload: { name: `坏信封-${Math.random().toString(36).slice(2)}` },
+    });
+    const documentId = (created.payload as { result: { document: { id: string } } }).result.document
+      .id;
+    const saved = await injectJson(daemon.app, {
+      method: 'PUT',
+      url: `/documents/${encodeURIComponent(documentId)}/pages/page-1`,
+      payload: { body },
+    });
+    const exported = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/export',
+      payload: { documentId, pageId: 'page-1', format: 'svg' },
+    });
+    return {
+      putStatus: saved.statusCode,
+      statusCode: exported.statusCode,
+      result: (exported.payload as { result?: Record<string, unknown> }).result,
+    };
+  }
+
+  it('坏信封（page:null）：HTTP 200 但必须 complete=false（不得把空白产物认证为完整）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const { putStatus, statusCode, result } = await putBodyAndExport(daemon, {
+        $format: 'dforge.canvas.page',
+        $version: 1,
+        page: null,
+        tokens: {},
+      });
+      expect(putStatus).toBe(200);
+      expect(statusCode).toBe(200);
+      expect(result).toBeDefined();
+      expect(result?.complete).toBe(false);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('信封有可渲染节点但 rootIds 为空：产物空 → complete=false', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const nodes: Record<string, unknown> = {};
+      for (let index = 0; index < 5; index += 1) {
+        const id = `rect-${String(index)}`;
+        nodes[id] = {
+          id,
+          type: 'rect',
+          x: index * 12,
+          y: 0,
+          width: 10,
+          height: 10,
+          visible: true,
+          fills: [],
+          children: [],
+        };
+      }
+      const { putStatus, statusCode, result } = await putBodyAndExport(daemon, {
+        $format: 'dforge.canvas.page',
+        $version: 1,
+        page: { id: 'page-1', nodes, rootIds: [], backgroundColor: '#FFFFFF' },
+        tokens: {},
+      });
+      expect(putStatus).toBe(200);
+      expect(statusCode).toBe(200);
+      expect(result).toBeDefined();
+      expect(result?.complete).toBe(false);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('全新空页正文 "{}"：无节点无损失 → complete=true（诚实的空页面，与上两条区分开）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const { putStatus, statusCode, result } = await putBodyAndExport(daemon, {});
+      expect(putStatus).toBe(200);
+      expect(statusCode).toBe(200);
+      expect(result).toBeDefined();
+      expect(result?.complete).toBe(true);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
+describe('export · 部分/空白产物不得静默覆盖上一次好产物（票 18 二轮 G1）', () => {
+  /** 本段用到的响应形状子集。 */
+  interface ExportResultShape {
+    artifact: { fileName: string; filePath: string; base64: string; length: number };
+    skippedNodes: number;
+    truncatedNodes: number;
+    complete: boolean;
+    preservedPreviousArtifactPath: string | null;
+  }
+
+  function exportResult(payload: unknown): ExportResultShape {
+    return (payload as { result: ExportResultShape }).result;
+  }
+
+  /** 先导一份完整产物，再把同一页改成空白信封并重导，返回两次的 result + 好产物字节。 */
+  async function overwriteProbe(format: 'svg' | 'png') {
+    const daemon = await createTestDaemon();
+    const documentId = await seedDocument(daemon);
+    const good = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/export',
+      payload: { documentId, pageId: 'page-1', format },
+    });
+    expect(good.statusCode).toBe(200);
+    const goodResult = exportResult(good.payload);
+    expect(goodResult.complete).toBe(true);
+    expect(goodResult.preservedPreviousArtifactPath).toBeNull();
+    const canonicalPath = goodResult.artifact.filePath;
+    const goodBytes = await readFile(canonicalPath);
+    // 规范名上的落盘字节 == 响应载荷（先钉住基线，再谈「没被动过」）
+    expect(goodBytes).toEqual(Buffer.from(goodResult.artifact.base64, 'base64'));
+
+    // 同一页改成坏信封：抽取走到空白产物（二轮实测 7164 字节空白 PNG）
+    const broken = await injectJson(daemon.app, {
+      method: 'PUT',
+      url: `/documents/${encodeURIComponent(documentId)}/pages/page-1`,
+      payload: {
+        body: { $format: 'dforge.canvas.page', $version: 1, page: null, tokens: {} },
+      },
+    });
+    expect(broken.statusCode).toBe(200);
+    const bad = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/export',
+      payload: { documentId, pageId: 'page-1', format },
+    });
+    expect(bad.statusCode).toBe(200);
+    const badResult = exportResult(bad.payload);
+    return { daemon, documentId, canonicalPath, goodBytes, goodResult, badResult };
+  }
+
+  it('SVG：空白产物的字节不进规范名，上一次好产物一字节未动，且如实给出被保留的路径', async () => {
+    const probed = await overwriteProbe('svg');
+    try {
+      const { badResult, canonicalPath, goodBytes } = probed;
+      expect(badResult.complete).toBe(false);
+      // 上一次好产物被保住（不是「覆盖后再也找不回」）
+      expect(badResult.preservedPreviousArtifactPath).toBe(canonicalPath);
+      expect(await readFile(canonicalPath)).toEqual(goodBytes);
+      // 本次字节落在隔离侧文件，且与响应载荷逐字节一致（不出现「说写了、盘上没有」）
+      expect(badResult.artifact.filePath).not.toBe(canonicalPath);
+      expect(badResult.artifact.fileName).toBe(`${probed.documentId}-page-1.incomplete.svg`);
+      expect(await readFile(badResult.artifact.filePath)).toEqual(
+        Buffer.from(badResult.artifact.base64, 'base64'),
+      );
+    } finally {
+      await probed.daemon.cleanup();
+    }
+  });
+
+  it('PNG：二轮实测的「7164 字节空白 PNG 顶掉好产物」路径已被隔离', async () => {
+    const probed = await overwriteProbe('png');
+    try {
+      const { badResult, canonicalPath, goodBytes } = probed;
+      expect(badResult.complete).toBe(false);
+      expect(badResult.preservedPreviousArtifactPath).toBe(canonicalPath);
+      const stillGood = await readFile(canonicalPath);
+      expect(stillGood).toEqual(goodBytes);
+      expect(stillGood.subarray(0, 8)).toEqual(
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      );
+      // 空白产物自身的像素必须是页面底色（证明它确实是「没走到任何节点」的产物，不是误判）
+      const blank = decodePng(Buffer.from(badResult.artifact.base64, 'base64'));
+      expect(blank.pixel(0, 0)).toEqual([255, 255, 255, 255]);
+      // 好产物里仍能看到原来的红色矩形（第 10,10 像素起）
+      const good = decodePng(goodBytes);
+      expect(good.pixel(20, 20)).toEqual([255, 0, 0, 255]);
+    } finally {
+      await probed.daemon.cleanup();
     }
   });
 });

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { EXPORT_MAX_EDGE_PX, ExportCanvasTooLargeError, renderExport } from './index.ts';
+import {
+  EXPORT_MAX_EDGE_PX,
+  ExportCanvasTooLargeError,
+  incompleteArtifactFileName,
+  renderExport,
+} from './index.ts';
 
 /** 构造一次导出渲染调用（存量分支顶层 width/height + 空 children，护栏若放行则渲染成本近零）。 */
 function renderGuarded(width: number, height: number, scale?: number): void {
@@ -54,5 +59,36 @@ describe('export · 尺寸护栏（§D1：防多 GB 同步分配）', () => {
       expect(tooLarge.maxEdge).toBe(8192);
       expect(tooLarge.message).toContain('8192');
     }
+  });
+});
+
+describe('export · 不完整产物的隔离文件名（票 18 二轮 G1：不得覆盖好产物）', () => {
+  it('规范名保留扩展名，中间插 .incomplete（三种格式各一条）', () => {
+    expect(incompleteArtifactFileName('doc-page-1.svg', 'svg')).toBe('doc-page-1.incomplete.svg');
+    expect(incompleteArtifactFileName('doc-page-1.png', 'png')).toBe('doc-page-1.incomplete.png');
+    expect(incompleteArtifactFileName('doc-page-1.pdf', 'pdf')).toBe('doc-page-1.incomplete.pdf');
+  });
+
+  it('扩展名不匹配时不吞字符：原样作主体，仍追加 .incomplete.<format>', () => {
+    expect(incompleteArtifactFileName('doc-page-1', 'svg')).toBe('doc-page-1.incomplete.svg');
+    expect(incompleteArtifactFileName('doc-page-1.png', 'svg')).toBe(
+      'doc-page-1.png.incomplete.svg',
+    );
+  });
+
+  it('renderExport 把场景的完整性事实原样带到返回值（路由据此决定落盘名）', () => {
+    const blank = renderExport({
+      format: 'svg',
+      pageBody: { $format: 'dforge.canvas.page', $version: 1, page: null, tokens: {} },
+      context: { documentId: 'doc', pageId: 'page-1' },
+    });
+    expect(blank.complete).toBe(false);
+    expect(blank.truncatedNodes).toBe(0);
+    const good = renderExport({
+      format: 'svg',
+      pageBody: { width: 100, height: 100, background: '#FFFFFF', children: [] },
+      context: { documentId: 'doc', pageId: 'page-1' },
+    });
+    expect(good.complete).toBe(true);
   });
 });

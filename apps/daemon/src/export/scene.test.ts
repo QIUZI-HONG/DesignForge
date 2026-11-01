@@ -3,312 +3,236 @@ import { describe, expect, it } from 'vitest';
 import { extractScene } from './scene.ts';
 
 /**
- * web 真实落盘信封（`documents-client.ts` 的 `encodePageBody` 输出形状）：
- * `{ $format: 'dforge.canvas.page', $version: 1, page: ScenePage, tokens }`，
- * 其中 ScenePage 是**扁平节点表**（`nodes: Record<id, node>`）+ `rootIds` 顶层顺序
- * （引擎 `model/node.ts`：children 是 NodeId 引用，不是嵌套对象）。
+ * `extractScene`  seam：导出用最小场景提取（对 opaque 页面 JSON 的容错解析）。
+ *
+ * 这里只断言**对外事实**——返回的 RenderScene 的 `complete` / `nodes` / 计数，
+ * 不碰任何内部遍历细节。契约口径（`packages/contracts/src/export/index.ts`）：
+ * `complete` 是「产物是否覆盖页面全部可渲染节点」的保证；未判定/部分结果不得当完整报。
  */
 
-/** 构造一个引擎形状的矩形节点（字段集对齐 `RectNode`）。 */
-function rectNode(
-  id: string,
-  overrides: Partial<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    color: string;
-    visible: boolean;
-    opacity: number;
-  }> = {},
-): Record<string, unknown> {
-  return {
-    id,
-    name: '矩形',
-    type: 'rect',
-    x: 0,
-    y: 0,
-    width: 100,
-    height: 50,
-    rotation: 0,
-    visible: true,
-    locked: false,
-    opacity: 1,
-    blendMode: 'normal',
-    fills: [{ type: 'solid', color: '#FF0000', opacity: 1, visible: true }],
-    strokes: [],
-    effects: [],
-    cornerRadius: 0,
-    ...overrides,
-    ...(overrides.color === undefined
-      ? {}
-      : { fills: [{ type: 'solid', color: overrides.color, opacity: 1, visible: true }] }),
-  };
+/** web 落盘信封：`{ $format: 'dforge.canvas.page', page, tokens }`。 */
+function envelope(page: unknown): Record<string, unknown> {
+  return { $format: 'dforge.canvas.page', $version: 1, page, tokens: {} };
 }
 
-/** 装配信封正文（对齐 `encodePageBody` 的输出）。 */
-function envelopePage(init: {
-  nodes: Record<string, unknown>;
-  rootIds: string[];
-  backgroundColor?: string;
-}): Record<string, unknown> {
-  return {
-    $format: 'dforge.canvas.page',
-    $version: 1,
-    page: {
-      id: 'page-1',
-      name: '页面 1',
-      nodes: init.nodes,
-      rootIds: init.rootIds,
-      backgroundColor: init.backgroundColor ?? '#F5F5F5',
-      grid: { size: 10, visible: false, snapToGrid: false, style: 'grid' },
-    },
-    tokens: {},
-  };
-}
-
-describe('extractScene · dforge.canvas.page 信封分支', () => {
-  it('识别信封：按 rootIds 顺序展平 nodes，背景取 page.backgroundColor，尺寸取内容包围盒', () => {
-    const body = envelopePage({
-      nodes: {
-        'rect-1': rectNode('rect-1', { x: 10, y: 20, width: 120, height: 60, color: '#FF0000' }),
-        'rect-2': rectNode('rect-2', { x: 200, y: 40, width: 80, height: 90, color: '#00AA00' }),
-      },
-      rootIds: ['rect-1', 'rect-2'],
-    });
-    const scene = extractScene(body);
-    expect(scene.background).toBe('#F5F5F5');
-    // 包围盒：max(x+width) = 200+80 = 280，max(y+height) = 40+90 = 130
-    expect(scene.width).toBe(280);
-    expect(scene.height).toBe(130);
-    expect(scene.nodes).toHaveLength(2);
-    // 顶层顺序 = rootIds 顺序（后者在上）
-    expect(scene.nodes[0]?.fill).toBe('#FF0000');
-    expect(scene.nodes[1]?.fill).toBe('#00AA00');
-    expect(scene.nodes[1]?.x).toBe(200);
-    expect(scene.nodes[1]?.y).toBe(40);
-    expect(scene.skippedNodes).toBe(0);
-  });
-
-  it('容器子节点按 NodeId 引用解析（frame.children 指向扁平表）', () => {
-    const body = envelopePage({
-      nodes: {
-        'frame-1': {
-          id: 'frame-1',
-          name: '画板',
-          type: 'frame',
-          x: 0,
-          y: 0,
-          width: 400,
-          height: 300,
-          rotation: 0,
-          visible: true,
-          locked: false,
-          opacity: 1,
-          blendMode: 'normal',
-          fills: [{ type: 'solid', color: '#FFFFFF', opacity: 1, visible: true }],
-          strokes: [],
-          effects: [],
-          cornerRadius: 0,
-          children: ['rect-a', 'rect-b'],
-          clipsContent: true,
-          autoLayout: null,
-        },
-        'rect-a': rectNode('rect-a', { x: 10, y: 10, width: 50, height: 50, color: '#FF0000' }),
-        'rect-b': rectNode('rect-b', { x: 300, y: 200, width: 60, height: 60, color: '#0000FF' }),
-      },
-      rootIds: ['frame-1'],
-    });
-    const scene = extractScene(body);
-    expect(scene.nodes).toHaveLength(1);
-    const frame = scene.nodes[0];
-    expect(frame?.kind).toBe('frame');
-    expect(frame?.children).toHaveLength(2);
-    expect(frame?.children[0]?.fill).toBe('#FF0000');
-    expect(frame?.children[1]?.fill).toBe('#0000FF');
-    // 包围盒含容器本体与子节点：max(400, 300+60)=400，max(300, 200+60)=300
-    expect(scene.width).toBe(400);
-    expect(scene.height).toBe(300);
-    expect(scene.skippedNodes).toBe(0);
-  });
-
-  it('文本节点读 TextContent（characters/fontSize 嵌套在 text 字段）', () => {
-    const textBody = {
-      id: 'text-1',
-      name: '文本',
-      type: 'text',
-      x: 20,
-      y: 30,
-      width: 100,
-      height: 24,
-      rotation: 0,
-      visible: true,
-      locked: false,
-      opacity: 1,
-      blendMode: 'normal',
-      fills: [{ type: 'solid', color: '#000000', opacity: 1, visible: true }],
-      strokes: [],
-      effects: [],
-      cornerRadius: 0,
-      text: {
-        characters: '你好，设界',
-        fontFamily: 'Noto Sans SC',
-        fontSize: 24,
-        fontWeight: 400,
-        lineHeight: 1.4,
-        letterSpacing: 0,
-        align: 'left',
-        autoResize: 'width_and_height',
-      },
-    };
-    const body = envelopePage({ nodes: { 'text-1': textBody }, rootIds: ['text-1'] });
-    const scene = extractScene(body);
-    expect(scene.nodes).toHaveLength(1);
-    expect(scene.nodes[0]?.kind).toBe('text');
-    expect(scene.nodes[0]?.text).toBe('你好，设界');
-    expect(scene.nodes[0]?.fontSize).toBe(24);
-    expect(scene.skippedNodes).toBe(0);
-  });
-
-  it('实例/未知类型跳过并计数（daemon 不解析组件语义）', () => {
-    const instanceNode = {
-      ...rectNode('inst-1', { color: '#123456' }),
-      type: 'instance',
-      componentId: 'comp-1',
-      overrides: {},
-    };
-    const body = envelopePage({
-      nodes: {
-        'rect-1': rectNode('rect-1', { color: '#FF0000' }),
-        'inst-1': instanceNode,
-      },
-      rootIds: ['rect-1', 'inst-1'],
-    });
-    const scene = extractScene(body);
-    expect(scene.nodes).toHaveLength(1);
-    expect(scene.nodes[0]?.fill).toBe('#FF0000');
-    expect(scene.skippedNodes).toBe(1);
-  });
-
-  it('隐藏节点（visible:false）不参与渲染并计数', () => {
-    const body = envelopePage({
-      nodes: {
-        'rect-1': rectNode('rect-1', { color: '#FF0000' }),
-        'rect-2': rectNode('rect-2', { color: '#00AA00', visible: false }),
-      },
-      rootIds: ['rect-1', 'rect-2'],
-    });
-    const scene = extractScene(body);
-    expect(scene.nodes).toHaveLength(1);
-    expect(scene.nodes[0]?.fill).toBe('#FF0000');
-    expect(scene.skippedNodes).toBe(1);
-  });
-
-  it('悬空引用（rootIds/children 指向不存在的 id）跳过并计数，不抛错', () => {
-    const body = envelopePage({
-      nodes: { 'rect-1': rectNode('rect-1', { color: '#FF0000' }) },
-      rootIds: ['rect-1', 'ghost-1'],
-    });
-    const scene = extractScene(body);
-    expect(scene.nodes).toHaveLength(1);
-    expect(scene.skippedNodes).toBe(1);
-  });
-
-  it('节点表成环时不挂死：环上每个节点至多渲染一次', () => {
-    const a = rectNode('a', { color: '#FF0000' });
-    const b = rectNode('b', { color: '#00AA00' });
-    (a as Record<string, unknown>).children = ['b'];
-    (b as Record<string, unknown>).children = ['a'];
-    const body = envelopePage({ nodes: { a, b }, rootIds: ['a'] });
-    const scene = extractScene(body);
-    expect(scene.nodes).toHaveLength(1);
-    expect(scene.nodes[0]?.fill).toBe('#FF0000');
-    expect(scene.nodes[0]?.children).toHaveLength(1);
-    expect(scene.nodes[0]?.children[0]?.children).toHaveLength(0);
-    // b 的 child a 已渲染过 → 计跳过
-    expect(scene.skippedNodes).toBe(1);
-  });
-
-  it('rootIds 缺失时兜底：未被任何容器引用的节点视为顶层（旧数据容错）', () => {
-    const parent = rectNode('parent', { color: '#FF0000' });
-    (parent as Record<string, unknown>).type = 'frame';
-    (parent as Record<string, unknown>).children = ['child'];
-    const body = {
-      $format: 'dforge.canvas.page',
-      $version: 1,
-      page: {
-        id: 'page-1',
-        name: '页面 1',
-        nodes: { parent, child: rectNode('child', { color: '#00AA00' }) },
-        backgroundColor: '#F5F5F5',
-      },
-      tokens: {},
-    };
-    const scene = extractScene(body);
-    expect(scene.nodes).toHaveLength(1);
-    expect(scene.nodes[0]?.children).toHaveLength(1);
-    expect(scene.skippedNodes).toBe(0);
-  });
-
-  it('画刷 visible:false 时取下一个可见填充（引擎 SolidPaint.visible）', () => {
-    const node = rectNode('rect-1', { color: '#00AA00' });
-    (node as Record<string, unknown>).fills = [
-      { type: 'solid', color: '#FF0000', opacity: 1, visible: false },
-      { type: 'solid', color: '#00AA00', opacity: 1, visible: true },
-    ];
-    const body = envelopePage({ nodes: { 'rect-1': node }, rootIds: ['rect-1'] });
-    const scene = extractScene(body);
-    expect(scene.nodes[0]?.fill).toBe('#00AA00');
-  });
-});
-
-describe('extractScene · 节点预算必须如实上报', () => {
-  /** 顶层旧式形状（`{ width, height, background, children[] }`）的 N 个矩形。 */
-  function legacyRects(count: number): Record<string, unknown> {
-    const children: unknown[] = [];
-    for (let index = 0; index < count; index += 1) {
-      children.push({ kind: 'rect', x: index, y: 0, width: 10, height: 10 });
-    }
-    return { width: 1000, height: 100, background: '#FFFFFF', children };
-  }
-
-  it('顶层形状超出 2000 上限：超出部分计入截断，场景不是完整产物', () => {
-    const scene = extractScene(legacyRects(2001));
-    expect(scene.nodes).toHaveLength(2000);
-    expect(scene.truncatedNodes).toBe(1);
+describe('extractScene · 信封页面完整性（票 18 红线：不把未判定当完整）', () => {
+  it('信封 page 为 null：不能认证为完整（产物是空白）', () => {
+    const scene = extractScene(envelope(null));
+    expect(scene.nodes).toHaveLength(0);
     expect(scene.complete).toBe(false);
-    // 截断与「结构非法跳过」是两类事实，不得互相冒充
-    expect(scene.skippedNodes).toBe(0);
   });
 
-  it('信封形状超出 2000 上限：同样如实截断（web 真实正文走这一支）', () => {
+  it('信封 page 为空数组：不能认证为完整', () => {
+    const scene = extractScene(envelope([]));
+    expect(scene.nodes).toHaveLength(0);
+    expect(scene.complete).toBe(false);
+  });
+
+  it('信封 page 为字符串（不可解析）：不能认证为完整', () => {
+    const scene = extractScene(envelope('oops'));
+    expect(scene.nodes).toHaveLength(0);
+    expect(scene.complete).toBe(false);
+  });
+
+  it('信封缺 page 字段：不能认证为完整', () => {
+    const scene = extractScene({ $format: 'dforge.canvas.page', $version: 1 });
+    expect(scene.nodes).toHaveLength(0);
+    expect(scene.complete).toBe(false);
+  });
+
+  it('信封有 30 个可渲染节点但 rootIds 为空：一个都没进产物 → 非完整', () => {
     const nodes: Record<string, unknown> = {};
-    const rootIds: string[] = [];
-    for (let index = 0; index <= 2000; index += 1) {
-      const id = `rect-${String(index)}`;
-      nodes[id] = rectNode(id, { x: index, y: 0, width: 10, height: 10 });
-      rootIds.push(id);
+    for (let index = 0; index < 30; index += 1) {
+      nodes[`rect-${String(index)}`] = {
+        id: `rect-${String(index)}`,
+        type: 'rect',
+        x: index,
+        y: 0,
+        width: 10,
+        height: 10,
+        visible: true,
+        fills: [],
+        children: [],
+      };
     }
-    const scene = extractScene(envelopePage({ nodes, rootIds }));
-    expect(scene.nodes).toHaveLength(2000);
-    expect(scene.truncatedNodes).toBe(1);
+    const scene = extractScene(
+      envelope({ id: 'page-1', nodes, rootIds: [], backgroundColor: '#FFFFFF' }),
+    );
+    expect(scene.nodes).toHaveLength(0);
     expect(scene.complete).toBe(false);
   });
 
-  it('恰好等于上限：不算截断，产物为完整', () => {
-    expect(extractScene(legacyRects(2000)).complete).toBe(true);
-    expect(extractScene(legacyRects(2000)).truncatedNodes).toBe(0);
+  it('真正空的页面（无节点、无根）：诚实报 complete=true（覆盖全部 0 个可渲染节点）', () => {
+    const scene = extractScene(
+      envelope({ id: 'page-1', nodes: {}, rootIds: [], backgroundColor: '#FFFFFF' }),
+    );
+    expect(scene.nodes).toHaveLength(0);
+    // 与「有可渲染节点却产出为空」区分开：这里节点表本就为空，无损失可报，故完整。
+    expect(scene.complete).toBe(true);
   });
 
-  it('仅结构非法跳过（无截断）：也不得报完整', () => {
+  it('存量顶层形状：非对象子节点被丢弃 → 计为跳过且非完整', () => {
     const scene = extractScene({
       width: 100,
       height: 100,
       background: '#FFFFFF',
-      children: [{ kind: 'rect', x: 0, y: 0, width: 10, height: 10 }, { kind: 'bogus' }],
+      children: ['oops', { kind: 'rect', x: 0, y: 0, width: 10, height: 10 }],
     });
+    expect(scene.nodes).toHaveLength(1);
     expect(scene.skippedNodes).toBe(1);
-    expect(scene.truncatedNodes).toBe(0);
     expect(scene.complete).toBe(false);
+  });
+});
+
+/** 一枚可见矩形 + 一枚隐藏矩形（同层，均挂根）。 */
+function visiblePlusHidden(): Record<string, unknown> {
+  return envelope({
+    id: 'page-1',
+    nodes: {
+      'visible-1': {
+        id: 'visible-1',
+        type: 'rect',
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        visible: true,
+        children: [],
+      },
+      'hidden-1': {
+        id: 'hidden-1',
+        type: 'rect',
+        x: 20,
+        y: 0,
+        width: 10,
+        height: 10,
+        visible: false,
+        children: [],
+      },
+    },
+    rootIds: ['visible-1', 'hidden-1'],
+    backgroundColor: '#FFFFFF',
+  });
+}
+
+describe('extractScene · 隐藏层是非损失（票 18 部分态误报）', () => {
+  it('只有一枚隐藏节点：产物本就正确，不得判部分（complete=true，hiddenNodes 单列）', () => {
+    const scene = extractScene(visiblePlusHidden());
+    expect(scene.nodes).toHaveLength(1);
+    expect(scene.hiddenNodes).toBe(1);
+    expect(scene.skippedNodes).toBe(0);
+    expect(scene.truncatedNodes).toBe(0);
+    expect(scene.complete).toBe(true);
+  });
+
+  it('隐藏容器连整棵子树都不渲染：子节点计隐藏、不计损失', () => {
+    const scene = extractScene(
+      envelope({
+        id: 'page-1',
+        nodes: {
+          'hidden-box': {
+            id: 'hidden-box',
+            type: 'group',
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 40,
+            visible: false,
+            children: ['kid-1', 'kid-2'],
+          },
+          'kid-1': {
+            id: 'kid-1',
+            type: 'rect',
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+            visible: true,
+            children: [],
+          },
+          'kid-2': {
+            id: 'kid-2',
+            type: 'rect',
+            x: 10,
+            y: 0,
+            width: 10,
+            height: 10,
+            visible: true,
+            children: [],
+          },
+        },
+        rootIds: ['hidden-box'],
+        backgroundColor: '#FFFFFF',
+      }),
+    );
+    // 隐藏父节点让整棵子树都不进渲染（应用侧 drawNode 见 !visible 即 return）→ 全计隐藏、非损失
+    expect(scene.nodes).toHaveLength(0);
+    expect(scene.hiddenNodes).toBe(3);
+    expect(scene.skippedNodes).toBe(0);
+    expect(scene.complete).toBe(true);
+  });
+});
+
+describe('extractScene · 预算越界按整棵子树计 truncated（下界不再是 1）', () => {
+  it('被拒容器连子树逐枚计入 truncated；容器下的隐藏子计隐藏', () => {
+    const nodes: Record<string, unknown> = {};
+    const rootIds: string[] = [];
+    // 先填满 2000 枚可见叶子（用满预算）
+    for (let index = 0; index < 2000; index += 1) {
+      const id = `leaf-${String(index)}`;
+      nodes[id] = {
+        id,
+        type: 'rect',
+        x: index,
+        y: 0,
+        width: 1,
+        height: 1,
+        visible: true,
+        children: [],
+      };
+      rootIds.push(id);
+    }
+    // 第 2001 枚是容器：命中预算闸门被拒，其子树也一并被丢弃
+    nodes.over = {
+      id: 'over',
+      type: 'group',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      visible: true,
+      children: ['oc-1', 'oc-2', 'oc-3', 'oc-hidden'],
+    };
+    rootIds.push('over');
+    for (const id of ['oc-1', 'oc-2', 'oc-3']) {
+      nodes[id] = {
+        id,
+        type: 'rect',
+        x: 0,
+        y: 0,
+        width: 5,
+        height: 5,
+        visible: true,
+        children: [],
+      };
+    }
+    nodes['oc-hidden'] = {
+      id: 'oc-hidden',
+      type: 'rect',
+      x: 0,
+      y: 0,
+      width: 5,
+      height: 5,
+      visible: false,
+      children: [],
+    };
+
+    const scene = extractScene(
+      envelope({ id: 'page-1', nodes, rootIds, backgroundColor: '#FFFFFF' }),
+    );
+    expect(scene.complete).toBe(false);
+    // over + oc-1/2/3 = 4 枚真被丢弃（预算截断）；oc-hidden 是非损失（隐藏）
+    expect(scene.truncatedNodes).toBe(4);
+    expect(scene.hiddenNodes).toBe(1);
   });
 });

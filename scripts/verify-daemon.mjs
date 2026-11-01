@@ -350,6 +350,13 @@ async function runSmoke(baseUrl) {
   );
 
   // ---- 导出（PNG/SVG/PDF）----
+  // 诚实口径：sha256/length 只证明「产物自洽」，不证明「产物完整」——空白/截断的载荷同样自洽。
+  // 冒烟夹具是 1 个矩形的极小页面（远低于 scene.ts 的 MAX_NODES=2000），所以今天这两步
+  // 恒过是「构造上看不见」而非「已验证截断诚实」；下面两条把契约里的完整性口径变成可执行红线：
+  // `complete === true`（缺失/false 判失败，不放行空白/截断产物）+ 两个真损失计数必须为 0
+  // （夹具只有 1 枚合法矩形，任何非零都说明抽取走到了跳过/截断分支）。
+  // 预算越界分支本身的覆盖由 `scene.test.ts`（2001+ 子树计 truncated）与
+  // `routes/export.test.ts`（HTTP 200 + truncatedNodes>0 + complete:false）确定性地跑到。
   for (const format of ['svg', 'png', 'pdf']) {
     const exported = await call(baseUrl, 'POST', '/export', {
       documentId: '冒烟文档',
@@ -368,6 +375,21 @@ async function runSmoke(baseUrl) {
       exported.status === 200 && hashOk,
       `export.${format}`,
       `POST /export(${format}) → ${exported.status}（sha256/length 自洽）`,
+    );
+    const complete = exported.json?.result?.complete;
+    expectOk(
+      exported.status === 200 && complete === true,
+      `export.${format}.complete`,
+      `POST /export(${format}) complete=${String(complete)}（须为 true；缺失/ false 判失败，不放行空白/截断产物）`,
+    );
+    const skippedNodes = exported.json?.result?.skippedNodes;
+    const truncatedNodes = exported.json?.result?.truncatedNodes;
+    expectOk(
+      exported.status === 200 && skippedNodes === 0 && truncatedNodes === 0,
+      `export.${format}.counts`,
+      `POST /export(${format}) skippedNodes=${String(skippedNodes)} truncatedNodes=${String(
+        truncatedNodes,
+      )}（夹具单枚合法矩形，两者必须为 0；非 0 即产物有真损失）`,
     );
   }
 
@@ -529,6 +551,12 @@ async function main() {
       dataRoot,
       '--workspace',
       join(tempRoot, 'workspace'),
+      // 端口纪律（本仓红线）：夹具 daemon 不占常驻 4318——向内核要 0 号端口，
+      // `startDaemon` 回读真实端口并打印 URL，下面的 `waitForListening` 据此接线。
+      // 并发跑门禁（多个整改实现者同机）时，写死 4318 会让后起的那位静默退到 4319+
+      // 或与常驻实例抢端口，红点与被测代码无关。
+      '--port',
+      '0',
     ],
     {
       cwd: REPO_ROOT,

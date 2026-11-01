@@ -5,7 +5,7 @@
  * 产物同时落 `<dataRoot>/exports/` 并回传 base64 + sha256 + length（证据 JSON 引用对）。
  */
 
-import { writeFile } from 'node:fs/promises';
+import { stat, writeFile } from 'node:fs/promises';
 import type { ExportArtifact, ExportFormat, ExportResultPayload } from '@dforge/contracts';
 import { DAEMON_ROUTES, isExportFormat, isNonEmptyString } from '@dforge/contracts';
 import type { FastifyInstance } from 'fastify';
@@ -14,6 +14,7 @@ import type { DaemonContext } from '../app.ts';
 import {
   EXPORT_MAX_SCALE,
   ExportCanvasTooLargeError,
+  incompleteArtifactFileName,
   type RenderedExport,
   renderExport,
 } from '../export/index.ts';
@@ -80,16 +81,35 @@ export function registerExportRoutes(app: FastifyInstance, context: DaemonContex
     const sha256 = await sha256Hex(rendered.bytes);
     await ensureDir(context.paths.exportsDir);
     // 产物文件名派生自 documentId/pageId：一律经唯一安全解析器落盘（不自行 join）
-    const filePath = await resolveWithin(context.paths.exportsDir, rendered.fileName);
-    if (filePath === null) {
+    const canonicalFileName = rendered.fileName;
+    const canonicalPath = await resolveWithin(context.paths.exportsDir, canonicalFileName);
+    if (canonicalPath === null) {
       return sendFail(reply, 'export_render_failed', '产物文件名越界（已拒绝写入）');
     }
-    await writeFile(filePath, rendered.bytes);
+
+    // 票 18 二轮 G1：`complete:false`（空白/截断/抽取未走到）**绝不覆盖**上一次的好产物。
+    // 状态码仍是 200（部分产物本身有效，5xx 会把它误报成「没有产物」），隔离落在文件名上：
+    // 不完整的一律写 `<规范名>.incomplete.<format>` 侧文件，规范名字节保持不动。
+    let writtenFileName = canonicalFileName;
+    let filePath = canonicalPath;
+    let preservedPreviousArtifactPath: string | null = null;
+    if (rendered.complete) {
+      await writeFile(filePath, rendered.bytes);
+    } else {
+      writtenFileName = incompleteArtifactFileName(canonicalFileName, format);
+      const sidecarPath = await resolveWithin(context.paths.exportsDir, writtenFileName);
+      if (sidecarPath === null) {
+        return sendFail(reply, 'export_render_failed', '产物文件名越界（已拒绝写入）');
+      }
+      filePath = sidecarPath;
+      preservedPreviousArtifactPath = (await fileExists(canonicalPath)) ? canonicalPath : null;
+      await writeFile(filePath, rendered.bytes);
+    }
 
     const artifact: ExportArtifact = {
       format,
       mimeType: rendered.mimeType,
-      fileName: rendered.fileName,
+      fileName: writtenFileName,
       length: rendered.bytes.length,
       sha256,
       base64: rendered.bytes.toString('base64'),
@@ -107,6 +127,7 @@ export function registerExportRoutes(app: FastifyInstance, context: DaemonContex
           complete: rendered.complete,
           skippedNodes: rendered.skippedNodes,
           truncatedNodes: rendered.truncatedNodes,
+          preservedPreviousArtifact: preservedPreviousArtifactPath !== null,
         },
         sessionId: null,
         appVersion: null,
@@ -119,8 +140,18 @@ export function registerExportRoutes(app: FastifyInstance, context: DaemonContex
       skippedNodes: rendered.skippedNodes,
       truncatedNodes: rendered.truncatedNodes,
       complete: rendered.complete,
+      preservedPreviousArtifactPath,
       maxScale: EXPORT_MAX_SCALE,
     };
     return sendOk(reply, result);
   });
+}
+
+/** 文件是否存在且是普通文件（用于判「上一次产物是否需要保护」）。 */
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    return (await stat(filePath)).isFile();
+  } catch {
+    return false;
+  }
 }

@@ -24,10 +24,24 @@ import {
 } from '../geometry/index';
 import type { Matrix, Point, Rect } from '../geometry/types';
 import { ID_PREFIX, type IdFactory, systemIdFactory } from '../model/ids';
-import type { NodeId, NodePatch, PageId, SceneNode, ScenePage } from '../model/index';
-import { createGroup } from '../model/index';
+import type {
+  FrameNode,
+  InstanceNode,
+  NodeId,
+  NodePatch,
+  PageId,
+  SceneNode,
+  ScenePage,
+} from '../model/index';
+import { childrenOf, createGroup, isContainer } from '../model/index';
 import { domainError } from '../scene/errors';
-import { requireNode, resolveNode, sortByZOrder, topmostIds } from '../scene/index';
+import {
+  getDescendantIds,
+  requireNode,
+  resolveNode,
+  sortByZOrder,
+  topmostIds,
+} from '../scene/index';
 import { parseVirtualNodeId } from '../scene/instance';
 import type { ZOrderOp } from '../scene/mutate';
 import type { Command } from './types';
@@ -42,14 +56,174 @@ export function insertNodeCommands(
   return [{ type: 'node.insert', pageId, node, parentId, index }];
 }
 
-/** 删除节点（自动剔除已被其他待删节点包含者，避免重复删子树）。 */
+/**
+ * 删除节点（自动剔除已被其他待删节点包含者，避免重复删子树）。
+ *
+ * **依赖者收口（复核 H1 · 票 17 后续）**：删除主组件只发裸 `node.remove` 会把指向它的实例
+ * 留在页面上成悬空引用（`validatePage` 报 `missing-component`）；删除组件集同理会把集外变体的
+ * `componentSetId` 留成悬空（`missing-component-set`）。票 17 之后写盘前置校验会因此拒绝
+ * **整份文档**（⌘S 再也存不了，见 `documents-client` 与 daemon `canvas-integrity`）。
+ * 删除侧的修法与粘贴侧同一条口径（`clipboard.settleComponentRefs`：主组件不可证即在落页时
+ * 降级为普通帧、悬空组件集引用置 null）：这里把「随删除失效的依赖者」一并收口，并与删除本身
+ * **合成同一条事务**——调用方 `CommandStack.dispatch(commands)` 一次成一条历史，
+ * 一次撤销同时还原被删节点与被收口的引用（见 `commands/delete-settle.test.ts`）。
+ *
+ * 收口用既有命令表达（`node.remove` + 同 id 回插）而不是新命令类型：
+ * 实例不持有真实子节点（其子是虚节点），删后按原父级原下标插回等价于原地改类型；
+ * 变体主组件用 `node.restore` 连同真实子树回灌（快照里只改根节点的 `componentSetId`）。
+ * 逆命令由既有处理器推导，撤销/重做语义不必另立一份。
+ */
 export function deleteNodesCommands(
   page: ScenePage,
   pageId: PageId,
   nodeIds: readonly NodeId[],
 ): Command[] {
   const roots = topmostIds(page, nodeIds);
-  return roots.map((nodeId) => ({ type: 'node.remove', pageId, nodeId }) as Command);
+  const removed = new Set<NodeId>();
+  for (const root of roots) {
+    removed.add(root);
+    for (const descendantId of getDescendantIds(page, root)) removed.add(descendantId);
+  }
+  const commands: Command[] = roots.map(
+    (nodeId) => ({ type: 'node.remove', pageId, nodeId }) as Command,
+  );
+  for (const placement of orphanedDependents(page, pageId, removed)) {
+    commands.push(...placement.commands);
+  }
+  return commands;
+}
+
+/** 依赖者收口的一条落位（「删—回插」命令对 + 删除生效后的兄弟下标）。 */
+interface DependentPlacement {
+  index: number;
+  commands: Command[];
+}
+
+/**
+ * 本次删除后**仍留在页面上但引用已失效**的依赖者 → 收口命令对：
+ * - 主组件被删的实例 → 降级为普通帧（与粘贴降级同一条规则）；
+ * - 组件集被删的变体主组件 → `componentSetId` 置 null（退为独立主组件，子树原样保留）。
+ *
+ * 下标按**删除生效后**的兄弟序列计算（被删根节点先于收口命令生效，原下标会整体偏位），
+ * 并按该下标升序发射：同父多个依赖者逐个插回原位互不推挤。
+ */
+function orphanedDependents(
+  page: ScenePage,
+  pageId: PageId,
+  removed: ReadonlySet<NodeId>,
+): DependentPlacement[] {
+  const placements: DependentPlacement[] = [];
+  for (const node of Object.values(page.nodes)) {
+    if (removed.has(node.id)) continue;
+    const danglingSetRef =
+      node.type === 'component' && node.componentSetId !== null && removed.has(node.componentSetId);
+    if (node.type !== 'instance' && !danglingSetRef) continue;
+    const parentId = parentIdOf(page, node.id);
+    const index = survivingIndexOf(page, parentId, node.id, removed);
+    const removal = { type: 'node.remove', pageId, nodeId: node.id } as Command;
+    if (node.type === 'instance' && removed.has(node.componentId)) {
+      placements.push({
+        index,
+        commands: [
+          removal,
+          {
+            type: 'node.insert',
+            pageId,
+            node: frameFromInstance(node),
+            parentId,
+            index,
+          } as Command,
+        ],
+      });
+      continue;
+    }
+    if (danglingSetRef) {
+      // 快照「父先于子」，只把根的组件集引用改 null，其余节点原样回灌
+      const snapshot = realSubtreePreOrder(page, node.id).map((subtreeNode, position) =>
+        position === 0 && subtreeNode.type === 'component'
+          ? { ...subtreeNode, componentSetId: null }
+          : subtreeNode,
+      );
+      placements.push({
+        index,
+        commands: [
+          removal,
+          {
+            type: 'node.restore',
+            pageId,
+            rootId: node.id,
+            nodes: snapshot,
+            parentId,
+            index,
+          } as Command,
+        ],
+      });
+    }
+  }
+  return placements.sort((a, b) => a.index - b.index);
+}
+
+/** 子树内的真实节点（前序：父先于子；实例是叶子，其虚子节点不落盘也不进快照）。 */
+function realSubtreePreOrder(page: ScenePage, rootId: NodeId): SceneNode[] {
+  const root = page.nodes[rootId];
+  if (!root) return [];
+  const out: SceneNode[] = [root];
+  const stack: SceneNode[] = [root];
+  while (stack.length > 0) {
+    const current = stack.pop() as SceneNode;
+    if (!isContainer(current)) continue;
+    for (const childId of childrenOf(current)) {
+      const child = page.nodes[childId];
+      if (!child) continue;
+      out.push(child);
+      stack.push(child);
+    }
+  }
+  return out;
+}
+
+/** 节点在「剔除本次被删节点后」的兄弟序列中的下标（顶层用 `rootIds`）。 */
+function survivingIndexOf(
+  page: ScenePage,
+  parentId: NodeId | null,
+  nodeId: NodeId,
+  removed: ReadonlySet<NodeId>,
+): number {
+  const siblings =
+    parentId === null
+      ? page.rootIds
+      : ((page.nodes[parentId] as { children?: NodeId[] } | undefined)?.children ?? []);
+  return Math.max(0, siblings.filter((id) => !removed.has(id)).indexOf(nodeId));
+}
+
+/**
+ * 实例降级为普通帧（与粘贴侧同一口径：几何/外观原样保留，
+ * 主组件引用与覆盖表随降级丢弃——主组件虚节点本就不随实例落盘）。
+ * 字段逐个列出而不做键删除：类型系统保证产出是合法 `FrameNode`，
+ * 不依赖断言转形（粘贴侧保留未知自有键的既有行为在 `clipboard.ts` 内另成一路，此处不并轨）。
+ */
+function frameFromInstance(node: InstanceNode): FrameNode {
+  return {
+    id: node.id,
+    name: node.name,
+    x: node.x,
+    y: node.y,
+    width: node.width,
+    height: node.height,
+    rotation: node.rotation,
+    visible: node.visible,
+    locked: node.locked,
+    opacity: node.opacity,
+    blendMode: node.blendMode,
+    fills: node.fills,
+    strokes: node.strokes,
+    effects: node.effects,
+    cornerRadius: node.cornerRadius,
+    type: 'frame',
+    children: [],
+    clipsContent: true,
+    autoLayout: null,
+  };
 }
 
 /** 按世界增量移动（各节点父坐标系可能不同 → 逐个换算）。 */

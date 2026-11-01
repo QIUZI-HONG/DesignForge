@@ -1,4 +1,4 @@
-# test-remediation-v2 · 全仓企业测试审查第二轮修复批（20 票）
+# test-remediation-v2 · 全仓企业测试审查第二轮修复批（24 票）
 
 来源：2026-11-01 全仓多智能体审查（固定点 `main@a838281`；7 名 Standards/Spec 审查者 + 4 名猎手 + 专职安全 + 4 名独立验证者 + 主控门禁实跑 41 项）。
 完整证据与精确坐标：`~/df-evidence/test-2026-11-01/report.md`（含 `gate-summary.tsv` / `gate-summary-b.tsv` / 逐门禁日志 / `audit-prod.log`）。
@@ -36,6 +36,7 @@
 | 21 | 文档跨进程写锁（票 19 遗留：conflict 分支无确定性判据） | 票 19 实施中发现 | 无（前提：票 19 已并） |
 | 22 | `verify:ai-two-state` 态 B 到不了被测路径（本机 mock 被白名单拒） | 门禁可信度 | 无 |
 | 23 | 读回侧「能打开」的降级路径（票 17 blocker 3 未做） | 数据类 | 票 17（已并） |
+| 24 | 跨文档粘贴的组件来源不可证（id 相撞重绑到无关组件并穿过两道门落盘） | 二轮审查 CL-2（**既有**，非本 diff 引入） | 票 17（已并） |
 
 **按用户价值的开工顺序建议**：17 / 19 / 18（数据不可逆类）→ 02 / 03（AI 主功能与承诺）→ 01 / 04–09 / 13（门禁可信度：假绿与纪律）→ 10–12 / 14 / 15 → 16 收口。
 前沿（可立即开工）：01、04–05、07–15、20–22。06 待 05；02 的验收待 04 与装库；16 必须最后。**已收口（第 1 批）**：17（blocker 3 → 票 23）、18、19（conflict 分支 → 票 21）、02、03。票 22 由本批门禁实况单立。
@@ -64,3 +65,25 @@
 - 票 19：存活，行号已迁移；`isRemovableDocDirectory` 守卫与 `list()` 的 `manifest_unreadable` 告警可直接复用。
 
 本轮并行面（无文件重叠，可一树一票）：18 → export；02 → routes/ai + cors；03 → adversarial 测试 + verify 脚本；17 → clipboard/session/documents-client；19 → documents/store。
+
+## 第 2 批开工记录（2026-11-01 二轮修复 · 增量合并）
+
+**「开工前必须先定的两件事」第 2 条据此关闭**：Chromium 五个缺库（`libnspr4 / libnss3 / libnssutil3 / libsmime3 / libasound2t64`，注意 26.04 上后者已改名 `libasound2t64`）以**无 sudo** 路线补齐——`apt-get download` + `dpkg -x` 到 `/home/QIU/df-local-libs`，跑门禁时加 `LD_LIBRARY_PATH=/home/QIU/df-local-libs/usr/lib/x86_64-linux-gnu`；关键一手是 Playwright 默认 headless 用的是 **`chrome-headless-shell`** 而非 `chrome`。实测：`verify:image-two-state` → **0**（真浏览器 12 步 0 失败）。**未写系统目录、`~/.dforge` 逐字节未变**。日志与库清单：`~/df-evidence/env-browser-libs/`。
+
+浏览器段仍出 2 的两个门，原因**不再是环境**：`verify:canvas` 与 `verify:figma-inspect` 卡在「参照集未冻结（REF-01，票 10）」，`verify:figma-inspect` 另加一条「daemon 未启动」（该门不自起，避免污染用户数据根，属设计）。→ 需人工拍：冻结参照集，或在票 10 上显式登记「本轮不适用」。
+
+增量合并（三条腿各自 worktree，文件所有权不重叠）：
+
+| 腿 | 分支 | 合入点 | 覆盖的二轮阻断项 |
+|---|---|---|---|
+| impl-c | `fix/v2r-c-ref-integrity` | `01cec5e` | CL-1 · SE-1 · SE-3（只说实话，扩码转票 23/人工决定 1）· H1 文案 · 新建票 24 |
+| impl-b | `fix/v2r-b-export-honesty` | `d448754` | ST-1 · SP-1 · EX-1 · G4（票 22 段 B 显式 SKIP 并退 2） |
+| impl-a | `fix/v2r-a-daemon-commit` | 待合 | DA-1 · DA-2 · DA-3 · SP-2 · SE-2 · SE-4 · SE-5 |
+
+合并后门禁复算（`~/df-evidence/merge-implb-2026-11-01/`，脚本 `~/df-evidence/v2-merge3/run-gates.sh`）：Node 链 9 项全 0；`scripts/**` 读 `.complete` 的消费方命中由 **0 → 4**（ST-1 机检口径成立）；冻结基线 vs `3f3603c` 与 vs `main` 均**零 diff**；`~/.dforge` 未触碰；跑完 `git status` 干净。出 2 的 5 项里 3 项是「守卫未实现（设计如此）」，2 项是 REF-01。
+
+**流程教训（不是产品缺陷，但要记账）**：第 1 批三名实现者**全部**在 150 轮上限处被截断，其中 impl-b、impl-c 截断时**一个提交都没落**（13 个 / 8 个脏文件），impl-a 落了 5 个提交所以只剩一片在途。共同故障形状是「攒着不提交 + 提交前无限打磨变异检验」。据此的接手纪律（已写进三名接手人的任务书并生效）：**前 10～15 次工具调用内必须落下第一个提交，任何时刻未提交切片不超过一个，变异检验放在切片提交之后**。
+
+工单自述不可照抄，两处实测反例：前一名 impl-b 在票 18 里自称「typecheck 0」**不实**（`exactOptionalPropertyTypes` 下 `putBodyAndExport` 是红的，接手人已修）；`verify:ai-two-state` 二轮换到 18 步 5 红后，G4 的推断被**逐字证据**替换——段 B 的 `degradedReason:"upstream-error"` + `provider:"deepseek"` 证明它确实在试图真出网，而脚本用 `cloudCalls: 0` 认证「不出机」（`cloudCalls` 数的是本地 mock 收到几次，真实上游被拒时恒 0）。详见 `~/df-evidence/v2-review2/reports/g4-ai-two-state-live-egress.md`。
+
+待第三轮判定的一条：段 B 改显式 SKIP 后，`verify:ai-two-state` 退 2，但仍有 2 个 UI 步报「判据不可评估」（`ui.degraded-suggestions` 的 `page.click` 与 `ui.degraded-result-nonblank` 的 `locator.innerText` 各超时 30s）。**未定**是产品缺陷（抽屉打不开/结果区不渲染）还是门禁驱动方式的问题——`ui.entry.visible` 是过的，且同一浏览器链路在 `verify:image-two-state` 全绿。

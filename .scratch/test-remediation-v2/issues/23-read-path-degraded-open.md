@@ -18,3 +18,19 @@ blockers:
 ## 备注
 
 票 17 的 `blocker 3` 原文即本票，实施时按「另立后续」处理（原因：本票需要先裁决产品语义，且改动面横跨 engine/contracts/web 三层，与票 17 的引用完整性修复不在同一竖切片）。票 17 的完成记录与本票互指。
+
+## 待人工决定 1（2026-11-01 · 二轮复核 SE-3）：daemon 写侧守门要不要补齐到 13 码
+
+**事实（二轮实跑，非推断）**：`apps/daemon/src/documents/canvas-integrity.ts` 只镜像引擎 `validatePage` 13 个页面级致命码里的 **2 个**（`missing-component` / `missing-component-set`）。形状正当、只带 `orphan-node` / `cycle` / `missing-child` / `multiple-parents` / `missing-field` / `non-finite-number`（`1e400`）/ `missing-root` 的正文，PUT 一律 **200 落盘**，随后 web 读回硬失败（引擎读侧拒载）。web 客户端自己造不出这些形状（`documents-client.ts` 写前 `validateDocument` 全校验），**直连 HTTP / MCP / CLI 全都造得出**——所以「写读对称」目前只对引用两条码成立。
+
+**`$format` 绕过（同一实跑）**：不带 / 大小写不同 / 版本号不同 / `$format` 非字符串的四种正文都能 200 落盘，但**没有换来引用完整性锁定**：web 读回侧先以「正文不是设界画布格式」拒（`documents-client.ts:236`、`:350-360`），走不到 `packages/engine/src/serialize/serialize.ts:164-170`，文档仍可正常打开——只是这一页在编辑器里不可用。
+
+**本轮已做（不属于扩大覆盖面）**：把 `canvas-integrity.ts` 文件头「同源同强度 / 强度对称」的自述改成与实测一致的口径，并用 `apps/daemon/src/documents/canvas-integrity.test.ts`（32 例）钉住现状边界——9 类范围外形状明确断言放行、非信封正文返回 null 的 opaque 口径、恶意 id 形状不抛（SE-1：命中 2 码时 `String()` 曾抛 `TypeError` → 500 并回显内部信息，现已改为带类型拒绝）、以及路由层「其余致命码当前 200 落盘」。**将来谁要扩到 13 码，必须显式改这些用例**，不会静默漂移。
+
+**要人类裁决的三选一（实现者不代答）**：
+
+- [ ] **A. 补齐 13 码**：daemon 变成「半个引擎」，正文语义解析进本地服务。代价——`canvas-integrity.ts` 要与引擎保持逐条同步（两份实现必然漂移，本票的「同源」承诺才真正成立）；且 daemon 的 opaque JSON 口径（第三方正文/导入格式）需要重新划界。
+- [ ] **B. 只补「读回会永久锁死」的那几码**（`cycle` / `orphan-node` / `missing-root` / `missing-child` / `multiple-parents` / `non-finite-number` / `max-depth-exceeded`），其余交给读侧降级（本票 blocker 1/2）。代价——判据是「锁死与否」，与本票的降级语义耦合，建议与本票 blocker 1 一起裁决。
+- [ ] **C. 维持现状**：把「daemon 只守 2 码、其余由读侧降级兜」定成正式口径。代价——本票（读侧降级）从「可另立后续」升级为**硬前提**，在降级路径落地前，直连写入者仍可一次写坏整份文档。
+
+`checkCanvasPageIntegrity`/`canvasPageReferenceIssues` 的返回形状是 `string[] | null`（`store.ts:546` 按它 `join('；')` 拼 422 message），任何扩范围的实施都**不得改签名**，否则连带改 store。

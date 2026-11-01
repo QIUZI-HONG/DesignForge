@@ -18,3 +18,16 @@ blockers:
 - [ ] `verify-perf.mjs:1391` 改 `mkdtemp`（固定名并发互踩）
 - [ ] 新增守卫或静态判据：`scripts/**` 出现 `tmpdir()` 或 `next dev` 即违规（与票 04 同一条守卫）
 - [ ] 复跑本轮 Phase A/B 两条链，端口分配与临时根路径写进各自日志
+
+## 第 2 批实况（2026-11-01 二轮 · 由 `fix/v2r-b-export-honesty` 部分落地，实测非推断）
+
+已收：
+
+- `verify-daemon.mjs`、`verify-figma-inspect.mjs`、`verify-ai-two-state.mjs` 起的夹具 daemon 均监听**显式分配端口**（二轮实跑读到 `http://127.0.0.1:42285`），跑完 4318/3000 未被占用。
+- `verify-ai-two-state.mjs` 的「保留现场」目录已离开 `/tmp`，实测落 `~/df-evidence/scratch/verify-ai-two-state-*`（此前是 `/tmp/df-verify-fe10-ai-*`）。
+
+仍活（**同一族，别只改一处**）：
+
+- [ ] `scripts/verify-image-two-state.mjs:355` 仍不传 `--port` → 与 `scripts/verify-mcp-stub.mjs:141` 并发跑会抢 4318（由二轮 impl-b 交接指出，坐标已复核）。
+- [ ] 其余 `mkdtemp(tmpdir())` 位点未统一取 `DFORGE_TMP_ROOT`（本轮只收了 `verify-ai-two-state`）。
+- [ ] 「`scripts/**` 出现 `tmpdir()` 或 `next dev` 即违规」的守卫仍不存在——注意 `scripts/lib/ui-mount.mjs` 现在**复用 4420 上的既有 `next dev`**，与本票第 4 条的判据直接冲突；若要机检，先与票 04「浏览器门禁改生产构建」一起裁决，不要在两条票里各说一套。
