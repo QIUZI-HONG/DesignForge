@@ -502,6 +502,42 @@ describe('cors · 流式（SSE）线路级放行头（票 02 · 真 socket）', 
     }
   });
 
+  it('流式端点的预检在线路上同样齐备（票 02 症状的另一半：放行预检、拒收正文）', async () => {
+    const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
+    try {
+      const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+      const preflight = await fetch(`${baseUrl}/ai/chat`, {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'http://localhost:3000',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type',
+        },
+      });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get('access-control-allow-origin')).toBe('http://localhost:3000');
+      expect(preflight.headers.get('access-control-allow-methods')).toBe(
+        'GET,POST,PUT,PATCH,DELETE',
+      );
+      expect(preflight.headers.get('access-control-allow-headers')).toBe('content-type');
+      expect(preflight.headers.get('access-control-max-age')).toBe('600');
+
+      // 白名单外的预检：一条放行头都不给（浏览器据此拒绝，正文根本不发起）
+      const denied = await fetch(`${baseUrl}/ai/chat`, {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'http://evil.example.com',
+          'access-control-request-method': 'POST',
+        },
+      });
+      expect(
+        [...denied.headers.keys()].filter((name) => name.startsWith('access-control-')),
+      ).toEqual([]);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('同一条 SSE 通道的 error 帧也带放行头（参数非法时浏览器仍要能读到契约错误体）', async () => {
     const daemon = await createTestDaemon({ envApiKey: FAKE_AI_KEY, fetchImpl: fakeUpstream });
     try {
