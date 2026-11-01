@@ -212,10 +212,13 @@ export function runFixedScript(): DesignDocument {
   });
 
   // 7) 复制粘贴（跨父级：粘贴到画板内）
+  // 必须带目标页快照：这才是 web 的真实调用形态（`session.ts` 传 `page: page()`），
+  // 主组件 `comp_a` 在目标页在位 → 实例保持实例；不传则走票 17 的降级分支（由 clipboard.test.ts 覆盖）
   const payload = copyNodes(page(), 'page_fixed', ['inst_a']);
   stack.dispatch(
     pasteCommands(payload, {
       pageId: 'page_fixed',
+      page: page(),
       parentId: 'frame_root',
       ids: createIdFactory(1000),
     }),
