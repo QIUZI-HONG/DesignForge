@@ -23,11 +23,14 @@ blockers:
 
 已收：
 
-- `verify-daemon.mjs`、`verify-figma-inspect.mjs`、`verify-ai-two-state.mjs` 起的夹具 daemon 均监听**显式分配端口**（二轮实跑读到 `http://127.0.0.1:42285`），跑完 4318/3000 未被占用。
+- `verify-daemon.mjs`、`verify-ai-two-state.mjs` 起的夹具 daemon 监听**显式分配端口**（二轮实跑读到 `http://127.0.0.1:42285`），跑完 4318/3000 未被占用。
 - `verify-ai-two-state.mjs` 的「保留现场」目录已离开 `/tmp`，实测落 `~/df-evidence/scratch/verify-ai-two-state-*`（此前是 `/tmp/df-verify-fe10-ai-*`）。
+
+订正（三轮 Spec 轴提出、主控在 `5349af7` 复核属实）：本段此前把 `verify-figma-inspect.mjs` 也写成「起夹具 daemon、显式端口」，**是错的**——该脚本在 HEAD 上 `spawn` / `startFixtureDaemon` / `DF_PORT` / `freePort` 命中 **0 次**，它根本不自己起 daemon，而是 `:48` 缺省连常驻 `http://127.0.0.1:4318`。二轮实跑因 4318 未起而退 2（阻塞），所以那条「显式端口」的读数与它无关。真实风险见下面第 1 条。
 
 仍活（**同一族，别只改一处**）：
 
+- [ ] **`verify-figma-inspect.mjs` 缺省即连本机常驻 daemon，并往里写数据**：`:274` `POST /documents`（建「FE-08 门禁导出源」）、`:294` 写页、`:306` `POST /export`、`:386` `DELETE /documents/<id>`——4318 常驻时这些全落进真实数据根 `~/.dforge`。与本票 What to build 里的「禁止缺省即连本机」直接冲突，且比端口问题更重（不是偶发红，而是污染用户数据）。收口方向：改走 `startFixtureDaemon`（显式端口 + `--data-root` 指临时根），或在无法起夹具时**先探测再退 2**，绝不带写操作直连缺省地址。
 - [ ] `scripts/verify-image-two-state.mjs:355` 仍不传 `--port` → 与 `scripts/verify-mcp-stub.mjs:141` 并发跑会抢 4318（由二轮 impl-b 交接指出，坐标已复核）。
 - [ ] 其余 `mkdtemp(tmpdir())` 位点未统一取 `DFORGE_TMP_ROOT`（本轮只收了 `verify-ai-two-state`）。
 - [ ] 「`scripts/**` 出现 `tmpdir()` 或 `next dev` 即违规」的守卫仍不存在——注意 `scripts/lib/ui-mount.mjs` 现在**复用 4420 上的既有 `next dev`**，与本票第 4 条的判据直接冲突；若要机检，先与票 04「浏览器门禁改生产构建」一起裁决，不要在两条票里各说一套。
