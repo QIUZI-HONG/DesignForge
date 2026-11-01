@@ -28,23 +28,51 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** code-complete（`pnpm run verify` 全仓 0、`verify:ai-two-state` 由 1 回到诚实的 2；证据 `~/df-evidence/25/`）
 
 blockers:
 
-- [ ] 先做**确定性判据**（不靠赛跑）：`packages/ui` 的 Drawer/Modal 测试里，聚焦按钮 → 置 `loading` → 断言
-  `document.activeElement` 仍在浮层容器内（现在会断到 `body`）。这条判据必须先红后绿。
-- [ ] 收口浮层自身（推荐落点）：`useOverlayBehavior` 在层开着时监听 `focusout`/`blur`，
-  若 `document.activeElement` 落到浮层之外（含 `body`）就把焦点交还给容器（`containerRef`，`tabIndex={-1}` 已具备）。
-  这把「焦点陷阱」从「只拦 Tab」升级为「栈顶层的不变量」，Modal 与 Drawer 一并受益。
-- [ ] `Button` 侧的取舍要写清并只选一处：`aria-disabled` + 自行拦截激活行为（可保持可聚焦，但需检查所有调用方是否依赖原生 disabled 的表单语义），
-  还是保留 `disabled` 由上一条的浮层不变量兜住。**若选后者，本条不改动 Button**，只在工单里记「异步期间焦点由浮层接管」。
-- [ ] 复跑 `pnpm run verify:ai-two-state` 直到 UI 段四步全 `[ok]`；段 B 默认跳过仍应退 **2**（不是 0，也不是 1）。
-  日志与截图入 `~/df-evidence/25/`。
-- [ ] 顺带核一遍同族的其它异步按钮（导出面板、上传、保存）是否也在 loading 期间 `disabled` 自己——同一形状的失焦面。
+- [x] 确定性判据已建，但**口径与工单原文不同，如实记**：原文给的「聚焦按钮 → 置 `loading` → 断言 `activeElement`
+  仍在层内」在 jsdom 里**恒过**（假判据）——jsdom 30 的 `unfocusingSteps` 见旧目标已不可聚焦就直接返回
+  （`jsdom/lib/jsdom/living/helpers/focusing.js:194`，实测置 disabled 后连 `blur()` 都是空操作，`activeElement`
+  仍留在那个已禁用的按钮上），焦点根本没被踢出去，所以断什么都在层内。改为**演浏览器一定会发出的那两个事件**：
+  `act` 点击转 loading → `fireEvent.blur` + `fireEvent.focusOut` → 断言落点**就是浮层容器本身**（`toBe(dialog)`，
+  不是「不在 body」）。判别力经反向验证：对 HEAD 的 `use-overlay.ts` 这两条（Drawer/Modal 各一）**实跑判红**，
+  修复后 `packages/ui` 256/256 绿。
+- [x] 浮层自身收口（采用的落点）：`useOverlayBehavior` 在层开着时听 `focusout` + document 捕获阶段的 `blur`，
+  把焦点接回容器（`containerRef`，`tabIndex={-1}` 已具备）。**判据取「刚离散的那个元素已不可聚焦（或已摘出文档）」，
+  不取「此刻 `activeElement` 是 body」**：一次正常焦点转移在派发序列里**也**经过 body，按后者判会把焦点从刚拿到的
+  目标元素抢回容器——实测把既有的「Tab 回环」用例判红。另加一次性标志：接回动作自身会让旧持焦者再发一次 blur
+  落回同一处理器，不许自激。**Esc/Tab 那条链在 jsdom 里不是判别腿**（HEAD 也绿，理由同上），已如实写进测试注释；
+  真判据是 Chromium 门禁第④步。
+- [x] `Button` 侧取舍：**保留原生 `disabled`，本条不改动 Button**。异步期间焦点由浮层接管（上一条），
+  不改 `aria-disabled` 是因为 F15（灰化 + tooltip 原因）与 16 处调用方都依赖原生 disabled 的表单语义，
+  换实现要把「拦截激活行为」在每处重做一遍——收益不如风险。
+- [x] 复跑 `pnpm run verify:ai-two-state`：UI 段七步全 `[ok]`，含新点亮的 `ui.drawer.closes —— Esc → 抽屉关闭（面板卸载）`；
+  段 B 默认跳过 9 项，**步骤 21 项失败 0 项、退出码 2**（不是 0，也不是 1）。
+  日志 `~/df-evidence/25/verify-ai-two-state.after-fix.log`，截图 `~/df-evidence/fe-10/ui-ai-drawer.png`。
+- [x] 同族异步按钮已核一遍（16 处 `loading=`）：**层内 5 处**（`AiDrawer.tsx:116`、`CreateDocumentDialog.tsx:81`、
+  `DeleteConfirmDialog.tsx:48`、`ImagePanel.tsx:179`（JSX 定义在 173-187，经 `footer={footer}` 传入 `Drawer`，
+  按行号判会误判成层外）、`DiagnosticsPanel.tsx:147`）由本次中央收口一并覆盖——修在 `useOverlayBehavior`，不在调用方。
+  **层外 11 处**（`save-control.tsx:37`、`canvas-studio.tsx:434`、`settings/sections.tsx:155,159,214`、
+  `cold-start.tsx:140`、`save-footer.tsx:52`、`ExportPanel.tsx:106`、`McpConfirmBar.tsx:198`、`HomeTopbar.tsx:149`、
+  `ErrorState.tsx:70`（页面/面板共用，15 个调用点全在层外））不在 `aria-modal` 层里，没有焦点陷阱可破，
+  但**仍会把焦点交回 `<body>`**（键盘用户点完丢失当前位置）。
+  那是同一形状的**通用**失焦缺陷，范围与判据都不同于本票，另立票 26，不静默丢弃。
 
-## 归属与级别
+## 完成记录（2026-11-02 · `integration/test-remediation-v2`）
 
-三轮 UI 实跑验证人判定「两步红是选择器越界，非产品缺陷」的同时，让第④步第一次跑到，从而**新暴露**出本缺陷。
-它不是本分支引入的（`Button.tsx:72` 与 `use-overlay.ts:190` 都在基线里），但它是**用户可见**的无障碍缺陷，
-且被本分支修好的门禁步骤直接钉住，因此单列一票、级别按 a11y 主功能缺陷计，不并入票 05/06 的门禁卫生族。
+改动两处，都在 `packages/ui`：
+
+- `packages/ui/src/utils/use-overlay.ts`——新增 `isDisabledFormControl`、模块级 `isTopLayer`（`isTop` 与事件回调共用，
+  避开 exhaustive-deps 红线，**无 lint 抑制**），以及 open 期间的 `reclaimIfOrphaned` 焦点接回。
+- `packages/ui/src/components/overlay.test.tsx`——新增「浮层 · 异步提交期间的焦点」describe（6 条：Drawer 接回、
+  Modal 接回、接回后 Esc 关得掉、焦点在层外时这层是聋的（反向腿）、层外自有控件持焦时不抢回、关闭交接不被盖掉）。
+
+判据修正与覆盖面（相对工单原文）：原文的层内断言写法在 jsdom 恒过，已换成事件驱动的写法并做了反向验证；
+「卸载聚焦的元素」这条路径 jsdom 30 不发 blur/focusout（实测），本票不假装能测到，实现仍听 `blur`（规范只保证这一条），
+Chromium 门禁负责真机链路。这三条限制同时写在测试文件的 describe 注释与实现的 WHY 注释里，不留口头保证。
+
+门禁实况：`pnpm exec biome check` 两文件无改动、`pnpm run typecheck` 全仓 Done、`pnpm -r test` 全绿
+（`packages/ui` 256/256、`apps/daemon` 252/252）、`pnpm run test:scripts` 0、`pnpm run verify` **退出码 0**；
+`verify:ai-two-state` **退出码 2**（段 A + UI 段全 `[ok]`、段 B 按票 22 默认跳过）。日志 `~/df-evidence/25/`。

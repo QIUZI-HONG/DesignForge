@@ -96,6 +96,26 @@ function topLayer(): OverlayLayer | null {
   return overlayStack[overlayStack.length - 1] ?? null;
 }
 
+/**
+ * 本层是否仍是栈顶——模块级，供 effect 里注册的事件回调引用。
+ * 组件作用域的 `isTop` 不行：它每次渲染换引用，进了事件的依赖表就是 lint 红线，
+ * 不进就是读到旧闭包；模块级函数只读 `layerRef.current` 与栈本身，两条都躲开。
+ */
+function isTopLayer(layer: OverlayLayer): boolean {
+  return topLayer() === layer;
+}
+
+/** 规范里 disabled 的表单控件**不可聚焦**：浏览器会把焦点交回 body，层内按键事件随之到不了浮层。 */
+function isDisabledFormControl(element: HTMLElement): boolean {
+  return (
+    (element instanceof HTMLButtonElement ||
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLSelectElement ||
+      element instanceof HTMLTextAreaElement) &&
+    element.disabled
+  );
+}
+
 /** 栈变化后把最新层序同步给各层（z 序由层序推导）。 */
 function syncStackOrder(): void {
   overlayStack.forEach((layer, index) => {
@@ -155,7 +175,55 @@ export function useOverlayBehavior({
     // 焦点入层只作用于栈顶：嵌套同时挂载时内层效果先跑（子先于父），
     // 非栈顶层（外层）若照旧聚焦，就会把焦点从最内层夺回去
     if (topLayer() === layer) focusIntoLayer(layer);
+    /**
+     * 焦点接回：`aria-modal` 的层开着时，层内焦点**不能落到无处可去**。
+     *
+     * 为什么必须有：「点一下生成 → 按钮自禁用（异步期间防重复提交）」在浏览器里会让焦点被交回
+     * `<body>`（disabled 的表单控件不可聚焦），而 Esc 与 Tab 回环都挂在层的 `onKeyDown` 上，
+     * 只收得到**从层内冒泡上来的**按键：焦点在 body 时事件路径里没有这一层，于是「Esc 关不掉」与
+     * 「Tab 能逃到画布背后」同时发生，而 `aria-modal="true"` 还在对读屏器称「模态里」。
+     *
+     * 判据取「刚离散的那个元素已不可聚焦」而不是「此刻 `activeElement` 是 body」：
+     * 一次正常转移（Tab 从末位回到首位）在派发序列里**也**经过 body，按后者判就会把焦点从
+     * 目标元素抢回容器——实测把既有的「Tab 回环」用例判红。前者只在真的逃逸时成立。
+     * 同理，用户真的点了层外的别的元素（离散元素仍可聚焦）不动它：陷阱的不变量是「焦点不落空」，
+     * 不是「焦点不许离开」，把浮层变成抢焦点的牢笼会打断层外自有控件（下拉、吐司）。
+     *
+     * 两条事件都要听：disabled 走 `focusout`，元素被摘出文档在规范里只保证 `blur`
+     * （`focusout` 在 removed 路径上历史上各浏览器不一致；jsdom 30 两条都不发，见 `overlay.test.tsx` 的注）。
+     * `blur` 不冒泡，所以在 document 的捕获阶段收。
+     *
+     * jsdom 30 还有一处偏离要防着「判据写得像测到了」：它的 unfocusingSteps 见旧目标已不可聚焦就直接
+     * 返回（`jsdom/lib/jsdom/living/helpers/focusing.js:194`），所以「点一下 → 断言焦点没在 body」在
+     * 单元测试里恒过。真浏览器那条完整链路（点生成 → disabled → Esc 关不掉）由 Chromium 门禁
+     * `scripts/verify-ai-two-state.mjs` 的 UI 段第④步 `ui.drawer.closes` 钉住。
+     */
+    let reclaiming = false;
+    const reclaimIfOrphaned = (event: Event): void => {
+      if (!isTopLayer(layer)) return;
+      const container = containerRef.current;
+      if (container === null || !container.isConnected) return;
+      const origin = event.target;
+      if (!(origin instanceof HTMLElement)) return;
+      if (!isDisabledFormControl(origin) && origin.isConnected) return;
+      const active = document.activeElement;
+      // 「层内已有别的元素持焦」就不抢：接回只补「焦点在层内已无处可去」这一种形状。
+      // 这里比的是身份而不只是容器：jsdom 30 把 activeElement 留在刚被禁用的控件上
+      // （focusing.js 的 unfocusingSteps 在旧目标已不可聚焦时直接返回，实测 `blur()` 是空操作），
+      // 真浏览器此刻交回的是 body——两种形状下「持焦者正是刚离散的那个控件」都成立，一条判据覆盖。
+      if (active !== null && active !== origin && container.contains(active)) return;
+      // 接回动作自身会让旧持焦者再发一次 blur 落回这里：不许自激
+      if (reclaiming) return;
+      reclaiming = true;
+      // 三个容器（Modal/Drawer/Overlay）都带 tabIndex={-1}，落点必在层内
+      container.focus();
+      reclaiming = false;
+    };
+    document.addEventListener('focusout', reclaimIfOrphaned);
+    document.addEventListener('blur', reclaimIfOrphaned, true);
     return () => {
+      document.removeEventListener('focusout', reclaimIfOrphaned);
+      document.removeEventListener('blur', reclaimIfOrphaned, true);
       const wasTop = topLayer() === layer;
       const container = layer.containerRef.current;
       const active = document.activeElement;
@@ -177,7 +245,7 @@ export function useOverlayBehavior({
 
   const isTop = (): boolean => {
     const layer = layerRef.current;
-    return layer !== null && topLayer() === layer;
+    return layer !== null && isTopLayer(layer);
   };
 
   return {

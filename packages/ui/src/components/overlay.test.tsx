@@ -5,7 +5,7 @@
  * 关闭后焦点归还/交接、滚动锁、遮罩点击、抽屉的宽度分级与「关闭记忆」、
  * Overlay 的**栈序 z 序**（后开必在上——D-4 的根因回归）。
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -203,6 +203,181 @@ describe('Drawer（F2 抽屉族）', () => {
       </Drawer>,
     );
     expect(screen.getByRole('dialog', { name: 'AI 助手' })).toBeTruthy();
+  });
+});
+
+describe('浮层 · 异步提交期间的焦点（票 25：焦点不得滞留层外）', () => {
+  /**
+   * 触发口径（不写清就会写出恒过的判据）。Chromium 里 `disabled` 一个已聚焦的控件会走「取消聚焦」：
+   * 对该控件发 blur + focusout，并把焦点交回视口；**jsdom 30 两件事都不做**——它的 unfocusingSteps
+   * 见旧目标已不可聚焦就直接返回（`jsdom/lib/jsdom/living/helpers/focusing.js:194`，实测置 disabled
+   * 后 `blur()` 是空操作、`activeElement` 仍留在那个按钮上）。所以这里用 `act` + `fireEvent.blur/focusOut`
+   * 把浏览器**一定会发出的那两个事件**演出来：被测的接回逻辑读的是事件，不是 jsdom 的焦点簿记。
+   * 走原生事件而不走 userEvent：它自己维护焦点簿记，会把刚接回的焦点又放回那个已禁用的控件（实测），
+   * 演出来的就不是被测形状。「点一下生成 → 断言焦点还在层内」这类写法在 jsdom **不会红**，是假判据，本文件不写。
+   * 完整链路（真浏览器点「生成」→ disabled → Esc 关不掉）由门禁
+   * `scripts/verify-ai-two-state.mjs` 的 UI 段第④步钉住，
+   * 修复前后的日志都在 `~/df-evidence/v2-review3/verify-ai-two-state.r3-final.log`。
+   *
+   * 卸载路径同样只能靠真浏览器：jsdom 30 里摘除聚焦元素**不发** blur/focusout（实测），
+   * 实现里仍听 `blur`（规范只保证这一条），本文件不假装能测到。
+   */
+  function AsyncSubmitDrawerHost() {
+    const [open, setOpen] = useState(true);
+    const [running, setRunning] = useState(false);
+    return (
+      <Drawer
+        open={open}
+        onOpenChange={setOpen}
+        title="AI 助手"
+        closeLabel="关闭面板"
+        footer={
+          <Button loading={running} onClick={() => setRunning(true)}>
+            生成
+          </Button>
+        }
+      >
+        <p>抽屉内容</p>
+      </Drawer>
+    );
+  }
+
+  /** 模态宿主：同一个形状，钉「两条族共用同一条不变量」。 */
+  function AsyncSubmitModalHost() {
+    const [open, setOpen] = useState(true);
+    const [running, setRunning] = useState(false);
+    return (
+      <Modal
+        open={open}
+        onOpenChange={setOpen}
+        title="导出"
+        footer={
+          <Button loading={running} onClick={() => setRunning(true)}>
+            导出
+          </Button>
+        }
+      >
+        <p>导出面板</p>
+      </Modal>
+    );
+  }
+
+  /** 演一遍浏览器的禁用逃逸：聚焦 → 点击（转 loading）→ 浏览器发 blur/focusout 并把焦点交回视口。 */
+  function evictFocusFromSubmit(): HTMLButtonElement {
+    const submit = screen.getByRole('button', { name: /生成|导出/ }) as HTMLButtonElement;
+    submit.focus();
+    act(() => {
+      submit.click();
+    });
+    expect(submit.disabled).toBe(true);
+    fireEvent.blur(submit);
+    fireEvent.focusOut(submit);
+    return submit;
+  }
+
+  it('禁用层内已聚焦的控件后，焦点必须由层接回（不许滞留层外）', () => {
+    render(<AsyncSubmitDrawerHost />);
+    const dialog = screen.getByRole('dialog', { name: 'AI 助手' });
+    evictFocusFromSubmit();
+    expect(document.activeElement).toBe(dialog);
+  });
+
+  it('Modal 同族同判据：焦点被踢出层外后由浮层接回', () => {
+    render(<AsyncSubmitModalHost />);
+    const dialog = screen.getByRole('dialog', { name: '导出' });
+    evictFocusFromSubmit();
+    expect(document.activeElement).toBe(dialog);
+  });
+
+  it('接回之后 Esc 关得掉抽屉——焦点回层内，按键才有的这条路必须继续通', () => {
+    render(<AsyncSubmitDrawerHost />);
+    evictFocusFromSubmit();
+    // 如实记录：这一条在本机 jsdom 下**不是判别腿**。没有接回时 jsdom 把 activeElement 留在
+    // 层内那个已禁用的按钮上，按键照样冒泡到遮罩，实测对 HEAD 也绿；它钉的是「接回之后
+    // 按键路径仍通」，而「焦点交回视口 → Esc 到不了层」的因果只有 Chromium 门禁那段能判（见上）。
+    // 焦点此刻必须已在层内（前两条钉的就是这件事），从 activeElement 派发才有浏览器的形状
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  /** 层外自有控件 + 一直开着的抽屉：钉「接回不许把层变成抢焦点的牢笼」。 */
+  function OutsideControlDrawerHost() {
+    const [open, setOpen] = useState(true);
+    const [running, setRunning] = useState(false);
+    return (
+      <>
+        <Button onClick={() => {}}>层外按钮</Button>
+        <Drawer
+          open={open}
+          onOpenChange={setOpen}
+          title="AI 助手"
+          closeLabel="关闭面板"
+          footer={
+            <Button loading={running} onClick={() => setRunning(true)}>
+              生成
+            </Button>
+          }
+        >
+          <p>抽屉内容</p>
+        </Drawer>
+      </>
+    );
+  }
+
+  it('焦点在层外时这层是聋的：同一次 Esc 到不了层——反向腿，证明接回那条不是空转', () => {
+    // portal 让 React 树与 DOM 树分家：层外的元素不在遮罩的祖先链上，按键冒泡不到那一层。
+    // 这条不依赖接回实现，实现怎么写都不该让它变绿；它钉的是因果——上面那条能关掉抽屉，
+    // 靠的正是先把焦点接回层内。
+    render(<OutsideControlDrawerHost />);
+    const outside = screen.getByRole('button', { name: '层外按钮' });
+    outside.focus();
+    expect(document.activeElement).toBe(outside);
+    fireEvent.keyDown(outside, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'AI 助手' })).toBeTruthy();
+  });
+
+  it('用户把焦点交给层外的自有控件时不抢回：不变量是「焦点不落空」，不是「不许离开」', () => {
+    render(<OutsideControlDrawerHost />);
+    const outside = screen.getByRole('button', { name: '层外按钮' });
+    // 先让抽屉自己拿一次焦点，再从层外把焦点要走：模拟「浮层开着，用户去点画布背后的控件」
+    evictFocusFromSubmit();
+    outside.focus();
+    // 离散元素是**仍可聚焦**的按钮（不是刚被禁用的那个），接回逻辑必须放行——
+    // 否则下拉、吐司、画布背后的控件全被浮层锁死
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it('浮层关闭后焦点归还打开它的按钮（接回逻辑不得盖掉关闭交接）', async () => {
+    const user = userEvent.setup();
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <Button onClick={() => setOpen(true)}>打开 AI 面板</Button>
+          <Drawer
+            open={open}
+            onOpenChange={setOpen}
+            title="AI 助手"
+            closeLabel="关闭面板"
+            footer={
+              <Button loading={open} onClick={() => {}}>
+                生成
+              </Button>
+            }
+          >
+            <p>抽屉内容</p>
+          </Drawer>
+        </>
+      );
+    }
+    render(<Host />);
+    const opener = screen.getByRole('button', { name: '打开 AI 面板' });
+    await user.click(opener);
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(document.activeElement).toBe(opener);
   });
 });
 
