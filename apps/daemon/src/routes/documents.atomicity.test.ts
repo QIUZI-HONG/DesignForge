@@ -173,15 +173,10 @@ describe('documents · 无 manifest 空壳目录必须可回收', () => {
     try {
       // 手造无 manifest 空壳：notes.txt + backup/ 子树，全是外来内容（非 manifest.json/pages//*.tmp）
       const shellDir = join(daemon.workspaceDir, `${shellId}.dfg`);
-      await mkdir(join(shellDir, 'backup'), { recursive: true });
+      await mkdir(join(shellDir, 'backup', 'git'), { recursive: true });
       await writeFile(join(shellDir, 'notes.txt'), 'x'.repeat(1300), 'utf8');
       await writeFile(join(shellDir, 'backup', 'data.bin'), 'y'.repeat(4096), 'utf8');
-      await writeFile(join(shellDir, 'backup', 'git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8').catch(
-        async () => {
-          await mkdir(join(shellDir, 'backup', 'git'), { recursive: true });
-          await writeFile(join(shellDir, 'backup', 'git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
-        },
-      );
+      await writeFile(join(shellDir, 'backup', 'git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
 
       const removed = await injectJson(daemon.app, {
         method: 'DELETE',
