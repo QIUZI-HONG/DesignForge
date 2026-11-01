@@ -66,6 +66,11 @@ function record(id, ok, detail) {
   steps.push({ id, ok: Boolean(ok), detail });
   console.log(`  [${ok ? 'ok' : 'FAIL'}] ${id} —— ${detail}`);
 }
+/** 未判定（阻塞）步骤：三态里的 2，**不是**覆盖面，也不是违规。 */
+function skip(id, detail) {
+  steps.push({ id, ok: null, skipped: true, detail });
+  console.log(`  [SKIP] ${id} —— ${detail}`);
+}
 
 async function sleep(ms) {
   await new Promise((settle) => setTimeout(settle, ms));
@@ -295,7 +300,12 @@ async function probeUiMount({ daemonUrl, degradedHint }) {
       let suggestionCount = null;
       try {
         await page.fill('[data-df-panel="ai"] textarea', '加一个主按钮');
-        await page.click('[data-df-panel="ai"] button:text-is("生成")');
+        // 「生成」在抽屉 **footer** 里，而 `Drawer.tsx` 把 `.dfg-drawer__footer` 渲染成
+        // `.dfg-drawer__body` 的**兄弟节点**（`data-df-panel="ai"` 只包 body 的 children）——
+        // 旧口径 `[data-df-panel="ai"] button…` 把按钮限定在 body 内，结构上永不可达，
+        // 30s 超时后级联拖垮 :323（三轮 UI 段判定：门禁缺陷，非产品缺陷）。
+        // 与组件单测 `AiDrawer.test.tsx` 同口径：按可及性角色全局取按钮。
+        await page.getByRole('button', { name: '生成', exact: true }).click();
         await page.waitForSelector('[data-df-panel="ai"] [data-df-badge="local-template"]', {
           timeout: 60_000,
         });
@@ -533,23 +543,37 @@ async function main() {
     // 跳过并**强制 exit 2**（阻塞 ≠ 通过）；只有显式设 `DF_ALLOW_AI_EGRESS=1` 才启用，
     // 意味着操作者**已知**并接受真实出机风险（配套票 22 已把这一约束落到完成记录）。
     const aiEgressOptIn = process.env.DF_ALLOW_AI_EGRESS === '1';
+    // 段 B 步骤 id 的**唯一清单**（默认跳过与 opt-in-但-替身被拒 两条路共用，避免两处各说一套）。
+    const bStepIds = [
+      'B.credentials.masked',
+      'B.config.base-url',
+      'B.status.configured',
+      'B.stream.sse-frames-accounted',
+      'B.stream.steps-timeline',
+      'B.stream.content-accumulated',
+      'B.upstream.authorization',
+      'B.no-leak',
+      'B.once.real-response',
+    ];
+    const bUpstreamOnlyIds = bStepIds.filter(
+      (id) => id !== 'B.credentials.masked' && id !== 'B.config.base-url',
+    );
+    // 三轮 P1：先判「回环替身是否真在效」，再决定本段任何请求能不能发。
+    // PUT /config 只是写本机夹具配置，不带凭据、不可能出机。
+    const setBase = aiEgressOptIn
+      ? await call(baseUrl, 'PUT', '/config', { ai: { baseUrl: mock.baseUrl } })
+      : null;
+    const standInInEffect =
+      setBase !== null &&
+      setBase.status === 200 &&
+      setBase.json?.result?.config?.ai?.baseUrl === mock.baseUrl;
     if (!aiEgressOptIn) {
       const reason =
         '段 B「有 key + mock 上游」默认跳过：ai.baseUrl 白名单只允许 https://api.deepseek.com，' +
         '回环 stand-in 走不进 allowlist；不设 opt-in 就发起 /ai/chat 会以哨兵 key 打真实官方端；' +
         '脚本侧无上游探针，无法观测「未出机」——不假装 attestation。' +
         '要跑段 B 请显式设 DF_ALLOW_AI_EGRESS=1 并接受真实出机（详见票 22）。';
-      const skippedSteps = [
-        'B.credentials.masked',
-        'B.config.base-url',
-        'B.status.configured',
-        'B.stream.sse-frames-accounted',
-        'B.stream.steps-timeline',
-        'B.stream.content-accumulated',
-        'B.upstream.authorization',
-        'B.no-leak',
-        'B.once.real-response',
-      ];
+      const skippedSteps = bStepIds;
       evidence.states.stateB = {
         id: 'key-mock-upstream',
         label: '有 key + mock 上游流式（默认跳过）',
@@ -562,15 +586,41 @@ async function main() {
         egressObservability: 'no-probe：段 B 未开，脚本不声称「未出机」',
       };
       for (const id of skippedSteps) {
-        steps.push({ id, ok: null, skipped: true, detail: `段 B 跳过：${reason.slice(0, 80)}…` });
-        console.log(`  [SKIP] ${id} —— 段 B 默认跳过（详见票 22）`);
+        skip(id, `段 B 默认跳过（详见票 22）：${reason.slice(0, 80)}…`);
       }
       if (blockedReason === null) blockedReason = reason;
-      // 三态语义：阻塞（2）优先于「其他步全绿即 0」；违规（1）仍最优先。
-      exitCode = 2;
+      // 不在这里写 exitCode：中途抢先置 2 会把「有 failed 即 1」挡在门外（三轮 S1）。
+      // 三态判定统一在收口处由事实推导。
+    } else if (!standInInEffect) {
+      // 三轮 P1：opt-in 了但白名单不收环回替身 ⇒ daemon 的 baseUrl 仍停在 https://api.deepseek.com。
+      // 此时任何 /ai/chat 都是**门禁自己向第三方发一次真请求**，而这一段照样覆盖不到 mock。
+      // 所以：不装哨兵 key（`ai/client.ts` apiKey 为空即本地降级，结构上不可能带凭据出机）、
+      // 不发 /ai/chat，本段步骤一律记**未判定（2）**——覆盖不到不是产品的违规。
+      const reason =
+        `段 B 已 opt-in，但 ai.baseUrl 白名单拒收回环替身（PUT /config → ${String(setBase?.status)}）：` +
+        '不装 key、不发 /ai/chat（否则会以哨兵 key 真打官方端且覆盖不到 mock）；' +
+        '要覆盖这条通路只有改 daemon（票 22 选项 A/B），属人工决定。';
+      skip('B.config.base-url', reason);
+      skip('B.credentials.masked', '替身未生效 ⇒ 不装哨兵 key（杜绝任何带凭据出机的可能）');
+      for (const id of bUpstreamOnlyIds) skip(id, '替身未生效，本步骤未执行');
+      if (blockedReason === null) blockedReason = reason;
+      evidence.states.stateB = {
+        id: 'key-mock-upstream',
+        label: '有 key + mock 上游流式（opt-in，但替身被白名单拒 → 未执行）',
+        status: 'blocked-stand-in-refused',
+        reason,
+        putConfigStatus: setBase?.status ?? null,
+        egressAttemptedByGate: false,
+        egressObservability: 'no-probe：本段未发任何 /ai/chat；脚本不声称「未出机」',
+      };
     } else {
       console.warn(
-        '[verify-ai-two-state] ⚠️ DF_ALLOW_AI_EGRESS=1 已开启：段 B 会真实出机至 api.deepseek.com。',
+        '[verify-ai-two-state] ⚠️ DF_ALLOW_AI_EGRESS=1 已开启且回环替身在效：段 B 的上游是本机 mock。',
+      );
+      record(
+        'B.config.base-url',
+        standInInEffect,
+        `PUT /config（ai.baseUrl → mock）→ ${String(setBase?.status)}（替身已在效，key 才允许装）`,
       );
       const setKey = await call(baseUrl, 'PUT', '/config/credentials', { apiKey: SENTINEL_KEY });
       record(
@@ -580,13 +630,6 @@ async function main() {
           !setKey.text.includes(SENTINEL_KEY) &&
           !setKey.text.includes(SENTINEL_FRAGMENT),
         `PUT /config/credentials → ${setKey.status}（只回掩码，明文不出响应）`,
-      );
-
-      const setBase = await call(baseUrl, 'PUT', '/config', { ai: { baseUrl: mock.baseUrl } });
-      record(
-        'B.config.base-url',
-        setBase.status === 200 && setBase.json?.result?.config?.ai?.baseUrl === mock.baseUrl,
-        `PUT /config（ai.baseUrl → mock）→ ${setBase.status}`,
       );
 
       const statusB = await call(baseUrl, 'GET', '/ai/status');
@@ -694,10 +737,10 @@ async function main() {
       };
     }
   } catch (error) {
-    exitCode = 2;
+    // 起不来/载入失败一类是三态里的**阻塞（2）**，不得记成违规（与三轮 S1 同一条纪律的反面）。
     blockedReason = String(error);
     console.error(`[verify-ai-two-state] 阻塞：${blockedReason}`);
-    record('bootstrap', false, `阻塞：${blockedReason}`);
+    skip('bootstrap', `daemon/mock 未能就绪：${blockedReason}`);
   } finally {
     if (child !== null) {
       child.kill('SIGTERM');
@@ -707,14 +750,17 @@ async function main() {
     if (mock !== null) await mock.close();
   }
 
-  if (exitCode === 0) {
-    const failed = steps.filter((step) => step.ok === false);
-    if (failed.length > 0) exitCode = 1;
-    else if (steps.some((step) => step.skipped === true)) exitCode = 2;
-  }
-  // UI 段阻塞 → exit 2（三态语义；违规（1）优先于阻塞（2），见 implementation-workflow）
-  if (exitCode === 0 && evidence.uiEvidence?.status === 'blocked') exitCode = 2;
-  if (exitCode === 0 && evidence.uiEvidence?.status === 'failed') exitCode = 1;
+  // 三态判定统一由**事实**推导，且违规（1）优先于阻塞（2）——`implementation-workflow.md:92`。
+  // 旧写法把 `failed → 1` 锁在 `if (exitCode === 0)` 门外：中途任何良性跳过先置 2，
+  // 真违规就从退出码里消失（三轮 S1，实跑曾读作「失败 2 项；退出码 2」）。
+  const failedCount = steps.filter((step) => step.ok === false).length;
+  const blockedPresent = blockedReason !== null || steps.some((step) => step.skipped === true);
+  exitCode =
+    failedCount > 0 || evidence.uiEvidence?.status === 'failed'
+      ? 1
+      : blockedPresent || evidence.uiEvidence?.status === 'blocked'
+        ? 2
+        : 0;
 
   evidence.exitCode = exitCode;
   evidence.blockedReason = blockedReason;
@@ -732,7 +778,7 @@ async function main() {
     // 「本脚本代码路径未发起 /ai/chat」，段 B 默认跳过时该断言成立。
     egressObservability:
       'no-probe：脚本不观测上游、不声称未出机；只声明本脚本代码路径未发起 /ai/chat 到真实官方端',
-    egressAttemptedByGate: process.env.DF_ALLOW_AI_EGRESS === '1',
+    egressAttemptedByGate: evidence.states.stateB?.egressAttemptedByGate === true,
     aiEgressOptInEnv: process.env.DF_ALLOW_AI_EGRESS === '1' ? 'DF_ALLOW_AI_EGRESS=1' : 'unset',
   };
 
