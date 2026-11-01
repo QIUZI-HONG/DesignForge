@@ -14,7 +14,7 @@
  * 纪律：全部走临时数据目录（testing/harness.ts），不碰 `~/.dforge`。
  */
 
-import { chmod, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -272,6 +272,55 @@ describe('documents · 保存失败不得把正文以 .tmp 泄漏在 pages/（�
       expect(after, 'pages/ 目录必须回到调用前的样子').toEqual(before);
     } finally {
       if (docDir !== '') await chmod(docDir, 0o755).catch(() => undefined);
+      await daemon.cleanup();
+    }
+  });
+});
+
+describe('documents · 发布目标不可替换必须在提交点之前拒绝（票 19 · F3）', () => {
+  it('正文目标被换成目录（publish 会 EISDIR）：提交前即拒，manifest 不前移、非 500', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const created = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '发布目标占位' },
+      });
+      expect(created.statusCode, created.raw).toBe(201);
+      const id = (created.payload as { result: { document: { id: string } } }).result.document.id;
+      const docDir = join(daemon.workspaceDir, `${id}.dfg`);
+      const manifestPath = join(docDir, 'manifest.json');
+      const pagePath = join(docDir, 'pages', 'page-1.json');
+      const before = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+        version: number;
+        pages: { updatedAt: string }[];
+      };
+
+      // 复现评审现场：把正文文件换成空目录 → commit 之后的 publish(rename) 必 EISDIR。
+      // 若只在提交点之后才发现，manifest 已前移而正文从未发布，文档比调用之前更糟（readPage 打不开）。
+      await rm(pagePath, { force: true, recursive: true });
+      await mkdir(pagePath);
+
+      const res = await injectJson(daemon.app, {
+        method: 'PUT',
+        url: `/documents/${encodeURIComponent(id)}/pages/page-1`,
+        payload: { body: { marker: '不该落盘' } },
+      });
+      // 结构化错误、非 5xx
+      expect(res.statusCode, res.raw).toBeLessThan(500);
+      const error = (res.payload as { error: { code: string } }).error;
+      expect(error.code).toBe('doc_invalid_body');
+      // 提交点前拒绝 → manifest 分毫未动（version 与 updatedAt 不前移）
+      const after = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+        version: number;
+        pages: { updatedAt: string }[];
+      };
+      expect(after.version).toBe(before.version);
+      expect(after.pages[0]?.updatedAt).toBe(before.pages[0]?.updatedAt);
+      // pages/ 里没有泄漏的 .tmp，且那个目录占位仍在（拒绝即零改动）
+      const pagesDir = (await readdir(join(docDir, 'pages'))).sort();
+      expect(pagesDir).toEqual(['page-1.json']);
+    } finally {
       await daemon.cleanup();
     }
   });

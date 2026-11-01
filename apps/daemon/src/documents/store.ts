@@ -146,6 +146,18 @@ function pageNotFound(documentId: string, pageId: string): StoreResult<never> {
   return { ok: false, code: 'not_found', message: '页面不存在', details: { documentId, pageId } };
 }
 
+/**
+ * 正文发布目标可替换性检查（F3）：`publish()` 是 `rename(temp -> 正文路径)`，
+ * 若正文路径已存在且是目录，rename 必 EISDIR —— 而那时 manifest 已是提交点、已前移，
+ * 结果「文档比调用之前更糟」（正文从未发布、readPage 打不开）。因此必须在提交点**之前**
+ * 证明目标可替换：目录（非可 rename 覆盖的普通条目）即拒，落 doc_invalid_body，盘上零变化。
+ * 说明：**不**在冲突时回滚正文文件——那会盖掉并发胜者已提交的正文（票 19 的设计）。
+ */
+async function bodyTargetIsDirectory(pagePath: string): Promise<boolean> {
+  const existing = await lstat(pagePath).catch(() => null);
+  return existing !== null && existing.isDirectory();
+}
+
 /** manifest 提交计划：成功给出「下一个 manifest + 返回值（+ 提交点之后才发布的正文）」，失败给出统一存储错误。 */
 type ManifestPlan<T> =
   | { ok: true; next: DfgManifest; value: T; staged?: StagedFile }
@@ -593,6 +605,19 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
         return commitManifest(documentId, paths.value, async (current) => {
           const page = current.pages.find((item) => item.id === pageId);
           if (page === undefined) return { ok: false, result: pageNotFound(documentId, pageId) };
+          // 提交点之前证明发布目标可替换（F3）：正文路径是目录则 publish 必 EISDIR、
+          // 而那时 manifest 已前移——此路只会让文档比调用之前更糟，故在写 manifest 之前拒。
+          if (await bodyTargetIsDirectory(pagePath)) {
+            return {
+              ok: false,
+              result: {
+                ok: false,
+                code: 'doc_invalid_body',
+                message: '页面正文发布目标不可替换（同名条目是目录），已在提交点之前拒绝',
+                details: { documentId, pageId, reason: 'target-not-replaceable' },
+              },
+            };
+          }
           const now = new Date().toISOString();
           const nextPage: DfgPageMeta = { ...page, updatedAt: now };
           // 正文只暂存不发布：manifest 才是提交点，提交成功（且复读确认）之后才 rename 到目标名。
@@ -634,6 +659,18 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           const pageId = `page-${counter}`;
           const pagePath = await resolvePagePath(paths.value, documentId, pageId);
           if (pagePath === null) return { ok: false, result: invalidPageId() };
+          // 同 savePage：提交点之前证明新页正文目标可替换（F3），目录残骸即拒，manifest 不前移。
+          if (await bodyTargetIsDirectory(pagePath)) {
+            return {
+              ok: false,
+              result: {
+                ok: false,
+                code: 'doc_invalid_body',
+                message: '页面正文发布目标不可替换（同名条目是目录），已在提交点之前拒绝',
+                details: { documentId, pageId, reason: 'target-not-replaceable' },
+              },
+            };
+          }
           const now = new Date().toISOString();
           const page: DfgPageMeta = { id: pageId, name: name.trim(), updatedAt: now };
           // 同 savePage：空正文也只暂存，提交点确认后才发布，失败不留下孤儿页文件。
