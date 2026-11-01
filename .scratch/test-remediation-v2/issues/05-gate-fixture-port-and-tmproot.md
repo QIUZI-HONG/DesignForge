@@ -9,7 +9,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** partial（**未收口**）——已收：`verify-daemon` / `verify-ai-two-state` 两条链的显式端口与临时根、
+UI 挂载选择器口径（`2002973`）。**仍活 4 条**：`verify-figma-inspect` 缺省直连常驻 4318 并写真实数据根（最重，
+列为三轮后仍活首条）、`verify-image-two-state:355` 不传 `--port`、其余 `mkdtemp(tmpdir())` 位点、
+以及「`scripts/**` 出现 `tmpdir()`/`next dev` 即违规」的守卫仍不存在。
 
 blockers:
 
@@ -34,7 +37,11 @@ blockers:
 - [ ] `scripts/verify-image-two-state.mjs:355` 仍不传 `--port` → 与 `scripts/verify-mcp-stub.mjs:141` 并发跑会抢 4318（由二轮 impl-b 交接指出，坐标已复核）。
 - [ ] 其余 `mkdtemp(tmpdir())` 位点未统一取 `DFORGE_TMP_ROOT`（本轮只收了 `verify-ai-two-state`）。
 - [ ] 「`scripts/**` 出现 `tmpdir()` 或 `next dev` 即违规」的守卫仍不存在——注意 `scripts/lib/ui-mount.mjs` 现在**复用 4420 上的既有 `next dev`**，与本票第 4 条的判据直接冲突；若要机检，先与票 04「浏览器门禁改生产构建」一起裁决，不要在两条票里各说一套。
-- [ ] **UI 挂载的选择器口径**（三轮 UI 实跑验证人判定，属本票 UI 挂载面，不是产品缺陷）：`scripts/verify-ai-two-state.mjs:298`
+- [x] **UI 挂载的选择器口径**（三轮 UI 实跑验证人判定，属本票 UI 挂载面，不是产品缺陷）：**已修 `2002973`**，
+  改可及性口径 `getByRole('button', { name: '生成' })`，`ui.degraded-suggestions` 与 `ui.degraded-result-nonblank`
+  由「判据不可评估」转 `[ok]`（日志 `~/df-evidence/v2-review3/verify-ai-two-state.r3-final.log`）。
+  **本条修完立刻暴露出第④步的真缺陷**（Esc 关不掉抽屉），那是票 25，不记在本票面。
+  原判定如下（保留供复核）：`scripts/verify-ai-two-state.mjs:298`
   `page.click('[data-df-panel="ai"] button:text-is("生成")')` 结构上**永不可达**——`packages/ui/src/components/Drawer.tsx:132-140`
   把 `.dfg-drawer__footer` 渲染成 `.dfg-drawer__body` 的**兄弟节点**，而 `AiDrawer.tsx:110-126` 的「生成」按钮在 footer 里，
   `data-df-panel="ai"` 只包 body 的 children（`:140`）。`:323` 的限定本身合法，但提交从未发生（phase 停 `idle`）→ 级联超时。
