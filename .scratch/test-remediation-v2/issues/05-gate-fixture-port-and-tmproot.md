@@ -34,3 +34,11 @@ blockers:
 - [ ] `scripts/verify-image-two-state.mjs:355` 仍不传 `--port` → 与 `scripts/verify-mcp-stub.mjs:141` 并发跑会抢 4318（由二轮 impl-b 交接指出，坐标已复核）。
 - [ ] 其余 `mkdtemp(tmpdir())` 位点未统一取 `DFORGE_TMP_ROOT`（本轮只收了 `verify-ai-two-state`）。
 - [ ] 「`scripts/**` 出现 `tmpdir()` 或 `next dev` 即违规」的守卫仍不存在——注意 `scripts/lib/ui-mount.mjs` 现在**复用 4420 上的既有 `next dev`**，与本票第 4 条的判据直接冲突；若要机检，先与票 04「浏览器门禁改生产构建」一起裁决，不要在两条票里各说一套。
+- [ ] **UI 挂载的选择器口径**（三轮 UI 实跑验证人判定，属本票 UI 挂载面，不是产品缺陷）：`scripts/verify-ai-two-state.mjs:298`
+  `page.click('[data-df-panel="ai"] button:text-is("生成")')` 结构上**永不可达**——`packages/ui/src/components/Drawer.tsx:132-140`
+  把 `.dfg-drawer__footer` 渲染成 `.dfg-drawer__body` 的**兄弟节点**，而 `AiDrawer.tsx:110-126` 的「生成」按钮在 footer 里，
+  `data-df-panel="ai"` 只包 body 的 children（`:140`）。`:323` 的限定本身合法，但提交从未发生（phase 停 `idle`）→ 级联超时。
+  现场截图 `~/df-evidence/fe-10/ui-ai-drawer.png` 里按钮清晰可见于右下角、结果区仍是占位文案，对照单测 `AiDrawer.test.tsx:85-103`
+  用全局 `getByRole('button',{name:'生成'})` 一点就过——同一条渲染路径，换个查询就绿，这就是越界的直接证据。
+  **修法**：改 role 查询或与单测同口径的 footer 限定；**禁止**用加超时解决（永不可达的选择器加多长都红），**禁止**改成 SKIP。
+  与票 06/S1 的 sequencing：退出码优先级修好后本门禁会诚实读 **1**，这两步转绿才回到 **2**（段 B 默认 skip）——**两条同轮落地**，别把红门合进去。
