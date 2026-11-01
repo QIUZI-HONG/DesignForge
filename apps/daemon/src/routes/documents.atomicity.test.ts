@@ -6,15 +6,19 @@
  *   今天既读不到（`doc_not_found`）也删不掉，名字从此被 `EEXIST` 永久占用；
  * - 「保存失败」必须等于「盘上没变」，或**如实说明盘上已变成什么样**（409 不许沉默）。
  *
- * 覆盖面如实说明：跨进程 `conflict` 分支需要「外部提交正好挤进重试」这一时机，
- * 无法在 HTTP 缝上做确定性构造（实测挤爆率 ≈1.3%，见 ~/df-evidence/v2-19/probe.mjs），
- * 因此这里用**条件式断言**（一旦返回 409 就必须交代实况），把「失败不落正文」的
- * 构造性保证交给 `fs-atomic.test.ts` 的原语用例钉死；真实跨进程文档锁另开后续票。
+ * 覆盖面如实说明（DA-2 之后已改写，不再沿用「conflict 分支无法确定性构造」的旧口径）：
+ * 每次提交都带独有身份（manifest 的 `commitNonce`），并在改名前以 O_EXCL 独占声明
+ * 「我从这一份 base 提交」（`fs-atomic.claimCommit`）。于是 `conflict` 分支**可以确定性构造**：
+ * 先读到盘上的提交身份，再在文档目录里放好那一枚声明，就等于「另一个写者正从同一 base 提交」——
+ * 本次保存必须判定落败（下面的「声明在位」用例）。跨实例赛跑只保留**计数不变量**
+ * （成功次数 == 版本前进数），不再用毫秒级 `updatedAt` 去找「唯一赢家」（那是概率判定，实测 1/8 飘）。
+ * 仍未覆盖的（属票 21 的跨进程互斥）：提交点**之后**正文发布失败（TOCTOU 把目标名换成目录）
+ * 只能靠交错制造，本票不给概率式用例；该分支由 `publishFailure` 兜成类型化错误，注释如实交代。
  *
  * 纪律：全部走临时数据目录（testing/harness.ts），不碰 `~/.dforge`。
  */
 
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -108,6 +112,12 @@ describe('documents · create() 失败不得留下残骸，也不得伤及既有
       expect(read.body.marker).toBe('既有内容');
       // 且数据根只有那一个文档目录（无 .tmp / 无空壳）
       expect(await readdir(daemon.workspaceDir)).toEqual(['占名文档.dfg']);
+      // 覆盖面补齐（SP-2：旧版只列数据根一层）：失败方自己的目录里也不许留临时件/提交声明，
+      // 既有正文必须还是那一份——三级（数据根 / 文档目录 / pages）都得干净。
+      const docDir = join(daemon.workspaceDir, '占名文档.dfg');
+      expect(await readdir(docDir)).toEqual(['manifest.json', 'pages']);
+      expect(await readdir(join(docDir, 'pages'))).toEqual(['page-1.json']);
+      expect(await readFile(join(docDir, 'pages', 'page-1.json'), 'utf8')).toContain('既有内容');
     } finally {
       await daemon.cleanup();
     }
@@ -366,6 +376,162 @@ describe('documents · 500 响应不得回显宿主绝对路径（票 19 · F4�
   });
 });
 
+/** 建文档并返回其目录路径与 id。 */
+async function createDoc(
+  app: FastifyInstance,
+  workspaceDir: string,
+  name: string,
+): Promise<{ id: string; docDir: string }> {
+  const created = await injectJson(app, { method: 'POST', url: '/documents', payload: { name } });
+  expect(created.statusCode, created.raw).toBe(201);
+  const id = (created.payload as { result: { document: { id: string } } }).result.document.id;
+  return { id, docDir: join(workspaceDir, `${id}.dfg`) };
+}
+
+/** 保存一页（返回状态与响应体）。 */
+async function savePage(
+  app: FastifyInstance,
+  id: string,
+  body: unknown,
+  pageId = 'page-1',
+): Promise<{ statusCode: number; payload: unknown; raw: string }> {
+  return injectJson(app, {
+    method: 'PUT',
+    url: `/documents/${encodeURIComponent(id)}/pages/${pageId}`,
+    payload: { body },
+  });
+}
+
+/** 读盘上 manifest 的提交身份（票 19 DA-2 起每笔提交都必须带，且逐笔不同）。 */
+async function nonceOf(manifestPath: string): Promise<string> {
+  const parsed = JSON.parse(await readFile(manifestPath, 'utf8')) as { commitNonce?: string };
+  expect(typeof parsed.commitNonce, 'manifest 必须带独有提交身份 commitNonce').toBe('string');
+  return parsed.commitNonce ?? '';
+}
+
+describe('documents · 提交身份与 CAS：败者必须拿到带类型 conflict（票 19 · DA-2）', () => {
+  it('每笔提交换一次身份：连续保存的 manifest 字节两两不同（逐值比较认不出赢家）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const { id, docDir } = await createDoc(daemon.app, daemon.workspaceDir, '独有身份');
+      const manifestPath = join(docDir, 'manifest.json');
+      const seenBytes: string[] = [];
+      const seenNonces: string[] = [];
+      const versionBefore = (
+        JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number }
+      ).version;
+      for (let index = 0; index < 5; index += 1) {
+        const saved = await savePage(daemon.app, id, { marker: `第 ${String(index)} 次` });
+        expect(saved.statusCode, saved.raw).toBe(200);
+        seenBytes.push(await readFile(manifestPath, 'utf8'));
+        seenNonces.push(await nonceOf(manifestPath));
+      }
+      // 身份唯一 → 任意两笔提交的 manifest 字节不同（旧实现：正文不在 manifest 里 +
+      // updatedAt 毫秒精度 → 同一毫秒的两笔字节完全相同，两边都判「我提交了」）
+      expect(new Set(seenBytes).size).toBe(seenBytes.length);
+      expect(new Set(seenNonces).size).toBe(seenNonces.length);
+      const versionAfter = (JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number })
+        .version;
+      expect(versionAfter - versionBefore).toBe(seenBytes.length);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('同一 base 已有提交者在飞（O_EXCL 声明在位）→ 409 conflict，manifest 与正文分毫未动', async () => {
+    const daemon = await createTestDaemon();
+    let claimPath = '';
+    try {
+      const { id, docDir } = await createDoc(daemon.app, daemon.workspaceDir, 'CAS 败者');
+      const manifestPath = join(docDir, 'manifest.json');
+      const pagePath = join(docDir, 'pages', 'page-1.json');
+      const winner = await savePage(daemon.app, id, { marker: '赢家正文' });
+      expect(winner.statusCode, winner.raw).toBe(200);
+      const manifestBefore = await readFile(manifestPath, 'utf8');
+      const bodyBefore = await readFile(pagePath, 'utf8');
+      const versionBefore = (JSON.parse(manifestBefore) as { version: number }).version;
+
+      // 确定性替身（旧口径「无法在 HTTP 缝上构造 conflict」到此作废）：daemon 提交前会以
+      // O_EXCL 建 `<doc>/.commit-<base 的 commitNonce>` 声明「我从这份 base 提交」。
+      // 该名字已被占 = 另一个写者正从同一 base 在飞 → 本次必须判定落败。
+      claimPath = join(docDir, `.commit-${await nonceOf(manifestPath)}`);
+      await writeFile(claimPath, `${'f'.repeat(24)}\n`, { mode: 0o600 });
+
+      const lost = await savePage(daemon.app, id, { marker: '败者正文' });
+      expect(lost.statusCode, lost.raw).toBe(409);
+      const error = (
+        lost.payload as {
+          error: { code: string; message: string; details: Record<string, unknown> };
+        }
+      ).error;
+      expect(error.code).toBe('conflict');
+      expect(error.message).toContain('本次保存未生效');
+      expect(error.details.published, JSON.stringify(error.details)).toBe(false);
+      expect(error.details.attemptedVersion).toBe(versionBefore + 1);
+      expect(error.details.manifestVersionOnDisk).toBe(versionBefore);
+      expect(error.details.preemptedBy).toBe('claim');
+
+      // 「失败 = 盘上没变」钉到字节级：manifest 一字节未动
+      expect(await readFile(manifestPath, 'utf8')).toBe(manifestBefore);
+      // 关键反 eager 断言：把正文改回「提交点之前直接 writeFileAtomic」时这条必须转红
+      // （409 却正文已变 = 票 19 标题违背）
+      expect(await readFile(pagePath, 'utf8')).toBe(bodyBefore);
+      // 失败方的暂存正文必须作废，且不许把赢家的声明一起删掉
+      expect(await readdir(join(docDir, 'pages'))).toEqual(['page-1.json']);
+      expect(await readdir(docDir)).toContain(`.commit-${await nonceOf(manifestPath)}`);
+
+      // 声明只挡那一笔：撤掉之后同一页照常提交（不是永久锁）
+      await rm(claimPath, { force: true });
+      claimPath = '';
+      const retry = await savePage(daemon.app, id, { marker: '败者正文' });
+      expect(retry.statusCode, retry.raw).toBe(200);
+      expect(JSON.parse(await readFile(pagePath, 'utf8'))).toEqual({ marker: '败者正文' });
+      expect(
+        (JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number }).version,
+      ).toBe(versionBefore + 1);
+      // 提交结束后声明不残留（成功也释放，否则后续写者被永久挡住）
+      expect(
+        (await readdir(docDir)).filter((entry) => entry.startsWith('.commit-')),
+        '提交声明未释放，会把后续写者永久挡在 EEXIST 上',
+      ).toEqual([]);
+    } finally {
+      if (claimPath !== '') await rm(claimPath, { force: true }).catch(() => undefined);
+      await daemon.cleanup();
+    }
+  });
+
+  it('声明过期（持有者崩溃残留）→ 接管：保存照常成功且不留声明', async () => {
+    const daemon = await createTestDaemon();
+    let claimPath = '';
+    try {
+      const { id, docDir } = await createDoc(daemon.app, daemon.workspaceDir, '过期接管');
+      const manifestPath = join(docDir, 'manifest.json');
+      const pagePath = join(docDir, 'pages', 'page-1.json');
+      expect((await savePage(daemon.app, id, { marker: '第一笔' })).statusCode).toBe(200);
+      const versionBefore = (
+        JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number }
+      ).version;
+
+      claimPath = join(docDir, `.commit-${await nonceOf(manifestPath)}`);
+      await writeFile(claimPath, `${'e'.repeat(24)}\n`, { mode: 0o600 });
+      // 把声明的 mtime 推到过期上界之外（fs-atomic 的 CLAIM_STALE_MS=30s）：等价于持有者崩溃
+      const stale = new Date(Date.now() - 120_000);
+      await utimes(claimPath, stale, stale);
+
+      const taken = await savePage(daemon.app, id, { marker: '接管者正文' });
+      expect(taken.statusCode, taken.raw).toBe(200);
+      expect(
+        (JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number }).version,
+      ).toBe(versionBefore + 1);
+      expect(JSON.parse(await readFile(pagePath, 'utf8'))).toEqual({ marker: '接管者正文' });
+      expect(await readdir(docDir)).not.toContain(claimPath.slice(docDir.length + 1));
+    } finally {
+      if (claimPath !== '') await rm(claimPath, { force: true }).catch(() => undefined);
+      await daemon.cleanup();
+    }
+  });
+});
+
 /** 单次串行保存的结果（sent = 这次请求送上去的正文）。 */
 interface SaveOutcome {
   status: number;
@@ -407,13 +573,18 @@ describe('documents · 两个独立 daemon 实例共享同一数据根（跨实�
     await removeTree(root);
   });
 
-  it('两个实例并发保存同一页：磁盘 manifest 必须恰好对应一次成功保存，且正文就是那次保存送的内容', async () => {
+  it('两个实例并发保存同一页：成功次数必须等于版本前进数，且盘上正文来自某一笔成功保存', async () => {
     const created = await httpJson(`${urlA}/documents`, {
       method: 'POST',
       payload: { name: '跨实例并发' },
     });
     expect(created.status).toBe(201);
     const documentId = (created.json.result as { document: { id: string } }).document.id;
+    const docDir = join(workspaceDir, `${documentId}.dfg`);
+    const manifestPath = join(docDir, 'manifest.json');
+    const bodyPath = join(docDir, 'pages', 'page-1.json');
+    const versionBefore = (JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number })
+      .version;
 
     // 两个实例**同一页**各串行保存 60 次：每次都要重写整份 manifest，跨实例必然互踩
     const [runA, runB] = await Promise.all([
@@ -421,10 +592,16 @@ describe('documents · 两个独立 daemon 实例共享同一数据根（跨实�
       sequentialSaves(urlB, documentId, 'page-1', 60, '实例2'),
     ]);
     const all: SaveOutcome[] = [...runA, ...runB];
+    const successes = all.filter((save) => save.status === 200);
+    const conflicts = all.filter((save) => save.status === 409);
 
-    // 失败必须是结构化 409，不许塌成 5xx
+    // 判定面收口（SP-2：旧版把 409 断言套在实测零命中的 filter 里，那段代码从不执行）：
+    // 每笔保存要么 200、要么类型化 409——5xx 与「第三种沉默」都不许出现。
     expect(all.filter((save) => save.status >= 500).map((save) => save.status)).toEqual([]);
-    for (const conflict of all.filter((save) => save.status === 409)) {
+    expect(successes.length + conflicts.length, JSON.stringify(all.map((s) => s.status))).toBe(
+      all.length,
+    );
+    for (const conflict of conflicts) {
       const error = conflict.json.error as {
         code: string;
         message: string;
@@ -438,30 +615,52 @@ describe('documents · 两个独立 daemon 实例共享同一数据根（跨实�
       expect(typeof error.details.attemptedVersion).toBe('number');
     }
 
-    const manifest = JSON.parse(
-      await readFile(join(workspaceDir, `${documentId}.dfg`, 'manifest.json'), 'utf8'),
-    ) as { pages: { id: string; updatedAt: string }[] };
-    const entry = manifest.pages.find((page) => page.id === 'page-1');
-    expect(entry).toBeDefined();
-    // 盘上 manifest 的这次提交，必须能追溯到**恰好一次**报成功的保存
-    const owners = all.filter(
-      (save) =>
-        save.status === 200 &&
-        (save.json.result as { page: { updatedAt: string } }).page.updatedAt === entry?.updatedAt,
-    );
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      version: number;
+      pages: { id: string; updatedAt: string }[];
+    };
+    // **主判据（确定性）**：成功次数 == 版本前进数。
+    // 这就是「一个赢家」的可核算形式——旧实现按值确认认不出赢家，二轮实测 2×400 同页保存
+    // 拿到 800 个 200 而版本只前进 405（395 笔空转 200，其中一方的正文被静默盖掉）。
     expect(
-      owners.length,
-      `manifest 里 page-1 的 updatedAt=${entry?.updatedAt} 对应 ${owners.length} 次「成功」保存（应为 1 次）`,
-    ).toBe(1);
+      manifest.version - versionBefore,
+      `成功 ${String(successes.length)} 笔但版本只前进 ${String(manifest.version - versionBefore)}（旧缺陷：并发提交双双判定成功）`,
+    ).toBe(successes.length);
 
-    // 且盘上正文必须就是那次成功保存送上去的内容——失败的保存不得把正文留在盘上
-    const disk = JSON.parse(
-      await readFile(join(workspaceDir, `${documentId}.dfg`, 'pages', 'page-1.json'), 'utf8'),
-    ) as unknown;
-    const owner = owners[0];
-    expect(disk, '盘上正文不属于当前 manifest 所对应的那次成功保存').toEqual(owner?.sent);
+    // 盘上正文必须来自某一笔**成功**的保存；失败的保存一律不许把正文留在盘上
+    const disk = JSON.parse(await readFile(bodyPath, 'utf8')) as { owner: string; index: number };
+    const sameBody = (value: unknown): boolean => JSON.stringify(value) === JSON.stringify(disk);
+    expect(
+      successes.some((save) => sameBody(save.sent)),
+      `盘上正文 ${JSON.stringify(disk)} 不属于任何一笔成功保存`,
+    ).toBe(true);
+    expect(conflicts.some((save) => sameBody(save.sent))).toBe(false);
 
-    const files = (await readdir(join(workspaceDir, `${documentId}.dfg`, 'pages'))).sort();
-    expect(files).toEqual(manifest.pages.map((page) => `${page.id}.json`).sort());
+    // 栅栏（无并发时提交点必须闭合）：赛跑结束后再单独保存一次，盘上 manifest 的页时间戳与
+    // 正文都必须就是这一笔。**取代**旧版「用 updatedAt 反查恰好一次成功」的概率判定——
+    // updatedAt 只有毫秒精度，实测 1/8 概率两个进程落在同一毫秒（owners 为 0 或 2）。
+    const fence = await httpJson(
+      `${urlA}/documents/${encodeURIComponent(documentId)}/pages/page-1`,
+      { method: 'PUT', payload: { body: { owner: '栅栏', index: 0 } } },
+    );
+    expect(fence.status).toBe(200);
+    const fenced = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      version: number;
+      pages: { id: string; updatedAt: string }[];
+    };
+    expect(
+      fenced.pages.find((page) => page.id === 'page-1')?.updatedAt,
+      '栅栏保存成功后盘上页时间戳必须是这一笔',
+    ).toBe((fence.json.result as { page: { updatedAt: string } }).page.updatedAt);
+    expect(JSON.parse(await readFile(bodyPath, 'utf8'))).toEqual({ owner: '栅栏', index: 0 });
+    expect(fenced.version - versionBefore).toBe(successes.length + 1);
+
+    // 残余判定补齐（SP-2：旧版只看 pages/ 一层，漏了文档目录与数据根里
+    // manifest 临时文件 / 提交声明的残骸）：三级都要干净，且声明只覆盖在飞窗口。
+    expect(await readdir(docDir)).toEqual(['manifest.json', 'pages']);
+    expect((await readdir(join(docDir, 'pages'))).sort()).toEqual(
+      fenced.pages.map((page) => `${page.id}.json`).sort(),
+    );
+    expect(await readdir(workspaceDir)).toEqual([`${documentId}.dfg`]);
   });
 });

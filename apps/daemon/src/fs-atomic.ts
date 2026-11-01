@@ -5,11 +5,15 @@
  * 写入 = 临时文件（同目录）→ fsync → rename 覆盖 → fsync 目录。
  * 读者任何时刻只会看到「旧版本或新版本」，绝无半截文件；临时文件带随机后缀，
  * 残留也不污染读取（读取只认目标名）。
+ *
+ * 提交并发纪律（票 19 DA-2）：本模块另给 `stageFileAtomic`（暂存，提交点之后才发布）与
+ * `claimCommit`（O_EXCL 独占声明「同一 base 我在提交」）。**两者都不是跨进程互斥**：
+ * 声明只覆盖单笔提交的写窗口，真正的文档跨进程锁属票 21。
  */
 
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 /** JSON 文件读取结果（缺失/不可读/解析失败均为显式分支，调用方自行决策）。 */
@@ -33,6 +37,75 @@ export interface StagedFile {
   publish: () => Promise<void>;
   /** 作废：删掉临时文件（目标名保持原样）。 */
   discard: () => Promise<void>;
+}
+
+/**
+ * 提交声明（CAS 用的「同一 base 只允许一个提交者」凭据）。
+ *
+ * 纪律：**成功提交之后 `release()`**（声明只在该笔提交在飞的窗口内占名），
+ * 否则会把后续写者永久挡在 EEXIST 上（崩溃残留由过期接管兜底）。
+ */
+export interface CommitClaim {
+  /** 声明文件路径（`<dir>/.commit-<baseToken>`，O_EXCL 创建成功才存在）。 */
+  claimPath: string;
+  /** 释放声明（提交成功或本次放弃都要调用）；不存在即视作已释放。 */
+  release: () => Promise<void>;
+}
+
+/** 提交声明目录前缀（点前缀：读者与文档内容清单都不把它当作文档的一部分）。 */
+const CLAIM_PREFIX = '.commit-';
+
+/**
+ * 声明过期上界：持有者进程崩溃留下的声明若比这更老，允许后来者接管。
+ * 一笔记税提交的全部窗口是「临时文件 fsync + 一次 rename + 一次复读」（毫秒级），
+ * 30s 已经极宽；真正的跨进程存活检测（心跳/接管协议）属票 21，不在这里做。
+ */
+const CLAIM_STALE_MS = 30_000;
+
+/**
+ * 独占声明「我要从 baseToken 这一份状态提交」。
+ *
+ * - 创建成功 → 调用方持有声明，提交结束**必须** `release()`；
+ * - 同名已存在 → 抛 `code='EEXIST'`（另一写者正从同一 base 提交；调用方据此判冲突）；
+ * - 已存在但超过 {@link CLAIM_STALE_MS} 未释放 → 视为持有者崩溃，删除后重试一次
+ *   （两个接管者竞速时 `open('wx')` 仍保证恰一个成功）。
+ *
+ * 这不是文档锁：它只覆盖**单笔提交的写窗口**，不覆盖读-改-写全程（票 21）。
+ */
+export async function claimCommit(
+  dir: string,
+  baseToken: string,
+  content: string,
+  now: () => number = Date.now,
+): Promise<CommitClaim> {
+  const claimPath = join(dir, `${CLAIM_PREFIX}${baseToken}`);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const handle = await open(claimPath, 'wx', 0o600);
+      try {
+        await handle.writeFile(content);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      return {
+        claimPath,
+        release: async (): Promise<void> => {
+          await rm(claimPath, { force: true });
+        },
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (attempt > 0) throw error;
+      const info = await stat(claimPath).catch(() => null);
+      if (info === null) continue; // 竞速：对方已释放，直接重试创建
+      if (now() - info.mtimeMs > CLAIM_STALE_MS) {
+        await rm(claimPath, { force: true });
+        continue; // 过期接管：重试一次创建
+      }
+      throw error;
+    }
+  }
 }
 
 /**

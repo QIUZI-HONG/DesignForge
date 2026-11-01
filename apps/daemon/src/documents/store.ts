@@ -15,12 +15,17 @@
  * - **所有**文件读写/删除路径都由 `resolveWithin`（path-safety.ts）产出：
  *   id 白名单 + `..`/绝对路径/`%00`/NFC/软链四类越界一律拒（Q1 路径穿越修复）；
  * - **按文档串行化**的 manifest 读改写（每文档一把异步锁）+ 原子写（临时文件 + rename）——
- *   并发下不丢已提交的页面（Q2 修复）；跨进程退化为写后重读比对 + 有界重试（`conflict`）；
+ *   并发下不丢已提交的页面（Q2 修复）。这把锁**只在进程内生效**：跨进程没有互斥（票 21），
+ *   退化为一套**可判定的提交协议**——每次提交带独有身份（`commitNonce`）+ 对上一份 manifest
+ *   字节的 CAS（O_EXCL 提交声明 + 改名前复查 base + 复读比字节全等），使**败者拿到带类型
+ *   `conflict`（409）而不是静默覆盖**（票 19 DA-2）。口径要说清：协议保证「一笔提交最多一个
+ *   成功者、成功次数 == 版本前进数」，**不**保证「同一时刻只有一个写者在跑」；
  * - manifest 是提交点：页面正文先**暂存**（同目录临时文件）、manifest 提交并复读确认后才发布，
  *   失败则作废暂存——因此「保存失败」时盘上仍是提交前的内容（票 19）。读者只会看到一致的旧/新状态。
  */
 
-import { lstat, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { lstat, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
 
 import type {
   DfgManifest,
@@ -39,11 +44,13 @@ import {
 } from '@dforge/contracts';
 
 import type { ConfigStore } from '../config/store.ts';
-import type { StagedFile } from '../fs-atomic.ts';
+import type { CommitClaim, StagedFile } from '../fs-atomic.ts';
 import {
+  claimCommit,
   ensureDir,
   readJsonFileOrNull,
   removeTree,
+  sha256Hex,
   stageFileAtomic,
   writeFileAtomic,
 } from '../fs-atomic.ts';
@@ -116,8 +123,24 @@ export interface DocumentStore {
 /** 文档正文的落盘权限（目录态文档要能被用户与 Git 直接读，非敏感）。 */
 const DOC_FILE_MODE = 0o644;
 
-/** manifest 提交的有界重试次数（跨进程并发写者的收敛上界；用尽 → `conflict`）。 */
+/** manifest 提交的有界重试次数（每次重试都是**重新取 base、重新暂存、重新声明**的一笔新提交；
+ *  上界用尽即回 `conflict`——跨进程写者没有互斥（票 21），收敛只能靠身份判定，不靠运气）。 */
 const MAX_COMMIT_ATTEMPTS = 3;
+
+/**
+ * 提交身份（票 19 DA-2）：每次提交（含每次重试）写进 manifest 的随机 nonce。
+ *
+ * 为什么必须有它：正文**不在** manifest 里，`updatedAt` 只有毫秒精度，两份并发提交
+ * 完全可能字节相同（同毫秒 + 同 version + 同页列表）。旧实现只在这上面做逐值比较，
+ * 于是「谁赢了」不可判定——实测 400 次双写者赛跑里 383 次两个请求都回 200、
+ * 版本只前进 1，其中一方的正文被静默盖掉。有了独有身份，复读比较的是
+ * 「盘上这一笔是不是我这一笔」，败者必然被识别（`fs-atomic.claimCommit` 的 O_EXCL
+ * 声明再把它挡在改名之前）。
+ *
+ * 契约兼容：`isDfgManifest`（contracts）只校验必需字段，额外字段容忍；老文档缺该字段时
+ * base 身份退化为整份字节的 sha256，读侧照常通过（`.dfg` 仍是可 Git diff 的目录态真值）。
+ */
+type CommittedManifest = DfgManifest & { commitNonce?: string };
 
 const INVALID_NAME_MESSAGE = '文档名不合法（非空、不含路径分隔符/控制字符、不以 . 开头、≤64 字符）';
 
@@ -152,10 +175,50 @@ function pageNotFound(documentId: string, pageId: string): StoreResult<never> {
  * 结果「文档比调用之前更糟」（正文从未发布、readPage 打不开）。因此必须在提交点**之前**
  * 证明目标可替换：目录（非可 rename 覆盖的普通条目）即拒，落 doc_invalid_body，盘上零变化。
  * 说明：**不**在冲突时回滚正文文件——那会盖掉并发胜者已提交的正文（票 19 的设计）。
+ *
+ * 覆盖面如实交代（DA-3，二轮实测核对）：这道检查只把「目标已经是目录」这一类挡在提交点之前，
+ * 单进程内由文档锁保证检查与发布之间无人改目标；**跨进程它挡不住 TOCTOU**（检查之后、发布
+ * 之前把目标名换成目录/删掉父目录，仍会在提交点之后发布失败）。那一情形由
+ * {@link publishFailure} 兜住：不再塌成 500，而是类型化错误 + `published:false` +
+ * `manifestCommitted:true`，如实交代「manifest 已前移、正文未发布」；要消掉这个窗口需要
+ * 跨进程互斥（票 21），本票不做。
  */
 async function bodyTargetIsDirectory(pagePath: string): Promise<boolean> {
   const existing = await lstat(pagePath).catch(() => null);
   return existing !== null && existing.isDirectory();
+}
+
+/**
+ * 正文发布目标在**提交点之后**变形的分类（DA-3）：`publish()` 是 `rename(temp -> 正文路径)`，
+ * 提交点之前已用 `bodyTargetIsDirectory` 挡掉「同名条目是目录」这一类，但目标仍可在此之后
+ * 被替换成目录/被删/改名（单进程内由文档锁排除，跨进程没有锁 → 票 21 的 TOCTOU 窗口）。
+ * 那时 manifest 已前移而正文未发布：请求**不许**塌成 500，如实回类型化错误 +
+ * `published:false`（读侧会以「正文不可用」告警，`GET /documents` 列出该文档，用户看得到
+ * 也删得掉；回滚 manifest 会覆盖并发胜者，票 21 已裁决不做）。
+ */
+function publishFailure(
+  error: unknown,
+  documentId: string,
+  pageId: string,
+  attemptedVersion: number | null,
+): StoreResult<never> {
+  const code = (error as NodeJS.ErrnoException).code ?? 'unknown';
+  const classified = ['EISDIR', 'ENOTDIR', 'ENOENT', 'EPERM', 'EACCES', 'EXDEV'].includes(code);
+  return {
+    ok: false,
+    code: 'doc_invalid_body',
+    message:
+      '页面正文发布失败（提交点之后目标名被占或目录变形），manifest 已前移而正文未发布；正文读取会报不可用',
+    details: {
+      documentId,
+      pageId,
+      // 只回错误类名，不回 err.message（Node fs 的 message 内嵌被操作文件的绝对路径）
+      reason: classified ? code : 'publish-failed',
+      published: false,
+      manifestCommitted: true,
+      attemptedVersion,
+    },
+  };
 }
 
 /**
@@ -173,9 +236,28 @@ function createRaceLost(documentId: string, phase: 'mkdir' | 'commit'): StoreRes
   };
 }
 
-/** manifest 提交计划：成功给出「下一个 manifest + 返回值（+ 提交点之后才发布的正文）」，失败给出统一存储错误。 */
+/**
+ * base 状态的身份（票 19 DA-2）：本次要提交的 manifest 自带的 `commitNonce`；
+ * 老文档/外部克隆没有该字段时退化为整份字节的 sha256 前缀。
+ * 该值要拼进提交声明的文件名，故只认十六进制形状——克隆来的 `.dfg` 是不可信输入，
+ * 怪值（含路径分隔符/超长）一律走字节摘要，不给路径穿越留口子。
+ */
+async function baseTokenOf(manifest: DfgManifest, bytes: string): Promise<string> {
+  const nonce = (manifest as CommittedManifest).commitNonce;
+  if (typeof nonce === 'string' && /^[0-9a-f]{16,64}$/.test(nonce)) return nonce;
+  return (await sha256Hex(bytes)).slice(0, 24);
+}
+
+/** manifest 提交计划：成功给出「下一个 manifest + 返回值（+ 提交点之后才发布的正文与其页 id）」，失败给出统一存储错误。 */
 type ManifestPlan<T> =
-  | { ok: true; next: DfgManifest; value: T; staged?: StagedFile }
+  | {
+      ok: true;
+      next: DfgManifest;
+      value: T;
+      staged?: StagedFile;
+      /** 暂存正文对应的页 id（仅用于发布失败时如实交代，见 `publishFailure`）。 */
+      stagedPageId?: string;
+    }
   | { ok: false; result: StoreResult<never> };
 
 /** 创建文档存储（workspaceDir 每次从 config 读取——支持运行时切换工作目录）。 */
@@ -218,40 +300,81 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
     );
   };
 
-  /** 读取并校验 manifest（含 `pages[].id` —— 克隆来的 `.dfg` 是不可信输入）。 */
+  /**
+   * 读取 manifest 的**原始字节 + 校验后的值**（含 `pages[].id` —— 克隆来的 `.dfg` 是不可信输入）。
+   * 提交协议需要原始字节：CAS 比较与复读确认都比「字节全等」，逐值比较认不出
+   * 「内容相同但身份不同」的并发提交（票 19 DA-2）。
+   */
+  const readManifestRawAt = async (
+    paths: DocPaths,
+    documentId: string,
+  ): Promise<
+    { ok: true; manifest: DfgManifest; bytes: string } | { ok: false; result: StoreResult<never> }
+  > => {
+    let bytes: string;
+    try {
+      bytes = await readFile(paths.manifestPath, 'utf8');
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return { ok: false, result: notFound(documentId) };
+      return {
+        ok: false,
+        result: {
+          ok: false,
+          code: 'doc_invalid_manifest',
+          message: `manifest.json 不可读：文件不可读：${code ?? 'unknown'}`,
+          details: { documentId },
+        },
+      };
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(bytes) as unknown;
+    } catch {
+      return {
+        ok: false,
+        result: {
+          ok: false,
+          code: 'doc_invalid_manifest',
+          message: 'manifest.json 不可读：JSON 解析失败',
+          details: { documentId },
+        },
+      };
+    }
+    if (!isDfgManifest(value)) {
+      return {
+        ok: false,
+        result: {
+          ok: false,
+          code: 'doc_invalid_manifest',
+          message: 'manifest.json 形状不合法（非本版本 .dfg 文档）',
+          details: { documentId },
+        },
+      };
+    }
+    for (const page of value.pages) {
+      if (!isValidPageId(page.id)) {
+        return {
+          ok: false,
+          result: {
+            ok: false,
+            code: 'doc_invalid_manifest',
+            message: 'manifest.json 含非法页 id（已整体拒绝，未读写任何页面文件）',
+            details: { documentId },
+          },
+        };
+      }
+    }
+    return { ok: true, manifest: value, bytes };
+  };
+
+  /** 读取并校验 manifest（只要值、不要字节的读侧走这里）。 */
   const readManifestAt = async (
     paths: DocPaths,
     documentId: string,
   ): Promise<StoreResult<DfgManifest>> => {
-    const result = await readJsonFileOrNull(paths.manifestPath);
-    if (!result.ok) {
-      if (result.reason === 'missing') return notFound(documentId);
-      return {
-        ok: false,
-        code: 'doc_invalid_manifest',
-        message: `manifest.json 不可读：${result.message}`,
-        details: { documentId },
-      };
-    }
-    if (!isDfgManifest(result.value)) {
-      return {
-        ok: false,
-        code: 'doc_invalid_manifest',
-        message: 'manifest.json 形状不合法（非本版本 .dfg 文档）',
-        details: { documentId },
-      };
-    }
-    for (const page of result.value.pages) {
-      if (!isValidPageId(page.id)) {
-        return {
-          ok: false,
-          code: 'doc_invalid_manifest',
-          message: 'manifest.json 含非法页 id（已整体拒绝，未读写任何页面文件）',
-          details: { documentId },
-        };
-      }
-    }
-    return { ok: true, value: result.value };
+    const raw = await readManifestRawAt(paths, documentId);
+    return raw.ok ? { ok: true, value: raw.manifest } : raw.result;
   };
 
   /** 文档摘要（体积/页数；目录字段取已解析的真实路径）。 */
@@ -282,12 +405,16 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
 
   /**
    * manifest 读改写提交（**必须在 `lock.run(documentId)` 内调用**）：
-   * 1. 读当前 manifest → 交给 `plan` 计算下一版（plan 把正文**暂存**，不发到目标名）；
-   * 2. 原子写 manifest（临时文件 + rename）；
-   * 3. **写后重读比对内容**：一致才算提交成功，此时才发布正文；
-   *    被其他进程覆盖则作废暂存正文、重读状态重算（有界重试）。
-   * 单进程下第 3 步恒真（零额外语义）；跨进程下收敛，重试用尽返回 `conflict`（409），
-   * 并在 `details` 里如实交代盘上实况（**失败即盘上没变**，票 19）。
+   * 1. 读当前 manifest 的**原始字节 + 值** → 交给 `plan` 计算下一版（plan 把正文**暂存**，不发到目标名）；
+   * 2. O_EXCL 声明「我从这个 base 提交」（`claimCommit`）——同一 base 的并发提交者恰一个建得出
+   *    该名字，其余 `EEXIST` 当场判定自己是败者（不再靠「碰巧字节不同」才发现）；
+   * 3. 改名前复查盘上仍是刚读到的那份 base 字节（CAS 前置：败者不许把赢家的 manifest 盖回去）；
+   * 4. 原子写 manifest（临时文件 + rename）→ **复读比字节全等**：本次提交带独有 `commitNonce`，
+   *    所以「盘上这一笔是不是我这一笔」可判定（旧实现逐值比较，两份内容相同即双双判定成功）；
+   * 5. 确认通过才发布正文；声明只覆盖在飞窗口，成败都释放。
+   * 单进程下 2/3/4 的冲突分支恒不触发（文档锁已串行，零额外语义）；跨进程下败者重取 base 重算，
+   * `MAX_COMMIT_ATTEMPTS` 用尽即回 `conflict`（409）并在 `details` 如实交代盘上实况
+   * （**失败即盘上没变**，票 19）。跨进程**互斥**不在本协议内（无心跳、无临界区），属票 21。
    */
   const commitManifest = async <T>(
     documentId: string,
@@ -295,44 +422,81 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
     plan: (manifest: DfgManifest) => Promise<ManifestPlan<T>>,
   ): Promise<StoreResult<T>> => {
     let attemptedVersion: number | null = null;
+    let preemptedBy: 'claim' | 'base' | 'readback' | 'unknown' = 'unknown';
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt += 1) {
-      const manifest = await readManifestAt(paths, documentId);
-      if (!manifest.ok) return manifest;
-      const planned = await plan(manifest.value);
+      const base = await readManifestRawAt(paths, documentId);
+      if (!base.ok) return base.result;
+      const planned = await plan(base.manifest);
       if (!planned.ok) return planned.result;
       attemptedVersion = planned.next.version;
-      const serialized = `${JSON.stringify(planned.next, null, 2)}\n`;
-      // 提交点确认（含发布正文）之前任何一步抛错——manifest 写、复读、publish、discard——
-      // 都必须作废本次已暂存的正文，否则「失败的保存」把半截正文以 .tmp 永久留在 pages/，
-      // 直接违背票 19 标题承诺「保存失败 = 盘上没变」。committed 只在发布成功后置真。
-      let committed = false;
+      const staged = planned.staged;
+      // 每次尝试都是**一笔新提交**：身份重新生成（正文也已在 plan 里按最新状态重新暂存）
+      const commitNonce = randomBytes(12).toString('hex');
+      const committed: CommittedManifest = { ...planned.next, commitNonce };
+      const ourBytes = `${JSON.stringify(committed, null, 2)}\n`;
+      let claim: CommitClaim;
       try {
-        await writeFileAtomic(paths.manifestPath, serialized, DOC_FILE_MODE);
-        const confirm = await readJsonFileOrNull(paths.manifestPath);
-        if (confirm.ok && JSON.stringify(confirm.value) === JSON.stringify(planned.next)) {
-          // 提交点已过：现在才把正文发布到目标名
-          if (planned.staged !== undefined) await planned.staged.publish();
-          committed = true;
-          return { ok: true, value: planned.value };
+        claim = await claimCommit(
+          paths.dir,
+          await baseTokenOf(base.manifest, base.bytes),
+          `${commitNonce}\n`,
+        );
+      } catch (error) {
+        await staged?.discard().catch(() => undefined);
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+          preemptedBy = 'claim';
+          continue;
         }
-        // 本次提交没落上：作废暂存正文，绝不让失败方的内容留在页文件里（也不盖掉别人的正文）
+        throw error;
+      }
+      try {
+        // CAS 前置：改名之前盘上必须仍是我读到的那份 base
+        const headNow = await readFile(paths.manifestPath, 'utf8').catch(() => null);
+        if (headNow !== base.bytes) {
+          preemptedBy = 'base';
+          await staged?.discard().catch(() => undefined);
+          continue;
+        }
+        await writeFileAtomic(paths.manifestPath, ourBytes, DOC_FILE_MODE);
+        // 复读确认：比**字节全等**（含本次独有身份），不是比解析后的值
+        const back = await readFile(paths.manifestPath, 'utf8').catch(() => null);
+        if (back !== ourBytes) {
+          preemptedBy = 'readback';
+          // 本次提交没落上：作废暂存正文，绝不让失败方的内容留在页文件里（也不盖掉别人的正文）
+          await staged?.discard().catch(() => undefined);
+          continue;
+        }
+        // 提交点已过：现在才把正文发布到目标名
+        if (staged !== undefined) {
+          try {
+            await staged.publish();
+          } catch (error) {
+            // DA-3：提交点之后发布失败——manifest 已前移，如实回类型化错误而非 500
+            return publishFailure(
+              error,
+              documentId,
+              planned.stagedPageId ?? 'unknown',
+              attemptedVersion,
+            );
+          }
+        }
+        return { ok: true, value: planned.value };
       } finally {
-        if (!committed && planned.staged !== undefined) {
-          await planned.staged.discard().catch(() => undefined);
-        }
+        await claim.release().catch(() => undefined);
       }
     }
-    const current = await readJsonFileOrNull(paths.manifestPath);
+    const current = await readManifestRawAt(paths, documentId);
     return {
       ok: false,
       code: 'conflict',
-      message: `文档并发写入冲突：重试 ${MAX_COMMIT_ATTEMPTS} 次仍未提交成功，本次保存未生效，盘上仍是提交前的内容`,
+      message: `文档并发写入冲突：重试 ${MAX_COMMIT_ATTEMPTS} 次仍未提交成功（最后一次判定落败于 ${preemptedBy}），本次保存未生效，盘上仍是提交前的内容`,
       details: {
         documentId,
         attemptedVersion,
-        manifestVersionOnDisk:
-          current.ok && isDfgManifest(current.value) ? current.value.version : null,
+        manifestVersionOnDisk: current.ok ? current.manifest.version : null,
+        // 本次提交（含正文）从未出现在盘上：失败即盘上没变（票 19 blocker 1）
         published: false,
+        preemptedBy,
       },
     };
   };
@@ -387,17 +551,39 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
         // 非递归 mkdir：目录已存在即原子冲突（并发/跨进程同名建文档恰一个 201）。
         // F4（票 19 评审）：ENOENT/ENOTDIR 一类的目录变形（数据根被文件占据/根被并发删除）
         // 此前直接上抛 → 500 逐字回显含绝对路径的 message。现在统一映射为类型化 conflict（409）。
-        // 注意「ENOENT 第一次」只是数据根还不存在（首用/外部清理）：补建根后重试一次，此后再失败才算变形/竞态。
+        // 「ENOENT」只可能是数据根还不存在（首用/外部清理）或根被并发删除/变形：
+        // **不无条件补建根**——SE-5 实测 create/delete 竞态正是「重扫把刚被删掉的根又建回来，
+        // 随后 rename 输给 removeTree → ENOENT 直落 500」。改成：mkdir 报 EEXIST 时先看它是不是
+        // 一个已提交的文档（是→doc_exists，与串行路径同口径；否→外部占用，类型化 conflict），
+        // 只有「根还不存在」这一种情形补建根后重试一次，此后再失败即 conflict。
+        let madeDir = false;
         for (let attempt = 0; ; attempt += 1) {
           try {
             await mkdir(paths.value.dir);
+            madeDir = true;
             break;
           } catch (mkdirError) {
             const code = (mkdirError as NodeJS.ErrnoException).code;
             if (code === 'EEXIST') {
-              return { ok: false, code: 'doc_exists', message: '同名文档已存在', details: { id } };
+              const existing = await readManifestAt(paths.value, id);
+              if (existing.ok) {
+                return {
+                  ok: false,
+                  code: 'doc_exists',
+                  message: '同名文档已存在',
+                  details: { id },
+                };
+              }
+              // 目录在、manifest 不在/不可读：要么是无 manifest 空壳（名字被占住），要么是
+              // 并发删除/外部占用正在进行中——都不是「同名文档已存在」，也不是内部错误
+              return createRaceLost(id, 'mkdir');
             }
             if (code === 'ENOENT' && attempt === 0) {
+              const rootStat = await stat(paths.value.root).catch(() => null);
+              if (rootStat !== null && rootStat.isDirectory()) {
+                // 根在位却建不出子目录：与「根不存在」是两回事，落在竞态/权限变形上
+                return createRaceLost(id, 'mkdir');
+              }
               await ensureDir(paths.value.root);
               continue;
             }
@@ -407,8 +593,9 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
             throw mkdirError;
           }
         }
+        if (!madeDir) return createRaceLost(id, 'mkdir');
         const now = new Date().toISOString();
-        const manifest: DfgManifest = {
+        const manifest: CommittedManifest = {
           schema: DFG_MANIFEST_SCHEMA,
           id,
           name: name.trim(),
@@ -416,6 +603,8 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           createdAt: now,
           updatedAt: now,
           pages: [{ id: 'page-1', name: '页面 1', updatedAt: now }],
+          // 首笔提交也有身份：后续 CAS 从这里接链（老文档缺字段时 baseTokenOf 退化为字节摘要）
+          commitNonce: randomBytes(12).toString('hex'),
         };
         // mkdir 之后任何一步失败都必须撤掉刚建的目录：留下的无 manifest 空壳在读侧只会
         // doc_not_found，而名字被 EEXIST 永久占住（票 19 的可观测后果）。
@@ -433,9 +622,15 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           );
           return { ok: true, value: await summaryOf(id, paths.value, manifest) };
         } catch (error) {
-          // 只撤自己刚建的目录；回滚本身失败也要抛出，不掩盖「名字可能被残骸占住」
-          await removeTree(paths.value.dir);
-          // F4：评审实测 create/delete 竞态在提交段 rename 抛 ENOENT（message 带绝对路径直落 500）。
+          // 只撤自己刚建的目录；回滚本身失败也要抛出，不掩盖「名字可能被残骸占住」。
+          // 例外：ENOENT/ENOTDIR 表示目录已被并发删除/变形——没什么可撤的，不算回滚失败。
+          try {
+            await removeTree(paths.value.dir);
+          } catch (rollbackError) {
+            const rollbackCode = (rollbackError as NodeJS.ErrnoException).code;
+            if (rollbackCode !== 'ENOENT' && rollbackCode !== 'ENOTDIR') throw rollbackError;
+          }
+          // F4/SE-5：评审实测 create/delete 竞态在提交段 rename 抛 ENOENT（message 带绝对路径直落 500）。
           // 目录已清理，对调用方返回类型化 conflict——竞态/外部删除是「同名目录此刻不归你写」，不是内部错误。
           const code = (error as NodeJS.ErrnoException).code;
           if (code === 'ENOENT' || code === 'ENOTDIR') return createRaceLost(id, 'commit');
@@ -506,12 +701,17 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           const shell = await lstat(paths.value.dir).catch(() => null);
           if (shell === null || !shell.isDirectory() || shell.isSymbolicLink()) return manifest;
           // 对象级收口（F6）：无 manifest 的目录只可能是 create() 中途失败留下的空壳，
-          // 递归删只对「条目全属守护进程自有名（manifest.json / pages/ / *.tmp）」成立；
+          // 递归删只对「条目全属守护进程自有名（manifest.json / pages/ / *.tmp / .commit-*）」成立；
           // 混入外来内容即拒绝——绝不能把用户自己塞进 .dfg/ 的文件一并递归删掉。
+          // `.commit-*` 是提交声明（DA-2）：崩溃残留也归守护进程自有，否则名字会被自己的残留占住。
           const shellEntries = await readdir(paths.value.dir).catch(() => null);
           if (shellEntries === null) return manifest;
           const foreign = shellEntries.filter(
-            (entry) => entry !== 'manifest.json' && entry !== 'pages' && !entry.endsWith('.tmp'),
+            (entry) =>
+              entry !== 'manifest.json' &&
+              entry !== 'pages' &&
+              !entry.endsWith('.tmp') &&
+              !entry.startsWith('.commit-'),
           );
           if (foreign.length > 0) {
             return {
@@ -679,7 +879,7 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
             updatedAt: now,
             pages: current.pages.map((item) => (item.id === pageId ? nextPage : item)),
           };
-          return { ok: true, next, value: nextPage, staged };
+          return { ok: true, next, value: nextPage, staged, stagedPageId: pageId };
         });
       });
     },
@@ -726,7 +926,7 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
             updatedAt: now,
             pages: [...current.pages, page],
           };
-          return { ok: true, next, value: page, staged };
+          return { ok: true, next, value: page, staged, stagedPageId: pageId };
         });
       });
     },
