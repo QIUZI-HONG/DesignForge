@@ -1,4 +1,4 @@
-import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDfgManifest } from '@dforge/contracts';
 import { describe, expect, it } from 'vitest';
@@ -100,6 +100,61 @@ describe('documents · 创建与目录态', () => {
       expect(res.raw).not.toContain(daemon.workspaceDir);
       // 拒了就是零盘上变化：占据根的文件原样在位
       expect(await readFile(daemon.workspaceDir, 'utf8')).toBe('这是一个文件，不是数据根目录');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('无 manifest 空壳占名时 create → 类型化 409（phase=mkdir），不许谎报 doc_exists', async () => {
+    // SE-5 的「并发删除/外部占用」形状可以确定性构造：目录在位、manifest 从未写出
+    // （这正是 create/delete 竞速后盘上会留下的东西）。此时回 `doc_exists` 是在撒谎——
+    // 那份「同名文档」既读不出来（GET 404），也删不掉前占住名字。
+    const daemon = await createTestDaemon();
+    try {
+      const id = '竞态空壳';
+      const docDir = join(daemon.workspaceDir, `${id}.dfg`);
+      await mkdir(join(docDir, 'pages'), { recursive: true });
+      await writeFile(join(docDir, 'pages', 'page-1.json'), '{}\n', 'utf8');
+
+      const res = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: id },
+      });
+      expect(res.statusCode, res.raw).toBe(409);
+      const error = (
+        res.payload as {
+          error: {
+            code: string;
+            message: string;
+            details: { phase?: string; documentId?: string };
+          };
+        }
+      ).error;
+      expect(error.code).toBe('conflict');
+      expect(error.details.phase).toBe('mkdir');
+      expect(error.details.documentId).toBe(id);
+      expect(error.message.length).toBeGreaterThan(0);
+      expect(res.raw).not.toContain(daemon.tempDir);
+
+      // 「已存在」的说法必须与读侧一致：空壳不是文档（GET 404），但可以被删掉后重建
+      const readBack = await injectJson(daemon.app, {
+        method: 'GET',
+        url: `/documents/${encodeURIComponent(id)}`,
+      });
+      expect(readBack.statusCode).toBe(404);
+      const removed = await injectJson(daemon.app, {
+        method: 'DELETE',
+        url: `/documents/${encodeURIComponent(id)}`,
+      });
+      expect(removed.statusCode, removed.raw).toBe(200);
+      const recreated = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: id },
+      });
+      expect(recreated.statusCode, recreated.raw).toBe(201);
+      expect(await readdir(docDir)).toEqual(['manifest.json', 'pages']);
     } finally {
       await daemon.cleanup();
     }

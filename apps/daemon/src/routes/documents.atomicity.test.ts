@@ -12,6 +12,8 @@
  * 先读到盘上的提交身份，再在文档目录里放好那一枚声明，就等于「另一个写者正从同一 base 提交」——
  * 本次保存必须判定落败（下面的「声明在位」用例）。跨实例赛跑只保留**计数不变量**
  * （成功次数 == 版本前进数），不再用毫秒级 `updatedAt` 去找「唯一赢家」（那是概率判定，实测 1/8 飘）。
+ * create/delete 竞态（SE-5）同样只保留**不变量判据**：每一笔都必须 2xx 或类型化 4xx、
+ * 失败响应不得含宿主路径、赛跑结束后必须能收口删除并重建——不断言「竞态一定制造出某种交错」。
  * 仍未覆盖的（属票 21 的跨进程互斥）：提交点**之后**正文发布失败（TOCTOU 把目标名换成目录）
  * 只能靠交错制造，本票不给概率式用例；该分支由 `publishFailure` 兜成类型化错误，注释如实交代。
  *
@@ -21,7 +23,8 @@
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
+import type { DfErrorCode } from '@dforge/contracts';
+import { DF_ERROR_HTTP_STATUS } from '@dforge/contracts';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -39,6 +42,8 @@ async function seedShellDocument(workspaceDir: string, id: string): Promise<void
 interface HttpResult {
   status: number;
   json: Record<string, unknown>;
+  /** 原始响应体（SE-5 用它判定「绝不回显宿主绝对路径」，不能只看解析后的 JSON）。 */
+  raw: string;
 }
 
 async function httpJson(
@@ -47,13 +52,16 @@ async function httpJson(
 ): Promise<HttpResult> {
   const response = await fetch(url, {
     method: init.method,
-    headers: { 'content-type': 'application/json' },
-    ...(init.payload === undefined ? {} : { body: JSON.stringify(init.payload) }),
+    // 无体的 DELETE/GET 不带 content-type：Fastify 见到 JSON content-type 会拒空体（400）
+    ...(init.payload === undefined
+      ? {}
+      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(init.payload) }),
   });
   const text = await response.text();
   return {
     status: response.status,
     json: text === '' ? {} : (JSON.parse(text) as HttpResult['json']),
+    raw: text,
   };
 }
 
@@ -334,6 +342,61 @@ describe('documents · 发布目标不可替换必须在提交点之前拒绝（
       await daemon.cleanup();
     }
   });
+
+  it('占位目录**非空**（publish 会 ENOTEMPTY 而非 EISDIR）：同一道提交点前的闸门，行为必须一致', async () => {
+    // DA-3 的探针（评审要求「核实而非假设」ae6c7a9 真的挡在提交点之前）：
+    // `rename(file -> 目录)` 对**空**目录报 EISDIR、对**非空**目录报 ENOTEMPTY，
+    // 是两条不同的 errno；闸门若只按其中一种形状判定，另一种就会溜到提交点之后
+    // （manifest 已前移、正文从未发布）。这里用非空目录把第二种形状钉住。
+    const daemon = await createTestDaemon();
+    try {
+      const created = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '非空目录占位' },
+      });
+      expect(created.statusCode, created.raw).toBe(201);
+      const id = (created.payload as { result: { document: { id: string } } }).result.document.id;
+      const docDir = join(daemon.workspaceDir, `${id}.dfg`);
+      const manifestPath = join(docDir, 'manifest.json');
+      const pagePath = join(docDir, 'pages', 'page-1.json');
+      const before = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+        version: number;
+        pages: { updatedAt: string }[];
+      };
+
+      await rm(pagePath, { force: true, recursive: true });
+      await mkdir(pagePath);
+      // 关键差异：目录里**有东西** → rename 的失败码从 EISDIR 变成 ENOTEMPTY
+      await writeFile(join(pagePath, 'inside.txt'), '外来内容\n', 'utf8');
+
+      const res = await injectJson(daemon.app, {
+        method: 'PUT',
+        url: `/documents/${encodeURIComponent(id)}/pages/page-1`,
+        payload: { body: { marker: '不该落盘' } },
+      });
+      expect(res.statusCode, res.raw).toBeLessThan(500);
+      expect((res.payload as { error: { code: string } }).error.code).toBe('doc_invalid_body');
+      // 提交点之前拒绝 → manifest 分毫未动
+      const after = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+        version: number;
+        pages: { updatedAt: string }[];
+      };
+      expect(after.version).toBe(before.version);
+      expect(after.pages[0]?.updatedAt).toBe(before.pages[0]?.updatedAt);
+      // 拒绝即零改动：目录与其中的外来文件都原样在位，pages/ 没有 .tmp 残骸
+      expect(await readdir(pagePath)).toEqual(['inside.txt']);
+      expect(await readFile(join(pagePath, 'inside.txt'), 'utf8')).toBe('外来内容\n');
+      expect(
+        (await readdir(join(docDir, 'pages'))).filter((entry) => entry.endsWith('.tmp')).length,
+        '被拒的正文以 .tmp 留在 pages/',
+      ).toBe(0);
+      // 响应不回显宿主路径（同 F4 口径）
+      expect(res.raw).not.toContain(daemon.workspaceDir);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
 });
 
 describe('documents · 500 响应不得回显宿主绝对路径（票 19 · F4）', () => {
@@ -371,6 +434,39 @@ describe('documents · 500 响应不得回显宿主绝对路径（票 19 · F4�
       ).toBe(true);
     } finally {
       if (docDir !== '') await chmod(docDir, 0o755).catch(() => undefined);
+      await daemon.cleanup();
+    }
+  });
+
+  it('create 侧同样脱敏：数据根不可写（mkdir EACCES，非竞态错误族）→ 500 不回显宿主路径', async () => {
+    // SE-5 的另一半：`create()` 里 ENOENT/ENOTDIR 已收敛为类型化 conflict，但**权限类**
+    // 错误仍是有意的 500（宿主环境坏了，不是用户的并发冲突）。这条用例钉住的是
+    // 「无论从 create 逃出哪一族错误，500 的形状都不许带宿主路径」——
+    // 评审实测的 14/400 泄漏正是从 create 出去的（details.reason 逐字回显 fs message）。
+    const daemon = await createTestDaemon({ logger: true });
+    try {
+      await chmod(daemon.workspaceDir, 0o555);
+      const res = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '根不可写' },
+      });
+      expect(res.statusCode).toBe(500);
+      const error = (res.payload as { error: { code: string; details: { reason?: string } } })
+        .error;
+      expect(error.code).toBe('internal');
+      expect(error.details.reason).toBe('EACCES');
+      expect(res.raw, 'create 的 500 回显了宿主绝对路径').not.toContain(daemon.tempDir);
+      expect(res.raw).not.toContain(daemon.workspaceDir);
+      expect(
+        daemon.capturedLogs.some(
+          (line) =>
+            line.includes('EACCES') && line.includes(join(daemon.workspaceDir, '根不可写.dfg')),
+        ),
+        'daemon 日志丢失了 create 失败的原始异常（脱敏不等于致盲）',
+      ).toBe(true);
+    } finally {
+      await chmod(daemon.workspaceDir, 0o755).catch(() => undefined);
       await daemon.cleanup();
     }
   });
@@ -662,5 +758,159 @@ describe('documents · 两个独立 daemon 实例共享同一数据根（跨实�
       fenced.pages.map((page) => `${page.id}.json`).sort(),
     );
     expect(await readdir(workspaceDir)).toEqual([`${documentId}.dfg`]);
+  });
+});
+
+describe('documents · create/delete 竞态不得塌成 500（票 19 · SE-5）', () => {
+  const apps: FastifyInstance[] = [];
+  let root = '';
+  let workspaceDir = '';
+  let urlA = '';
+  let urlB = '';
+
+  beforeAll(async () => {
+    root = await mkdtemp(join(tmpdir(), 'df-v2-19-se5-'));
+    workspaceDir = join(root, 'workspace');
+    const endpoints: string[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const app = await createDaemonApp({
+        dataRoot: join(root, `data-${String(index)}`),
+        workspaceDir,
+        envApiKey: null,
+        logger: false,
+        fetchImpl: (async () => {
+          throw new Error('本用例禁止出网');
+        }) as unknown as typeof fetch,
+      });
+      apps.push(app);
+      endpoints.push(String(await app.listen({ port: 0, host: '127.0.0.1' })));
+    }
+    const [first, second] = endpoints;
+    urlA = first ?? '';
+    urlB = second ?? '';
+  });
+
+  afterAll(async () => {
+    await Promise.all(apps.map((app) => app.close()));
+    await removeTree(root);
+  });
+
+  it('两实例交叉同名建/删 80 轮：零 5xx、失败皆类型化、终态可收口重建、失败响应不回显宿主路径', async () => {
+    const NAME = '竞态文档';
+    const ID = '竞态文档';
+    const docDir = join(workspaceDir, `${ID}.dfg`);
+
+    /** 一笔竞态操作及其可观测结果。 */
+    interface Op {
+      kind: 'create' | 'delete';
+      status: number;
+      code: string | null;
+      raw: string;
+    }
+    const call = async (
+      kind: Op['kind'],
+      url: string,
+      init: { method: string; payload?: unknown },
+    ): Promise<Op> => {
+      const res = await httpJson(url, init);
+      return {
+        kind,
+        status: res.status,
+        code:
+          res.status >= 400
+            ? ((res.json.error as { code: string } | undefined)?.code ?? null)
+            : null,
+        raw: res.raw,
+      };
+    };
+
+    // 80 轮 × 2 实例 × (create + delete)：create 与 delete 在同一目录名上真并发
+    // （评审实测的正是这个形状：400 次 POST 里 14 次 500，details.reason 带绝对路径）
+    const ops: Promise<Op>[] = [];
+    for (let round = 0; round < 80; round += 1) {
+      for (const url of [urlA, urlB]) {
+        ops.push(call('create', `${url}/documents`, { method: 'POST', payload: { name: NAME } }));
+        ops.push(
+          call('delete', `${url}/documents/${encodeURIComponent(ID)}`, { method: 'DELETE' }),
+        );
+      }
+    }
+    const results = await Promise.all(ops);
+
+    // 1) 失败面收口：竞态里**一笔 5xx 都不许有**（旧缺陷：提交段 ENOENT 直落 500）
+    const serverErrors = results.filter((op) => op.status >= 500);
+    expect(
+      serverErrors.map((op) => `${op.kind}:${String(op.status)}`),
+      `create/delete 竞态出现 ${String(serverErrors.length)} 笔 5xx（旧缺陷：ENOENT 直落 500）`,
+    ).toEqual([]);
+
+    // 2) 非 2xx 必须是带类型的错误码，且状态码与契约的错误码表一致（不许「第三种沉默」，
+    //    也不许「409 的形状装在 500 的状态里」）
+    const allowedCodes = [
+      'conflict',
+      'doc_exists',
+      'doc_not_found',
+      'doc_invalid_id',
+      'doc_invalid_manifest',
+    ];
+    for (const op of results) {
+      if (op.status === 201 || op.status === 200) continue;
+      expect(op.code, JSON.stringify(op)).not.toBeNull();
+      expect(allowedCodes, JSON.stringify(op)).toContain(op.code ?? '');
+      expect(DF_ERROR_HTTP_STATUS[op.code as DfErrorCode], `${String(op.code)} 状态码错位`).toBe(
+        op.status,
+      );
+    }
+
+    // 3) **失败**响应一律不许含宿主绝对路径（F4/SE-5 脱敏纪律在赛场合流）。
+    //    成功信封里的 `document.directory` 是产品真值（本地优先：用户要知道 .dfg 在哪），
+    //    故只核查 4xx/5xx 的响应体——旧缺陷正是 500 的 details.reason 逐字带上被操作文件路径。
+    const failureRaw = results
+      .filter((op) => op.status >= 400)
+      .map((op) => op.raw)
+      .join('\n');
+    expect(failureRaw, '竞态失败响应回显了宿主绝对路径').not.toContain(root);
+    expect(failureRaw).not.toContain(workspaceDir);
+    expect(failureRaw).not.toContain(docDir);
+
+    // 4) 赛跑**之后**的终态真值（串行核查，不与在飞的请求竞速）：
+    //    先 DELETE 收口——竞态不许留下「删不掉」的残骸（票 19 的空壳承诺在竞赛下同样成立），
+    //    且 DELETE 的结论必须是类型化的（200 已删 / 404 本就不在）。
+    const quiesce = await call('delete', `${urlA}/documents/${encodeURIComponent(ID)}`, {
+      method: 'DELETE',
+    });
+    expect(
+      [200, 404],
+      `竞态后收口 DELETE 拿到非类型化结果：${quiesce.status} ${quiesce.raw}`,
+    ).toContain(quiesce.status);
+    expect(quiesce.code === null || quiesce.code === 'doc_not_found', quiesce.raw).toBe(true);
+
+    // 数据根里不能再有这个名字（也没有别的残骸）：名字必须已释放，可重建
+    const rootEntries = await readdir(workspaceDir);
+    expect(rootEntries, `竞态留下无法删除的残骸：${JSON.stringify(rootEntries)}`).toEqual([]);
+
+    // 5) 栅栏：同名重建必须成功且读得到（名字没被空壳/声明/临时文件永久占住）
+    const fenceCreate = await call('create', `${urlB}/documents`, {
+      method: 'POST',
+      payload: { name: NAME },
+    });
+    expect(fenceCreate.status, `栅栏 create 未成功：${fenceCreate.raw}`).toBe(201);
+    const listed = await httpJson(`${urlA}/documents`, { method: 'GET' });
+    expect(listed.status).toBe(200);
+    const docs = (listed.json.result as { documents: { id: string }[] }).documents;
+    expect(
+      docs.map((doc) => doc.id),
+      JSON.stringify(docs),
+    ).toEqual([ID]);
+    const detail = await httpJson(`${urlA}/documents/${encodeURIComponent(ID)}`, {
+      method: 'GET',
+    });
+    expect(detail.status, detail.raw).toBe(200);
+    const docDirEntries = await readdir(docDir);
+    expect(
+      docDirEntries.filter((entry) => entry.endsWith('.tmp') || entry.startsWith('.commit-')),
+      `栅栏之后文档目录仍有临时文件/提交声明残骸：${JSON.stringify(docDirEntries)}`,
+    ).toEqual([]);
+    expect(docDirEntries.sort()).toEqual(['manifest.json', 'pages']);
   });
 });
