@@ -22,6 +22,71 @@ async function seedShellDocument(workspaceDir: string, id: string): Promise<void
   await writeFile(join(workspaceDir, `${id}.dfg`, 'pages', 'page-1.json'), '{}\n', 'utf8');
 }
 
+describe('documents · create() 失败不得留下残骸，也不得伤及既有文档', () => {
+  it('同名 create 失败（doc_exists）后，既有文档必须原样可读、数据根无残骸', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const created = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '占名文档' },
+      });
+      expect(created.statusCode, created.raw).toBe(201);
+      const saved = await injectJson(daemon.app, {
+        method: 'PUT',
+        url: '/documents/占名文档/pages/page-1',
+        payload: { body: { marker: '既有内容' } },
+      });
+      expect(saved.statusCode, saved.raw).toBe(200);
+
+      const again = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/documents',
+        payload: { name: '占名文档' },
+      });
+      expect(again.statusCode, again.raw).toBe(409);
+      expect((again.payload as { error: { code: string } }).error.code).toBe('doc_exists');
+
+      // 失败方只许撤掉自己刚建的东西：既有文档一个字节都不能少
+      const readable = await injectJson(daemon.app, {
+        method: 'GET',
+        url: '/documents/占名文档/pages/page-1',
+      });
+      expect(readable.statusCode, readable.raw).toBe(200);
+      const read = (readable.payload as { result: { body: { marker: string } } }).result;
+      expect(read.body.marker).toBe('既有内容');
+      // 且数据根只有那一个文档目录（无 .tmp / 无空壳）
+      expect(await readdir(daemon.workspaceDir)).toEqual(['占名文档.dfg']);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('N=10 并发同名建文档：恰 1 个 201，其余 409，且数据根只留下那一个文档目录', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const results = await Promise.all(
+        Array.from({ length: 10 }, () =>
+          injectJson(daemon.app, {
+            method: 'POST',
+            url: '/documents',
+            payload: { name: '并发建文档' },
+          }),
+        ),
+      );
+      expect(results.filter((res) => res.statusCode === 201)).toHaveLength(1);
+      expect(results.filter((res) => res.statusCode === 409)).toHaveLength(9);
+      expect(await readdir(daemon.workspaceDir)).toEqual(['并发建文档.dfg']);
+      const manifest = JSON.parse(
+        await readFile(join(daemon.workspaceDir, '并发建文档.dfg', 'manifest.json'), 'utf8'),
+      ) as { pages: unknown[] };
+      expect(manifest.pages).toHaveLength(1);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
 describe('documents · 无 manifest 空壳目录必须可回收', () => {
   it('DELETE 空壳 → 200 且目录消失（此前恒 doc_not_found，名字永久占用）', async () => {
     const daemon = await createTestDaemon();
