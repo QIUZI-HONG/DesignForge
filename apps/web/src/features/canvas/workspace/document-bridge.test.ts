@@ -15,6 +15,7 @@
 import { apiFailure, apiSuccess, type DfErrorCode } from '@dforge/contracts';
 import {
   createDocument,
+  createInstance,
   createPage,
   createRect,
   type DesignDocument,
@@ -519,6 +520,57 @@ describe('保存（⌘S / 顶栏按钮）', () => {
     expect(Object.keys(pages[0]?.nodes ?? {}).length).toBe(1);
     // 载入后当前页落在第一页
     expect(reopened.canvas.page().id).toBe(pages[0]?.id);
+  });
+});
+
+describe('保存前结构校验（票 17 · blocker 2：写不校验、读全校验 = 一次写坏永久锁定）', () => {
+  it('画布状态含悬空实例引用 → save 被拒、错误态可读、盘上正文分毫未动；修好后能正常保存', async () => {
+    const daemon = createFakeDaemon();
+    daemon.seed('待检文档', [pageWithRect('page-seed', 'n_ok')]);
+    const workspace = makeWorkspace(daemon);
+    expect((await workspace.documents.load('待检文档')).ok).toBe(true);
+
+    // 命令层不阻止构造悬空引用（引擎只在校验层打回）：插入指向不存在主组件的实例
+    const dangling = createInstance({ id: 'i_ghost', componentId: 'ghost' });
+    workspace.panels.stack.dispatch({
+      type: 'node.insert',
+      pageId: 'page-seed',
+      node: dangling,
+      parentId: null,
+    });
+
+    const bodyBefore = structuredClone(daemon.documents.get('待检文档')?.pages.get('page-1')?.body);
+
+    const failed = await workspace.documents.save();
+    expect(failed.ok).toBe(false);
+    expect(workspace.documents.store.getState().status).toBe('error');
+    expect(workspace.documents.store.getState().error).toContain('missing-component');
+    // 拒在写盘之前：daemon 的页正文仍是载入时那份（不含 i_ghost）
+    expect(daemon.documents.get('待检文档')?.pages.get('page-1')?.body).toEqual(bodyBefore);
+
+    // 移除悬空实例 → 结构合法 → 保存成功，正文落到 daemon
+    workspace.panels.stack.dispatch({
+      type: 'node.remove',
+      pageId: 'page-seed',
+      nodeId: 'i_ghost',
+    });
+    const ok = await workspace.documents.save();
+    expect(ok.ok).toBe(true);
+    expect(workspace.documents.store.getState().status).toBe('saved');
+    const savedBody = daemon.documents.get('待检文档')?.pages.get('page-1')?.body as {
+      page: { nodes: Record<string, unknown> };
+    };
+    expect(savedBody.page.nodes.n_ok).toBeDefined();
+    expect(savedBody.page.nodes.i_ghost).toBeUndefined();
+  });
+
+  it('载入后原样保存（无悬空引用）不被校验误伤：正常写回', async () => {
+    const daemon = createFakeDaemon();
+    daemon.seed('合法文档', [pageWithRect('page-seed', 'n_ok')]);
+    const workspace = makeWorkspace(daemon);
+    expect((await workspace.documents.load('合法文档')).ok).toBe(true);
+    expect((await workspace.documents.save()).ok).toBe(true);
+    expect(workspace.documents.store.getState().status).toBe('saved');
   });
 });
 
