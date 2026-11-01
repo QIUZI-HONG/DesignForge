@@ -404,7 +404,15 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       if (!paths.ok) return paths;
       return lock.run(documentId, async () => {
         const manifest = await readManifestAt(paths.value, documentId);
-        if (!manifest.ok) return manifest;
+        if (!manifest.ok) {
+          // 空壳目录（`create()` 在 mkdir 之后失败留下的无 manifest 目录）必须可删——
+          // 否则该名字被 EEXIST 永久占用，而读侧又只会回 doc_not_found，没有任何恢复路径。
+          // 只放通「manifest 文件不存在」这一种失败：存在但损坏仍回 doc_invalid_manifest，
+          // 免得把可能还有救的正文连同不可解析的元数据一起递归删掉。
+          if (manifest.code !== 'doc_not_found') return manifest;
+          const shell = await lstat(paths.value.dir).catch(() => null);
+          if (shell === null || !shell.isDirectory() || shell.isSymbolicLink()) return manifest;
+        }
         // 对象级删除守卫（Q1-3）：只允许删「数据根内的一个 .dfg 目录」——
         // 数据根本身 / 根的祖先 / 根内普通文件 / 软链一律拒绝（绝不做递归删）
         if (
