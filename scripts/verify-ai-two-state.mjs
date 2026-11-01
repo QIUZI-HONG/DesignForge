@@ -67,6 +67,53 @@ function record(id, ok, detail) {
   console.log(`  [${ok ? 'ok' : 'FAIL'}] ${id} —— ${detail}`);
 }
 
+/**
+ * 阻塞（未判定）步骤登记（v2 票 06/22 · 三轮 S1）。
+ *
+ * 三态里「没测到」既不是通过也不是违规，所以 `ok` 必须留 **null**，另用 `blocked`
+ * 标记入「未判定」集；`blockKind` 是给证据 JSON 看的类型标签：
+ *   - `not-opt-in`：段 B 未显式 `DF_ALLOW_AI_EGRESS=1`（默认路径）；
+ *   - `whitelist-refused`：opt-in 了，但回环 stand-in baseUrl 被 daemon 白名单拒 →
+ *     依赖出机的步骤**不能发**（见 P1）；
+ *   - `runtime`：daemon 起不来 / 现场异常（未判定，不是产品违规）。
+ * 兼容保留 `skipped: true`（旧证据消费者按这个键计数）。
+ */
+function recordBlocked(id, blockKind, detail) {
+  steps.push({ id, ok: null, skipped: true, blocked: true, blockKind, detail });
+  console.log(`  [SKIP:${blockKind}] ${id} —— ${detail}`);
+}
+
+/**
+ * 三态退出码的**唯一派生点**（《docs/agents/implementation-workflow.md》约 :92 ·
+ * v2 票 06/22 三轮 S1）：违规(1) > 阻塞(2) > 通过(0)。
+ *
+ * 判据只来自**事实**，不再沿路改一个 `exitCode` 变量——原实现段 B 默认跳过时先
+ * `exitCode = 2`，随后 `failed → 1` 只写在 `if (exitCode === 0)` 里，于是任何良性
+ * 跳过都会把**之后的违规**永久压成「阻塞」，日志出现「失败 2 项；退出码 2」这种
+ * 自相矛盾的假口径。两类事实同时存在时按原文口径报 **1**，并把未判定清单
+ * 一起打印与落证据（阻塞信息不得被违规结论吞掉，反之亦然）。
+ *
+ * @param {{steps: Array<object>, uiEvidence?: {status: string, reason?: string, steps?: Array<object>}, blockedFacts?: string[]}} facts
+ * @returns {{exitCode: 0|1|2, violations: string[], blocks: string[]}}
+ */
+function deriveVerdict({ steps: allSteps, uiEvidence, blockedFacts = [] }) {
+  const violations = allSteps.filter((step) => step.ok === false).map((step) => step.id);
+  const blocks = allSteps
+    .filter((step) => step.skipped === true || step.blocked === true)
+    .map((step) => step.id);
+  if (uiEvidence?.status === 'blocked') {
+    blocks.push(`ui:blocked（${uiEvidence.reason ?? '未给原因'}）`);
+  }
+  // UI 段「空跑零断言」也是违规（lib/ui-mount 以 status='failed' 且 steps 为空表达）；
+  // 有失败步时它们已按 ok===false 计入，不重复计数。
+  if (uiEvidence?.status === 'failed' && (uiEvidence.steps?.length ?? 0) === 0) {
+    violations.push('ui:failed（UI 段一条断言都没执行——空跑不算通过）');
+  }
+  for (const fact of blockedFacts) blocks.push(fact);
+  const exitCode = violations.length > 0 ? 1 : blocks.length > 0 ? 2 : 0;
+  return { exitCode, violations, blocks };
+}
+
 async function sleep(ms) {
   await new Promise((settle) => setTimeout(settle, ms));
 }
@@ -356,7 +403,8 @@ async function main() {
   const logChunks = [];
   let child = null;
   let mock = null;
-  let exitCode = 0;
+  /** 运行期阻塞事实（未判定）；步骤级阻塞另由 `recordBlocked` 进 steps。 */
+  const blockedFacts = [];
   let blockedReason = null;
   const evidence = {
     ticket: 'FE-10',
@@ -562,12 +610,11 @@ async function main() {
         egressObservability: 'no-probe：段 B 未开，脚本不声称「未出机」',
       };
       for (const id of skippedSteps) {
-        steps.push({ id, ok: null, skipped: true, detail: `段 B 跳过：${reason.slice(0, 80)}…` });
-        console.log(`  [SKIP] ${id} —— 段 B 默认跳过（详见票 22）`);
+        recordBlocked(id, 'not-opt-in', `段 B 跳过：${reason.slice(0, 80)}…`);
       }
       if (blockedReason === null) blockedReason = reason;
-      // 三态语义：阻塞（2）优先于「其他步全绿即 0」；违规（1）仍最优先。
-      exitCode = 2;
+      // 三态语义**由事实派生**（见 deriveVerdict）：这里的跳过步只登记「未判定」，
+      // 不再直接写 exitCode——原 `exitCode = 2` 会把之后所有违规永久压成阻塞（三轮 S1）。
     } else {
       console.warn(
         '[verify-ai-two-state] ⚠️ DF_ALLOW_AI_EGRESS=1 已开启：段 B 会真实出机至 api.deepseek.com。',
@@ -694,10 +741,12 @@ async function main() {
       };
     }
   } catch (error) {
-    exitCode = 2;
     blockedReason = String(error);
     console.error(`[verify-ai-two-state] 阻塞：${blockedReason}`);
-    record('bootstrap', false, `阻塞：${blockedReason}`);
+    // 「daemon 起不来 / 现场异常」是**未判定**（阻塞 2），不是产品违规（1）——
+    // 见模块头退出码口径；登记为 runtime 阻塞步，不进违规集。
+    recordBlocked('bootstrap', 'runtime', `阻塞：${blockedReason}`);
+    blockedFacts.push(`runtime:${blockedReason}`);
   } finally {
     if (child !== null) {
       child.kill('SIGTERM');
@@ -707,16 +756,16 @@ async function main() {
     if (mock !== null) await mock.close();
   }
 
-  if (exitCode === 0) {
-    const failed = steps.filter((step) => step.ok === false);
-    if (failed.length > 0) exitCode = 1;
-    else if (steps.some((step) => step.skipped === true)) exitCode = 2;
-  }
-  // UI 段阻塞 → exit 2（三态语义；违规（1）优先于阻塞（2），见 implementation-workflow）
-  if (exitCode === 0 && evidence.uiEvidence?.status === 'blocked') exitCode = 2;
-  if (exitCode === 0 && evidence.uiEvidence?.status === 'failed') exitCode = 1;
+  // —— 三态判定：唯一派生点，只看事实（违规 1 > 阻塞 2 > 通过 0）——
+  const verdict = deriveVerdict({ steps, uiEvidence: evidence.uiEvidence, blockedFacts });
+  const exitCode = verdict.exitCode;
 
   evidence.exitCode = exitCode;
+  evidence.verdict = {
+    rule: '违规(1) 优先于 阻塞(2) 优先于 通过(0)；由 steps/uiEvidence 事实派生，不沿路改变量',
+    violations: verdict.violations,
+    blocks: verdict.blocks,
+  };
   evidence.blockedReason = blockedReason;
   evidence.steps = steps;
   evidence.meta = {
@@ -728,6 +777,7 @@ async function main() {
     stepsTotal: steps.length,
     stepsFailed: steps.filter((step) => step.ok === false).length,
     stepsSkipped: steps.filter((step) => step.skipped === true).length,
+    stepsBlocked: steps.filter((step) => step.blocked === true).length,
     // 本门禁**不声称**「未出机」——脚本没有网络观测能力；能观察到的只有
     // 「本脚本代码路径未发起 /ai/chat」，段 B 默认跳过时该断言成立。
     egressObservability:
@@ -744,8 +794,19 @@ async function main() {
   await writeFile(join(ARTIFACTS_DIR, 'evidence.json'), text);
 
   console.log(
-    `[verify-ai-two-state] 步骤 ${steps.length} 项，失败 ${evidence.meta.stepsFailed} 项；证据：${evidencePath}；退出码 ${exitCode}`,
+    `[verify-ai-two-state] 步骤 ${steps.length} 项，失败（违规）${evidence.meta.stepsFailed} 项，` +
+      `阻塞/跳过 ${evidence.meta.stepsSkipped} 项；证据：${evidencePath}；退出码 ${exitCode}` +
+      `（${exitCode === 1 ? '有违规——失败 N 项与 exit 1 一致' : exitCode === 2 ? '未判定，绝不等于通过' : '全过'}）`,
   );
+  // 两类问题**同屏列出**：报 1 时不得把阻塞信息吞掉（implementation-workflow 口径）。
+  if (exitCode === 1 && verdict.blocks.length > 0) {
+    console.log(
+      `  ? 未判定 ${verdict.blocks.length} 项（同时存在，结论仍按违规报 1）：${verdict.blocks.join('、')}`,
+    );
+  }
+  if (exitCode === 1 && verdict.violations.length > 0) {
+    console.log(`  ✗ 违规 ${verdict.violations.length} 项：${verdict.violations.join('、')}`);
+  }
 
   if (exitCode === 0) {
     await rm(tempRoot, { recursive: true, force: true });
