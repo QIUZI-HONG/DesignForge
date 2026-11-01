@@ -12,15 +12,30 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** code-complete（Node 门禁全绿；证据 `~/df-evidence/v2b-17/` + `~/df-evidence/v2-merge/`；blocker 3 另立票 23）
 
 blockers:
 
-- [ ] 粘贴时若无 `componentRemap`：要么连带主组件一起复制，要么把实例降级为普通帧/删实例——**不得留下悬空引用**
-- [ ] 写入侧对称校验：`saveDesignDocument` 前跑一次 `validateDocument`，非空 issue 拒绝落盘并给出可执行提示（不许静默写坏）
-- [ ] 读回侧要有「可打开的降级路径」（只读/修复模式），结构非法不得等于文档死刑
-- [ ] 端到端用例：复制实例 → 粘贴到另一页/另一文档 → 保存 → 重开（本轮覆盖空洞：这一段零覆盖，现有并发/往返用例全绕开真形状）
-- [ ] 修正 `clipboard-hierarchy.test.ts:109-128` 的期望（悬空引用不该是「正确行为」），并在 `clipboard.ts:122-124` 注释里改口径
+- [x] 粘贴时若无 `componentRemap`：`settleComponentRefs`（`packages/engine/src/clipboard/clipboard.ts`）三分支——载荷内主组件随复制（id 重映射接手）或显式 `componentRemap` 接手 → 引用有效原样保留；目标页快照里被引用节点在位 → 保留；**都不成立（含无目标页快照）→ 实例降级为普通帧**（几何/样式保留荷原值，`children` 置空、`clipsContent:true`、`autoLayout:null`），悬空引用绝不进页面
+- [x] 写入侧对称校验，两层同源引擎口径：web 侧 `documents-client.saveDesignDocument` 动任何写盘之前跑 `validateDocument`，非空 issue 拒绝落盘并回可执行提示（盘上零变化）；daemon 侧新增 `documents/canvas-integrity.ts`，对 `dforge.canvas.page` 信封查引用存在性（与引擎 `validatePage` 同强度），PUT 即 422 `doc_invalid_structure`（issue 文案带 `missing-component` / `missing-component-set` 前缀）。opaque 口径的唯一例外已在模块头与路由头写清理由
+- [ ] **未做，另立票 23**：读回侧「能打开」的降级路径。`serialize.ts:164-170` 仍是「有任何 issue 即 throw」——写侧守门只能保证从现在起不再产生，救不了历史保存/手工 JSON/第三方导入的已损形状。本票实施时按「另立后续」处理并留痕（原因见票 23 备注）
+- [x] 端到端用例：`apps/web/src/features/canvas/workspace/document-bridge.test.ts` 补真形状竖切片——实例复制到无主组件的另一页 → 降级为帧 → 保存合法（daemon 200）→ 重开不锁死；daemon 侧 `routes/documents.test.ts` 补 422 拒绝落盘与「拒绝后盘上零变化」两条
+- [x] `clipboard-hierarchy.test.ts` 的悬空期望改为「降级为帧」，`clipboard.ts` 模块头与载荷自检注释同步改口径（原注释「指向载荷之外的引用保持原值」已失效）
+
+## 完成记录（2026-11-01 · `integration/test-remediation-v2`）
+
+实施者竖切片（分支 `fix/v2b-17-paste-ref-integrity`）：`8b84630` 实例降级 → `1982f3d` 合法路径钉死 → `ed98fae` 组件集引用置 null → `d348fe4` daemon 422（实例）→ `110ceb8` daemon 422（组件集）→ `fae9429` web 写前校验 → `deaa7a8` 端到端；`3d40cd0` 并入集成分支。
+
+**主代理收口两件事（实施者到达回合上限未做完）**：
+
+1. **合并后 `pnpm run lint` 红**：票 17 把带 sha256 的回归基线 `packages/engine/__snapshots__/fixed-document.json` 重冻了。根因不在格式而在夹具：`regression.test.ts` 第 7 步粘贴没传 `page`，走进本票新增的「无目标页快照 → 存在性不可证 → 降级」分支，把 `inst_1000` 从 instance 变成 frame。web 真路径（`session.ts:830`）一直传 `page: page()`。补上后重新生成 + biome 格式化，`git diff main -- __snapshots__/` **为空**——本票对冻结 attestation 的改动归零（提交 `a5549a1`）。
+2. **这条正好是票 07 记的机理在现实中发生了一次**：冻结基线可以被一次夹具疏忽带着重冻，而**测试全绿**（sha256 是自算的规范哈希，跟着一起改），最后只有 `lint` 的格式化口径抓到。判据建议（留给票 07）：`UPDATE_SNAPSHOT=1` 路径应额外断言「新哈希必须等于文件内已提交哈希，除非同时给出人工签署的变更说明」。
+
+门禁实况（合并并修正后的树 `a5549a1`，日志 `~/df-evidence/v2-merge/gates/17–24`）：`pnpm -r test` 9 包全绿（daemon 19 文件 / 179 用例，engine 26 / 377）、`lint` 0、`typecheck` 0、`test:scripts` 0（93/93）、`verify:daemon` 0（42/42）、`verify:engine` 0、`verify:mcp-stub` 0、`guard:tokens/vocab/feature-boundaries` 0。
+
+**未过与原因**（都不是本票引入，逐条见 `~/df-evidence/v2-merge/evidence.md`）：`verify:ai-two-state` 1（态 B 被 AI baseUrl 白名单挡死 → 已立票 22；UI 段缺 `libnspr4` 等库）、`verify:canvas` 1（Chromium 起不来）、`verify:image-two-state` 2（8 步 0 失败但 UI 挂载段未执行，按「2 = 阻塞」上报，另注：它在 `/tmp` 保留现场，违「禁用 /tmp」，属票 05 面）、`verify:market` 2（需常驻 daemon 4318）、`verify:shell-parity` 2（Electron 二进制缺失 + 参照集未冻结）、`verify:motion` 2 与 `guard:deps/channel-pairing/mcp-contract` 2（脚本自陈未实现）。
+
+**本票不能证明**：真浏览器里的粘贴—保存—重开闭环（缺库，待人工）；跨文档（不同 `.dfg`）粘贴的组件集引用语义——`settleComponentRefs` 的「无页快照即降级」分支只由单元测试覆盖。
 
 ## 基线核对（2026-11-01 · 集成分支 integration/test-remediation-v2 @ 3f3603c）
 
