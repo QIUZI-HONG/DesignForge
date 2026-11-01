@@ -5,7 +5,7 @@
  * （`serializeClipboard` → JSON 字符串，落系统剪贴板由 FE-06 负责）。
  * 粘贴时做 **id 重映射**：所有 id 换新，内部引用（children / 实例主组件 / 覆盖路径）一并改写；
  * 指向载荷之外的引用（如外部主组件）由 `componentRemap` 接手或经目标页快照确认仍在位；
- * 两者都不成立时**粘贴即降级**（实例 → 普通帧）——
+ * 两者都不成立时**粘贴即降级**（实例 → 普通帧；悬空组件集引用 → null）——
  * 悬空引用不得进页面（票 17：写不校验、读全校验会让整份文档不可重开）。
  */
 
@@ -515,8 +515,8 @@ export function remapNode(
 /**
  * 悬空组件引用降级（票 17）：remap 后的**外部**引用若无人接手——既不在载荷内（未被 id
  * 重映射改写）、也没有显式 `componentRemap` 接手、目标页快照里又不存在被引用节点——
- * 就地把实例降级为普通帧（几何/样式保持载荷原值；主组件虚节点不随复制），
- * 绝不把悬空引用写进页面。无目标页快照（跨文档粘贴）时存在性不可证 → 同样降级；
+ * 就地把实例降级为普通帧（几何/样式保持载荷原值；主组件虚节点不随复制）、
+ * 把悬空组件集引用置 null（变体主组件退为独立主组件），绝不把悬空引用写进页面。无目标页快照（跨文档粘贴）时存在性不可证 → 同样降级；
  * 显式给出 `componentRemap` 则视为调用方断言目标引用有效，原样放行。
  */
 function settleComponentRefs(
@@ -539,6 +539,17 @@ function settleComponentRefs(
     next.clipsContent = true;
     next.autoLayout = null;
     return next as unknown as SceneNode;
+  }
+  if (remapped.type === 'component' && original.type === 'component') {
+    if (original.componentSetId === null) return remapped;
+    // 组件集随复制在载荷内（id 重映射接手）或显式 remap 接手 → 引用有效
+    if (map.has(original.componentSetId) || original.componentSetId in componentRemap) {
+      return remapped;
+    }
+    const targetId = remapped.componentSetId;
+    if (targetId !== null && page?.nodes[targetId]?.type === 'component_set') return remapped;
+    // 悬空 → 退为独立主组件（票 17：粘贴不得留下悬空引用）
+    return { ...remapped, componentSetId: null };
   }
   return remapped;
 }

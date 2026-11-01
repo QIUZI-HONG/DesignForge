@@ -4,6 +4,7 @@ import { worldBoundsOfNode } from '../geometry/index';
 import { createIdFactory } from '../model/ids';
 import {
   createComponent,
+  createComponentSet,
   createDocument,
   createFrame,
   createInstance,
@@ -11,7 +12,14 @@ import {
   createRect,
   type DesignDocument,
 } from '../model/index';
-import { addPage, getChildrenIds, getPage, insertNode, requireNode } from '../scene/index';
+import {
+  addPage,
+  getChildrenIds,
+  getPage,
+  insertNode,
+  requireNode,
+  validateDocument,
+} from '../scene/index';
 import {
   clipboardIds,
   copyNodes,
@@ -193,6 +201,29 @@ describe('clipboard · 粘贴（id 重映射）', () => {
     expect(pasted?.type).toBe('instance');
     if (pasted?.type !== 'instance') return;
     expect(pasted.componentId).toBe('c1');
+  });
+
+  it('跨页粘贴变体主组件：组件集不在载荷、无 remap/页快照可证 → 组件集引用置 null（票 17：不留悬空）', () => {
+    let document = doc();
+    document = insertNode(document, 'p1', createComponentSet({ id: 'set1', x: 0, y: 200 }), null);
+    document = insertNode(
+      document,
+      'p1',
+      createComponent({ id: 'c2', x: 150, y: 200, componentSetId: 'set1' }),
+      null,
+    );
+    document = addPage(document, createPage({ id: 'p2', name: '第二页' }));
+    // 只复制变体主组件本身：组件集 set1 不在载荷内
+    const payload = copyNodes(getPage(document, 'p1'), 'p1', ['c2']);
+    const stack = new CommandStack(document);
+    stack.dispatch(pasteCommands(payload, { pageId: 'p2', ids: createIdFactory(800) }));
+    const after = getPage(stack.document, 'p2');
+    const pasted = Object.values(after.nodes)[0];
+    // 降级为独立主组件（退集不换集），整文档结构校验必须为空——否则这份文档从此打不开
+    expect(pasted?.type).toBe('component');
+    if (pasted?.type !== 'component') return;
+    expect(pasted.componentSetId).toBeNull();
+    expect(validateDocument(stack.document)).toEqual([]);
   });
 
   it('副本（Cmd+D）：留在同父级、紧随原节点、可撤销', () => {
