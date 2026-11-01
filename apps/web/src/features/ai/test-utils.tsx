@@ -6,7 +6,13 @@
  * - 假端口：把契约事件序列变成「真 SSE 文本块」喂给适配层（不真调云端）；
  * - 可控端口：chatStream 由测试显式放行，用来观察运行中（loading/disabled）态。
  */
-import type { AiChatResponse, AiStatusResponse, AiStreamEvent } from '@dforge/contracts';
+import type {
+  AiChatResponse,
+  AiDegradeReason,
+  AiStatusResponse,
+  AiStreamEvent,
+  AiSuggestion,
+} from '@dforge/contracts';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
@@ -55,8 +61,46 @@ export function statusConfigured(): AiStatusResponse {
   };
 }
 
-/** 降级完成响应（与真响应同构）。 */
-export function degradedResponse(): AiChatResponse {
+/**
+ * 各降级原因的建议清单样本（期望值取自契约语义的独立誊写，不 import daemon 实现——
+ * daemon 面见 apps/daemon/src/ai/client.ts `suggestionsFor`，两侧同源核对见票 03）。
+ */
+const SUGGESTIONS_BY_REASON: Record<AiDegradeReason, AiSuggestion[]> = {
+  'no-credentials': [
+    {
+      kind: 'configure-credentials',
+      title: '未配置 DeepSeek API key',
+      detail: '在设置页填入 key（sk-…）后即可使用 AI 功能',
+    },
+  ],
+  'rate-limited': [
+    {
+      kind: 'retry-later',
+      title: '触发上游限流（429）',
+      detail: '已按指数退避重试 2 次仍失败；稍后再试或降低频率',
+    },
+    { kind: 'manual-edit', title: '可先手动完成本次修改', detail: null },
+  ],
+  timeout: [
+    { kind: 'retry-later', title: '请求超时', detail: '网络较慢或上游拥堵，可稍后重试' },
+    { kind: 'manual-edit', title: '可先手动完成本次修改', detail: null },
+  ],
+  'invalid-response': [
+    { kind: 'retry-later', title: '上游响应不可解析', detail: '已降级，可重试一次' },
+    { kind: 'manual-edit', title: '可先手动完成本次修改', detail: null },
+  ],
+  'upstream-error': [
+    {
+      kind: 'retry-later',
+      title: '上游服务暂不可用',
+      detail: '已自动降级为建议清单，不中断编辑',
+    },
+    { kind: 'manual-edit', title: '可先手动完成本次修改', detail: null },
+  ],
+};
+
+/** 降级完成响应（与真响应同构；content 空 + 建议清单承接可操作性）。 */
+export function degradedResponse(reason: AiDegradeReason = 'no-credentials'): AiChatResponse {
   return {
     runId: 'ai_degraded',
     provider: 'deepseek',
@@ -65,15 +109,8 @@ export function degradedResponse(): AiChatResponse {
     finishReason: 'degraded',
     usage: null,
     degraded: true,
-    degradedReason: 'no-credentials',
-    suggestions: [
-      {
-        kind: 'configure-credentials',
-        title: '未配置 DeepSeek API key',
-        detail: '在设置页填入 key（sk-…）后即可使用 AI 功能',
-      },
-      { kind: 'manual-edit', title: '可先手动完成本次修改', detail: null },
-    ],
+    degradedReason: reason,
+    suggestions: SUGGESTIONS_BY_REASON[reason],
   };
 }
 
