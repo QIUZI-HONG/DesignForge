@@ -328,3 +328,127 @@ describe('documents · 页面读写（正文 opaque JSON）', () => {
     }
   });
 });
+
+describe('documents · 画布页正文引用完整性守门（票 17）', () => {
+  /** 实例节点最小形状（守门只依赖 type/componentId/componentSetId 引用字段）。 */
+  function instanceNode(id: string, componentId: string): Record<string, unknown> {
+    return {
+      id,
+      type: 'instance',
+      name: id,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      blendMode: 'normal',
+      fills: [],
+      strokes: [],
+      effects: [],
+      cornerRadius: 0,
+      componentId,
+      overrides: {},
+    };
+  }
+
+  /** 主组件节点最小形状。 */
+  function componentNode(id: string, componentSetId: string | null = null) {
+    return {
+      id,
+      type: 'component',
+      name: id,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      blendMode: 'normal',
+      fills: [],
+      strokes: [],
+      effects: [],
+      cornerRadius: 0,
+      children: [],
+      variantProperties: null,
+      componentSetId,
+    };
+  }
+
+  /** 画布页信封正文（与 web 侧 `encodePageBody` 同形）。 */
+  function canvasBody(nodes: Record<string, unknown>, rootIds: string[]): Record<string, unknown> {
+    return {
+      $format: 'dforge.canvas.page',
+      $version: 1,
+      page: { id: 'page-1', name: '页面 1', rootIds, nodes, grid: { size: 100, visible: false } },
+      tokens: { id: 'tokens', name: 'Tokens', groups: [] },
+    };
+  }
+
+  it('合法画布正文（实例指向同页主组件）→ 正常保存 200', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '守门合法');
+      const saved = await injectJson(daemon.app, {
+        method: 'PUT',
+        url: `/documents/${encodeURIComponent(id)}/pages/page-1`,
+        payload: {
+          body: canvasBody({ c1: componentNode('c1'), i1: instanceNode('i1', 'c1') }, ['c1', 'i1']),
+        },
+      });
+      expect(saved.statusCode).toBe(200);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('悬空实例引用 → 422 doc_invalid_structure；盘上正文与 manifest 分毫未动', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '守门悬空');
+      const url = `/documents/${encodeURIComponent(id)}/pages/page-1`;
+      const good = canvasBody({ c1: componentNode('c1'), i1: instanceNode('i1', 'c1') }, [
+        'c1',
+        'i1',
+      ]);
+      const saved = await injectJson(daemon.app, { method: 'PUT', url, payload: { body: good } });
+      expect(saved.statusCode).toBe(200);
+      const pagePath = join(daemon.workspaceDir, `${id}.dfg`, 'pages', 'page-1.json');
+      const manifestPath = join(daemon.workspaceDir, `${id}.dfg`, 'manifest.json');
+      const bodyBefore = await readFile(pagePath, 'utf8');
+      const manifestBefore = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+        version: number;
+      };
+
+      const poisoned = canvasBody({ c1: componentNode('c1'), i1: instanceNode('i1', '幽灵') }, [
+        'c1',
+        'i1',
+      ]);
+      const rejected = await injectJson(daemon.app, {
+        method: 'PUT',
+        url,
+        payload: { body: poisoned },
+      });
+      expect(rejected.statusCode).toBe(422);
+      expect((rejected.payload as { error: { code: string } }).error.code).toBe(
+        'doc_invalid_structure',
+      );
+      expect((rejected.payload as { error: { message: string } }).error.message).toContain(
+        'missing-component',
+      );
+
+      // 落盘零变化：回读仍是上一版正文；页文件与 manifest 未被触碰
+      const read = await injectJson(daemon.app, { method: 'GET', url });
+      expect((read.payload as { result: { body: unknown } }).result.body).toEqual(good);
+      expect(await readFile(pagePath, 'utf8')).toBe(bodyBefore);
+      const manifestAfter = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number };
+      expect(manifestAfter.version).toBe(manifestBefore.version);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});

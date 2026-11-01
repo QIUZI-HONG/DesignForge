@@ -21,6 +21,8 @@ export const DF_ERROR_CODES = [
   // 标识符不安全（越界路径/分隔符/控制字符/超长/非 NFC）——Q1 路径穿越修复新增
   'doc_invalid_id',
   'doc_invalid_body',
+  // 画布页正文引用完整性守门（票 17：写读对称校验——悬空组件引用拒绝落盘）
+  'doc_invalid_structure',
   'doc_invalid_manifest',
   'doc_last_page',
   // 导出
@@ -68,6 +70,7 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   doc_invalid_name: 400,
   doc_invalid_id: 400,
   doc_invalid_body: 400,
+  doc_invalid_structure: 422,
   doc_invalid_manifest: 422,
   doc_last_page: 409,
   export_unsupported_format: 400,
