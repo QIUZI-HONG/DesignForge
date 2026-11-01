@@ -575,6 +575,84 @@ describe('保存前结构校验（票 17 · blocker 2：写不校验、读全校
     expect((await workspace.documents.save()).ok).toBe(true);
     expect(workspace.documents.store.getState().status).toBe('saved');
   });
+
+  // 复核 H1（票 17 后续）：删除主组件是 UI 可达路径（Delete 键 → `session.deleteSelection`），
+  // 旧实现在这里留下悬空引用 → 写侧校验拒绝**整份文档**，⌘S 从此存不了（且旧版是写坏后永久打不开）。
+  it('删除主组件（其实例在场）：引用随删除收口 → 保存合法落盘 → 重开可读；一次撤销同时还原组件与引用', async () => {
+    const daemon = createFakeDaemon();
+    const comp = createComponent({ id: 'c1', name: '按钮', x: 0, y: 0, width: 60, height: 24 });
+    const inst = createInstance({
+      id: 'i1',
+      name: '实例',
+      componentId: 'c1',
+      x: 80,
+      y: 0,
+      width: 60,
+      height: 24,
+    });
+    daemon.seed('删除主组件稿', [
+      createPage({
+        id: 'page-seed',
+        name: 'A',
+        rootIds: ['c1', 'i1'],
+        nodes: { c1: comp, i1: inst },
+      }),
+    ]);
+    const workspace = makeWorkspace(daemon);
+    expect((await workspace.documents.load('删除主组件稿')).ok).toBe(true);
+
+    // 会话删除入口（Delete 键走的就是这条）
+    workspace.canvas.setSelection(['c1']);
+    workspace.canvas.deleteSelection();
+
+    // 删除即收口：整份文档结构合法（写侧校验放行），实例按粘贴同一口径降级为普通帧
+    const snapshot = workspace.panels.stack.getSnapshot();
+    expect(validateDocument(snapshot)).toEqual([]);
+    expect(snapshot.pages[0]?.nodes.i1?.type).toBe('frame');
+
+    expect((await workspace.documents.save()).ok).toBe(true);
+    expect(workspace.documents.store.getState().status).toBe('saved');
+
+    // 重开：全新会话载入同一文档正常打开，页面上只剩降级后的普通帧
+    const reopened = makeWorkspace(daemon);
+    expect((await reopened.documents.load('删除主组件稿')).ok).toBe(true);
+    const reopenedPage = reopened.canvas.document().pages[0];
+    expect(reopenedPage?.nodes.c1).toBeUndefined();
+    expect(reopenedPage?.nodes.i1?.type).toBe('frame');
+
+    // 一次撤销**同时**还原被删的主组件与实例引用（删除与收口是同一条事务）
+    workspace.panels.stack.undo();
+    const undone = workspace.panels.stack.getSnapshot().pages[0];
+    expect(undone?.nodes.c1?.type).toBe('component');
+    const restored = undone?.nodes.i1;
+    expect(restored?.type).toBe('instance');
+    if (restored?.type === 'instance') expect(restored.componentId).toBe('c1');
+    expect(validateDocument(workspace.panels.stack.getSnapshot())).toEqual([]);
+  });
+
+  it('结构非法的拒绝文案可行动：点名问题页面与节点，并给出「撤销后重试」（复核 H1 · 文案不可行动）', async () => {
+    const daemon = createFakeDaemon();
+    daemon.seed('待检文档', [pageWithRect('page-seed', 'n_ok')]);
+    const workspace = makeWorkspace(daemon);
+    expect((await workspace.documents.load('待检文档')).ok).toBe(true);
+
+    workspace.panels.stack.dispatch({
+      type: 'node.insert',
+      pageId: 'page-seed',
+      node: createInstance({ id: 'i_ghost', componentId: 'ghost' }),
+      parentId: null,
+    });
+    const failed = await workspace.documents.save();
+    expect(failed.ok).toBe(false);
+    const error = workspace.documents.store.getState().error ?? '';
+    // 问题码仍在（工程口径可查），同时给出**用户能定位**的页面名/页 id/节点 id
+    expect(error).toContain('missing-component');
+    expect(error).toContain('页面「页面 1」');
+    expect(error).toContain('page-seed');
+    expect(error).toContain('i_ghost');
+    // 可行动：告诉用户撤销能救回来
+    expect(error).toContain('撤销');
+  });
 });
 
 describe('端到端（票 17 · blocker 4：复制→粘贴到另一页→保存→重开零覆盖段）', () => {

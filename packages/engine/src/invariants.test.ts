@@ -7,11 +7,17 @@
 
 import { describe, expect, it } from 'vitest';
 import { copyNodes, duplicateCommands, pasteCommands } from './clipboard/index';
-import { CommandError, CommandStack, groupNodesCommands } from './commands/index';
+import {
+  CommandError,
+  CommandStack,
+  deleteNodesCommands,
+  groupNodesCommands,
+} from './commands/index';
 import { autoLayoutCommands } from './layout/index';
 import { createIdFactory } from './model/ids';
 import {
   createComponent,
+  createComponentSet,
   createDocument,
   createFrame,
   createInstance,
@@ -53,10 +59,24 @@ function baseDoc(): DesignDocument {
     createInstance({ id: 'i1', componentId: 'c1', x: 400, y: 100 }),
     null,
   );
+  // 组件集线（复核 H1）：set1 ⊃ 变体 v1，另有实例 i2 指向 v1 —— 删除集/变体都要收口依赖者
+  doc = insertNode(doc, 'p1', createComponentSet({ id: 'set1', x: 600, y: 0 }), null);
+  doc = insertNode(
+    doc,
+    'p1',
+    createComponent({ id: 'v1', x: 600, y: 20, componentSetId: 'set1' }),
+    'set1',
+  );
+  doc = insertNode(
+    doc,
+    'p1',
+    createInstance({ id: 'i2', componentId: 'v1', x: 700, y: 100 }),
+    null,
+  );
   return doc;
 }
 
-/** 一条覆盖多类写操作的操作脚本（全部经命令栈）。 */
+/** 一条覆盖多类写操作的操作脚本（全部经命令栈；数组项 = 一个事务，可含复合命令）。 */
 function scriptedOperations(doc: DesignDocument): { commands: unknown[] } {
   const page = getPage(doc, 'p1');
   const commands = [
@@ -76,6 +96,11 @@ function scriptedOperations(doc: DesignDocument): { commands: unknown[] } {
       path: ['cc1'],
       patch: { width: 77 },
     },
+    // 删除主组件 / 删除组件集（复核 H1）：意图级删除是**一个复合事务**——
+    // 逐条单独施加会经过「引用已断、依赖者未收口」的中间态，
+    // 故这里作为一个数组项整体下发（与 UI 的 `dispatchGuarded(commands, '删除')` 同形）。
+    deleteNodesCommands(page, 'p1', ['c1']),
+    deleteNodesCommands(page, 'p1', ['set1']),
   ];
   return { commands };
 }
@@ -114,6 +139,16 @@ describe('不变式 · 写操作唯一入口', () => {
     }
     stack.undo();
     expect(validateDocument(stack.document)).toEqual([]);
+
+    // 脚本末尾两笔是「删除组件集」「删除主组件」（复核 H1）：
+    // 依赖者收口与删除本身同一条事务 —— 各撤销一次即整份复原（实例回到实例、引用回到原主组件）
+    expect(getPage(stack.document, 'p1').nodes.i2?.type).toBe('instance');
+    expect(getPage(stack.document, 'p1').nodes.v1?.type).toBe('component');
+    stack.undo();
+    expect(validateDocument(stack.document)).toEqual([]);
+    const revived = getPage(stack.document, 'p1').nodes.i1;
+    expect(revived?.type).toBe('instance');
+    if (revived?.type === 'instance') expect(revived.componentId).toBe('c1');
   });
 });
 
