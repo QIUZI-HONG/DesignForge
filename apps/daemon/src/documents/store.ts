@@ -475,7 +475,11 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
               code: 'doc_invalid_id',
               message:
                 '无 manifest 的 .dfg 目录含非守护进程自有的条目，已拒绝递归删除（请先手动清理外来文件）',
-              details: { documentId, foreignEntries: foreign.slice(0, 8), foreignCount: foreign.length },
+              details: {
+                documentId,
+                foreignEntries: foreign.slice(0, 8),
+                foreignCount: foreign.length,
+              },
             };
           }
         }
@@ -572,11 +576,15 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       // 在取锁/写正文之前拒绝；读回侧 parseDocument 全校验，写读同强度）
       const integrity = canvasPageReferenceIssues(body);
       if (integrity !== null) {
+        // 引用清单必须截断（F5）：全量拼接 1MB 请求可炸出 2MB 响应。与 web 侧
+        // documents-client.ts:281-282 同口径——最多 8 条 + 总数，消息与 details.issues 都截。
+        const shown = integrity.slice(0, 8);
+        const suffix = integrity.length > 8 ? `…共 ${String(integrity.length)} 条` : '';
         return {
           ok: false,
           code: 'doc_invalid_structure',
-          message: `画布页正文引用不完整，已拒绝落盘：${integrity.join('；')}`,
-          details: { documentId, pageId, issues: integrity },
+          message: `画布页正文引用不完整，已拒绝落盘：${shown.join('；')}${suffix}`,
+          details: { documentId, pageId, issues: shown, issueCount: integrity.length },
         };
       }
       const pagePath = await resolvePagePath(paths.value, documentId, pageId);

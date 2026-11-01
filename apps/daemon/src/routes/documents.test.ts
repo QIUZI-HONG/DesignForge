@@ -512,4 +512,43 @@ describe('documents · 画布页正文引用完整性守门（票 17）', () => 
       await daemon.cleanup();
     }
   });
+
+  it('422 引用清单必须截断（8 条 + 总数）：巨量悬空引用的响应字节有界', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '守门无界');
+      const url = `/documents/${encodeURIComponent(id)}/pages/page-1`;
+      // 一批悬空实例引用（每个实例指向不存在的主组件）。修复前 store.ts 全量 join 每一条 issue
+      // 且原样塞进 details.issues → 响应随引用数线性膨胀（评审实测 1MB 请求 → 2MB 响应）。
+      const nodes: Record<string, unknown> = {};
+      const rootIds: string[] = [];
+      const total = 3000;
+      for (let i = 0; i < total; i += 1) {
+        const nid = `i${String(i)}`;
+        nodes[nid] = { type: 'instance', id: nid, componentId: `ghost-${String(i)}` };
+        rootIds.push(nid);
+      }
+
+      const rejected = await injectJson(daemon.app, {
+        method: 'PUT',
+        url,
+        payload: { body: canvasBody(nodes, rootIds) },
+      });
+      expect(rejected.statusCode).toBe(422);
+      // 响应字节必须远小于 32KB（钉死「422 无上限」）
+      expect(rejected.raw.length).toBeLessThan(32 * 1024);
+      const error = (
+        rejected.payload as {
+          error: { message: string; details: { issues: string[]; issueCount?: number } };
+        }
+      ).error;
+      expect(error.details.issues.length).toBeLessThanOrEqual(8);
+      expect(error.message).toContain('missing-component');
+      // 总数如实交代：被截断的条数仍以 issueCount/消息里的总数呈现
+      expect(error.details.issueCount).toBe(total);
+      expect(error.message).toContain(String(total));
+    } finally {
+      await daemon.cleanup();
+    }
+  });
 });
