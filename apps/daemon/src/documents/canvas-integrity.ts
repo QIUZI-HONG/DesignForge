@@ -5,7 +5,9 @@
  * `dforge.canvas.page` 信封——它是 web 画布的落盘形状，读回侧由引擎 `parseDocument`
  * 全校验（一处悬空引用 = 整份文档不可重开）。写不校验、读全校验 = 「能写不可读」的
  * 锁定路径，因此写侧至少守住引用完整性这一条：实例的 `componentId` 必须指向本页
- * 的主组件节点。形状/数学校验仍由 web 侧 `saveDesignDocument` 前的 `validateDocument`
+ * 的主组件节点，主组件的 `componentSetId`（非空时）必须指向本页的组件集节点——
+ * 与引擎 `validatePage` 的 missing-component / missing-component-set 同源同强度。
+ * 形状/数学校验仍由 web 侧 `saveDesignDocument` 前的 `validateDocument`
  * 全量承担（两层同源于引擎口径，强度对称）。
  */
 
@@ -40,6 +42,14 @@ export function canvasPageReferenceIssues(body: unknown): string[] | null {
       if (component === null || component.type !== 'component') {
         issues.push(
           `missing-component：实例 ${String(node.id)} 的主组件缺失：${String(node.componentId)}`,
+        );
+      }
+    }
+    if (node.type === 'component' && node.componentSetId !== null) {
+      const set = nodeOf(node.componentSetId);
+      if (set === null || set.type !== 'component_set') {
+        issues.push(
+          `missing-component-set：组件 ${String(node.id)} 的组件集缺失：${String(node.componentSetId)}`,
         );
       }
     }

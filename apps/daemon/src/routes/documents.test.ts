@@ -379,6 +379,29 @@ describe('documents · 画布页正文引用完整性守门（票 17）', () => 
     };
   }
 
+  /** 组件集节点最小形状（守门按类型存在性判引用）。 */
+  function componentSetNode(id: string) {
+    return {
+      id,
+      type: 'component_set',
+      name: id,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      blendMode: 'normal',
+      fills: [],
+      strokes: [],
+      effects: [],
+      cornerRadius: 0,
+      children: [],
+    };
+  }
+
   /** 画布页信封正文（与 web 侧 `encodePageBody` 同形）。 */
   function canvasBody(nodes: Record<string, unknown>, rootIds: string[]): Record<string, unknown> {
     return {
@@ -447,6 +470,44 @@ describe('documents · 画布页正文引用完整性守门（票 17）', () => 
       expect(await readFile(pagePath, 'utf8')).toBe(bodyBefore);
       const manifestAfter = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: number };
       expect(manifestAfter.version).toBe(manifestBefore.version);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('悬空组件集引用（主组件指向不存在的组件集）→ 422 missing-component-set；盘上未动', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '守门组件集');
+      const url = `/documents/${encodeURIComponent(id)}/pages/page-1`;
+      // 合法基线：组件集 s1 在位，主组件 c1 指向它。
+      const good = canvasBody({ s1: componentSetNode('s1'), c1: componentNode('c1', 's1') }, [
+        's1',
+        'c1',
+      ]);
+      const saved = await injectJson(daemon.app, { method: 'PUT', url, payload: { body: good } });
+      expect(saved.statusCode).toBe(200);
+      const pagePath = join(daemon.workspaceDir, `${id}.dfg`, 'pages', 'page-1.json');
+      const bodyBefore = await readFile(pagePath, 'utf8');
+
+      // 投毒：c1 指向不存在的组件集——正是引擎 missing-component-set 的那类悬空引用。
+      const poisoned = canvasBody({ c1: componentNode('c1', '幽灵集') }, ['c1']);
+      const rejected = await injectJson(daemon.app, {
+        method: 'PUT',
+        url,
+        payload: { body: poisoned },
+      });
+      expect(rejected.statusCode).toBe(422);
+      expect((rejected.payload as { error: { code: string } }).error.code).toBe(
+        'doc_invalid_structure',
+      );
+      expect((rejected.payload as { error: { message: string } }).error.message).toContain(
+        'missing-component-set',
+      );
+
+      const read = await injectJson(daemon.app, { method: 'GET', url });
+      expect((read.payload as { result: { body: unknown } }).result.body).toEqual(good);
+      expect(await readFile(pagePath, 'utf8')).toBe(bodyBefore);
     } finally {
       await daemon.cleanup();
     }
