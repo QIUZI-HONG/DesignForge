@@ -649,3 +649,158 @@ describe('ai · 流式健壮性（上游非 SSE / 客户端断开）', () => {
     }
   });
 });
+
+describe('ai · 流式通道守护回归（TC-AI-02 · 半行拆帧/中途断流/残行 EOF）', () => {
+  // 真源缺口两档 + 残行 EOF 档：mock 上游把 SSE 按真实 TCP 形态拆 chunk——
+  // 半行拆帧钉「缓冲按换行切分、残行保留回填」；中途 error 钉「断流以
+  // done(degraded, upstream-error, partialContent=已累积) 收尾」；残行 EOF 钉
+  // 「残行静默丢弃、done 按已累积内容收尾」。均走 inject（缓冲逻辑在 client 层，
+  // 与落头/CORS 无关——那是 TC-AI-03 真实 socket 档的职责）。
+
+  /** 分块推送的 SSE mock 上游（逐 chunk enqueue + 间隔，确保 reader 逐块读到）。 */
+  function chunkedSseResponse(chunks: string[], options?: { errorAtEnd?: boolean }): Response {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(encoder.encode(chunk));
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        if (options?.errorAtEnd === true) {
+          // socket.destroy() 形态：流中途出错（reader.read() 拒绝）
+          controller.error(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+          return;
+        }
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  }
+
+  /** 解析 SSE 文本为 (event, data) 帧序列（`event: X\ndata: {...}\n\n`）。 */
+  function sseFrames(text: string): { event: string; data: unknown }[] {
+    const frames: { event: string; data: unknown }[] = [];
+    let currentEvent = '';
+    for (const line of text.split('\n')) {
+      if (line.startsWith('event: ')) {
+        currentEvent = line.slice('event: '.length);
+      } else if (line.startsWith('data: ')) {
+        let data: unknown = null;
+        try {
+          data = JSON.parse(line.slice('data: '.length)) as unknown;
+        } catch {
+          data = null;
+        }
+        frames.push({ event: currentEvent, data });
+      }
+    }
+    return frames;
+  }
+
+  function deltasOf(frames: { event: string; data: unknown }[]): string[] {
+    return frames
+      .filter((frame) => frame.event === 'delta')
+      .map((frame) => (frame.data as { delta: string }).delta);
+  }
+
+  /** done 帧载荷形状（守伤断言只消费契约字段）。 */
+  interface DonePayload {
+    degraded: boolean;
+    degradedReason: string | null;
+    content: string;
+    finishReason: string | null;
+  }
+
+  function donePayloadOf(frames: { event: string; data: unknown }[]): DonePayload {
+    const done = frames.find((frame) => frame.event === 'done');
+    if (done === undefined) throw new Error('done 帧必须存在（不悬挂）');
+    return (done.data as { response: DonePayload }).response;
+  }
+
+  it('半行拆帧：一条 data:{...} 拆两个 TCP chunk 再补全 → delta 完整解析（缓冲按换行切分残行保留回填）', async () => {
+    const daemon = await createTestDaemon({
+      envApiKey: FAKE_KEY,
+      fetchImpl: async () =>
+        chunkedSseResponse([
+          'data: {"choices":[{"delta":{"content":"你', // 半行：无换行
+          '好"}}]}\n\n', // 补全
+          'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+    });
+    try {
+      const response = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+      });
+      expect(response.statusCode).toBe(200);
+      const frames = sseFrames(response.payload);
+      // 残行回填后恰解析出一条完整 delta（不是 '你'/'好' 两截，也不是零帧）
+      expect(deltasOf(frames)).toEqual(['你好']);
+      const done = donePayloadOf(frames);
+      expect(done.degraded).toBe(false);
+      expect(done.content).toBe('你好');
+      expect(done.finishReason).toBe('stop');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('中途断流（socket.destroy 形态）：done(degraded upstream-error) 且 partialContent=断流前已累积', async () => {
+    const daemon = await createTestDaemon({
+      envApiKey: FAKE_KEY,
+      fetchImpl: async () =>
+        chunkedSseResponse(['data: {"choices":[{"delta":{"content":"你好"}}]}\n\n'], {
+          errorAtEnd: true,
+        }),
+    });
+    try {
+      const response = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+      });
+      expect(response.statusCode).toBe(200);
+      const frames = sseFrames(response.payload);
+      expect(frames.some((frame) => frame.event === 'start')).toBe(true);
+      expect(deltasOf(frames)).toEqual(['你好']); // 断流前已累积内容照常产出
+      const done = donePayloadOf(frames);
+      expect(done.degraded).toBe(true);
+      expect(done.degradedReason).toBe('upstream-error');
+      expect(done.content).toBe('你好'); // partialContent=断流前已累积，不假装完整
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('残行 EOF：流以无换行半行结束 → 残行静默丢弃，done 按已累积内容收尾（不悬挂不假成功）', async () => {
+    const daemon = await createTestDaemon({
+      envApiKey: FAKE_KEY,
+      fetchImpl: async () =>
+        chunkedSseResponse([
+          'data: {"choices":[{"delta":{"content":"你好"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"，设界', // 半行 + EOF：静默丢弃
+        ]),
+    });
+    try {
+      const response = await daemon.app.inject({
+        method: 'POST',
+        url: '/ai/chat',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+      });
+      expect(response.statusCode).toBe(200);
+      const frames = sseFrames(response.payload);
+      // 残行绝不以任何形态出现在 delta 流里
+      expect(deltasOf(frames)).toEqual(['你好']);
+      const done = donePayloadOf(frames);
+      expect(done.degraded).toBe(false);
+      expect(done.content).toBe('你好'); // 恰为已累积内容，无 fabricated 尾巴
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
