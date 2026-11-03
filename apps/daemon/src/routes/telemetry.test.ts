@@ -151,7 +151,9 @@ describe('telemetry · 本地 JSONL（默认仅本地）', () => {
         payload: { name: 'e4.fuzz', payload: [1, 2, 3] },
       });
       expect(e4.statusCode).toBe(400);
-      expect((e4.payload as { error: { code: string } }).error.code).toBe('telemetry_invalid_event');
+      expect((e4.payload as { error: { code: string } }).error.code).toBe(
+        'telemetry_invalid_event',
+      );
 
       // daemon 存活、后续请求正常
       const health = await injectJson(daemon.app, { method: 'GET', url: '/health' });

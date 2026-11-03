@@ -169,7 +169,10 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
   registerCors(app, createCorsPolicy(options.corsOrigins ?? corsOriginsFromEnv(process.env)));
   // 请求级 Host allowlist：回环清单外（含伪造 Host）一律 403，收口 DNS-rebinding 面
   // （TC-SEC-02 实证暴露）——详见 host.ts 模块头注释
-  registerHostGuard(app, createHostPolicy(options.allowedHosts ?? allowedHostsFromEnv(process.env)));
+  registerHostGuard(
+    app,
+    createHostPolicy(options.allowedHosts ?? allowedHostsFromEnv(process.env)),
+  );
 
   // GET /health —— 基座握手（verify-daemon 与 FE-12 壳用它判活）
   app.get(DAEMON_ROUTES.health.path, () => ({

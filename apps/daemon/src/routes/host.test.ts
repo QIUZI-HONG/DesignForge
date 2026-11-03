@@ -1,6 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { connect as netConnect } from 'node:net';
-import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -15,9 +15,9 @@ import {
   hostnameFromHostHeader,
   parseAllowedHosts,
 } from '../host.ts';
+import { startDaemon } from '../server.ts';
 import type { TestDaemon } from '../testing/harness.ts';
 import { createTestDaemon } from '../testing/harness.ts';
-import { startDaemon } from '../server.ts';
 
 async function withDaemon<T>(run: (daemon: TestDaemon) => Promise<T>): Promise<T> {
   const daemon = await createTestDaemon();
@@ -43,7 +43,11 @@ describe('host · 请求级 Host allowlist（DNS-rebinding 防线）', () => {
   it('伪造 Host（evil.example）→ 403 host_not_allowed（TC-SEC-02 实证形态收口）', async () => {
     await withDaemon(async (daemon) => {
       await expectForbidden(
-        await daemon.app.inject({ method: 'GET', url: '/health', headers: { host: 'evil.example' } }),
+        await daemon.app.inject({
+          method: 'GET',
+          url: '/health',
+          headers: { host: 'evil.example' },
+        }),
       );
       await expectForbidden(
         await daemon.app.inject({
@@ -54,7 +58,11 @@ describe('host · 请求级 Host allowlist（DNS-rebinding 防线）', () => {
       );
       // 大小写不敏感
       await expectForbidden(
-        await daemon.app.inject({ method: 'GET', url: '/health', headers: { host: 'EVIL.example' } }),
+        await daemon.app.inject({
+          method: 'GET',
+          url: '/health',
+          headers: { host: 'EVIL.example' },
+        }),
       );
     });
   });
@@ -92,7 +100,11 @@ describe('host · 请求级 Host allowlist（DNS-rebinding 防线）', () => {
         '127.0.0.1:5173',
         'LOCALHOST:4318',
       ]) {
-        const response = await daemon.app.inject({ method: 'GET', url: '/health', headers: { host } });
+        const response = await daemon.app.inject({
+          method: 'GET',
+          url: '/health',
+          headers: { host },
+        });
         expect(response.statusCode, host).toBe(200);
         expect((response.json() as { ok: boolean }).ok, host).toBe(true);
       }
@@ -178,7 +190,9 @@ describe('host · 请求级 Host allowlist（DNS-rebinding 防线）', () => {
       expect(http10NoHost).toContain('host_not_allowed');
 
       // 对照：HTTP/1.0 带回环 Host → 200
-      const http10Loopback = await raw(`GET /health HTTP/1.0\r\nHost: 127.0.0.1:${running.port}\r\n\r\n`);
+      const http10Loopback = await raw(
+        `GET /health HTTP/1.0\r\nHost: 127.0.0.1:${running.port}\r\n\r\n`,
+      );
       expect(http10Loopback).toContain('200');
     } finally {
       await running.close();
