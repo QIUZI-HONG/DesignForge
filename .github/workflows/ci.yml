@@ -2,7 +2,7 @@ name: ci
 
 # 设界 · 主 CI（骨架期口径，见 docs/plan/skeleton-and-package-layout-v1.md §2）
 # 链路：安装（frozen lockfile）→ 逐包 lint（含根 scripts 门禁脚本 lint）→ 逐包 typecheck → 逐包测试
-#      → 脚本单测 → **非浏览器门禁**（守卫 / 引擎 / 参照集·动效·性能阻塞语义；明细见文末挂点说明）。
+#      → 脚本单测 → **非浏览器门禁**（守卫 / 引擎 / FE-10 两态 / 参照集·动效·性能阻塞语义；明细见文末挂点说明）。
 on:
   push:
     branches: [main]
@@ -64,6 +64,95 @@ jobs:
 
       - name: 引擎门禁（对抗用例 + 快照哈希回归）
         run: pnpm verify:engine
+
+      # --- FE-10 两态门禁接 CI（tp1-05；spec：测试执行阶段 1 ⑤）-------------------------
+      # 口径（禁假绿）：verify-mcp-stub 全程非浏览器（真实 daemon + 进程内 harness +
+      # 临时数据根，不出机）→ 在 CI 完整判定，must-green。
+      # verify-ai/image-two-state 的**数据面两态**（真实 daemon + mock 上游 / mock ComfyUI +
+      # 临时数据根，不出机）在 CI **真跑**；**UI 挂载段**需真 Chromium（CI 无）→ 按三态语义
+      # 阻塞（exit 2）。脚本退出码优先级为「违规 1 优先于阻塞 2」，故 exit 2 且证据 JSON
+      # 「数据面 0 失败 + 阻塞原因非空」⇔ 数据面全过、仅 UI 段阻塞——据此断言：
+      #   exit 0 = 全过（含 UI 段；前置齐备后改为必须 exit 0）；
+      #   exit 1 = 数据面真违规（红）；
+      #   exit 2 仅当证据合格（bootstrap 阻塞如 daemon 起不来会留下失败步骤 → 红）；
+      #   其余退出码一律红。
+      # NODE_OPTIONS：脚本直跑前端 .ts 适配层，node 22.6–23.5 需 type-stripping 旗标
+      # （22.18+ 缺省已开，显式设置无害，跨 22.x 补丁版稳定）。
+      - name: MCP 桩契约门禁（两态 + 显式桩标注；非浏览器，CI 完整判定）
+        env:
+          NODE_OPTIONS: --experimental-strip-types
+          DF_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/gate-evidence
+        run: pnpm verify:mcp-stub
+
+      - name: AI 两态门禁（数据面真跑；UI 挂载段无 Chromium → 阻塞语义，挂点）
+        env:
+          NODE_OPTIONS: --experimental-strip-types
+          DF_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/gate-evidence
+        run: |
+          set +e
+          node scripts/verify-ai-two-state.mjs
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "AI 两态门禁在 CI 完整通过（含 UI 段）：本步骤此后应改为必须 exit 0。"
+            exit 0
+          fi
+          if [ "$code" -ne 2 ]; then
+            echo "违规：AI 两态门禁 exit=$code（1=数据面断言失败；其余=非预期）——真失败，不得当阻塞。"
+            exit 1
+          fi
+          node <<'EOF'
+          const evidence = JSON.parse(
+            require('node:fs').readFileSync('artifacts/verify-ai-two-state/evidence.json', 'utf8'),
+          );
+          const failed = evidence.meta?.stepsFailed ?? -1;
+          const blocked =
+            typeof evidence.blockedReason === 'string' && evidence.blockedReason.length > 0;
+          if (failed !== 0 || !blocked) {
+            console.error(
+              `违规：exit 2 但证据不符（stepsFailed=${String(failed)}，blockedReason=${JSON.stringify(evidence.blockedReason)}）——bootstrap 阻塞不得冒充 UI 段挂点。`,
+            );
+            process.exit(1);
+          }
+          console.log(
+            `OK：数据面两态 ${String(evidence.meta?.stepsTotal ?? '?')} 步全过（mock 上游，不出机）；仅 UI 挂载段阻塞（exit 2 非通过，UI 段挂点）。`,
+          );
+          EOF
+
+      - name: 出图两态门禁（数据面真跑；UI 挂载段无 Chromium → 阻塞语义，挂点）
+        env:
+          NODE_OPTIONS: --experimental-strip-types
+          DF_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/gate-evidence
+        run: |
+          set +e
+          node scripts/verify-image-two-state.mjs
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "出图两态门禁在 CI 完整通过（含 UI 段）：本步骤此后应改为必须 exit 0。"
+            exit 0
+          fi
+          if [ "$code" -ne 2 ]; then
+            echo "违规：出图两态门禁 exit=$code（1=数据面断言失败；其余=非预期）——真失败，不得当阻塞。"
+            exit 1
+          fi
+          node <<'EOF'
+          const evidence = JSON.parse(
+            require('node:fs').readFileSync('artifacts/verify-image-two-state/evidence.json', 'utf8'),
+          );
+          const failed = evidence.meta?.stepsFailed ?? -1;
+          const blocked =
+            typeof evidence.blockedReason === 'string' && evidence.blockedReason.length > 0;
+          if (failed !== 0 || !blocked) {
+            console.error(
+              `违规：exit 2 但证据不符（stepsFailed=${String(failed)}，blockedReason=${JSON.stringify(evidence.blockedReason)}）——bootstrap 阻塞不得冒充 UI 段挂点。`,
+            );
+            process.exit(1);
+          }
+          console.log(
+            `OK：数据面两态 ${String(evidence.meta?.stepsTotal ?? '?')} 步全过（mock ComfyUI，不出机）；仅 UI 挂载段阻塞（exit 2 非通过，UI 段挂点）。`,
+          );
+          EOF
 
       # 参照集门禁在 CI 无参照集，**必须** exit 2（阻塞）并点名「参照集未冻结」：
       #   本步骤断言的是**三态语义契约**（脚本确已执行、不得零校验 exit 0 假绿），
@@ -148,6 +237,11 @@ jobs:
       #   - pnpm verify:mk-01：判据来自 ~/df-evidence/mk-01 的采集产物（需真网 + GH_TOKEN
       #     采集，产物按纪律存仓库外）→ CI 内无产物，只会 exit 2（阻塞），故不接；
       #     其离线重放路径（--replay 冻结样本）由 services/ingest 单测覆盖（pnpm test）。
+      #   - FE-10 两态门禁（tp1-05 接入，见上方步骤）：verify:mcp-stub 全量接入（must-green）；
+      #     verify:ai/image-two-state 接的是「数据面两态真跑 + UI 段阻塞语义」——其 UI 挂载段
+      #     （playwright-core + 真 Chromium）CI 无浏览器，恒 exit 2，仍为挂点，随浏览器门禁票
+      #     接入；verify:mcp-stub 的宿主页截图探测依赖 DF_WEB_URL，未配置即如实记
+      #     not-configured（不影响契约判定）。
       #   - 未实现守卫 guard:deps / guard:mcp-contract / guard:channel-pairing：当前一律
       #     exit 2（阻塞，禁止当绿），按 implementation-workflow.md「不接 CI」，
       #     实现后由接管票一并接入本文件。
