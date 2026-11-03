@@ -713,8 +713,8 @@ describe('ai · 流式通道守护回归（TC-AI-02 · 半行拆帧/中途断流
 
   function donePayloadOf(frames: { event: string; data: unknown }[]): DonePayload {
     const done = frames.find((frame) => frame.event === 'done');
-    expect(done, 'done 帧必须存在（不悬挂）').toBeDefined();
-    return (done?.data as { response: DonePayload }).response;
+    if (done === undefined) throw new Error('done 帧必须存在（不悬挂）');
+    return (done.data as { response: DonePayload }).response;
   }
 
   it('半行拆帧：一条 data:{...} 拆两个 TCP chunk 再补全 → delta 完整解析（缓冲按换行切分残行保留回填）', async () => {
