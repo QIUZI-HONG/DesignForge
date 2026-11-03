@@ -355,3 +355,126 @@ describe.skipIf(!IS_POSIX)('documents · 进程级崩溃恢复（TC-DOC-05 · �
     }
   });
 });
+
+describe.skipIf(!IS_POSIX)('documents · 跨进程并发写（TC-DOC-07 · 守护回归）', () => {
+  it('同 workspace 双进程各 20×PUT（Promise.all 全并发）：每请求仅 200/409{conflict}，终态=一次完整提交且 version 与成功次数自洽', {
+    timeout: 120_000,
+  }, async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'df-doc07-'));
+    const workspaceDir = join(tempRoot, 'workspace'); // 两进程共享
+    const dataRootA = join(tempRoot, 'data-a'); // 数据根各自独立（遥测/配置互不干扰）
+    const dataRootB = join(tempRoot, 'data-b');
+    const daemonA = await spawnDaemon({ dataRoot: dataRootA, workspaceDir });
+    const daemonB = await spawnDaemon({ dataRoot: dataRootB, workspaceDir });
+    try {
+      // 前置：同一文档同页 page-1（经 A 创建，manifest version=1）
+      const created = await jsonRequest(daemonA.baseUrl, 'POST', '/documents', {
+        name: '并发 409',
+      });
+      expect(created.status).toBe(201);
+      const id = (created.json as { result: { document: { id: string } } }).result.document.id;
+      const pageUrl = `/documents/${encodeURIComponent(id)}/pages/page-1`;
+
+      // ① A/B 各循环 20 次 PUT（正文带进程标记+序号，互不相同），Promise.all 全并发
+      const submissions = [
+        ...Array.from({ length: 20 }, (_unused, index) => ({
+          process: 'A' as const,
+          baseUrl: daemonA.baseUrl,
+          body: { marker: `proc-A-#${index}`, pad: 'a'.repeat(2048) },
+        })),
+        ...Array.from({ length: 20 }, (_unused, index) => ({
+          process: 'B' as const,
+          baseUrl: daemonB.baseUrl,
+          body: { marker: `proc-B-#${index}`, pad: 'b'.repeat(2048) },
+        })),
+      ];
+      const responses = await Promise.all(
+        submissions.map(async (submission) => {
+          const result = await jsonRequest(submission.baseUrl, 'PUT', pageUrl, {
+            body: submission.body,
+          });
+          return { submission, result };
+        }),
+      );
+
+      // ② 每个请求要么 200 要么 409 {code:'conflict'}（写后重读比对 + 有界重试用尽），无其他码、无悬挂
+      let successCount = 0;
+      for (const { result } of responses) {
+        expect([200, 409]).toContain(result.status);
+        if (result.status === 200) {
+          successCount += 1;
+        } else {
+          expect(
+            (result.json as { error: { code: string } }).error.code,
+            JSON.stringify(result.json),
+          ).toBe('conflict');
+        }
+      }
+      expect(successCount).toBeGreaterThan(0); // 至少一次完整提交（终态必须落在提交态上）
+
+      // ③ 终态 GET：最终正文=某一次完整写入（恰为 40 份互异正文之一，绝无两进程内容混合）；
+      // manifest version 与成功提交次数自洽：version ∈ [2, 1+成功数]——
+      // 基线的写后重读比对按「内容一致」确认，两写者同基读时后写者 confirm 读到自己的
+      // 内容即算成功（过期覆盖），会吞掉先写者的自增；因此跨进程下 version 不恒等于
+      // 1+成功数，但必 ≥2（最后一次写入恒属于成功者：失败者的 confirm 失败⇒其后还有写入）
+      // 且被成功数封顶（每次成功至多贡献一次自增）。
+      const finalRead = await jsonGet(daemonA.baseUrl, pageUrl);
+      expect(finalRead.status).toBe(200);
+      const finalBody = (finalRead.json as { result: { body: unknown } }).result.body;
+      expect(submissions.map((submission) => submission.body)).toContainEqual(finalBody);
+      const manifest = JSON.parse(
+        await readFile(join(workspaceDir, `${id}.dfg`, 'manifest.json'), 'utf8'),
+      ) as { version: number };
+      expect(manifest.version).toBeGreaterThanOrEqual(2);
+      expect(manifest.version).toBeLessThanOrEqual(1 + successCount);
+      console.log(`[TC-DOC-07] total=40 success=${successCount} conflict=${40 - successCount}`);
+    } finally {
+      await stopDaemon(daemonA);
+      await stopDaemon(daemonB);
+      await expectPortReleased(daemonA.port);
+      await expectPortReleased(daemonB.port);
+      await rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+});
+
+describe.skipIf(!IS_POSIX)('documents · 双进程并发建文档（TC-DOC-10 · 守护回归）', () => {
+  it('双进程并发同名 POST：恰 1 个 201、其余 409 doc_exists，磁盘仅一个 <id>.dfg 且 manifest 完整', {
+    timeout: 120_000,
+  }, async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'df-doc10-'));
+    const workspaceDir = join(tempRoot, 'workspace');
+    const daemonA = await spawnDaemon({ dataRoot: join(tempRoot, 'data-a'), workspaceDir });
+    const daemonB = await spawnDaemon({ dataRoot: join(tempRoot, 'data-b'), workspaceDir });
+    try {
+      // 双进程变体（同 DF_WORKSPACE_DIR、端口错开）：各 1×POST 同名文档，全并发
+      const [resA, resB] = await Promise.all([
+        jsonRequest(daemonA.baseUrl, 'POST', '/documents', { name: '并发文档' }),
+        jsonRequest(daemonB.baseUrl, 'POST', '/documents', { name: '并发文档' }),
+      ]);
+
+      const statuses = [resA.status, resB.status].sort((a, b) => a - b);
+      expect(statuses).toEqual([201, 409]); // 恰 1 个 201，其余全部 409
+      const conflict = resA.status === 409 ? resA : resB;
+      expect((conflict.json as { error: { code: string } }).error.code).toBe('doc_exists');
+
+      // 磁盘仅一个 <id>.dfg 目录且 manifest 完整可读（默认页齐全）
+      const entries = await readdir(workspaceDir);
+      expect(entries).toEqual(['并发文档.dfg']);
+      const manifest = JSON.parse(
+        await readFile(join(workspaceDir, '并发文档.dfg', 'manifest.json'), 'utf8'),
+      ) as { version: number; pages: { id: string }[] };
+      expect(manifest.version).toBe(1);
+      expect(manifest.pages.map((page) => page.id)).toEqual(['page-1']);
+      expect(
+        await readFile(join(workspaceDir, '并发文档.dfg', 'pages', 'page-1.json'), 'utf8'),
+      ).toBe('{}\n');
+    } finally {
+      await stopDaemon(daemonA);
+      await stopDaemon(daemonB);
+      await expectPortReleased(daemonA.port);
+      await expectPortReleased(daemonB.port);
+      await rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+});
