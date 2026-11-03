@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 
@@ -113,7 +113,12 @@ describe('export · 三格式产物', () => {
       expect(text).toContain('fill="#0000FF"');
       expect(artifact.mimeType).toBe('image/svg+xml');
       expect(artifact.fileName).toBe(`${documentId}-page-1.svg`);
-      expect((await import('node:fs/promises')).stat(artifact.filePath)).toBeDefined();
+      // tp1-fix 评审发现⑥（Pre-existing 顺手修）：原 `expect((await import(...)).stat(...))
+      // .toBeDefined()` 未 await——断言的是 Promise 对象本身，恒真。改为真等 stat：
+      // 产物文件必须真实落盘且非空。
+      const artifactStat = await stat(artifact.filePath);
+      expect(artifactStat.isFile()).toBe(true);
+      expect(artifactStat.size).toBeGreaterThan(0);
     } finally {
       await daemon.cleanup();
     }
