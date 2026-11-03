@@ -13,6 +13,8 @@ export const DF_ERROR_CODES = [
   'not_found',
   'conflict',
   'internal',
+  // Host allowlist（DNS-rebinding 防线：daemon 仅接受本机回环 Host，伪造/缺失一律 403）
+  'host_not_allowed',
   // 文档（.dfg 目录态）
   'doc_not_found',
   'doc_exists',
@@ -60,6 +62,7 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   not_found: 404,
   conflict: 409,
   internal: 500,
+  host_not_allowed: 403,
   doc_not_found: 404,
   doc_exists: 409,
   doc_invalid_name: 400,

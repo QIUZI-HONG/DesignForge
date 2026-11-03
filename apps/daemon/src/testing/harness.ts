@@ -44,6 +44,7 @@ export interface TestDaemonOptions {
   comfyBaseUrl?: string;
   mcpAckTtlMs?: number;
   corsOrigins?: string[];
+  allowedHosts?: string[];
 }
 
 /** 创建测试用 daemon（临时目录 + 假上游 + 日志捕获）。 */
@@ -96,6 +97,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     ...(options.aiRetryDelaysMs === undefined ? {} : { aiRetryDelaysMs: options.aiRetryDelaysMs }),
     ...(options.mcpAckTtlMs === undefined ? {} : { mcpAckTtlMs: options.mcpAckTtlMs }),
     ...(options.corsOrigins === undefined ? {} : { corsOrigins: options.corsOrigins }),
+    ...(options.allowedHosts === undefined ? {} : { allowedHosts: options.allowedHosts }),
   };
   const app = await createDaemonApp(appOptions);
 
