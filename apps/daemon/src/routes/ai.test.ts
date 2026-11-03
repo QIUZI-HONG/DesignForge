@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { TestDaemon, TestDaemonOptions } from '../testing/harness.ts';
 import { createTestDaemon, injectJson } from '../testing/harness.ts';
 
 const FAKE_KEY = 'sk-fake-abcdefghijklmn';
@@ -416,6 +417,86 @@ describe('ai · 流式（SSE）', () => {
       expect(text).toContain('"content":"你好，设界"');
       expect(text).toContain('"finishReason":"stop"');
       expect(text).not.toContain(FAKE_KEY);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
+describe('ai · 流式 CORS 守护回归（TC-AI-03 · 真 listen + fetch）', () => {
+  // daemon 集成档：真 listen（端口 0 → OS 空闲端口，远离 3000/4318）+ 真 fetch 走真实
+  // socket。缺陷形态是 writeStream 直写 reply.raw.writeHead 落 socket、绕过 cors.ts 的
+  // onRequest 钩子（spec P0-1 断点一）——真实落头路径必须用真实 socket 验，inject 的
+  // 模拟响应面（上面「流式（SSE）」块）不能完全替代。非流式对照由 cors.test.ts 盖（引用
+  // 不重复）；上游一律 mock（sseResponse 先例），不出机；数据根由 harness 注入临时目录。
+
+  /** 起真实例真 listen，带 Origin 发流式 POST /ai/chat，返回真实 HTTP 响应。 */
+  async function streamChatOverSocket(daemon: TestDaemon, origin: string): Promise<Response> {
+    const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
+    return fetch(`${baseUrl}/ai/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
+    });
+  }
+
+  /** 有 key + SSE mock 上游：走真生成流（start → delta* → done），非降级壳。 */
+  function mockUpstreamOptions(): TestDaemonOptions {
+    return {
+      envApiKey: FAKE_KEY,
+      fetchImpl: async () =>
+        sseResponse([
+          'data: {"choices":[{"delta":{"content":"你好"}}]}\n\n',
+          'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+    };
+  }
+
+  it('白名单 Origin（http://localhost:3000）：真实 socket 响应带 allow-origin 回显 + vary: Origin + text/event-stream', async () => {
+    const daemon = await createTestDaemon(mockUpstreamOptions());
+    try {
+      const response = await streamChatOverSocket(daemon, 'http://localhost:3000');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      expect(response.headers.get('access-control-allow-origin')).toBe('http://localhost:3000');
+      expect((response.headers.get('vary') ?? '').toLowerCase()).toContain('origin');
+      // 通道是真生成流（mock 上游被消费），不是空壳响应
+      const text = await response.text();
+      expect(text).toContain('event: start');
+      expect(text).toContain('event: delta');
+      expect(text).toContain('event: done');
+      expect(upstreamCalls(daemon.fetchCalls)).toHaveLength(1);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('打包壳 Origin: null（file:// 口径）：真实 socket 响应同样带 allow-origin=null 放行 + SSE 通道', async () => {
+    const daemon = await createTestDaemon(mockUpstreamOptions());
+    try {
+      const response = await streamChatOverSocket(daemon, 'null');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      expect(response.headers.get('access-control-allow-origin')).toBe('null');
+      expect((response.headers.get('vary') ?? '').toLowerCase()).toContain('origin');
+      expect(await response.text()).toContain('event: done');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('非白名单 Origin（http://evil.example）：无放行头，但 API 语义不变（200 + SSE + vary）', async () => {
+    const daemon = await createTestDaemon(mockUpstreamOptions());
+    try {
+      const response = await streamChatOverSocket(daemon, 'http://evil.example');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      expect(response.headers.get('access-control-allow-origin')).toBeNull();
+      // vary 仍落：响应内容随 Origin 变化，缓存必须区分（cors.ts 策略），与是否放行无关
+      expect((response.headers.get('vary') ?? '').toLowerCase()).toContain('origin');
+      // 服务端不引入 403 伪安全：流照常产出（拦截是浏览器同源策略的职责）
+      expect(await response.text()).toContain('event: done');
     } finally {
       await daemon.cleanup();
     }
