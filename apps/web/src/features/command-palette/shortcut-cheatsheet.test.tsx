@@ -9,11 +9,11 @@
  * - **不抢焦点**：浮层无焦点语义（无控件、不改 activeElement、pointer-events 关），
  *   与命令面板互不抢焦点。
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { registerCommand, resetCommandRegistry, useEditorUi } from '../editor-shell';
-import { ShortcutCheatSheetSlot } from './register';
+import { registerCommandPalette, ShortcutCheatSheetSlot } from './register';
 
 beforeEach(() => {
   resetCommandRegistry();
@@ -183,5 +183,27 @@ describe('与面板互不抢焦点', () => {
     expect(card.querySelectorAll('button, input, textarea, select, [tabindex]')).toHaveLength(0);
 
     input.remove();
+  });
+});
+
+describe('键位与清单一致（TC-UIX-07 · tp1-03 守护）', () => {
+  it('画布档速查卡展示「命令面板 ⌘K」——键位串来自真实注册（审计清单 E7 口径），与注册表同一真源', () => {
+    // 走生产注册函数（register.tsx 的 registerCommandPalette），不经任何测试替身：
+    // 注册键位串是什么，速查卡就该显示什么——卡上键位与命令清单永远是同一份数据。
+    act(() => {
+      registerCommandPalette();
+    });
+    render(<ShortcutCheatSheetSlot />);
+
+    fireEvent.keyDown(window, { key: 'Control', ctrlKey: true });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    const card = screen.getByRole('dialog', { name: '快捷键速查' });
+    expect(card.getAttribute('data-df-context')).toBe('canvas');
+
+    const row = within(card).getByText('命令面板').closest('li');
+    expect(row).not.toBeNull();
+    expect(row?.querySelector('kbd')?.textContent).toBe('⌘K');
   });
 });
