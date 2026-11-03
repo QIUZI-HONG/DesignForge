@@ -26,7 +26,10 @@ describe('命令面板样式接线（票 04 根因回归钉）', () => {
   it('command-palette.tsx 引入 command-palette.css（无引入 = 25 条规则全部裸奔）', () => {
     // 行首锚定：`// import './command-palette.css'` 这类注释形态不算接线（tp1-03
     // 红验尸发现旧正则会命中注释行——把 import 注释掉仍判绿，守护被架空）。
-    expect(paletteSource).toMatch(/^\s*import\s+'\.\/command-palette\.css';$/m);
+    // tp1-fix 评审发现①：行首锚定只挡行注释、挡不住块注释——多行 `/* … */` 包住的
+    // import 仍逐行落在行首（红验尸：包注释后旧正则绿）。先剥除块注释再匹配。
+    const sourceWithoutBlockComments = paletteSource.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(sourceWithoutBlockComments).toMatch(/^\s*import\s+'\.\/command-palette\.css';$/m);
   });
 
   it('组件消费的核心类名在样式表里有规则（tsx 与 css 的类名契约）', () => {
