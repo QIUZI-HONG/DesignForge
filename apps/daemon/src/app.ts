@@ -22,6 +22,7 @@ import type { CredentialStore } from './credentials/store.ts';
 import { createCredentialStore } from './credentials/store.ts';
 import type { DocumentStore } from './documents/store.ts';
 import { createDocumentStore } from './documents/store.ts';
+import { allowedHostsFromEnv, createHostPolicy, registerHostGuard } from './host.ts';
 import type { ComfyClient } from './image/client.ts';
 import { createComfyClient } from './image/client.ts';
 import type { MarketService } from './market/service.ts';
@@ -69,6 +70,8 @@ export interface DaemonAppOptions {
   mcpAckTtlMs?: number;
   /** CORS 白名单覆盖（缺省读 `DFORGE_CORS_ORIGINS`/`DF_CORS_ORIGINS`，再回退本机默认）。 */
   corsOrigins?: string[];
+  /** Host allowlist 覆盖（缺省读 `DFORGE_ALLOWED_HOSTS`/`DF_ALLOWED_HOSTS`，再回退本机回环）。 */
+  allowedHosts?: string[];
 }
 
 /** 运行时上下文（路由注册共用；所有路径/存储的唯一入口）。 */
@@ -164,6 +167,9 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
   // 受控 CORS：web 开发态（localhost:3000）与打包壳（Origin: null）跨源直连；
   // 白名单外不放行（受控白名单，不通配）——详见 cors.ts 模块头注释
   registerCors(app, createCorsPolicy(options.corsOrigins ?? corsOriginsFromEnv(process.env)));
+  // 请求级 Host allowlist：回环清单外（含伪造 Host）一律 403，收口 DNS-rebinding 面
+  // （TC-SEC-02 实证暴露）——详见 host.ts 模块头注释
+  registerHostGuard(app, createHostPolicy(options.allowedHosts ?? allowedHostsFromEnv(process.env)));
 
   // GET /health —— 基座握手（verify-daemon 与 FE-12 壳用它判活）
   app.get(DAEMON_ROUTES.health.path, () => ({
