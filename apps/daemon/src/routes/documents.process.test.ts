@@ -44,11 +44,8 @@ function freePort(): Promise<number> {
 
 interface SpawnedDaemon {
   child: DaemonChild;
-  pid: number;
   port: number;
   baseUrl: string;
-  /** stdout+stderr（断言失败时随消息输出，便于验尸）。 */
-  output: string;
 }
 
 /** 全体存活子进程登记（finally 兜底回收；只按精确 PID kill）。 */
@@ -118,10 +115,8 @@ async function spawnDaemon(options: {
   const address = new URL(baseUrl);
   return {
     child,
-    pid: child.pid ?? -1,
     port: Number(address.port),
     baseUrl,
-    output,
   };
 }
 
