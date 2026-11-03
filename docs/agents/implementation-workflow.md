@@ -91,7 +91,7 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 - **守卫实况（2026-11-04 测试执行阶段 1 · tp1-05 后）**：FE-10 两态取证门禁接 CI——
   `verify:mcp-stub`（MCP 确认桩契约：两态 + 显式桩标注，全程非浏览器，临时数据根不出机）
   **已实现并接入 CI（must-green，完整判定 exit 0）**；
-  `verify-ai-two-state` / `verify-image-two-state`（AI 抽屉 / 出图面板两态）**已接 CI**，口径 =
+  `verify:ai-two-state` / `verify:image-two-state`（AI 抽屉 / 出图面板两态）**已接 CI**，口径 =
   「**数据面两态真跑 + UI 段阻塞语义断言**」：数据面两态（真实 daemon + mock 上游 / mock
   ComfyUI + 临时数据根，不出机）在 CI 完整执行，CI 步骤断言 exit 0（全过）或「exit 2 且证据
   JSON 数据面 0 失败 + 阻塞原因非空」——数据面违规（exit 1）与 bootstrap 阻塞（daemon 起不来，
