@@ -8,6 +8,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
+import { AI_VISIBLE_STEPS, visibleAiStepStatus } from './steps';
 import { createAiRunReader } from './stream';
 
 /** daemon 的 SSE 帧（`event:` + `data:` 双行；与 apps/daemon/src/routes/ai.ts 同格式）。 */
@@ -184,5 +185,85 @@ describe('AI 流式适配（可见三段：queued → llm → 完成收口）', 
     expect(timeline.map((entry) => entry.step)).toEqual(['queued', 'llm']);
     expect(timeline[0]?.atMs).toBe(100);
     expect(timeline[1]?.atMs).toBe(250);
+  });
+});
+
+describe('TC-AI-04 守护回归：done 后不再推进假步骤（票 02 / spec P0-3）', () => {
+  it('真实 done 帧：可见时序恰为 queued → llm → done 三段，done 拍无步骤转移、时间线停两拍', () => {
+    const now = vi.fn().mockReturnValueOnce(100).mockReturnValueOnce(250).mockReturnValue(400);
+    const reader = createAiRunReader({ now });
+    reader.begin();
+    const updates = reader.pushText(
+      frame({
+        type: 'start',
+        runId: 'ai_2',
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        degraded: false,
+      }) +
+        frame({ type: 'delta', delta: '加一个主按钮' }) +
+        frame(okDone),
+    );
+
+    // done 拍只收口数据（transition=null）：审计 3.2 的缺陷形态在此同拍推进 validate→compile 假步
+    const doneUpdate = updates.at(-1);
+    expect(doneUpdate?.transition).toBeNull();
+    expect(doneUpdate?.state.phase).toBe('done');
+
+    // 机器时间线恰两拍（queued/llm），「完成」段由 phase=done 派生——不做第三次转移、不耗时钟
+    const timeline = reader.timeline();
+    expect(timeline.map((entry) => entry.step)).toEqual(['queued', 'llm']);
+    expect(timeline).toHaveLength(2);
+    expect(timeline[0]?.atMs).toBe(100);
+    expect(timeline[1]?.atMs).toBe(250);
+    expect(now).toHaveBeenCalledTimes(2);
+    expect(timeline.some((entry) => entry.step === 'validate' || entry.step === 'compile')).toBe(
+      false,
+    );
+
+    // 可见三段全勾：queued/llm 读机器步，done 由 phase 派生（AI_VISIBLE_STEPS 是口径钉点）
+    expect([...AI_VISIBLE_STEPS]).toEqual(['queued', 'llm', 'done']);
+    const snapshot = reader.snapshot();
+    for (const id of AI_VISIBLE_STEPS) {
+      expect(visibleAiStepStatus(snapshot, id)).toBe('done');
+    }
+  });
+
+  it('done 后再喂迟到帧（start/delta/重复 done）：不推进任何步骤、时间线不变', () => {
+    const reader = createAiRunReader();
+    reader.begin();
+    reader.pushText(
+      frame({
+        type: 'start',
+        runId: 'ai_2',
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        degraded: false,
+      }) + frame(okDone),
+    );
+    const timelineAtDone = reader.timeline();
+
+    const late = reader.pushText(
+      frame({
+        type: 'start',
+        runId: 'ai_2',
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        degraded: false,
+      }) +
+        frame({ type: 'delta', delta: ' 迟到帧' }) +
+        frame(okDone),
+    );
+
+    // done 后任何帧都不产生步骤转移（尤其 validate/compile 假步）
+    expect(
+      late.flatMap((update) => (update.transition === null ? [] : [update.transition.step])),
+    ).toEqual([]);
+    expect(reader.timeline()).toEqual(timelineAtDone);
+    const snapshot = reader.snapshot();
+    expect(snapshot.phase).toBe('done');
+    // 四步收口全部 done 来自 completeAiRun 的落位，而非假步推进（无对应时间线转移）
+    expect(snapshot.steps.validate).toBe('done');
+    expect(snapshot.steps.compile).toBe('done');
   });
 });
