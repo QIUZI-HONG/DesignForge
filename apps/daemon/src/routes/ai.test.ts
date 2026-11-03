@@ -713,6 +713,8 @@ describe('ai · 流式通道守护回归（TC-AI-02 · 半行拆帧/中途断流
 
   function donePayloadOf(frames: { event: string; data: unknown }[]): DonePayload {
     const done = frames.find((frame) => frame.event === 'done');
+    // tp1-04 偏差④评审修复：biome noUnsafeOptionalChaining 禁不安全可选链 → 显式判空，
+    // 原 `done?.data as …` 语义等价（done 为 undefined 时上方已抛错，不悬挂）。
     if (done === undefined) throw new Error('done 帧必须存在（不悬挂）');
     return (done.data as { response: DonePayload }).response;
   }
