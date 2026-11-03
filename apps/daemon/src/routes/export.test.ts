@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 
 import { describe, expect, it } from 'vitest';
@@ -206,6 +208,162 @@ describe('export · 失败态', () => {
       });
       expect(missingDoc.statusCode).toBe(404);
       expect((missingDoc.payload as { error: { code: string } }).error.code).toBe('doc_not_found');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
+describe('export · 产物路径安全（TC-EXP-06 · documents.security 先例扩展到 export 路由）', () => {
+  // 导出链的特化面：产物文件名派生自 documentId/pageId（`<id>-<pageId>.<format>`），
+  // 落盘前经 resolveWithin 二次把关（export.ts）。本块钉：恶意 id 读页前置即拒
+  // （400 doc_invalid_id，不回显原始 id / 不泄漏目录布局）、伪造 manifest 页 id 整体
+  // 拒绝（422 doc_invalid_manifest）、合法 id（含中文）产物只落 exports/ 内、
+  // 树外哨兵文件零改动。注：POST /export 的 id 走 JSON body（无 URL 解码层），
+  // 攻击形态即解码后的原串（'../victim' / NUL / 控制字符）。
+
+  /** 树外哨兵：workspace 之外的 victim.dfg（穿越直接目标）与 outside/leak.json（深层目标）。 */
+  async function plantSentinels(daemon: TestDaemon): Promise<void> {
+    await mkdir(join(daemon.tempDir, 'victim.dfg', 'pages'), { recursive: true });
+    await writeFile(
+      join(daemon.tempDir, 'victim.dfg', 'pages', 'page-1.json'),
+      '{"secret":"victim-body"}\n',
+    );
+    await mkdir(join(daemon.tempDir, 'outside'), { recursive: true });
+    await writeFile(join(daemon.tempDir, 'outside', 'leak.json'), '{"secret":"leak"}\n');
+  }
+
+  async function sentinelSnapshot(daemon: TestDaemon): Promise<string> {
+    return Promise.all([
+      readFile(join(daemon.tempDir, 'victim.dfg', 'pages', 'page-1.json'), 'utf8'),
+      readFile(join(daemon.tempDir, 'outside', 'leak.json'), 'utf8'),
+    ]).then(([victim, leak]) => `${victim}|${leak}`);
+  }
+
+  async function seedNamed(daemon: TestDaemon, name: string): Promise<string> {
+    const created = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/documents',
+      payload: { name },
+    });
+    expect(created.statusCode).toBe(201);
+    const id = (created.payload as { result: { document: { id: string } } }).result.document.id;
+    const saved = await injectJson(daemon.app, {
+      method: 'PUT',
+      url: `/documents/${encodeURIComponent(id)}/pages/page-1`,
+      payload: { body: PAGE_BODY },
+    });
+    expect(saved.statusCode).toBe(200);
+    return id;
+  }
+
+  it('恶意 documentId（穿越/NUL/控制字符）：400 doc_invalid_id 前置即拒，不回显原始 id，树外哨兵零改动', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const documentId = await seedNamed(daemon, '正常文档');
+      await plantSentinels(daemon);
+      const before = await sentinelSnapshot(daemon);
+
+      for (const maliciousId of ['../victim', 'a\u0000b', 'a\u0001b']) {
+        const res = await injectJson(daemon.app, {
+          method: 'POST',
+          url: '/export',
+          payload: { documentId: maliciousId, pageId: 'page-1', format: 'svg' },
+        });
+        expect(res.statusCode, maliciousId).toBe(400);
+        expect((res.payload as { error: { code: string } }).error.code, maliciousId).toBe(
+          'doc_invalid_id',
+        );
+        // 错误消息与 details 不回显原始 id、不泄漏目录布局
+        expect(res.raw, maliciousId).not.toContain(maliciousId);
+        expect(res.raw, maliciousId).not.toContain(daemon.tempDir);
+      }
+      // 树外哨兵零改动（读页前置即拒：根本没走到任何文件写）
+      expect(await sentinelSnapshot(daemon)).toBe(before);
+      // 树外没有新文件出现（受害者正文原样）
+      expect(
+        await readFile(join(daemon.tempDir, 'victim.dfg', 'pages', 'page-1.json'), 'utf8'),
+      ).toBe('{"secret":"victim-body"}\n');
+      // 合法文档不受影响，仍可正常导出
+      const ok = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId, pageId: 'page-1', format: 'svg' },
+      });
+      expect(ok.statusCode).toBe(200);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('伪造 manifest 页 id 越界：422 doc_invalid_manifest 整体拒绝，树外哨兵零改动', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const documentId = await seedNamed(daemon, '合法文档');
+      await plantSentinels(daemon);
+      const before = await sentinelSnapshot(daemon);
+
+      // 克隆来的 .dfg 是不可信输入：manifest 塞入越界页 id（指向树外 leak.json）
+      const manifestPath = join(daemon.workspaceDir, `${documentId}.dfg`, 'manifest.json');
+      const forged = {
+        schema: 'df.dfg.manifest/v1',
+        id: documentId,
+        name: '合法文档',
+        version: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        pages: [
+          { id: 'page-1', name: 'page-1', updatedAt: '2026-01-01T00:00:00.000Z' },
+          { id: '../../../outside/leak', name: 'leak', updatedAt: '2026-01-01T00:00:00.000Z' },
+        ],
+      };
+      await writeFile(manifestPath, `${JSON.stringify(forged, null, 2)}\n`);
+
+      const res = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId, pageId: 'page-1', format: 'svg' },
+      });
+      // 恶意页 id 整体拒绝（不是只跳过非法页继续渲染合法页）
+      expect(res.statusCode).toBe(422);
+      expect((res.payload as { error: { code: string } }).error.code).toBe('doc_invalid_manifest');
+      expect(res.raw).not.toContain('../../../outside/leak');
+      expect(res.raw).not.toContain(daemon.tempDir);
+      // 树外哨兵零改动
+      expect(await sentinelSnapshot(daemon)).toBe(before);
+      expect(await readFile(join(daemon.tempDir, 'outside', 'leak.json'), 'utf8')).toBe(
+        '{"secret":"leak"}\n',
+      );
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('中文 id 正常导出：产物名恰为 <documentId>-<pageId>.<format> 且只出现在 exports/ 内，树外哨兵零改动', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const documentId = await seedNamed(daemon, '中文-设计稿');
+      await plantSentinels(daemon);
+      const before = await sentinelSnapshot(daemon);
+
+      const { statusCode, payload } = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/export',
+        payload: { documentId, pageId: 'page-1', format: 'svg' },
+      });
+      expect(statusCode).toBe(200);
+      const artifact = (payload as { result: { artifact: { fileName: string; filePath: string } } })
+        .result.artifact;
+      // 产物名恰为 <documentId>-<pageId>.<format>（中文保留口径）
+      expect(artifact.fileName).toBe(`${documentId}-page-1.svg`);
+      // 只落在 exports/ 内
+      const exportsDir = join(daemon.dataRoot, 'exports');
+      expect(artifact.filePath.startsWith(exportsDir)).toBe(true);
+      expect(await readdir(exportsDir)).toEqual([artifact.fileName]);
+      // workspace 内只有该 .dfg 目录（导出不得在文档树里落文件）
+      expect(await readdir(daemon.workspaceDir)).toEqual([`${documentId}.dfg`]);
+      // 树外哨兵零改动
+      expect(await sentinelSnapshot(daemon)).toBe(before);
     } finally {
       await daemon.cleanup();
     }
