@@ -64,10 +64,11 @@ describe('开关（⌘K 全局主键位 + ⌘/ 编辑器别名，经 shortcuts �
     expect(document.activeElement).toBe(input);
   });
 
-  it('⌘K 同样呼出（票 04：全局主键位，别名共用同一命令）', async () => {
+  it('⌘K 同样呼出（票 04：全局主键位，别名共用同一命令），焦点落搜索框与 ⌘/ 同口径', async () => {
     mountPalette();
     press('k', { metaKey: true });
-    expect(await screen.findByRole('dialog', { name: '命令面板' })).toBeDefined();
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+    expect(document.activeElement).toBe(within(dialog).getByRole('combobox'));
   });
 
   it('注册形状：主键位 ⌘K，附加键位 ⌘/', () => {

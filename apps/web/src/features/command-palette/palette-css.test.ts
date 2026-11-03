@@ -24,7 +24,9 @@ const cssSource = readFileSync(join(here, 'command-palette.css'), 'utf8');
 
 describe('命令面板样式接线（票 04 根因回归钉）', () => {
   it('command-palette.tsx 引入 command-palette.css（无引入 = 25 条规则全部裸奔）', () => {
-    expect(paletteSource).toMatch(/import\s+'\.\/command-palette\.css'/);
+    // 行首锚定：`// import './command-palette.css'` 这类注释形态不算接线（tp1-03
+    // 红验尸发现旧正则会命中注释行——把 import 注释掉仍判绿，守护被架空）。
+    expect(paletteSource).toMatch(/^\s*import\s+'\.\/command-palette\.css';$/m);
   });
 
   it('组件消费的核心类名在样式表里有规则（tsx 与 css 的类名契约）', () => {
