@@ -9,7 +9,7 @@
 import type { Command, DesignDocument } from '@dforge/engine';
 import { createDocument, createFrame, createPage, createRect, insertNode } from '@dforge/engine';
 import { describe, expect, it, vi } from 'vitest';
-import { createMemoryBackend, versionsKey } from '../storage';
+import { createMemoryBackend, type KeyValueBackend, versionsKey } from '../storage';
 import { createVersionStore } from './versions-store';
 
 /** 可变的当前文档句柄（store 通过 getDocument 读）。 */
@@ -153,5 +153,113 @@ describe('版本 store · 只读语义', () => {
     store.getState().confirmRestore();
     expect(run).toHaveBeenCalledTimes(1);
     expect(run.mock.calls[0]?.[1]).toBe('恢复版本');
+  });
+});
+
+describe('版本 store · 存储健壮性（US11 守护 · TC-LS-01/02）', () => {
+  /**
+   * 守护口径（TC-LS-01/02 + storage.ts「存储是可丢的缓存」契约）：
+   * 写入失败（配额）只回调 onWriteError，不炸界面、不落半条；
+   * 隐私模式两档（backend undefined / getItem 抛 SecurityError）全链降级。
+   * storage.test.ts:63-81 已在 createLocalStore 缝上盖基础档；本组在版本 store
+   * 缝上钉住上层接线：onWriteError 原样透传、快照列表一致、UI 态照常。
+   */
+  function setupWith(backend: KeyValueBackend | undefined) {
+    let counter = 0;
+    const onWriteError = vi.fn();
+    const run = vi.fn();
+    const store = createVersionStore({
+      documentId: 'doc-1',
+      getDocument: () => makeDoc(),
+      run,
+      backend,
+      now: () => new Date('2026-10-15T10:00:00.000Z'),
+      nextId: () => {
+        counter += 1;
+        return `snap-${String(counter)}`;
+      },
+      onWriteError,
+    });
+    return { store, onWriteError, run };
+  }
+
+  it('配额失败：onWriteError 收到原始 error、落盘无半条、UI 态照常', () => {
+    const quotaError = new DOMException('配额已满', 'QuotaExceededError');
+    const memory = createMemoryBackend();
+    let failWrites = false;
+    const backend: KeyValueBackend = {
+      getItem: (key) => memory.getItem(key),
+      setItem: (key, value) => {
+        if (failWrites) throw quotaError;
+        memory.setItem(key, value);
+      },
+      removeItem: (key) => memory.removeItem(key),
+    };
+    const { store, onWriteError } = setupWith(backend);
+
+    // 基线：第一次保存成功落盘，无误报
+    store.getState().capture('第一版');
+    expect(onWriteError).not.toHaveBeenCalled();
+
+    // 第二次写触发配额失败：不炸界面，capture 照常返回
+    failWrites = true;
+    const second = store.getState().capture('第二版');
+    expect(second.label).toBe('第二版');
+    // UI 态照常：内存列表含新快照（存储是可丢缓存，写失败不回滚会话内状态；
+    // 两条同 createdAt，次序按 id 稳定兜底——次序语义归 sortSnapshots，此处不断言）
+    const labels = store.getState().snapshots.map((item) => item.label);
+    expect(labels).toHaveLength(2);
+    expect(labels).toEqual(expect.arrayContaining(['第一版', '第二版']));
+    // 原始 error 原样透传（上层据此提示「本地保存失败」）
+    expect(onWriteError).toHaveBeenCalledTimes(1);
+    expect(onWriteError.mock.calls[0]?.[0]).toBe(quotaError);
+
+    // 落盘无半条：后端仍是第一次的完整列表（单键整写，失败即整条不落）
+    const persisted: unknown = JSON.parse(memory.getItem(versionsKey('doc-1')) ?? 'null');
+    expect((persisted as Array<{ label: string }>).map((item) => item.label)).toEqual(['第一版']);
+
+    // 重开 store 读到的也是完整旧列表：半条不进界面
+    const reopened = setupWith(backend).store;
+    const reopenedLabels = reopened.getState().snapshots.map((item) => item.label);
+    expect(reopenedLabels).toEqual(['第一版']);
+  });
+
+  it('隐私模式第一档（backend undefined，非浏览器环境）：读写空操作，会话内 UI 照常', () => {
+    const { store, onWriteError, run } = setupWith(undefined);
+
+    // 无后端可读：初始列表空、不抛错
+    expect(store.getState().snapshots).toEqual([]);
+
+    // 会话内体验照常：capture 可用、两步确认全链不炸
+    const snap = store.getState().capture('第一版');
+    expect(store.getState().snapshots.map((item) => item.id)).toEqual([snap.id]);
+    store.getState().beginCompare(snap.id);
+    store.getState().confirmRestore('回滚前自动保存');
+    expect(run).toHaveBeenCalledTimes(1);
+
+    // 无写动作发生，onWriteError 不误报；重开仍空（无持久化 = 会话内有效）
+    expect(onWriteError).not.toHaveBeenCalled();
+    expect(setupWith(undefined).store.getState().snapshots).toEqual([]);
+  });
+
+  it('隐私模式第二档（getItem 抛 SecurityError）：加载当空不炸，会话内照常可用', () => {
+    const memory = createMemoryBackend();
+    const backend: KeyValueBackend = {
+      getItem: () => {
+        throw new DOMException('拒绝访问（隐私模式）', 'SecurityError');
+      },
+      setItem: (key, value) => memory.setItem(key, value),
+      removeItem: (key) => memory.removeItem(key),
+    };
+    const { store, onWriteError } = setupWith(backend);
+
+    // 读路径抛错被吞成空列表：不炸加载、不误报写失败
+    expect(store.getState().snapshots).toEqual([]);
+    expect(onWriteError).not.toHaveBeenCalled();
+
+    // 会话内照常：capture 正常并真实落盘
+    const snap = store.getState().capture('第一版');
+    expect(store.getState().snapshots.map((item) => item.id)).toEqual([snap.id]);
+    expect(memory.getItem(versionsKey('doc-1'))).toContain('第一版');
   });
 });
