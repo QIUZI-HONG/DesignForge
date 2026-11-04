@@ -1133,7 +1133,102 @@
   text-align: center;
 }
 
-/* ---------- Swatch / ColorField（F18 色板与文字族，RW-07） ---------- */
+/* ---------- NumberField（F17 数值输入族，RW-07） ---------- */
+
+/* 类名沿用 Inspector 活件时期的 `dfi-*`（arch-fix2 发现 A）：外观逐字冻结——
+   规则从 apps/web/src/features/inspector/inspector.css **原样迁入**，只把依赖 app 的
+   `.dfi-hint` 合入 `.dfi-numberfield__notice`（DS 件离开 Inspector 仍完整）。
+   app 侧仍有 `.dfi-effectrow__params > .dfi-numberfield-cell` 的布局微调，故类名不改写。 */
+
+/* 字段单元（G3）：门禁/测试挂点与状态所在层；控件几何仍由内层 .dfi-numberfield 决定。
+   行内提示（拒绝/夹取）在其下自然占位——不加绝对定位，避免压到相邻行。 */
+.dfi-numberfield-cell {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+}
+
+.dfi-numberfield {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  min-width: 0;
+  height: var(--dfg-control-height-md);
+  padding: 0 var(--dfg-control-padding-x-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  background: var(--dfg-color-surface-subtle);
+}
+
+/* 控件在字段单元里是块级整宽（列向布局下不吃 flex 基准，保持 28 高） */
+.dfi-numberfield-cell > .dfi-numberfield {
+  flex: none;
+  width: 100%;
+}
+
+.dfi-numberfield:focus-within {
+  border-color: var(--dfg-color-focus-ring);
+}
+
+.dfi-numberfield-cell[data-df-state="disabled"] .dfi-numberfield {
+  opacity: 0.6;
+}
+
+.dfi-numberfield__label {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.dfi-numberfield__input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dfg-color-text-primary);
+  font: inherit;
+  text-align: right;
+}
+
+.dfi-numberfield__input:focus {
+  outline: none;
+}
+
+.dfi-numberfield-cell[data-df-state="mixed"] .dfi-numberfield__input {
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfi-numberfield__suffix {
+  flex: none;
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfi-numberfield-cell[data-df-state="disabled"] .dfi-numberfield__label {
+  cursor: default;
+}
+
+/* 行内提示（G3）：拒绝/夹取说明；11 号次级色，随字段单元自然占位。
+   字号/颜色自带（不再依赖 app 的 .dfi-hint）——迁移前由 .dfi-hint + 本规则合成的
+   计算样式不变：11 号次级色 + 右对齐 + 零外边距。 */
+.dfi-numberfield__notice {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  text-align: right;
+}
+
+/* ---------- Swatch / ColorField（F18 色板族，RW-07） ---------- */
 
 .dfg-swatch {
   position: relative;

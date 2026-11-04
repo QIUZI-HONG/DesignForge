@@ -18,8 +18,9 @@
  * - Enter/blur/松手 flush；Esc 丢弃草稿（取消不得变成提交）；↑/↓（Shift ×10）键盘步进；
  * - 夹取/取整、非法输入回滚与行内提示（文案由调用方注入）。
  *
- * 视觉：本 module 由 Inspector 活件提升而来，票面冻结外观——类名与
- * `apps/web/src/features/inspector/inspector.css` 的造型规则保持逐字不变（本票不改样式/令牌）。
+ * 视觉：本 module 由 Inspector 活件提升而来，票面冻结外观——造型规则随包分发在
+ * `packages/ui/src/components.css` 的 NumberField 段（arch-fix2 发现 A：不再依赖
+ * `apps/web/.../inspector.css`）；类名沿用 `dfi-*` 以逐字保持既有外观与 app 侧布局选择器。
  */
 
 import { type ChangeEvent, type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
@@ -204,7 +205,7 @@ export function NumberField({
 
   return (
     // 外层单元（cell）：门禁/测试的字段挂点 + 状态都在这一个元素上（单点），
-    // 内层仍是原来的控件盒子（几何不变，见 inspector.css 的 .dfi-numberfield-cell）
+    // 内层仍是原来的控件盒子（几何不变，见 components.css 的 .dfi-numberfield-cell）
     <div
       className="dfi-numberfield-cell"
       data-df-inspector-field={fieldName}
@@ -246,7 +247,7 @@ export function NumberField({
         {suffix === undefined ? null : <span className="dfi-numberfield__suffix">{suffix}</span>}
       </div>
       {notice === null ? null : (
-        <p className="dfi-hint dfi-numberfield__notice" role="status">
+        <p className="dfi-numberfield__notice" role="status">
           {notice}
         </p>
       )}

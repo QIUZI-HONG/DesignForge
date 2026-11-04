@@ -8,6 +8,9 @@
  * 核心断言：**一次编辑恰一条命令**（连续输入/连续拖拽只提交一次；
  * 提交时刻才调用 onCommit——撤销粒度 = 一次修改）。
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -397,5 +400,41 @@ describe('NumberField · disabled', () => {
     });
     fireEvent.pointerUp(screen.getByTestId('numberfield-scrub-x'), { clientX: 20, pointerId: 3 });
     expect(onCommit).not.toHaveBeenCalled();
+  });
+});
+
+describe('NumberField · 样式随包分发（arch-fix2 发现 A）', () => {
+  /** 包内组件样式（DS 件离开 app 样式的唯一依赖面）。 */
+  const componentsCss = readFileSync(resolve(process.cwd(), 'src/components.css'), 'utf8');
+
+  it('渲染出的每个造型类都在包内 components.css 有同名规则（无 app 样式也成立）', () => {
+    const { input } = renderField({ suffix: '%' });
+    const cell = input.closest('.dfi-numberfield-cell') as HTMLElement | null;
+    expect(cell, '未渲染字段单元（样式挂点丢失）').not.toBeNull();
+
+    const classTokens = new Set<string>();
+    for (const element of [cell as HTMLElement, ...(cell as HTMLElement).querySelectorAll('*')]) {
+      for (const token of (element as HTMLElement).className.split(/\s+/)) {
+        if (token.startsWith('dfi-numberfield')) classTokens.add(token);
+      }
+    }
+    expect(classTokens.size, '未取到任何 NumberField 造型类').toBeGreaterThan(0);
+
+    const missing = [...classTokens].filter(
+      (token) => !new RegExp(`\\.${token}(?![\\w-])`).test(componentsCss),
+    );
+    expect(missing, '这些类在包内 components.css 没有规则（样式仍落在 app 侧）').toEqual([]);
+  });
+
+  it('行内提示自带字号/颜色（不再依赖 app 的 .dfi-hint）', () => {
+    const { input } = renderField();
+    fireEvent.change(input, { target: { value: 'abc' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    const notice = screen.getByRole('status');
+    expect(notice.className).toBe('dfi-numberfield__notice');
+    const rule = /\.dfi-numberfield__notice\s*\{([^}]*)\}/.exec(componentsCss)?.[1] ?? '';
+    expect(rule).toContain('color: var(--dfg-color-text-secondary)');
+    expect(rule).toContain('font-size: var(--dfg-font-size-11)');
   });
 });
