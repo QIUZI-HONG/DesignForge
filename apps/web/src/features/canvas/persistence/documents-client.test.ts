@@ -362,6 +362,55 @@ describe('页集有洞（arch-01 · 页 id 是身份不是位置）', () => {
     expect(daemon.requests.some((request) => request.startsWith('DELETE'))).toBe(false);
   });
 
+  it('导入含非法页 id 的文档连续保存 3 次：页文件集不增长、孤儿不含刚写入页、重载页数不变（arch-fix 发现 1）', async () => {
+    const daemon = stubDaemon();
+    const created = await daemon.client.createDocument('导入文档');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const documentId = created.value.id;
+
+    // 导入 IR：一个与 daemon 占位页对齐的合法页 + 一个非法 id 页（如外部工具的「第 1 页」）
+    const document = createDocument({
+      id: 'doc_local',
+      name: '导入文档',
+      pages: [
+        createPage({
+          id: 'page-1',
+          nodes: { n_1: createRect({ id: 'n_1', x: 0, y: 0, width: 10, height: 10 }) },
+          rootIds: ['n_1'],
+        }),
+        createPage({
+          id: '第 1 页',
+          nodes: { n_2: createRect({ id: 'n_2', x: 20, y: 20, width: 10, height: 10 }) },
+          rootIds: ['n_2'],
+        }),
+      ],
+    });
+
+    const counts: number[] = [];
+    const orphans: string[][] = [];
+    const assigned: string[] = [];
+    for (let round = 0; round < 3; round += 1) {
+      const saved = await saveDesignDocument(daemon.client, documentId, document);
+      expect(saved.ok, saved.ok ? '' : saved.error).toBe(true);
+      if (!saved.ok) return;
+      counts.push(daemon.pagesOf(documentId).size);
+      orphans.push(saved.value.orphanPageIds);
+      assigned.push(saved.value.pageIds[1] as string);
+    }
+
+    expect(counts).toEqual([2, 2, 2]);
+    expect(orphans[1]).not.toContain(assigned[1]);
+    expect(orphans[2]).not.toContain(assigned[2]);
+    expect(new Set(assigned).size).toBe(1);
+
+    const reloaded = await loadDesignDocument(daemon.client, documentId);
+    expect(reloaded.ok, reloaded.ok ? '' : reloaded.error).toBe(true);
+    if (!reloaded.ok) return;
+    expect(reloaded.value.pages).toHaveLength(2);
+    expect(reloaded.value.pages[1]?.nodes.n_2?.type).toBe('rect');
+  });
+
   it('空文档（`{}`）口径保持：一页空画布，id = page-1', async () => {
     const daemon = stubDaemon();
     const created = await daemon.client.createDocument('空白');

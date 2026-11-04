@@ -9,6 +9,8 @@
  * 本 module 的**唯一不变量**：**页 id 是身份，不是位置**。
  * - load 按 daemon manifest 的 `pages[]` 逐页读；返回的 `page.id` = daemon 页 id；
  * - save 按 `page.id` 定位页文件（命中即 update，未命中才 create，新页优先沿用自身 id）；
+ * - 非法/缺失 `page.id` 的页两次落盘必须落到同一页文件（会话内稳定映射 + 孤儿优先复用），
+ *   否则每次保存都会新建 `page-N` 并让上一份变孤儿，页集无上限增长；
  * - manifest 里存在而文档里没有的页**只报告**（`orphanPageIds`），绝不静默删除用户数据。
  *
  * 取向：本 module 只认识「页文件集合」这一窄端口（`PageSetClient`），
@@ -193,11 +195,33 @@ function nextFreePageId(taken: ReadonlySet<string>): string {
 }
 
 /**
- * 计算保存计划（纯函数；不读写任何页文件）。
+ * 会话内稳定映射：同一页面对象再次保存时必须复用上次分配的页 id。
+ *
+ * 键是**页面对象**而不是 `page.id`——非法 id 页面的 `page.id` 在会话内原样不动，
+ * 拿它当键会把「同一页的多次保存」与「两个都带同一个非法 id 的不同页」混为一谈。
+ * WeakMap 不延长页面对象寿命（文档关闭/导出后映射随对象回收）。
+ */
+const assignedPageIds = new WeakMap<ScenePage, string>();
+
+/** 页 id 升序：`page-{N}` 按数字序，其余按字典序（孤儿复用顺序稳定、可预测）。 */
+function comparePageIds(left: string, right: string): number {
+  const rank = (pageId: string): number => {
+    const match = /^page-(\d+)$/.exec(pageId);
+    return match === null ? Number.POSITIVE_INFINITY : Number(match[1]);
+  };
+  const delta = rank(left) - rank(right);
+  if (delta !== 0 && !Number.isNaN(delta)) return delta;
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * 计算保存计划（不读写页文件；只读会话内的稳定映射）。
  *
  * - `page.id` 命中 `existingPageIds` → update 该 id（**按身份定位**，位置无关）；
  * - 未命中且自身 id 是合法页文件 id → create 并沿用该 id（身份可往返）；
- * - 非法/重复 id → create 首个空闲 `page-N`；
+ * - 非法/重复 id → 优先复用 manifest 中未被合法页 id 认领的孤儿页 id（升序），
+ *   用尽才 create 首个空闲 `page-N`；
+ * - 同一页面对象上次分配过 id → 本轮继续用它（不再重新分配）；
  * - `existingPageIds` 中未被任何文档页认领的 → `orphanPageIds`（不删）。
  */
 export function planPageSetSave(
@@ -207,19 +231,54 @@ export function planPageSetSave(
   const existing = new Set(existingPageIds);
   const taken = new Set(existingPageIds);
   const claimed = new Set<string>();
+  const reserved = new Set<string>();
+  const preferred: Array<string | null> = document.pages.map(() => null);
+
+  // 第一轮：合法自身 id 全局优先（身份可往返；重复 id 只有首个认领）。
+  document.pages.forEach((page, index) => {
+    if (isPageFileId(page.id) && !reserved.has(page.id)) {
+      reserved.add(page.id);
+      preferred[index] = page.id;
+    }
+  });
+  // 第二轮：没有可用自身 id 的页，复用会话内上次分配的 id。
+  document.pages.forEach((page, index) => {
+    if (preferred[index] !== null) return;
+    const stableId = assignedPageIds.get(page);
+    if (stableId !== undefined && isPageFileId(stableId) && !reserved.has(stableId)) {
+      reserved.add(stableId);
+      preferred[index] = stableId;
+    }
+  });
+
+  // 孤儿池：manifest 中未被文档页（自身合法 id / 会话稳定 id）认领的既有页 id。
+  const orphanPool = existingPageIds.filter((pageId) => !reserved.has(pageId)).sort(comparePageIds);
+  let orphanCursor = 0;
+
   const create: PageSetCreate[] = [];
   const update: PageSetUpdate[] = [];
 
   document.pages.forEach((page, index) => {
     const body = encodePageBody(document, page);
-    if (existing.has(page.id) && !claimed.has(page.id)) {
-      claimed.add(page.id);
-      update.push({ pageId: page.id, body, index });
-      return;
+    const preferredId = preferred[index] ?? null;
+    let pageId: string;
+    if (preferredId !== null) {
+      pageId = preferredId;
+    } else {
+      const orphanId = orphanPool[orphanCursor];
+      if (orphanId === undefined) {
+        pageId = nextFreePageId(taken);
+      } else {
+        orphanCursor += 1;
+        pageId = orphanId;
+      }
     }
-    const pageId = isPageFileId(page.id) && !taken.has(page.id) ? page.id : nextFreePageId(taken);
     taken.add(pageId);
-    create.push({ pageId, name: page.name, body, index });
+    claimed.add(pageId);
+    assignedPageIds.set(page, pageId);
+    // 命中既有页（含复用孤儿）走 update；否则 create 并沿用分配到的 id。
+    if (existing.has(pageId)) update.push({ pageId, body, index });
+    else create.push({ pageId, name: page.name, body, index });
   });
 
   return {

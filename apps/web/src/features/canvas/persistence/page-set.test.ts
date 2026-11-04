@@ -62,6 +62,8 @@ function fakeClient(init: { name?: string; pages: FakePage[] }): {
     },
     async createPage(_documentId, pageName, options) {
       const pageId = options?.id ?? `page-${String(nextNumber)}`;
+      // 与 daemon 同口径：显式 id 已被占用 → 409（计划不应发出这种 create）
+      if (pages.has(pageId)) return { ok: false, error: 'doc_exists' };
       nextNumber += 1;
       creates.push({ name: pageName, ...(options?.id === undefined ? {} : { id: options.id }) });
       pages.set(pageId, {
@@ -244,14 +246,155 @@ describe('planPageSetSave · 按 id 定位、孤儿只报告', () => {
     expect(plan.create).toEqual([]);
   });
 
-  it('新页沿用自身合法 id（身份可往返）；非法/重复 id 才分配首个空闲 page-N', () => {
+  it('新页沿用自身合法 id（身份可往返）；非法/重复 id 优先复用孤儿、用尽才分配新号', () => {
     const document = createDocument({
       id: 'doc-1',
       pages: [rectPage('page_1', 'n_a'), rectPage('bad id', 'n_b'), rectPage('page_1', 'n_c')],
     });
     const plan = planPageSetSave(document, ['page-1']);
-    expect(plan.update).toEqual([]);
-    expect(plan.create.map((entry) => entry.pageId)).toEqual(['page_1', 'page-2', 'page-3']);
-    expect(plan.orphanPageIds).toEqual(['page-1']);
+    // page_1 是合法自身 id → 建成新页；'bad id' 复用孤儿 page-1（update，不新开页）；
+    // 重复的 page_1 无处复用 → 分配 page-2。
+    expect(plan.update.map((entry) => entry.pageId)).toEqual(['page-1']);
+    expect(plan.create.map((entry) => entry.pageId)).toEqual(['page_1', 'page-2']);
+    expect(plan.orphanPageIds).toEqual([]);
+    const reused = plan.update[0]?.body.page as { nodes: Record<string, unknown> };
+    expect(reused.nodes.n_b).toBeDefined();
+  });
+});
+
+type Fake = ReturnType<typeof fakeClient>;
+
+/** 把一次保存计划应用到内存页文件集合（与 saveDesignDocument 同序：先 update 再 create）。 */
+async function applyPlan(fake: Fake, plan: PageSetSavePlan): Promise<void> {
+  for (const entry of plan.update) {
+    const saved = await fake.client.savePage('doc-1', entry.pageId, entry.body);
+    expect(saved.ok, saved.ok ? '' : saved.error).toBe(true);
+  }
+  for (const entry of plan.create) {
+    const created = await fake.client.createPage('doc-1', entry.name, { id: entry.pageId });
+    expect(created.ok, created.ok ? '' : created.error).toBe(true);
+    const saved = await fake.client.savePage('doc-1', entry.pageId, entry.body);
+    expect(saved.ok, saved.ok ? '' : saved.error).toBe(true);
+  }
+}
+
+/** 当前页文件集合的 id（顺序 = manifest 顺序）。 */
+async function pageIdsOf(fake: Fake): Promise<string[]> {
+  const detail = await fake.client.getDocument('doc-1');
+  if (!detail.ok) throw new Error(detail.error);
+  return detail.value.pages.map((page) => page.id);
+}
+
+/** 计划里第 index 个文档页落到的页 id（update / create 二选一）。 */
+function pageIdFor(plan: PageSetSavePlan, index: number): string {
+  const entry =
+    plan.update.find((candidate) => candidate.index === index) ??
+    plan.create.find((candidate) => candidate.index === index);
+  if (entry === undefined) throw new Error(`计划缺少第 ${String(index)} 页`);
+  return entry.pageId;
+}
+
+describe('planPageSetSave · 非法 id 页重复保存幂等（评审发现 1）', () => {
+  it('含 1 个非法 id 页的文档连续保存 3 次：页文件数恒定、孤儿不含刚写入页、重载页数不变', async () => {
+    const document = createDocument({
+      id: 'doc-1',
+      pages: [rectPage('page-1', 'n_1', '第一页'), rectPage('第 1 页', 'n_2', '导入页')],
+    });
+    const fake = fakeClient({ pages: [{ meta: meta('page-1', '第一页'), body: {} }] });
+
+    const counts: number[] = [];
+    const orphans: string[][] = [];
+    const assigned: string[] = [];
+    for (let round = 0; round < 3; round += 1) {
+      const plan = planPageSetSave(document, await pageIdsOf(fake));
+      await applyPlan(fake, plan);
+      counts.push((await pageIdsOf(fake)).length);
+      orphans.push(plan.orphanPageIds);
+      assigned.push(pageIdFor(plan, 1));
+    }
+
+    expect(counts).toEqual([2, 2, 2]);
+    // 第 2、3 次不得把刚写入的页当孤儿（否则下一次保存又新建页）
+    expect(orphans[1]).not.toContain(assigned[1]);
+    expect(orphans[2]).not.toContain(assigned[2]);
+    expect(assigned).toEqual(['page-2', 'page-2', 'page-2']);
+
+    const reloaded = await loadPageSet(fake.client, 'doc-1');
+    expect(reloaded.ok).toBe(true);
+    if (!reloaded.ok) return;
+    expect(reloaded.value.pages).toHaveLength(2);
+    expect(reloaded.value.pages[1]?.page.nodes.n_2?.type).toBe('rect');
+  });
+
+  it('合法 id 文档重复保存 3 次：完全幂等（不建页、孤儿为空）', async () => {
+    const document = createDocument({
+      id: 'doc-1',
+      pages: [rectPage('page-1', 'n_1'), rectPage('page-2', 'n_2')],
+    });
+    const fake = fakeClient({
+      pages: [
+        { meta: meta('page-1'), body: {} },
+        { meta: meta('page-2'), body: {} },
+      ],
+    });
+
+    for (let round = 0; round < 3; round += 1) {
+      const plan = planPageSetSave(document, await pageIdsOf(fake));
+      expect(plan.create).toEqual([]);
+      expect(plan.orphanPageIds).toEqual([]);
+      expect(plan.update.map((entry) => entry.pageId)).toEqual(['page-1', 'page-2']);
+      await applyPlan(fake, plan);
+      expect(await pageIdsOf(fake)).toEqual(['page-1', 'page-2']);
+    }
+    expect(fake.creates).toEqual([]);
+  });
+
+  it('多个非法 id 页：各自稳定、不互相抢占（重载后内容仍在各自分配页）', async () => {
+    const document = createDocument({
+      id: 'doc-1',
+      pages: [rectPage('第 1 页', 'n_a'), rectPage('第 2 页', 'n_b')],
+    });
+    const fake = fakeClient({ pages: [{ meta: meta('page-1'), body: {} }] });
+
+    const rounds: string[][] = [];
+    for (let round = 0; round < 3; round += 1) {
+      const plan = planPageSetSave(document, await pageIdsOf(fake));
+      await applyPlan(fake, plan);
+      rounds.push([pageIdFor(plan, 0), pageIdFor(plan, 1)]);
+      expect(plan.orphanPageIds).toEqual([]);
+    }
+    // 首轮：第 1 页复用孤儿 page-1，第 2 页新建 page-2；之后各自稳定，不互换
+    expect(rounds).toEqual([
+      ['page-1', 'page-2'],
+      ['page-1', 'page-2'],
+      ['page-1', 'page-2'],
+    ]);
+    expect(new Set(rounds[0]).size).toBe(2);
+    expect((await pageIdsOf(fake)).length).toBe(2);
+
+    const reloaded = await loadPageSet(fake.client, 'doc-1');
+    expect(reloaded.ok).toBe(true);
+    if (!reloaded.ok) return;
+    expect(reloaded.value.pages.map((entry) => entry.pageId)).toEqual(['page-1', 'page-2']);
+    expect(reloaded.value.pages[0]?.page.nodes.n_a?.type).toBe('rect');
+    expect(reloaded.value.pages[1]?.page.nodes.n_b?.type).toBe('rect');
+  });
+
+  it('页面重排后同一页面对象仍写回原页 id（稳定映射，不按新顺序重新抢占）', async () => {
+    const first = rectPage('第 1 页', 'n_a');
+    const second = rectPage('第 2 页', 'n_b');
+    const fake = fakeClient({ pages: [{ meta: meta('page-1'), body: {} }] });
+
+    const initial = createDocument({ id: 'doc-1', pages: [first, second] });
+    const firstPlan = planPageSetSave(initial, await pageIdsOf(fake));
+    await applyPlan(fake, firstPlan);
+    expect([pageIdFor(firstPlan, 0), pageIdFor(firstPlan, 1)]).toEqual(['page-1', 'page-2']);
+
+    // 用户调整页序：新文档对象、同一批页面对象
+    const reordered = createDocument({ id: 'doc-1', pages: [second, first] });
+    const plan = planPageSetSave(reordered, await pageIdsOf(fake));
+    expect([pageIdFor(plan, 0), pageIdFor(plan, 1)]).toEqual(['page-2', 'page-1']);
+    expect(plan.create).toEqual([]);
+    expect(plan.orphanPageIds).toEqual([]);
   });
 });
