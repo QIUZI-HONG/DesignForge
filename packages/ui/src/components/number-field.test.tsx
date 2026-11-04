@@ -306,6 +306,19 @@ describe('NumberField · scrub（拖拽改值）', () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 
+  it('scrubbing=false 关闭拖拽改值（键入路径不受影响）', () => {
+    const { onCommit, input } = renderField({ scrubbing: false });
+    const handle = screen.getByTestId('numberfield-scrub-x');
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 4 });
+    fireEvent.pointerMove(handle, { clientX: 20, pointerId: 4 });
+    fireEvent.pointerUp(handle, { clientX: 20, pointerId: 4 });
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '33' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(33);
+  });
+
   it('混选（value undefined）：以基准值起拖，提交基准 + 位移', () => {
     const onCommit = vi.fn();
     render(

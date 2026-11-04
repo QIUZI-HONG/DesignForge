@@ -68,6 +68,8 @@ export interface NumberFieldProps {
   /** 行内提示文案（调用方 i18n）。 */
   messages: NumberFieldMessages;
   disabled?: boolean;
+  /** 是否开启拖拽改值（默认开；关闭后标签不再是拖拽把手，键入路径不受影响）。 */
+  scrubbing?: boolean | undefined;
   /** 提交回调（提交时刻才调用；值已夹取与取整）。 */
   onCommit(value: number): void;
   /**
@@ -100,6 +102,7 @@ export function NumberField({
   mixedPlaceholder,
   messages,
   disabled = false,
+  scrubbing = true,
   onCommit,
   onScrubStart,
   onScrubEnd,
@@ -173,7 +176,7 @@ export function NumberField({
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLElement>): void => {
-    if (disabled) return;
+    if (disabled || !scrubbing) return;
     event.preventDefault();
     scrubRef.current = { active: true, startX: event.clientX, startValue: currentNumber() };
     // 会话开启先于任何提交（RW-10：拖拽中不写文档的括约起点）
@@ -184,7 +187,7 @@ export function NumberField({
 
   const handlePointerMove = (event: PointerEvent<HTMLElement>): void => {
     const session = scrubRef.current;
-    if (!session.active || disabled) return;
+    if (!session.active || disabled || !scrubbing) return;
     const dx = event.clientX - session.startX;
     const scale = event.shiftKey ? 10 : 1;
     // 拖拽期间只改草稿（不安排自动提交）：连续位移最终由松手时的 flush 收口
