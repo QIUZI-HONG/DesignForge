@@ -65,7 +65,7 @@ test('exit 2 + 证据文件缺失 → 红', () => {
 });
 
 test('exit 2 + 损坏 JSON → 红', () => {
-  const verdict = twoStateVerdict(fixture('corrupt.json'), 2, 'AI 两态门禁');
+  const verdict = twoStateVerdict(fixture('corrupt.json.txt'), 2, 'AI 两态门禁');
   assert.equal(verdict.exitCode, 1);
   assert.equal(verdict.stream, 'err');
   assert.match(verdict.message, /证据缺失或 JSON 解析失败/);
@@ -109,8 +109,14 @@ test('gate 名仅影响日志措辞，不影响判定（证据不符文案与原
   assert.equal(a.exitCode, b.exitCode);
   assert.equal(a.message, b.message);
   // gate 名出现在带名的两段文案里（0=完整通过 / 1=真失败）。
-  assert.match(twoStateVerdict(fixture('blocked-good.json'), 0, '出图两态门禁').message, /出图两态门禁/);
-  assert.match(twoStateVerdict(fixture('blocked-good.json'), 1, 'AI 两态门禁').message, /AI 两态门禁/);
+  assert.match(
+    twoStateVerdict(fixture('blocked-good.json'), 0, '出图两态门禁').message,
+    /出图两态门禁/,
+  );
+  assert.match(
+    twoStateVerdict(fixture('blocked-good.json'), 1, 'AI 两态门禁').message,
+    /AI 两态门禁/,
+  );
 });
 
 test('CLI：argv 缺参 → 红 + 用法提示（不得静默放行）', () => {

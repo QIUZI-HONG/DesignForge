@@ -24,7 +24,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const USAGE = '用法：node scripts/lib/two-state-verdict.mjs <evidence-json> <gate-exit-code> [gate-name]';
+const USAGE =
+  '用法：node scripts/lib/two-state-verdict.mjs <evidence-json> <gate-exit-code> [gate-name]';
 
 /**
  * 裁决两态门禁的一步 CI 判码。纯函数：不 process.exit、不直接打印，返回判定结果
