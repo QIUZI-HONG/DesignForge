@@ -102,24 +102,51 @@ export async function startSameOriginGateway({ webUrl, daemonUrl, port }) {
 }
 
 /**
+ * daemon 入口所需的运行时旗标：node 22.16 直跑 `.ts` 需要 `--experimental-strip-types`
+ * （AI 门禁早已显式带上；共享件此前漏带，导致 Node < 22.18 上夹具恒起不来）。
+ * 运行时支持才加，避免在已默认开类型剥离的版本上打无谓的实验旗标。
+ */
+function daemonRuntimeArgs() {
+  return process.allowedNodeEnvironmentFlags.has('--experimental-strip-types')
+    ? ['--experimental-strip-types']
+    : [];
+}
+
+/**
  * 起一个夹具 daemon（真子进程）：数据根与工作目录可指定，端口自动取空闲值。
  *
- * @param {{ dataRoot: string, workspaceDir: string, timeoutMs?: number }} options
- * @returns {Promise<{ url: string, output: string, close: () => Promise<void> }>}
+ * `detached: true` 让子进程独占进程组，`close()` 用 `kill(-pid)` 精确回收整组
+ * （arch-05：门禁夹具必须「起得来、停得干净」，残留 daemon 会占端口）。
+ * `env` 用于追加 daemon 专属环境（如 CORS 白名单）。
+ *
+ * @param {{ dataRoot: string, workspaceDir: string, timeoutMs?: number, env?: Record<string,string>, detached?: boolean }} options
+ * @returns {Promise<{ url: string, pid?: number, port: number, output: string, close: () => Promise<void> }>}
  */
-export async function startFixtureDaemon({ dataRoot, workspaceDir, timeoutMs = 20_000 }) {
+export async function startFixtureDaemon({
+  dataRoot,
+  workspaceDir,
+  timeoutMs = 20_000,
+  env = {},
+  detached = false,
+}) {
   const port = await freePort();
-  const child = spawn(process.execPath, [join(repoRoot, 'apps/daemon/src/main.ts')], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      DF_DATA_ROOT: dataRoot,
-      DF_WORKSPACE_DIR: workspaceDir,
-      DF_PORT: String(port),
-      DF_HOST: '127.0.0.1',
+  const child = spawn(
+    process.execPath,
+    [...daemonRuntimeArgs(), join(repoRoot, 'apps/daemon/src/main.ts')],
+    {
+      cwd: repoRoot,
+      detached,
+      env: {
+        ...process.env,
+        ...env,
+        DF_DATA_ROOT: dataRoot,
+        DF_WORKSPACE_DIR: workspaceDir,
+        DF_PORT: String(port),
+        DF_HOST: '127.0.0.1',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  );
 
   let output = '';
   const url = await new Promise((resolveUrl) => {
@@ -141,22 +168,50 @@ export async function startFixtureDaemon({ dataRoot, workspaceDir, timeoutMs = 2
     });
   });
 
+  const exited = () => child.exitCode !== null || child.signalCode !== null;
+  const signal = (name) => {
+    try {
+      if (detached && child.pid !== undefined) process.kill(-child.pid, name);
+      else child.kill(name);
+    } catch {
+      // 进程已退出 / 进程组已空：无需再动手。
+    }
+  };
+  const waitExit = (ms) =>
+    new Promise((resolveExit) => {
+      if (exited()) {
+        resolveExit(true);
+        return;
+      }
+      const onExit = () => {
+        clearTimeout(timer);
+        resolveExit(true);
+      };
+      const timer = setTimeout(() => {
+        child.off('exit', onExit);
+        resolveExit(false);
+      }, ms);
+      child.once('exit', onExit);
+    });
+
   if (url === null) {
-    child.kill('SIGTERM');
+    signal('SIGTERM');
+    if (!(await waitExit(3000))) signal('SIGKILL');
     throw new Error(`夹具 daemon 起不来（末 2000 字符输出）：${output.slice(-2000)}`);
   }
 
   return {
     url,
+    pid: child.pid,
+    port: Number(new URL(url).port),
     output,
-    close: () =>
-      new Promise((resolveClose) => {
-        if (child.exitCode !== null) {
-          resolveClose();
-          return;
-        }
-        child.on('exit', () => resolveClose());
-        child.kill('SIGTERM');
-      }),
+    close: async () => {
+      if (exited()) return;
+      signal('SIGTERM');
+      if (!(await waitExit(5000))) {
+        signal('SIGKILL');
+        await waitExit(2000);
+      }
+    },
   };
 }

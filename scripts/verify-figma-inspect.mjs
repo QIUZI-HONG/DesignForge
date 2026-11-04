@@ -2,12 +2,14 @@
 /**
  * verify-figma-inspect —— 检查 / 导出面板门禁（FE-08 交付；本票范围内自管，**不接 CI**）。两段式：
  *
- * ① 功能段（**不依赖参照集**，直连 daemon）：
+ * ① 功能段（**不依赖参照集**，走 daemon HTTP）：
  *    `POST /export` 三档（PNG / SVG / PDF）各产出一份文件并逐项断言——
  *    HTTP 200、信封 `ok:true`、`length > 0`、base64 解码字节数 = `length`、
  *    sha256 本地重算一致、PNG 头 8 字节魔数校验、SVG 含 `<svg`、PDF 以 `%PDF-` 开头。
- *    **daemon 未启动 → exit 2（阻塞），不做自动拉起**（避免悄悄污染用户数据根；
- *    提示如何启动）。断言通过后删除自己建的临时文档（不留下垃圾）。
+ *    **daemon 来源（arch-05 口径）**：显式 `DF_DAEMON_URL` → 用外部实例；未设 → 自起夹具
+ *    daemon（临时数据根 + 空闲端口，见 `lib/daemon-fixture.mjs`），用完必停。
+ *    夹具起不来 → exit 2 阻塞；**禁止缺省连开发机在跑的 daemon（4318）**。
+ *    断言通过后删除自己建的临时文档（不留下垃圾）。
  *
  * ② 对照段（页面截图 + pixelmatch）：检查态与导出面板（C15 / F6）与组件面板（C17）逐单元比对。
  *    **无参照集 → exit 2 并打印「阻塞：参照集未冻结」**——禁止以自截图/近似图假绿。
@@ -34,25 +36,31 @@
  * 对非法 env 会带病进入浏览器阶段（稍后崩），现在直接 exit 2 阻塞（与 lib 及 shell-parity 同口径）。
  *
  * 用法（仓库根执行）：
- *   node scripts/verify-figma-inspect.mjs                    # 默认 http://127.0.0.1:3210/editor
- *   DF_DAEMON_URL=http://127.0.0.1:4318 node scripts/verify-figma-inspect.mjs --only C15
+ *   node scripts/verify-figma-inspect.mjs                    # 站点默认 http://127.0.0.1:3210/editor；daemon 自起夹具
+ *   DF_DAEMON_URL=http://127.0.0.1:5000 node scripts/verify-figma-inspect.mjs --only C15
  *
- * 环境变量：DF_WEB_URL（站点）、DF_INSPECT_URL（宿主页）、DF_DAEMON_URL（daemon 基址）、
+ * 环境变量：DF_WEB_URL（站点）、DF_INSPECT_URL（宿主页）、
+ *           DF_DAEMON_URL（daemon 基址；缺省自起夹具，不设「本机缺省实例」）、
  *           DF_REF_DIR（参照集）、DF_EVIDENCE_DIR（证据根）、BENCH_CHROME_EXECUTABLE（Chromium）。
  *
  * 退出码（门禁三态，禁止假绿）：0 全部通过 / 1 有单元超差或断言失败 / 2 **阻塞**
- *（参照集未冻结 / daemon 未启动 / 宿主不可达 / Chromium 或依赖缺失）——`2` 绝不等价于通过。
+ *（参照集未冻结 / daemon 不可达或夹具起不来 / 宿主不可达 / Chromium 或依赖缺失）——
+ * `2` 绝不等价于通过。
  */
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { resolveDaemon } from './lib/daemon-fixture.mjs';
 import { inspectReferenceDir, runFigmaGate } from './lib/figma-evidence.mjs';
 
 const WEB_URL = process.env.DF_WEB_URL ?? 'http://127.0.0.1:3210';
 const HOST_URL = process.env.DF_INSPECT_URL ?? `${WEB_URL}/editor`;
-/** daemon 基址：缺省取契约端口基准（守护进程未启动时本门禁阻塞，禁自动拉起）。 */
-const DAEMON_URL = process.env.DF_DAEMON_URL ?? 'http://127.0.0.1:4318';
+/**
+ * daemon 基址**不设缺省值**：显式 `DF_DAEMON_URL` 才用外部实例；否则自起夹具
+ * （见 `lib/daemon-fixture.mjs`）。禁止「缺省即连本机」（4318 = 开发机真实例端口窗起点）。
+ */
+let activeDaemon = null;
 const REF_DIR = resolve(process.env.DF_REF_DIR ?? join(homedir(), 'df-evidence', 'reference-v1'));
 const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df-evidence'));
 const TICKET = 'fe-08';
@@ -192,21 +200,27 @@ async function call(baseUrl, method, path, body) {
 
 /**
  * 功能段：daemon /export 三档（不依赖参照集）。
- * daemon 未启动 → 记阻塞原因并**继续**跑对照段（它会独立再给出参照集阻塞）。
+ * daemon 不可达 → 记阻塞原因并**继续**跑对照段（它会独立再给出参照集阻塞）。
+ *
+ * @param {object} ctx runFigmaGate 上下文
+ * @param {string} daemonUrl 已解析的基址（外部实例或自起夹具）
  */
-async function runFunctional(ctx) {
+async function runFunctional(ctx, daemonUrl) {
   const functional = ctx.evidence.functional;
-  const health = await call(DAEMON_URL, 'GET', '/health');
+  const mode = ctx.evidence.daemon?.mode ?? 'fixture';
+  const health = await call(daemonUrl, 'GET', '/health');
   if (health.status !== 200) {
     functional.status = 'blocked';
-    functional.reason = `daemon 不可达：${DAEMON_URL}/health（HTTP ${String(health.status)}）`;
+    functional.reason = `daemon 不可达：${daemonUrl}/health（HTTP ${String(health.status)}）`;
     ctx.block({
-      reason: '阻塞：daemon 未启动',
+      reason: '阻塞：daemon 不可达',
       stop: false,
       message: [
-        '阻塞：daemon 未启动（本门禁不做自动拉起，避免污染用户数据根）。',
+        '阻塞：daemon 不可达（门禁不连开发机缺省实例；外部实例须显式、夹具须能起）。',
         `原因：${functional.reason}`,
-        '提示：另开终端执行 `pnpm --filter @dforge/daemon dev`（或设 DF_DAEMON_URL 指向已运行实例）后重跑。',
+        mode === 'external'
+          ? '提示：确认 DF_DAEMON_URL 指向的实例在跑；或清空该变量让本门禁自起夹具 daemon。'
+          : '提示：夹具 daemon 已自起但 health 不通，检查 daemon 启动输出与临时数据根权限。',
       ],
     });
     return;
@@ -214,7 +228,7 @@ async function runFunctional(ctx) {
   functional.health = { status: health.status };
 
   // 临时文档：建 → 存页面 → 导出三档 → 清理
-  const created = await call(DAEMON_URL, 'POST', '/documents', { name: 'FE-08 门禁导出源' });
+  const created = await call(daemonUrl, 'POST', '/documents', { name: 'FE-08 门禁导出源' });
   const documentId = created.json?.result?.document?.id;
   if (created.status !== 201 || typeof documentId !== 'string') {
     functional.status = 'failed';
@@ -232,7 +246,7 @@ async function runFunctional(ctx) {
       : 'page-1';
   functional.pageId = pageId;
   const saved = await call(
-    DAEMON_URL,
+    daemonUrl,
     'PUT',
     `/documents/${encodeURIComponent(documentId)}/pages/${encodeURIComponent(pageId)}`,
     { body: PAGE_BODY },
@@ -246,7 +260,7 @@ async function runFunctional(ctx) {
   for (const check of FORMAT_CHECKS) {
     const unit = { format: check.format, status: 'pending', assertions: [] };
     functional.formats.push(unit);
-    const response = await call(DAEMON_URL, 'POST', '/export', {
+    const response = await call(daemonUrl, 'POST', '/export', {
       documentId,
       pageId,
       format: check.format,
@@ -305,7 +319,7 @@ async function runFunctional(ctx) {
     if (unit.status === 'pending') unit.status = 'passed';
   }
 
-  const cleanup = await call(DAEMON_URL, 'DELETE', `/documents/${encodeURIComponent(documentId)}`);
+  const cleanup = await call(daemonUrl, 'DELETE', `/documents/${encodeURIComponent(documentId)}`);
   functional.cleanup =
     cleanup.status === 200 ? 'deleted' : `failed(HTTP ${String(cleanup.status)})`;
   functional.status = functional.formats.some((unit) => unit.status === 'failed')
@@ -392,8 +406,10 @@ await runFigmaGate({
   viewport: { width: 1440, height: 900, dpr: 1.5 },
   extras: {
     hostUrl: HOST_URL,
-    daemonUrl: DAEMON_URL,
-    functional: { status: 'pending', baseUrl: DAEMON_URL, formats: [], cleanup: 'pending' },
+    // daemon 基址在 beforeReference 里解析后回填（显式外部 / 自起夹具；无缺省实例）。
+    daemonUrl: null,
+    daemon: { mode: 'pending', url: null },
+    functional: { status: 'pending', baseUrl: null, formats: [], cleanup: 'pending' },
   },
   stateCoverage: STATE_COVERAGE.map((entry) => ({ ...entry, status: 'pending' })),
   recordKey: 'units',
@@ -459,12 +475,45 @@ await runFigmaGate({
   hooks: {
     // 功能段先跑（不依赖参照集；阻塞原因累计后继续）。
     beforeReference: async (ctx) => {
-      await runFunctional(ctx);
+      // daemon 来源：显式 DF_DAEMON_URL → 外部实例；未设 → 自起夹具（无缺省实例、禁连 4318）。
+      try {
+        activeDaemon = await resolveDaemon({
+          label: 'verify-figma-inspect',
+          log: (line) => ctx.log(line),
+        });
+      } catch (error) {
+        ctx.evidence.daemon = { mode: 'fixture-failed', url: null };
+        ctx.evidence.functional.status = 'blocked';
+        ctx.evidence.functional.reason = String(error?.message ?? error).slice(0, 1000);
+        ctx.block({
+          reason: '阻塞：夹具 daemon 起不来',
+          stop: true,
+          message: [
+            '阻塞：夹具 daemon 起不来（DF_DAEMON_URL 未设；门禁拒绝回退到本机缺省实例）。',
+            `原因：${ctx.evidence.functional.reason}`,
+            '口径：门禁要么显式 DF_DAEMON_URL 指向自管实例，要么自起夹具 daemon；',
+            '      夹具起不来即 exit 2，不得降级为连接开发机在跑的 daemon。',
+          ],
+        });
+        return;
+      }
+      ctx.evidence.daemon = { mode: activeDaemon.mode, url: activeDaemon.url };
+      ctx.evidence.daemonUrl = activeDaemon.url;
+      ctx.evidence.functional.baseUrl = activeDaemon.url;
+
+      await runFunctional(ctx, activeDaemon.url);
       // 参照集落点也先记入证据（参照集判定随后由 module 执行）。
       const reference = inspectReferenceDir(REF_DIR);
       ctx.evidence.reference = reference.ready
         ? { ready: true, pngCount: reference.files.length }
         : { ready: false, reason: reference.reason };
+    },
+    // 每条出口（含早期阻塞）都回收夹具 daemon：进程组 SIGTERM → 端口释放核对 → 删临时数据根。
+    cleanup: async () => {
+      if (activeDaemon !== null) {
+        await activeDaemon.close();
+        activeDaemon = null;
+      }
     },
     // DOM 不变量（每单元截图前）：缺挂点 = 失败（exit 1），但截图仍取（证据留档）。
     beforeCapture: async (ctx, { unit, record, page }) => {

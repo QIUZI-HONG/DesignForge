@@ -20,9 +20,13 @@
  *    本门禁按三态语义记 `blockedReason` 并 `exit 2`（**禁止以空数据冒充通过**）。
  *
  * 用法（仓库根执行）：
- *   node scripts/verify-market.mjs                    # 默认探测 http://127.0.0.1:4318
- *   DF_DAEMON_URL=http://127.0.0.1:5000 node scripts/verify-market.mjs
+ *   node scripts/verify-market.mjs                    # daemon 自起夹具（临时数据根 + 空闲端口）
+ *   DF_DAEMON_URL=http://127.0.0.1:5000 node scripts/verify-market.mjs   # 显式外部实例
  *   node scripts/verify-market.mjs --skip-daemon      # 只跑静态两项（仍按 exit 2 记阻塞）
+ *
+ * daemon 来源（arch-05 口径）：显式 `DF_DAEMON_URL` → 照用外部实例；未设 → 自起夹具 daemon
+ * （`lib/daemon-fixture.mjs`，用完必停）。夹具起不来 → exit 2；**禁止缺省连开发机在跑的
+ * daemon**（4318 及其端口窗是真实例领地，门禁一律不碰）。
  *
  * 与 `verify-self-designed.mjs`（FE-09，尚未入集成分支）的关系：
  * 本脚本的检查 ①② 与它同源同口径（同一份 guard-tokens 核心 + 六态挂点），额外多了
@@ -30,7 +34,7 @@
  * 可改为 `node scripts/verify-self-designed.mjs --roots apps/web/src/features/market,... --ticket fe-11`
  * 跑前两项，本脚本只保留 daemon 项（统一动作留给合并阶段，见报告）。
  *
- * 环境变量：DF_DAEMON_URL、DF_EVIDENCE_DIR（缺省 ~/df-evidence）。
+ * 环境变量：DF_DAEMON_URL（可选；缺省自起夹具）、DF_EVIDENCE_DIR（缺省 ~/df-evidence）。
  * 证据 JSON 字段按《前端验收标准 v1》§4：page/level/diff/artifacts/humanReview/exitCode。
  */
 import { createHash } from 'node:crypto';
@@ -40,10 +44,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { RULES, scanRoots } from '../packages/ui/src/tools/guard-tokens-core.mjs';
+import { resolveDaemon } from './lib/daemon-fixture.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TICKET = 'fe-11';
-const DAEMON_URL = (process.env.DF_DAEMON_URL ?? 'http://127.0.0.1:4318').replace(/\/+$/, '');
+/** daemon 基址：**无缺省值**。显式 env 优先；未设时由 `resolveDaemon` 自起夹具。 */
+let daemonUrl = null;
 const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df-evidence'));
 const args = process.argv.slice(2);
 const skipDaemon = args.includes('--skip-daemon');
@@ -86,7 +92,12 @@ function baseEvidence() {
       '/market/panel（D5）',
       '/dashboard（D6）',
     ],
-    params: { rules: RULES.map((rule) => rule.id), daemonUrl: DAEMON_URL, skipDaemon },
+    params: {
+      rules: RULES.map((rule) => rule.id),
+      daemonUrl: null,
+      daemon: { mode: 'pending', url: null },
+      skipDaemon,
+    },
     startedAt: startedAt.toISOString(),
     checks: [],
     humanReview: {
@@ -115,6 +126,15 @@ function finish(evidence, code, message) {
   if (message) console.error(message);
   console.error(`证据：${evidencePath}`);
   process.exit(code);
+}
+
+/** 夹具 daemon 回收（每条出口都调；外部实例 / --skip-daemon 时为 no-op）。 */
+let activeDaemon = null;
+async function releaseDaemon() {
+  if (activeDaemon !== null) {
+    await activeDaemon.close();
+    activeDaemon = null;
+  }
 }
 
 /** 指纹（`{sha256, length}`；盘点产物入证据的约定）。 */
@@ -264,7 +284,7 @@ async function runDaemonCheck() {
     };
   }
   try {
-    const response = await fetch(`${DAEMON_URL}/market/query?limit=1`, { redirect: 'follow' });
+    const response = await fetch(`${daemonUrl}/market/query?limit=1`, { redirect: 'follow' });
     const payload = await response.json();
     if (payload?.ok !== true) {
       return {
@@ -323,12 +343,12 @@ async function runDaemonCheck() {
       assertions: [
         {
           name: 'daemon 可达',
-          expected: `GET ${DAEMON_URL}/market/query`,
+          expected: `GET ${daemonUrl}/market/query`,
           actual: String(error),
           ok: false,
         },
       ],
-      blockedReason: `daemon 不可达（${DAEMON_URL}）：无真数据面可断言，按阻塞上报。`,
+      blockedReason: `daemon 不可达（${daemonUrl}）：无真数据面可断言，按阻塞上报。`,
     };
   }
 }
@@ -356,7 +376,7 @@ async function runBatch4MarketCheck() {
   try {
     // E1：中文检索走 BM25 倒排（无检索索引 → 阻塞，不假绿）
     const searchResponse = await fetch(
-      `${DAEMON_URL}/market/query?q=${encodeURIComponent(E1_QUERY)}&limit=5`,
+      `${daemonUrl}/market/query?q=${encodeURIComponent(E1_QUERY)}&limit=5`,
       { redirect: 'follow' },
     );
     const searchPayload = await searchResponse.json();
@@ -420,7 +440,7 @@ async function runBatch4MarketCheck() {
     // E2：不存在的资产 → 404 + market_asset_not_found（前端分流依据）
     const missingAssetId = 'gh:df-verify#__batch4-e-not-found-probe__';
     const notFoundResponse = await fetch(
-      `${DAEMON_URL}/market/assets/${encodeURIComponent(missingAssetId)}`,
+      `${daemonUrl}/market/assets/${encodeURIComponent(missingAssetId)}`,
       { redirect: 'follow' },
     );
     const notFoundPayload = await notFoundResponse.json();
@@ -434,7 +454,7 @@ async function runBatch4MarketCheck() {
     });
 
     // E3：统计口径（全局 counts.total 与当前结果 total 同时给出，且当前 ≤ 全局）
-    const summaryResponse = await fetch(`${DAEMON_URL}/market/query?limit=1`, {
+    const summaryResponse = await fetch(`${daemonUrl}/market/query?limit=1`, {
       redirect: 'follow',
     });
     const summaryPayload = await summaryResponse.json();
@@ -470,7 +490,7 @@ async function runBatch4MarketCheck() {
       name,
       verdict: 'blocked',
       assertions,
-      blockedReason: `daemon 不可达（${DAEMON_URL}）：工作包 E 的真数据面断言无面可判（${String(error)}）。`,
+      blockedReason: `daemon 不可达（${daemonUrl}）：工作包 E 的真数据面断言无面可判（${String(error)}）。`,
     };
   }
 }
@@ -483,11 +503,38 @@ evidence.checks.push(tokenCheck);
 const coverageCheck = runStateCoverageCheck();
 evidence.checks.push(coverageCheck);
 
-const daemonCheck = await runDaemonCheck();
-evidence.checks.push(daemonCheck);
+// daemon 来源：显式 DF_DAEMON_URL → 外部实例；未设 → 自起夹具（无缺省实例、禁连 4318）。
+let daemonResolveError = null;
+if (skipDaemon) {
+  evidence.params.daemon = { mode: 'skipped', url: null };
+} else {
+  try {
+    activeDaemon = await resolveDaemon({ label: 'verify-market' });
+    daemonUrl = activeDaemon.url;
+    evidence.params.daemonUrl = daemonUrl;
+    evidence.params.daemon = { mode: activeDaemon.mode, url: daemonUrl };
+  } catch (error) {
+    daemonResolveError = error;
+    evidence.params.daemon = { mode: 'fixture-failed', url: null };
+  }
+}
 
-const batch4Check = await runBatch4MarketCheck();
-evidence.checks.push(batch4Check);
+if (daemonResolveError !== null) {
+  const detail = String(daemonResolveError?.message ?? daemonResolveError).slice(0, 1000);
+  evidence.checks.push({
+    id: 'daemon-fixture',
+    name: 'daemon 来源（DF_DAEMON_URL 未设 → 自起夹具）',
+    verdict: 'blocked',
+    assertions: [{ name: '夹具 daemon 起得来', expected: '可达', actual: detail, ok: false }],
+    blockedReason: `夹具 daemon 起不来（DF_DAEMON_URL 未设）：${detail}。口径：显式 DF_DAEMON_URL 或自起夹具，禁止缺省连开发机实例。`,
+  });
+} else {
+  const daemonCheck = await runDaemonCheck();
+  evidence.checks.push(daemonCheck);
+
+  const batch4Check = await runBatch4MarketCheck();
+  evidence.checks.push(batch4Check);
+}
 
 // 证据里的 diff 段（自设计页无像素对照：diff 全零 + 说明；字段保留以对齐验收标准 §4）
 evidence.diff = {
@@ -505,9 +552,11 @@ const blocked = evidence.checks.find((check) => check.verdict === 'blocked');
 const failed = evidence.checks.find((check) => check.verdict === 'fail');
 
 if (blocked !== undefined) {
+  await releaseDaemon();
   finish(evidence, 2, `verify-market：阻塞 —— ${blocked.blockedReason ?? blocked.name}`);
 }
 if (failed !== undefined) {
+  await releaseDaemon();
   const detail =
     failed.violations !== undefined && failed.violations.length > 0
       ? failed.violations
@@ -524,6 +573,7 @@ if (failed !== undefined) {
   );
 }
 
+await releaseDaemon();
 finish(
   evidence,
   0,

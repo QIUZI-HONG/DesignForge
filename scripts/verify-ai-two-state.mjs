@@ -36,6 +36,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createAiRunReader } from '../apps/web/src/features/ai/stream.ts';
+import { freePort } from './lib/gates.mjs';
 import { runUiMountCheck } from './lib/ui-mount.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -272,6 +273,8 @@ async function main() {
     mock = await startMockUpstream();
     console.log(`[verify-ai-two-state] mock 上游就绪：${mock.baseUrl}（本机回环，不出机）`);
 
+    // 端口纪律（arch-05）：显式空闲端口，不让 daemon 落到缺省 4318 端口窗（开发机真实例领地）。
+    const daemonPort = await freePort();
     child = spawn(
       process.execPath,
       [
@@ -286,7 +289,7 @@ async function main() {
       {
         cwd: REPO_ROOT,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, DF_DEEPSEEK_API_KEY: '' },
+        env: { ...process.env, DF_DEEPSEEK_API_KEY: '', DF_PORT: String(daemonPort) },
       },
     );
     child.stdout.on('data', (chunk) => logChunks.push(chunk.toString()));
