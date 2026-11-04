@@ -29,6 +29,11 @@ describe('ipc · 错误码表', () => {
     expect(DF_ERROR_CODES).toContain('config_invalid');
   });
 
+  it('host_not_allowed 映射 403（Host allowlist；与 mcp_ack_invalid 同属 403 家族）', () => {
+    expect(DF_ERROR_CODES).toContain('host_not_allowed');
+    expect(DF_ERROR_HTTP_STATUS.host_not_allowed).toBe(403);
+  });
+
   it('未启动态与缺模型态映射为非 2xx（前端可分支）', () => {
     expect(DF_ERROR_HTTP_STATUS.comfy_unreachable).toBe(503);
     expect(DF_ERROR_HTTP_STATUS.comfy_model_missing).toBe(422);

@@ -10,8 +10,10 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { makeQueryResponse } from '@/features/market/__fixtures__/market';
-import { FEEDBACK_KEY } from '@/features/market/feedback';
+import { FEEDBACK_KEY, marketFixtures } from '@/features/market';
+
+// 夹具经 market 公开面取（`marketFixtures` 命名空间），不引 `__fixtures__` 深路径
+const { makeQueryResponse } = marketFixtures;
 
 import MarketPanelPage from './page';
 
