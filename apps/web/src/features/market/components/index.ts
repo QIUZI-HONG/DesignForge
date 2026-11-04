@@ -20,7 +20,9 @@ export { FilterBar, type FilterBarProps } from './FilterBar';
 export { HighlightedText } from './HighlightedText';
 export { LoadConfirmDialog, type LoadConfirmDialogProps } from './LoadConfirmDialog';
 export { MarketCard, type MarketCardProps } from './MarketCard';
+export { MarketPanelBody } from './MarketPanelBody';
 export {
+  MarketCollectHint,
   type MarketEmptyKind,
   MarketEmptyState,
   MarketErrorState,

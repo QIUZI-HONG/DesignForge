@@ -21,16 +21,20 @@ import { lstat, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import type {
   DfgManifest,
   DfgPageMeta,
+  DocumentDetail,
   DocumentListResponse,
   DocumentListWarning,
   DocumentSummary,
 } from '@dforge/contracts';
 import {
+  DEFAULT_PAGE_ID,
+  DEFAULT_PAGE_NAME,
   DFG_DOCUMENT_SUFFIX,
   DFG_MANIFEST_SCHEMA,
   documentIdFromName,
   isDfgManifest,
   isValidDocumentName,
+  pageFileId,
 } from '@dforge/contracts';
 
 import type { ConfigStore } from '../config/store.ts';
@@ -84,12 +88,20 @@ interface DocPaths {
 export interface DocumentStore {
   list(): Promise<DocumentListResponse>;
   create(name: string): Promise<StoreResult<DocumentSummary>>;
-  get(documentId: string): Promise<StoreResult<DocumentSummary>>;
+  /** 文档详情（摘要 + manifest 页清单——页集有洞时按 id 原样给出，不靠下标补位）。 */
+  get(documentId: string): Promise<StoreResult<DocumentDetail>>;
   rename(documentId: string, name: string): Promise<StoreResult<DocumentSummary>>;
   remove(documentId: string): Promise<StoreResult<{ id: string }>>;
   readPage(documentId: string, pageId: string): Promise<StoreResult<PageReadResult>>;
   savePage(documentId: string, pageId: string, body: unknown): Promise<StoreResult<DfgPageMeta>>;
-  createPage(documentId: string, name: string): Promise<StoreResult<DfgPageMeta>>;
+  /**
+   * 建页：缺省跳号分配（`page-N`）；`options.id` 给定时按该 id 建页（已存在 → `doc_exists`）。
+   */
+  createPage(
+    documentId: string,
+    name: string,
+    options?: { id?: string },
+  ): Promise<StoreResult<DfgPageMeta>>;
   deletePage(
     documentId: string,
     pageId: string,
@@ -101,6 +113,15 @@ const DOC_FILE_MODE = 0o644;
 
 /** 正文嵌套深度上限：超过则 4xx 拒绝（`JSON.stringify` 递归序列化会栈溢出 → 500）。 */
 const MAX_BODY_DEPTH = 1024;
+
+/** 页面正文文件名后缀（`pages/<pageId>.json`）。 */
+const PAGE_FILE_SUFFIX = '.json';
+
+/**
+ * 页 id 的大小写归一键（Security S1）：macOS/Windows 大小写不敏感文件系统上
+ * `PAGE-1` 与 `page-1` 指向同一文件，占用判定必须按归一后比较，否则会绕过 409 清空既有正文。
+ */
+const foldPageId = (pageId: string): string => pageId.toLowerCase();
 
 /** manifest 提交的有界重试次数（跨进程并发写者的收敛上界；用尽 → `conflict`）。 */
 const MAX_COMMIT_ATTEMPTS = 3;
@@ -173,8 +194,24 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       paths.root,
       `${documentId}${DFG_DOCUMENT_SUFFIX}`,
       'pages',
-      `${pageId}.json`,
+      `${pageId}${PAGE_FILE_SUFFIX}`,
     );
+  };
+
+  /**
+   * 目标目录内既有页文件名（去掉 `.json`）——判定「已占用」的第二来源（Security S1）：
+   * manifest 未登记但盘上残留的 `pages/<id>.json` 同样不得被建页覆盖。
+   * 目录暂不可读时按空集处理，写前的 `lstat` 仍在提交内兜底。
+   */
+  const listPageIdsOnDisk = async (pagesDir: string): Promise<string[]> => {
+    try {
+      const entries = await readdir(pagesDir);
+      return entries
+        .filter((entry) => entry.endsWith(PAGE_FILE_SUFFIX))
+        .map((entry) => entry.slice(0, -PAGE_FILE_SUFFIX.length));
+    } catch {
+      return [];
+    }
   };
 
   /** 读取并校验 manifest（含 `pages[].id` —— 克隆来的 `.dfg` 是不可信输入）。 */
@@ -238,6 +275,16 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       sizeBytes,
     };
   };
+
+  /** 详情 = 摘要 + manifest 页清单（页面元数据按 manifest 顺序；不读正文）。 */
+  const detailOf = async (
+    documentId: string,
+    paths: DocPaths,
+    manifest: DfgManifest,
+  ): Promise<DocumentDetail> => ({
+    ...(await summaryOf(documentId, paths, manifest)),
+    pages: manifest.pages.map((page) => ({ ...page })),
+  });
 
   /**
    * manifest 读改写提交（**必须在 `lock.run(documentId)` 内调用**）：
@@ -336,9 +383,9 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           version: 1,
           createdAt: now,
           updatedAt: now,
-          pages: [{ id: 'page-1', name: '页面 1', updatedAt: now }],
+          pages: [{ id: DEFAULT_PAGE_ID, name: DEFAULT_PAGE_NAME, updatedAt: now }],
         };
-        const pagePath = await resolvePagePath(paths.value, id, 'page-1');
+        const pagePath = await resolvePagePath(paths.value, id, DEFAULT_PAGE_ID);
         if (pagePath === null) return invalidPageId();
         await writeFileAtomic(pagePath, '{}\n', DOC_FILE_MODE);
         await writeFileAtomic(
@@ -350,12 +397,12 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       });
     },
 
-    async get(documentId: string): Promise<StoreResult<DocumentSummary>> {
+    async get(documentId: string): Promise<StoreResult<DocumentDetail>> {
       const paths = await resolveDocPaths(documentId);
       if (!paths.ok) return paths;
       const manifest = await readManifestAt(paths.value, documentId);
       if (!manifest.ok) return manifest;
-      return { ok: true, value: await summaryOf(documentId, paths.value, manifest.value) };
+      return { ok: true, value: await detailOf(documentId, paths.value, manifest.value) };
     },
 
     async rename(documentId: string, name: string): Promise<StoreResult<DocumentSummary>> {
@@ -499,7 +546,11 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       });
     },
 
-    async createPage(documentId: string, name: string): Promise<StoreResult<DfgPageMeta>> {
+    async createPage(
+      documentId: string,
+      name: string,
+      options?: { id?: string },
+    ): Promise<StoreResult<DfgPageMeta>> {
       if (!isValidDocumentName(name)) {
         return {
           ok: false,
@@ -508,17 +559,52 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           details: { name },
         };
       }
+      const requestedId = options?.id;
+      if (requestedId !== undefined && !isValidPageId(requestedId)) return invalidPageId();
       const paths = await resolveDocPaths(documentId);
       if (!paths.ok) return paths;
       return lock.run(documentId, async () => {
         return commitManifest(documentId, paths.value, async (current) => {
-          // 页面 id 递增分配（page-N），跳过已占用的编号；重试路径上按最新状态重算
-          const taken = new Set(current.pages.map((page) => page.id));
+          // 「已占用」= manifest 页 id ∪ 目标目录内既有文件名，按大小写归一后比较
+          // （Security S1：大小写不敏感文件系统上 PAGE-1/page-1 是同一文件；残留页文件也不得覆盖）
+          const taken = new Map<string, string>();
+          for (const page of current.pages) taken.set(foldPageId(page.id), page.id);
+          for (const id of await listPageIdsOnDisk(paths.value.pagesDir)) {
+            if (!taken.has(foldPageId(id))) taken.set(foldPageId(id), id);
+          }
+          if (requestedId !== undefined) {
+            const conflictId = taken.get(foldPageId(requestedId));
+            if (conflictId !== undefined) {
+              return {
+                ok: false,
+                result: {
+                  ok: false,
+                  code: 'doc_exists',
+                  message: '页面 id 已被本文档占用',
+                  details: { documentId, pageId: requestedId, conflictId },
+                },
+              };
+            }
+          }
+          // 缺省：页面 id 递增分配（page-N），跳过已占用的编号（含大小写归一/盘上残留）；重试路径上按最新状态重算
           let counter = current.pages.length + 1;
-          while (taken.has(`page-${counter}`)) counter += 1;
-          const pageId = `page-${counter}`;
+          while (taken.has(foldPageId(pageFileId(counter - 1)))) counter += 1;
+          const pageId = requestedId ?? pageFileId(counter - 1);
           const pagePath = await resolvePagePath(paths.value, documentId, pageId);
           if (pagePath === null) return { ok: false, result: invalidPageId() };
+          // 写前存在性检查（第二层，Security S1）：目标文件已存在即拒绝，绝不覆盖既有正文
+          const existing = await lstat(pagePath).catch(() => null);
+          if (existing !== null) {
+            return {
+              ok: false,
+              result: {
+                ok: false,
+                code: 'doc_exists',
+                message: '页面文件已存在于磁盘（拒绝覆盖既有正文）',
+                details: { documentId, pageId, conflictId: pageId },
+              },
+            };
+          }
           const now = new Date().toISOString();
           const page: DfgPageMeta = { id: pageId, name: name.trim(), updatedAt: now };
           await writeFileAtomic(pagePath, '{}\n', DOC_FILE_MODE);

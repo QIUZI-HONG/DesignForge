@@ -48,6 +48,9 @@ describe('HomeTopbar · 新建菜单（B5）', () => {
     expect(screen.getByRole('menuitem', { name: /设计文件/ })).toBeDefined();
     const template = screen.getByRole('menuitem', { name: /从模板新建/ });
     expect(template.getAttribute('aria-disabled')).toBe('true');
+    // 票 07 · spec P1-3：悬停给禁用原因（既有机制不回退）
+    await userEvent.hover(template);
+    expect((await screen.findByRole('tooltip')).textContent).toBe('模板库随技能市场接入后可用');
   });
 
   it('选择「设计文件」→ onCreateDesignFile', async () => {

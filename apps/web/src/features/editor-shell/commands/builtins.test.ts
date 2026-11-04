@@ -58,10 +58,9 @@ describe('builtinCommands', () => {
     expect(getCanvasHudSnapshot().text).toBeNull();
   });
 
-  it('视图命令：命令面板与快捷键说明各自开浮层', async () => {
+  it('视图命令：快捷键说明开浮层；命令面板不再由壳层注册（票 04：归命令面板域全局宿主）', async () => {
     const commands = builtinCommands();
-    await commands.find((item) => item.id === 'view.commandPalette')?.run();
-    expect(useEditorUi.getState().commandPaletteOpen).toBe(true);
+    expect(commands.find((item) => item.id === 'view.commandPalette')).toBeUndefined();
 
     await commands.find((item) => item.id === 'help.shortcuts')?.run();
     expect(useEditorUi.getState().shortcutsOpen).toBe(true);

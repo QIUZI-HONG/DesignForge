@@ -1,0 +1,7 @@
+{
+  "ticket": "fe-10",
+  "gate": "verify-ai-two-state",
+  "meta": { "stepsTotal": 13, "stepsFailed": 0 },
+  "blockedReason": "",
+  "exitCode": 2
+}

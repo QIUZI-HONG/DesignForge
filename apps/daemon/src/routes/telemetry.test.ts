@@ -119,4 +119,55 @@ describe('telemetry · 本地 JSONL（默认仅本地）', () => {
       await daemon.cleanup();
     }
   });
+
+  it('payload 形状校验先于任何写路径：数组/原始值/null → 400，events.jsonl 无半行（tp2-01 · D-1）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      // 先落一条合法事件作对照基线
+      const baseline = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/telemetry/events',
+        payload: { name: 'doc.created', payload: { ok: 1 } },
+      });
+      expect(baseline.statusCode).toBe(200);
+
+      // 数组 / 原始值 / null（普通对象之外的全档）→ 400 telemetry_invalid_event
+      for (const payload of [[1, 2, 3], 'not-an-object', 42, null]) {
+        const rejected = await injectJson(daemon.app, {
+          method: 'POST',
+          url: '/telemetry/events',
+          payload: { name: 'doc.created', payload },
+        });
+        expect(rejected.statusCode, JSON.stringify(payload)).toBe(400);
+        expect((rejected.payload as { error: { code: string } }).error.code).toBe(
+          'telemetry_invalid_event',
+        );
+      }
+
+      // E4 实测复现路径（原样语料）：必须 4xx 统一信封，不得 ECONNRESET
+      const e4 = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/telemetry/events',
+        payload: { name: 'e4.fuzz', payload: [1, 2, 3] },
+      });
+      expect(e4.statusCode).toBe(400);
+      expect((e4.payload as { error: { code: string } }).error.code).toBe(
+        'telemetry_invalid_event',
+      );
+
+      // daemon 存活、后续请求正常
+      const health = await injectJson(daemon.app, { method: 'GET', url: '/health' });
+      expect(health.statusCode).toBe(200);
+
+      // 无半行：events.jsonl 每行都是完整 JSON，且只有对照那一条合法事件
+      const raw = await readFile(join(daemon.dataRoot, EVENTS_PATH_SUFFIX), 'utf8');
+      const lines = raw.split('\n').filter((line) => line.trim().length > 0);
+      expect(lines).toHaveLength(1);
+      const parsed = JSON.parse(lines[0] ?? '') as { name: string; payload: unknown };
+      expect(parsed.name).toBe('doc.created');
+      expect(parsed.payload).toEqual({ ok: 1 });
+    } finally {
+      await daemon.cleanup();
+    }
+  });
 });

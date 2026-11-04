@@ -30,6 +30,7 @@ import { createEditorWorkspace, EMPTY_PRESET } from './workspace-session';
 interface FakeDocument {
   name: string;
   pages: Map<string, unknown>;
+  pageNames: Map<string, string>;
   nextPageNumber: number;
 }
 
@@ -79,8 +80,14 @@ function createFakeDaemon(): FakeDaemon {
     if (method === 'POST' && path === '/documents') {
       const name = String(body.name ?? '');
       if (documents.has(name)) return respond(409, apiFailure('doc_exists', '同名文档已存在'));
-      documents.set(name, { name, pages: new Map(), nextPageNumber: 1 });
-      return respond(201, apiSuccess({ document: { id: name, name, pageCount: 0 } }));
+      // 与真 daemon 一致：新建设计文件落一个 `{}` 占位页 page-1
+      documents.set(name, {
+        name,
+        pages: new Map([['page-1', {}]]),
+        pageNames: new Map([['page-1', '页面 1']]),
+        nextPageNumber: 2,
+      });
+      return respond(201, apiSuccess({ document: { id: name, name, pageCount: 1 } }));
     }
     const documentMatch = /^\/documents\/([^/]+)$/.exec(path);
     if (method === 'GET' && documentMatch !== null) {
@@ -90,7 +97,17 @@ function createFakeDaemon(): FakeDaemon {
       return respond(
         200,
         apiSuccess({
-          document: { id, name: document.name, pageCount: document.pages.size },
+          document: {
+            id,
+            name: document.name,
+            pageCount: document.pages.size,
+            // 详情含 manifest 页清单（load 按页 id 读取，不按下标探测）
+            pages: [...document.pages.keys()].map((pageId) => ({
+              id: pageId,
+              name: document.pageNames.get(pageId) ?? pageId,
+              updatedAt: '2026-11-04T00:00:00.000Z',
+            })),
+          },
         }),
       );
     }
@@ -119,9 +136,13 @@ function createFakeDaemon(): FakeDaemon {
       const id = decodeURIComponent(pageCreateMatch[1] as string);
       const document = documents.get(id);
       if (document === undefined) return respond(404, apiFailure('doc_not_found', '文档不存在'));
-      const pageId = `page-${String(document.nextPageNumber)}`;
-      document.nextPageNumber += 1;
-      document.pages.set(pageId, null);
+      const requested = typeof body.id === 'string' ? body.id : undefined;
+      const pageId = requested ?? `page-${String(document.nextPageNumber)}`;
+      if (document.pages.has(pageId))
+        return respond(409, apiFailure('doc_exists', '页面 id 已存在'));
+      if (requested === undefined) document.nextPageNumber += 1;
+      document.pages.set(pageId, {});
+      document.pageNames.set(pageId, String(body.name ?? ''));
       return respond(201, apiSuccess({ page: { id: pageId, name: String(body.name ?? '') } }));
     }
     return respond(404, apiFailure('not_found', `未实现的路由：${method} ${path}`));
@@ -131,11 +152,17 @@ function createFakeDaemon(): FakeDaemon {
     fetchImpl: fetchImpl as unknown as typeof fetch,
     documents,
     seed(documentId, pages) {
-      const target: FakeDocument = { name: documentId, pages: new Map(), nextPageNumber: 1 };
+      const target: FakeDocument = {
+        name: documentId,
+        pages: new Map(),
+        pageNames: new Map(),
+        nextPageNumber: 1,
+      };
       const envelope = createDocument({ id: documentId, name: documentId, pages });
       pages.forEach((page, index) => {
         const pageId = `page-${String(index + 1)}`;
         target.pages.set(pageId, encodePageBody(envelope, page));
+        target.pageNames.set(pageId, page.name);
         target.nextPageNumber = index + 2;
       });
       documents.set(documentId, target);
@@ -162,21 +189,22 @@ function makeWorkspace(daemon: FakeDaemon) {
 }
 
 describe('载入（?documentId= → daemon 文档）', () => {
-  it('载入后：共享命令栈换成 daemon 文档，文档名/页面 id/节点内容全部就位', async () => {
+  it('载入后：共享命令栈换成 daemon 文档，文档名/页 id（= daemon 页 id）/节点内容全部就位', async () => {
     const daemon = createFakeDaemon();
     daemon.seed('验收演示稿', [pageWithRect('page-loaded', 'n_saved')]);
     const workspace = makeWorkspace(daemon);
 
     // 载入前：内存「未命名文件」（这正是缺陷现场用户看到的空画布）
-    expect(workspace.canvas.document().pages[0]?.id).toBe('page-editor');
+    expect(workspace.canvas.document().pages[0]?.id).toBe('page-1');
 
     const result = await workspace.documents.load('验收演示稿');
     expect(result.ok).toBe(true);
 
     const document = workspace.canvas.document();
     expect(document.name).toBe('验收演示稿');
-    expect(workspace.canvas.page().id).toBe('page-loaded');
-    expect(workspace.pageId).toBe('page-loaded');
+    // 不变量：load 后 page.id = daemon 页 id（正文里的旧 id `page-loaded` 不冒充身份）
+    expect(workspace.canvas.page().id).toBe('page-1');
+    expect(workspace.pageId).toBe('page-1');
     expect(workspace.canvas.page().nodes.n_saved?.type).toBe('rect');
     // 载入 = 与 daemon 同步：不是「未保存」，且选择集清空（旧选择的 id 可能已不存在）
     expect(workspace.canvas.store.getState().selection.ids).toEqual([]);
@@ -198,7 +226,7 @@ describe('载入（?documentId= → daemon 文档）', () => {
     expect(workspace.documents.store.getState().error).toContain('doc_not_found');
     // 文档真值保持原样（不能因为载入失败把用户当前内容清掉）
     expect(workspace.canvas.document().name).toBe('未命名文件');
-    expect(workspace.canvas.page().id).toBe('page-editor');
+    expect(workspace.canvas.page().id).toBe('page-1');
   });
 
   it('打开新建（daemon 尚无设计内容，正文为空对象）的文档：给空画布可编辑，不是错误态', async () => {
@@ -207,6 +235,7 @@ describe('载入（?documentId= → daemon 文档）', () => {
     daemon.documents.set('刚建的文件', {
       name: '刚建的文件',
       pages: new Map([['page-1', {}]]),
+      pageNames: new Map([['page-1', '页面 1']]),
       nextPageNumber: 2,
     });
     const workspace = makeWorkspace(daemon);

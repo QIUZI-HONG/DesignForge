@@ -24,5 +24,9 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test-setup.ts'],
+    // isolate: false——依据 tp2 优化批实验：两轮 1700 全绿、web 测试 12.4s→6.4s；RTL 每用例自动清理不受影响；仅 web 包启用。
+    // tp2-05 重新落地：前置条件=F-3 五点卫生根治已入（test-setup.ts 全局兜底三件套 + 五点逐条），
+    // 判定性验收=全 workspace `pnpm verify` ≥2 轮绿（上次翻车现场即 E1' 全链，见企业报告 v1.1 §isolate）。
+    isolate: false,
   },
 });

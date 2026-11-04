@@ -31,10 +31,18 @@ export function useGlobalShortcuts(): void {
       const editable = isEditableTarget(event.target);
       for (const command of commands) {
         if (command.shortcut === undefined) continue;
-        const parsed = parseShortcut(command.shortcut);
-        if (parsed === null) continue;
-        if (!matchesShortcut(event, parsed)) continue;
-        if (!hasModifier(parsed) && editable) continue;
+        // 主键位与附加键位（别名）同一派发口径：别名命中 = 命令命中（票 04 的 ⌘/ 别名走这里）
+        const candidates = [command.shortcut, ...(command.shortcutAliases ?? [])];
+        let matched: ReturnType<typeof parseShortcut> = null;
+        for (const text of candidates) {
+          const parsed = parseShortcut(text);
+          if (parsed !== null && matchesShortcut(event, parsed)) {
+            matched = parsed;
+            break;
+          }
+        }
+        if (matched === null) continue;
+        if (!hasModifier(matched) && editable) continue;
         if (command.enabled?.() === false) continue;
 
         event.preventDefault();

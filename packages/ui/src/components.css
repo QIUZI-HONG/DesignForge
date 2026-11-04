@@ -745,6 +745,29 @@
   cursor: pointer;
 }
 
+.dfg-state__diagnostics-detail {
+  word-break: break-all;
+}
+
+/* 可折叠技术详情（票 06 / P1-2）：错误码 + 原始技术信息沉进折叠（默认收起，报障可引用） */
+.dfg-technical-details__toggle {
+  cursor: pointer;
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfg-technical-details__code {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-disabled);
+  letter-spacing: var(--dfg-letter-spacing-wide);
+}
+
+.dfg-technical-details__raw {
+  font-size: var(--dfg-font-size-11);
+  color: var(--dfg-color-text-secondary);
+  word-break: break-all;
+}
+
 /* ---------- Spinner / 骨架 / 进度（F13：加载态族） ---------- */
 
 .dfg-spinner {
@@ -1074,6 +1097,35 @@
   outline: none;
 }
 
+/* 空名提交的就地提示（票 11）：行内右缘短文案，danger 语义色（令牌，禁裸值） */
+.dfg-tree__rename-error {
+  flex: none;
+  padding-inline-start: var(--dfg-space-2);
+  font-size: var(--dfg-font-size-12);
+  color: var(--dfg-color-danger);
+  white-space: nowrap;
+}
+
+/* 行尾控件槽（票 11：显隐/锁定等行级开关）：DOM 常驻、按行状态显现；
+   显现节奏走 duration-fast，颜色继承 IconButton 的图标语义色 */
+.dfg-tree__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--dfg-space-1);
+  margin-inline-start: auto;
+  opacity: 0;
+  transition: opacity var(--dfg-duration-fast) var(--dfg-easing-standard);
+}
+
+/* 显现口径：选中行 → 行 hover / 行内焦点（含控件自身）/ 合成 hover 态（升序防降特异性告警） */
+.dfg-tree__node--selected .dfg-tree__actions,
+.dfg-tree__node:hover .dfg-tree__actions,
+.dfg-tree__node:focus-within .dfg-tree__actions,
+.dfg-tree__node.dfg-state-hover .dfg-tree__actions {
+  opacity: 1;
+}
+
 .dfg-tree__empty {
   padding: var(--dfg-space-4);
   font-size: var(--dfg-font-size-12);
@@ -1081,87 +1133,102 @@
   text-align: center;
 }
 
-/* ---------- NumberField / Scrubber（F17 数值输入族，RW-07） ---------- */
+/* ---------- NumberField（F17 数值输入族，RW-07） ---------- */
 
-.dfg-numfield__input {
-  text-align: left;
-}
+/* 类名沿用 Inspector 活件时期的 `dfi-*`（arch-fix2 发现 A）：外观逐字冻结——
+   规则从 apps/web/src/features/inspector/inspector.css **原样迁入**，只把依赖 app 的
+   `.dfi-hint` 合入 `.dfi-numberfield__notice`（DS 件离开 Inspector 仍完整）。
+   app 侧仍有 `.dfi-effectrow__params > .dfi-numberfield-cell` 的布局微调，故类名不改写。 */
 
-.dfg-numfield__unit {
-  flex: 0 0 auto;
-  font-size: var(--dfg-font-size-control);
-  color: var(--dfg-color-text-secondary);
-  user-select: none;
-}
-
-.dfg-numfield__steppers {
-  display: inline-flex;
+/* 字段单元（G3）：门禁/测试挂点与状态所在层；控件几何仍由内层 .dfi-numberfield 决定。
+   行内提示（拒绝/夹取）在其下自然占位——不加绝对定位，避免压到相邻行。 */
+.dfi-numberfield-cell {
+  display: flex;
+  flex: 1 1 0;
   flex-direction: column;
-  flex: 0 0 auto;
+  gap: var(--dfg-space-1);
+  min-width: 0;
 }
 
-.dfg-numfield__step {
-  display: inline-flex;
+.dfi-numberfield {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 0;
   align-items: center;
-  justify-content: center;
-  width: var(--dfg-space-3);
-  height: calc(var(--dfg-control-height-md) / 2);
+  gap: var(--dfg-space-1);
+  min-width: 0;
+  height: var(--dfg-control-height-md);
+  padding: 0 var(--dfg-control-padding-x-sm);
+  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
+  border-radius: var(--dfg-radius-sm);
+  background: var(--dfg-color-surface-subtle);
+}
+
+/* 控件在字段单元里是块级整宽（列向布局下不吃 flex 基准，保持 28 高） */
+.dfi-numberfield-cell > .dfi-numberfield {
+  flex: none;
+  width: 100%;
+}
+
+.dfi-numberfield:focus-within {
+  border-color: var(--dfg-color-focus-ring);
+}
+
+.dfi-numberfield-cell[data-df-state="disabled"] .dfi-numberfield {
+  opacity: 0.6;
+}
+
+.dfi-numberfield__label {
+  flex: none;
   padding: 0;
-  border: 0;
+  border: none;
   background: transparent;
-  color: var(--dfg-color-icon-secondary);
-  cursor: pointer;
-}
-
-.dfg-numfield__step:hover:not(:disabled) {
-  color: var(--dfg-color-icon-primary);
-}
-
-.dfg-numfield__step:disabled {
-  color: var(--dfg-color-icon-disabled);
-  cursor: not-allowed;
-}
-
-.dfg-numfield--invalid {
-  border-color: var(--dfg-color-danger);
-}
-
-/* 拖拽改值进行中：横向缩放暗示 + 防误选文本 */
-.dfg-numfield--scrubbing {
-  cursor: ew-resize;
-  user-select: none;
-}
-
-.dfg-numfield__status {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  color: var(--dfg-color-icon-secondary);
-}
-
-.dfg-scrubber {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--dfg-icon-gap);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
   font: inherit;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
   cursor: ew-resize;
   user-select: none;
 }
 
-.dfg-scrubber--dragging {
-  cursor: ew-resize;
+.dfi-numberfield__input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dfg-color-text-primary);
+  font: inherit;
+  text-align: right;
 }
 
-.dfg-scrubber:focus-visible {
-  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
-  outline-offset: var(--dfg-focus-ring-offset);
+.dfi-numberfield__input:focus {
+  outline: none;
 }
 
-/* ---------- Swatch / ColorField / TypographyField（F18 色板与文字族，RW-07） ---------- */
+.dfi-numberfield-cell[data-df-state="mixed"] .dfi-numberfield__input {
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfi-numberfield__suffix {
+  flex: none;
+  color: var(--dfg-color-text-secondary);
+}
+
+.dfi-numberfield-cell[data-df-state="disabled"] .dfi-numberfield__label {
+  cursor: default;
+}
+
+/* 行内提示（G3）：拒绝/夹取说明；11 号次级色，随字段单元自然占位。
+   字号/颜色自带（不再依赖 app 的 .dfi-hint）——迁移前由 .dfi-hint + 本规则合成的
+   计算样式不变：11 号次级色 + 右对齐 + 零外边距。 */
+.dfi-numberfield__notice {
+  margin: 0;
+  color: var(--dfg-color-text-secondary);
+  font-size: var(--dfg-font-size-11);
+  text-align: right;
+}
+
+/* ---------- Swatch / ColorField（F18 色板族，RW-07） ---------- */
 
 .dfg-swatch {
   position: relative;
@@ -1228,46 +1295,6 @@ button.dfg-swatch:focus-visible {
 
 .dfg-colorfield--invalid {
   border-color: var(--dfg-color-danger);
-}
-
-.dfg-typography__controls {
-  display: flex;
-  gap: var(--dfg-space-2);
-}
-
-.dfg-typography__select {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: var(--dfg-control-height-md);
-  padding-inline: var(--dfg-control-padding-x-sm);
-  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
-  border-radius: var(--dfg-radius-md);
-  background-color: var(--dfg-color-surface);
-  color: var(--dfg-color-text-primary);
-  font-family: inherit;
-  font-size: var(--dfg-font-size-control);
-  cursor: pointer;
-  transition: border-color var(--dfg-duration-fast) var(--dfg-easing-standard);
-}
-
-.dfg-typography__select:hover:not(:disabled),
-.dfg-typography__select.dfg-state-hover:not(:disabled) {
-  border-color: var(--dfg-color-border-strong);
-}
-
-.dfg-typography__select:focus-visible {
-  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
-  outline-offset: var(--dfg-focus-ring-offset);
-}
-
-.dfg-typography__select[aria-invalid="true"] {
-  border-color: var(--dfg-color-danger);
-}
-
-.dfg-typography__select:disabled {
-  background-color: var(--dfg-color-surface-subtle);
-  color: var(--dfg-color-text-disabled);
-  cursor: not-allowed;
 }
 
 /* ---------- Tabs / TabPanel / Collapse（F19 页签与折叠族，RW-07） ---------- */
@@ -1454,7 +1481,6 @@ button.dfg-swatch:focus-visible {
   .dfg-input-wrap,
   .dfg-progress__bar,
   .dfg-tree__node,
-  .dfg-typography__select,
   .dfg-tabs__tab {
     transition: none;
   }

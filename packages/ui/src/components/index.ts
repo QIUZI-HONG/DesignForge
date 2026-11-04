@@ -2,7 +2,7 @@
  * 基础组件 barrel（@dforge/ui）。
  *
  * 组件清单与状态族归属见 `../state-families.ts`（F1/F2/F3/F11–F19 逐项打勾的唯一清单；
- * F16–F19 为 RW-07 编辑器组件补齐：树/数值/色板文字/页签折叠）。
+ * F16–F19 为 RW-07 编辑器组件补齐：树/数值/色板/页签折叠）。
  * 所有组件：props 不含业务文案（文案由调用方传）、禁裸值（样式全走令牌变量）。
  */
 
@@ -33,10 +33,9 @@ export {
 export { Input, type InputKind, type InputProps } from './Input';
 export { LoadingOverlay, type LoadingOverlayProps } from './LoadingOverlay';
 export { Modal, type ModalProps, type ModalSize } from './Modal';
-export { NumberField, type NumberFieldProps } from './NumberField';
+export { NumberField, type NumberFieldMessages, type NumberFieldProps } from './NumberField';
 export { Overlay, type OverlayProps } from './Overlay';
 export { Progress, type ProgressProps, type ProgressTone } from './Progress';
-export { Scrubber, type ScrubberProps } from './Scrubber';
 export {
   SegmentedControl,
   type SegmentedControlProps,
@@ -59,6 +58,7 @@ export {
   Tabs,
   type TabsProps,
 } from './Tabs';
+export { TechnicalDetails, type TechnicalDetailsProps } from './TechnicalDetails';
 export {
   type ToastAction,
   type ToastHandle,
@@ -70,8 +70,3 @@ export {
 } from './Toast';
 export { Tooltip, type TooltipPlacement, type TooltipProps } from './Tooltip';
 export { Tree, type TreeNodeSpec, type TreeProps } from './Tree';
-export {
-  TypographyField,
-  type TypographyFieldProps,
-  type TypographyOption,
-} from './TypographyField';

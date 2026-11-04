@@ -49,14 +49,13 @@ export {
   type ModalProps,
   type ModalSize,
   NumberField,
+  type NumberFieldMessages,
   type NumberFieldProps,
   Overlay,
   type OverlayProps,
   Progress,
   type ProgressProps,
   type ProgressTone,
-  Scrubber,
-  type ScrubberProps,
   SegmentedControl,
   type SegmentedControlProps,
   type SegmentedOption,
@@ -76,6 +75,8 @@ export {
   type TabSpec,
   Tabs,
   type TabsProps,
+  TechnicalDetails,
+  type TechnicalDetailsProps,
   type ToastAction,
   type ToastHandle,
   type ToastOptions,
@@ -88,9 +89,6 @@ export {
   Tree,
   type TreeNodeSpec,
   type TreeProps,
-  TypographyField,
-  type TypographyFieldProps,
-  type TypographyOption,
   useToast,
 } from './components/index';
 // 图标整体透出：单个图标（工具条/面板按名引用）与 ICONS 注册表（列举用）都要能取到
@@ -122,3 +120,13 @@ export {
   type TokenVars,
   themeOf,
 } from './tokens';
+// 草稿态 + 300ms 提交调度：跨控件的可复用原语（数值编辑 NumberField 与 inspector 文本草稿
+// 共用同一份计时/撤销粒度语义）。按 ADR-0004 ② 的「新增公开面 = 显式加行」登记为包公开面
+// （arch-fix4 · Spec P3 复核：它不是包内实现细节，而是「输入期间只改草稿、提交时刻才发命令」
+// 这一交互规格的公开承载）。
+export {
+  COMMIT_DELAY_MS,
+  type DraftCommit,
+  type DraftCommitOptions,
+  useDraftCommit,
+} from './utils/use-draft-commit';

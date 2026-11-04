@@ -15,6 +15,8 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { freePort } from './lib/gates.mjs';
+
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ARTIFACTS_DIR = join(REPO_ROOT, 'artifacts', 'verify-daemon');
 const EVIDENCE_OUTSIDE = join(homedir(), 'df-evidence', 'inf-01', 'verify-daemon.evidence.json');
@@ -448,6 +450,8 @@ async function main() {
   const logPath = join(ARTIFACTS_DIR, 'daemon.log');
 
   console.log('[verify-daemon] 启动 daemon（临时数据目录）…');
+  // 端口纪律（arch-05）：显式空闲端口，不让夹具落到缺省 4318 端口窗（开发机真实例领地）。
+  const daemonPort = await freePort();
   const child = spawn(
     process.execPath,
     [
@@ -460,7 +464,7 @@ async function main() {
     {
       cwd: REPO_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, DF_DEEPSEEK_API_KEY: '' },
+      env: { ...process.env, DF_DEEPSEEK_API_KEY: '', DF_PORT: String(daemonPort) },
     },
   );
 

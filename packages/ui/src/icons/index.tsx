@@ -271,6 +271,15 @@ export const LockIcon = createIcon(
   </>,
 );
 
+/** 未锁定（锁梁开启；图层行的锁定开关用）。 */
+export const UnlockIcon = createIcon(
+  'UnlockIcon',
+  <>
+    <path d="M10.6 6.6V5A2.6 2.6 0 0 0 5.9 3.6" />
+    <rect x="3.6" y="6.6" width="8.8" height="7" rx="1.6" />
+  </>,
+);
+
 // ---------------------------------------------------------------------------
 // 设计域（画布/图层/组件/框架/文本）
 // ---------------------------------------------------------------------------
@@ -330,7 +339,7 @@ export const BoxIcon = createIcon(
 // 编辑器补全（RW-07：图层树 / Inspector / 命令面板；用词对齐 Figma 中文界面）
 // ---------------------------------------------------------------------------
 
-/** 拖拽把手（图层树行拖拽排序、Scrubber 抓手）。 */
+/** 拖拽把手（图层树行拖拽排序、数值编辑的 scrub 抓手）。 */
 export const GripIcon = createIcon(
   'GripIcon',
   <>
@@ -453,6 +462,7 @@ export const ICONS = {
   EyeIcon,
   EyeOffIcon,
   LockIcon,
+  UnlockIcon,
   LayersIcon,
   ComponentIcon,
   FrameIcon,

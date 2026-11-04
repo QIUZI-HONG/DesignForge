@@ -6,11 +6,12 @@
  *   态 A「无 key 降级」：真实 daemon（临时数据目录、无凭据）→ `/ai/status` 未配置 + 降级提示；
  *       `/ai/chat`（SSE 与一次性）→ 降级响应与真响应**同构**；
  *   态 B「有 key + mock 上游流式」：真实 daemon + **本机 mock 上游**（OpenAI-compatible SSE，
- *       不出机）→ 流式 delta 累积、四步时序走完、`degraded:false`。
+ *       不出机）→ 流式 delta 累积、三段时序走完、`degraded:false`。
  *
  * 时序断言的真源：脚本直接导入前端适配层 `apps/web/src/features/ai/stream.ts`
- * （与抽屉是同一份代码）——把 daemon 原样吐出的 SSE 文本喂进去，断言步骤时序
- * queued → llm → validate → compile 与降级标记，即用户看到的时序。
+ * （与抽屉是同一份代码）——把 daemon 原样吐出的 SSE 文本喂进去，断言用户可见的
+ * 三段时序「queued → llm → 完成收口」（validate/compile 是 P5 扩展位，UI 不渲染、
+ * 不进时序——票 02 / spec P0-3）与降级标记，即用户看到的时序。
  *
  * 退出码（《前端验收标准 v1》§4，禁止假绿）：
  *   0 = 两态取证 + UI 挂载断言全过；
@@ -20,6 +21,8 @@
  *
  * 用法（仓库根执行）：
  *   node scripts/verify-ai-two-state.mjs [--verbose]
+ *   （本脚本直跑前端 `.ts` 适配层：node 22.6–23.5 需前置
+ *   `NODE_OPTIONS=--experimental-strip-types`——与 verify-perf 同口径；node ≥ 23.6 缺省可跑）
  * 环境变量：DF_EVIDENCE_DIR（证据根，默认 ~/df-evidence）、
  *   DF_WEB_URL（站点；未设置则自起 next dev，4420+ 端口）、
  *   BENCH_CHROME_EXECUTABLE（Chromium 路径；缺省读 ~/.cache/ms-playwright）。
@@ -33,6 +36,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createAiRunReader } from '../apps/web/src/features/ai/stream.ts';
+import { freePort } from './lib/gates.mjs';
 import { runUiMountCheck } from './lib/ui-mount.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -269,9 +273,13 @@ async function main() {
     mock = await startMockUpstream();
     console.log(`[verify-ai-two-state] mock 上游就绪：${mock.baseUrl}（本机回环，不出机）`);
 
+    // 端口纪律（arch-05）：显式空闲端口，不让 daemon 落到缺省 4318 端口窗（开发机真实例领地）。
+    const daemonPort = await freePort();
     child = spawn(
       process.execPath,
       [
+        // node 22.16 直跑 .ts 需要 strip-types（开发机实测：无旗标报 ERR_UNKNOWN_FILE_EXTENSION）
+        '--experimental-strip-types',
         join(REPO_ROOT, 'apps', 'daemon', 'src', 'main.ts'),
         '--data-root',
         join(tempRoot, 'data'),
@@ -281,7 +289,7 @@ async function main() {
       {
         cwd: REPO_ROOT,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, DF_DEEPSEEK_API_KEY: '' },
+        env: { ...process.env, DF_DEEPSEEK_API_KEY: '', DF_PORT: String(daemonPort) },
       },
     );
     child.stdout.on('data', (chunk) => logChunks.push(chunk.toString()));
@@ -316,10 +324,15 @@ async function main() {
     );
     record(
       'A.stream.steps-timeline',
-      timelineA.join('>') === 'queued>llm>validate>compile' &&
+      timelineA.join('>') === 'queued>llm' &&
         drivenA.snapshot.phase === 'done' &&
         drivenA.snapshot.degraded === true,
-      `四步时序 ${timelineA.join(' > ')}（角标「本地模板」依据 degraded=true）`,
+      `三段时序 排队 > 模型生成 > 完成收口（时间线 ${timelineA.join(' > ')}；完成段由 phase=done 派生；角标依据 degraded=true）`,
+    );
+    record(
+      'A.stream.no-fake-steps',
+      !timelineA.includes('validate') && !timelineA.includes('compile'),
+      `「校验/编译」不进时序（未真实发生的步骤不渲染——时间线 ${timelineA.join(' > ')}）`,
     );
 
     const onceA = await call(baseUrl, 'POST', '/ai/chat', {
@@ -350,7 +363,7 @@ async function main() {
       cloudCalls: 0,
     };
 
-    // —— UI 段（D1 挂载断言，真浏览器）：趁 daemon 仍无凭据，断言抽屉可见「本地模板」降级态 ——
+    // —— UI 段（D1 挂载断言，真浏览器）：趁 daemon 仍无凭据，断言抽屉可见「本地建议」降级态 ——
     evidence.uiEvidence = await probeUiMount({
       daemonUrl: baseUrl,
       degradedHint: statusA.json?.result?.degradedHint ?? '',
@@ -403,8 +416,11 @@ async function main() {
     const deltas = [...textB.matchAll(/"type":"delta","delta":"([^"]*)"/g)].map((m) => m[1]);
     record(
       'B.stream.steps-timeline',
-      timelineB.join('>') === 'queued>llm>validate>compile' && drivenB.snapshot.phase === 'done',
-      `四步时序 ${timelineB.join(' > ')}（与降级态同一路径）`,
+      timelineB.join('>') === 'queued>llm' &&
+        drivenB.snapshot.phase === 'done' &&
+        !timelineB.includes('validate') &&
+        !timelineB.includes('compile'),
+      `三段时序 排队 > 模型生成 > 完成收口（时间线 ${timelineB.join(' > ')}；与降级态同一路径，无 validate/compile）`,
     );
     record(
       'B.stream.content-accumulated',

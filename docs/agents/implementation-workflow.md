@@ -88,6 +88,17 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   **已实现并接入 CI**；`verify:engine` / `test:scripts` 同批入 CI；`verify:figma-baseline` 以
   「CI 无参照集 → 断言 `exit 2` 且日志点名『阻塞：参照集未冻结』」的**阻塞语义断言**入 CI（不是当绿）。
   仍为桩（`exit 2`、不接 CI）：`guard:deps` / `guard:mcp-contract` / `guard:channel-pairing`。
+- **守卫实况（2026-11-04 测试执行阶段 1 · tp1-05 后）**：FE-10 两态取证门禁接 CI——
+  `verify:mcp-stub`（MCP 确认桩契约：两态 + 显式桩标注，全程非浏览器，临时数据根不出机）
+  **已实现并接入 CI（must-green，完整判定 exit 0）**；
+  `verify:ai-two-state` / `verify:image-two-state`（AI 抽屉 / 出图面板两态）**已接 CI**，口径 =
+  「**数据面两态真跑 + UI 段阻塞语义断言**」：数据面两态（真实 daemon + mock 上游 / mock
+  ComfyUI + 临时数据根，不出机）在 CI 完整执行，CI 步骤断言 exit 0（全过）或「exit 2 且证据
+  JSON 数据面 0 失败 + 阻塞原因非空」——数据面违规（exit 1）与 bootstrap 阻塞（daemon 起不来，
+  留下失败步骤）都红，**exit 2 不是通过**；其 **UI 挂载段**（playwright-core + 真 Chromium 的
+  真点击断言）CI 无浏览器恒阻塞，**仍为挂点**，随浏览器门禁票接入。三脚本直跑前端 `.ts` 适配层，
+  CI 步骤设 `NODE_OPTIONS=--experimental-strip-types`（node 22.6–23.5 需要；22.18+ 缺省已开，
+  显式设置无害）。
 - **守卫输出口径（批次 3 收口 · code-review）**：`guard-vocab` 与 `guard-feature-boundaries` 的
   退出码优先级为「**违规 exit 1 优先于未判定 exit 2**」，但两类问题必须**同屏列出**
   （`✗` 违规明细 + `?` 未判定明细，结论行点名未判定计数）——阻塞信息不得被违规结论吞掉；
@@ -99,8 +110,13 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 - 常规链路（CI 与本地同一条）：`pnpm install --frozen-lockfile` → `pnpm lint` →
   `pnpm typecheck` → `pnpm test`；本地等价命令 `pnpm verify`。
 - **浏览器门禁（挂点，随票接入）**：`verify-figma-page|component|states|baseline`（逐页/逐组件对照）、
-  `verify-canvas`（画布挂载 6 断言）、`e2e:smoke`（10 步冒烟：拖画→持久化→导出/导入往返）、
-  壳内渲染一致性断言（FE-12）。
+  `verify-canvas`（画布挂载 6 断言）、`verify-command-palette`（票 04：面板成品形态——遮罩/居中卡片/
+  计算样式生效 + 速查卡视口内；脚本就绪，浏览器级复核待主会话登记）、
+  `verify-layers-reorder`（票 11：图层拖拽重排 + undo + 保存持久；脚本就绪，浏览器级复核待主会话登记）、
+  `verify-ruler-guides`（票 12：标尺拖出参考线 + 吸附贴线 + 拖回/右键删除 + 持久；脚本就绪，
+  浏览器级复核待主会话登记）、`verify-text-inline-edit`（票 13：画布文本双击改写 + 提交；脚本就绪，
+  浏览器级复核待主会话登记）、`e2e:smoke`（10 步冒烟：
+  拖画→持久化→导出/导入往返）、壳内渲染一致性断言（FE-12）。
 - **驱动口径**：`playwright-core 1.63.0` 锁 `chromium-1243`，headless + **生产构建**。
   **不要用 `next dev` 跑 live 浏览器门禁/取证**：Next 16 Turbopack dev 源在本机不加载
   客户端引导件（槽位/评审面挂不上，整树停在 SSR 空槽），断言会以「看不见入口」假红；

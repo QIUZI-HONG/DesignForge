@@ -43,6 +43,8 @@ export interface DocumentIssue {
     | 'missing-page'
     /** 节点形状缺字段/类型不对（不受信输入的守门，B5）。 */
     | 'missing-field'
+    /** 页面参考线形状非法（票 12：不受信输入的守门，口径同 missing-field）。 */
+    | 'invalid-guide'
     /** NaN / ±Infinity（序列化会静默折成 null → 类型漂移，B2）。 */
     | 'non-finite-number'
     /** 节点链嵌套超过 `MAX_NESTING_DEPTH`（A1：显式上限，替代原生栈溢出）。 */
@@ -496,6 +498,77 @@ export function validatePage(page: ScenePage, options: { path?: string } = {}): 
       pageId: page.id,
       path: bad.path,
     });
+  }
+
+  // 7) 页面参考线（票 12）：形状守门口径同节点（不受信输入打回）；
+  //    旧文档没有 guides 键——只在字段存在时校验（缺失 = 空参考线集，不报问题）。
+  const guides: unknown = (page as { guides?: unknown }).guides;
+  if (guides !== undefined && guides !== null) {
+    const guidePath = `${base}.guides`;
+    if (!Array.isArray(guides)) {
+      issues.push({
+        code: 'invalid-guide',
+        message: `${guidePath} 不是数组`,
+        pageId: page.id,
+        path: guidePath,
+      });
+    } else {
+      const seenGuideIds = new Set<string>();
+      guides.forEach((entry, index) => {
+        const path = `${guidePath}[${index}]`;
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+          issues.push({
+            code: 'invalid-guide',
+            message: `${path} 不是参考线对象`,
+            pageId: page.id,
+            path,
+          });
+          return;
+        }
+        const record = entry as Record<string, unknown>;
+        if (typeof record.id !== 'string' || record.id.length === 0) {
+          issues.push({
+            code: 'invalid-guide',
+            message: `${path}.id 缺失或不是字符串`,
+            pageId: page.id,
+            path: `${path}.id`,
+          });
+        } else if (seenGuideIds.has(record.id)) {
+          issues.push({
+            code: 'invalid-guide',
+            message: `参考线 id 重复：${record.id}`,
+            pageId: page.id,
+            path: `${path}.id`,
+          });
+        } else {
+          seenGuideIds.add(record.id);
+        }
+        if (record.axis !== 'x' && record.axis !== 'y') {
+          issues.push({
+            code: 'invalid-guide',
+            message: `${path}.axis 不是已知轴向：${String(record.axis)}`,
+            pageId: page.id,
+            path: `${path}.axis`,
+          });
+        }
+        if (typeof record.position !== 'number') {
+          issues.push({
+            code: 'invalid-guide',
+            message: `${path}.position 缺失或不是数值：${String(record.position)}`,
+            pageId: page.id,
+            path: `${path}.position`,
+          });
+        }
+        for (const bad of collectNonFiniteNumbers(entry, path)) {
+          issues.push({
+            code: 'non-finite-number',
+            message: `${bad.path} 不是有限数：${String(bad.value)}`,
+            pageId: page.id,
+            path: bad.path,
+          });
+        }
+      });
+    }
   }
 
   return issues;

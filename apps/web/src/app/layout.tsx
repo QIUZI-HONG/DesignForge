@@ -13,6 +13,7 @@ import '@fontsource/noto-sans-sc/400.css';
 import '@fontsource/noto-sans-sc/500.css';
 import '@fontsource/noto-sans-sc/700.css';
 
+import { GlobalCommandPalette } from '@/features/command-palette/register';
 import { t } from '@/i18n';
 
 import './globals.css';
@@ -22,12 +23,26 @@ export const metadata: Metadata = {
   description: t('home.subtitle'),
 };
 
-/** 根布局：语言固定 zh-CN（ADR-0003，全中文基线，不提供语言切换）。 */
+/**
+ * 根布局：语言固定 zh-CN（ADR-0003，全中文基线，不提供语言切换）。
+ *
+ * `suppressHydrationWarning`（票 10 · spec P1-6）：编辑器路由在水合**前**把根元素
+ * `data-theme` 翻到 dark（首帧置深脚本，见 `app/editor/layout.tsx` / `EditorThemeScope`），
+ * 服务端常量 light 与之分歧——React 19 水合逐次加载报「attributes of the server rendered
+ * HTML didn't match」（React 明确「This won't be patched up」，分歧是**有意设计**：深色
+ * 首帧不闪白）。该 prop 是**元素级**豁免：只静音 `<html>` 本身的属性/文本 diff 告警
+ * （React 无属性级开关），树内其余节点的错配照常报——不是全树豁免。
+ */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="zh-CN" data-theme="light">
+    <html lang="zh-CN" data-theme="light" suppressHydrationWarning>
       <body>
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          {children}
+          {/* 命令面板全局宿主（票 04 · spec P0-4）：任意页 ⌘K 呼出——注册与面板随本宿主
+              全路由可用；⌘/ 编辑器别名经 shortcutAliases 由编辑器壳的派发器消费 */}
+          <GlobalCommandPalette />
+        </ToastProvider>
       </body>
     </html>
   );

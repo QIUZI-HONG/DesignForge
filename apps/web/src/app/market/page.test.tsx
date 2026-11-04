@@ -10,8 +10,8 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { marketFixtures } from '@/features/market';
+import { t } from '@/i18n';
 
 // 夹具经 market 公开面取（`marketFixtures` 命名空间），不引 `__fixtures__` 深路径
 const { makeAsset, makeQueryResponse } = marketFixtures;
@@ -89,6 +89,124 @@ describe('/market · 正常路径（D1）', () => {
   });
 });
 
+describe('/market · 空态判定顺序（巡检缺口①②）', () => {
+  /** 造空索引响应（state:"empty" + index-missing 告警；巡检实测前置事实）。
+   *  每次请求都新建 Response（body 只能消费一次，见上方「搜索态按相关度序」用例注释）。 */
+  function respondMissingIndex(): void {
+    const result = marketFixtures.makeMissingIndexResponse([
+      { code: 'index-missing', message: '尚无市场索引（等待采集线产出，属正常空态）' },
+    ]);
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true, result }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+  }
+
+  it('缺口①：空索引 + 输入查询词 → 无结果空态优先（不再被索引缺失压住）；清空后回采集指引', async () => {
+    const user = userEvent.setup();
+    respondMissingIndex();
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getByText('市场索引尚未产出')).toBeTruthy();
+    });
+    expect(container.querySelector('[data-df-empty="index-missing"]')).not.toBeNull();
+
+    await user.type(screen.getByLabelText('搜索市场资源'), 'zzz');
+    await waitFor(() => {
+      expect(container.querySelector('[data-df-empty="no-result"]')).not.toBeNull();
+    });
+    expect(screen.getByText('没有匹配的资源')).toBeTruthy();
+    expect(screen.queryByText('市场索引尚未产出')).toBeNull();
+
+    // 清空筛选后回到采集指引——判定顺序是动态的，不是钉死在某一态
+    await user.click(screen.getAllByRole('button', { name: '清空筛选' })[0] as HTMLButtonElement);
+    await waitFor(() => {
+      expect(container.querySelector('[data-df-empty="index-missing"]')).not.toBeNull();
+    });
+    expect(screen.queryByText('没有匹配的资源')).toBeNull();
+  });
+
+  it('缺口②：空索引 + 已装载视图 → 已装载空态优先，不是索引缺失', async () => {
+    const user = userEvent.setup();
+    respondMissingIndex();
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getByText('市场索引尚未产出')).toBeTruthy();
+    });
+    await user.click(screen.getByRole('radio', { name: '已装载' }));
+    await waitFor(() => {
+      expect(container.querySelector('[data-df-empty="installed-empty"]')).not.toBeNull();
+    });
+    expect(screen.getByText('还没有装载任何资源')).toBeTruthy();
+    expect(screen.queryByText('市场索引尚未产出')).toBeNull();
+  });
+
+  it('缺口②：空索引 + 已装载视图 + 本地有装载记录 → 如实说索引缺失（不假称「还没装载」）', async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      'dfg.market.loaded.v1',
+      JSON.stringify([
+        {
+          assetId: 'gh:acme/skills#skills/pdf-export',
+          name: 'pdf-export',
+          kind: 'skill',
+          digest: 'sha256:old',
+          ref: 'a1b2c3d',
+          targetPath: '.dfg/market/skill/pdf-export/',
+          capabilities: [],
+          approvedAt: '2026-10-15T23:00:00Z',
+          caller: 'user',
+        },
+      ]),
+    );
+    respondMissingIndex();
+    const { container } = render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getByText('市场索引尚未产出')).toBeTruthy();
+    });
+    await user.click(screen.getByRole('radio', { name: '已装载' }));
+    await waitFor(() => {
+      expect(container.querySelector('[data-df-empty="index-missing"]')).not.toBeNull();
+    });
+    expect(screen.queryByText('还没有装载任何资源')).toBeNull();
+  });
+});
+
+describe('/market · 筛选语义一致（巡检缺口③）', () => {
+  it('选「最近更新」→ 查询计入 sort=updated 且清空筛选出现；清空后恢复 sort=score 且按钮消失', async () => {
+    const user = userEvent.setup();
+    // 每次请求都新建 Response（body 只能消费一次）
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true, result: marketFixtures.makeQueryResponse() }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getAllByRole('heading', { name: 'PDF 导出' }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: '清空筛选' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '排序：综合评分' }));
+    await user.click(screen.getByRole('menuitem', { name: '最近更新' }));
+    await waitFor(() => {
+      expect(String((fetchMock.mock.calls.at(-1) as unknown[])[0])).toContain('sort=updated');
+    });
+    expect(screen.getByRole('button', { name: '清空筛选' })).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '清空筛选' }));
+    await waitFor(() => {
+      expect(String((fetchMock.mock.calls.at(-1) as unknown[])[0])).toContain('sort=score');
+    });
+    expect(screen.queryByRole('button', { name: '清空筛选' })).toBeNull();
+  });
+});
+
 describe('/market · 空态与错误态（验收 §5）', () => {
   it('索引缺失 → 空态给「去跑采集」指引（不伪造数据）', async () => {
     respondWith(
@@ -137,6 +255,30 @@ describe('/market · 空态与错误态（验收 §5）', () => {
     await waitFor(() => {
       expect(fetchMock.mock.calls.length).toBeGreaterThan(before);
     });
+  });
+
+  it('断网（浏览器 fetch 失败原文）→ 中文人话 + 下一步，原始英文只在折叠详情里；恢复后重试回正常态（票 06 / spec P1-2）', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    render(<MarketHomePage />);
+
+    // 人话与下一步（重试按钮）齐备，不再直出裸英文
+    expect(await screen.findByText(t('market.error.network.human'))).toBeTruthy();
+    expect(screen.getByRole('button', { name: t('market.error.retry') })).toBeTruthy();
+    // 原始英文只出现在默认收起的技术详情折叠里（带归一错误码）
+    const raw = screen.getByText('Failed to fetch');
+    const details = raw.closest('details');
+    expect(details).not.toBeNull();
+    expect((details as HTMLDetailsElement).open).toBe(false);
+    expect(details?.textContent).toContain('DAEMON_UNREACHABLE');
+
+    // 断网恢复 → 重试成功回正常态（既有成功路径不回退）
+    respondWith(makeQueryResponse());
+    await user.click(screen.getByRole('button', { name: t('market.error.retry') }));
+    await waitFor(() => {
+      expect(screen.getAllByRole('heading', { name: 'PDF 导出' }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(t('market.error.network.human'))).toBeNull();
   });
 
   it('部分失败 → 结果区给提示条（有结果仍照常展示）', async () => {

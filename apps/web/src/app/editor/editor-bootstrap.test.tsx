@@ -23,7 +23,7 @@ import { ToastProvider } from '@dforge/ui';
 import { act, render } from '@testing-library/react';
 import { hydrateRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { resetWorkspace } from '@/features/canvas';
 import { resetReviewSessionForTest } from '@/features/editor-review/register';
@@ -42,7 +42,51 @@ vi.mock('@/features/canvas/runtime/canvaskit-loader', () => ({
   loadCanvasKit: () => new Promise<never>(() => {}),
 }));
 
+// AI 抽屉槽（票 06）经 `useRouter` 接「去诊断」跳设置页；本测试锁引导/hydration 结构，
+// 跳转本身是 next/navigation 的行为——桩掉 router，避免要求 App Router 上下文。
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
+const fetchMock = vi.fn();
+
 beforeEach(() => {
+  // tp2-05 · F-3 ①：AiDrawerSlot 挂载即经 useAiRun 探活 `GET /ai/status`（真发到缺省
+  // 端口窗），与其他文件同口径 stub fetch——「未配置」信封让抽屉落降级提示，不发真请求。
+  fetchMock.mockReset();
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        ok: true,
+        result: {
+          provider: 'deepseek',
+          model: '',
+          baseUrl: '',
+          configured: false,
+          credential: {
+            provider: 'deepseek',
+            hasKey: false,
+            maskedKey: null,
+            source: null,
+            updatedAt: null,
+          },
+          degradedHint: '未配置',
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  resetCommandRegistry();
+  resetEditorSlots();
+  resetWorkspace();
+  resetReviewSessionForTest();
+});
+
+afterEach(() => {
+  // tp2-05 · F-3 ①：本文件此前只有 beforeEach 复位，最后一个用例的注册产物
+  // （命令/插槽/工作区/评审会话四类模块单例）会跨文件残留（isolate:false 翻车现场）。
+  vi.unstubAllGlobals();
   resetCommandRegistry();
   resetEditorSlots();
   resetWorkspace();
@@ -65,6 +109,7 @@ describe('/editor · 服务端首帧（空槽形态）', () => {
     expect(listEditorSlotItems('canvas')).toEqual([]);
     expect(listEditorSlotItems('left-panel')).toEqual([]);
     expect(listEditorSlotItems('right-panel')).toEqual([]);
+    expect(listEditorSlotItems('left-panel-tabs')).toEqual([]);
     expect(getCommand('view.zoomFit')).toBeUndefined();
   });
 });
@@ -111,16 +156,19 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
         'fe-07-comment-layer',
       ]);
       expect(listEditorSlotItems('left-panel').map((item) => item.id)).toEqual(['fe-04-panels']);
+      // 票 16：左栏页签族扩展——「市场」入口随声明表挂载（页签体只在选中时渲染）
+      expect(listEditorSlotItems('left-panel-tabs').map((item) => item.id)).toEqual(['p2-market']);
+      expect(listEditorSlotItems('left-panel-tabs')[0]?.label?.()).toBe('市场');
       expect(listEditorSlotItems('right-panel').map((item) => item.id)).toEqual([
         'fe-06-right',
         'fe-07-comments-panel',
       ]);
       expect(listEditorSlotItems('toolbar').map((item) => item.id)).toEqual(['fe-10-ai-entry']);
+      // 票 04：命令面板全局化（随根布局宿主挂载），overlays 槽只剩速查卡
       expect(listEditorSlotItems('overlays').map((item) => item.id)).toEqual([
         'fe-10-overlays',
         'fe-07-presenter',
         'fe-07-versions',
-        'rw-08-command-palette',
         'rw-08-shortcut-cheatsheet',
       ]);
 
@@ -153,7 +201,7 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
     );
     const slotCount = listEditorSlotItems('overlays').length;
     const commandCount = getCommandsSnapshot().length;
-    expect(slotCount).toBe(5); // fe-10-overlays + fe-07-presenter/versions + rw-08 面板/速查卡
+    expect(slotCount).toBe(4); // fe-10-overlays + fe-07-presenter/versions + rw-08 速查卡（面板已全局化，票 04）
     first.unmount();
 
     render(
@@ -167,13 +215,13 @@ describe('/editor · hydration 首帧一致 + 挂载后填充', () => {
       'fe-10-overlays',
       'fe-07-presenter',
       'fe-07-versions',
-      'rw-08-command-palette',
       'rw-08-shortcut-cheatsheet',
     ]);
     expect(listEditorSlotItems('canvas').map((item) => item.id)).toEqual([
       'fe-06-canvas',
       'fe-07-comment-layer',
     ]);
+    expect(listEditorSlotItems('left-panel-tabs').map((item) => item.id)).toEqual(['p2-market']);
     expect(getCommandsSnapshot().length).toBe(commandCount);
   });
 });

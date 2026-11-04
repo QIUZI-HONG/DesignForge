@@ -16,7 +16,8 @@ import {
 } from '@dforge/engine';
 import { ToastProvider } from '@dforge/ui';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { RESERVED_COMMAND_IDS, registerCommand } from '@/features/editor-shell';
 import { ReviewProvider } from '../review-context';
 import { createReviewSession, type ReviewSession } from '../session';
 import { createMemoryBackend } from '../storage';
@@ -214,6 +215,75 @@ describe('版本抽屉 · 两步确认回滚', () => {
     fireEvent.click(screen.getByRole('button', { name: '对比' }));
     fireEvent.click(screen.getByRole('button', { name: '确认恢复' }));
     expect(screen.getByText('回滚前自动保存')).toBeDefined();
+  });
+});
+
+describe('恢复 Toast 的撤销动作（票 08 · spec P1-4）', () => {
+  /** 走完整恢复流：保存版本 → 改文档 → 对比 → 确认恢复，返回恢复前的文档快照串。 */
+  function restoreFlow(session: ReviewSession): string {
+    openDrawer(session);
+    saveVersion();
+    act(() => {
+      session.stack.dispatch(
+        { type: 'node.insert', pageId: 'p1', parentId: null, node: createRect({ id: 'r1' }) },
+        { label: '加矩形' },
+      );
+    });
+    const changed = JSON.stringify(session.stack.document);
+    fireEvent.click(screen.getByRole('button', { name: '对比' }));
+    fireEvent.click(screen.getByRole('button', { name: '确认恢复' }));
+    return changed;
+  }
+
+  it('恢复 Toast 附「撤销」：点击执行与顶栏同 id（edit.undo）的命令，文档回到恢复前', () => {
+    const session = renderDrawer();
+    const changed = restoreFlow(session);
+    expect(screen.getByText('已恢复所选版本')).toBeDefined();
+
+    // 桩命令：id 必须是顶栏撤销那条（RESERVED_COMMAND_IDS.undo = 'edit.undo'）——
+    // 实现若旁路命令注册表（直接 stack.undo()）或漂移到别的 id，这里都不会被调，
+    // 撤销命令的执行落点必须与顶栏同源（入口不漂移纪律）
+    let ran = 0;
+    const unregister = registerCommand({
+      id: RESERVED_COMMAND_IDS.undo,
+      title: '撤销（测试桩）',
+      group: 'edit',
+      run: () => {
+        ran += 1;
+        session.stack.undo();
+      },
+    });
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+      expect(ran).toBe(1);
+      // 用户结果：文档回到恢复前内容（= 撤销掉 document.replace）
+      expect(JSON.stringify(session.stack.document)).toBe(changed);
+      // 与「回滚前自动保存」路径兼容：撤销后自动快照仍在列表里
+      expect(screen.getByText('回滚前自动保存')).toBeDefined();
+      // 动作点击后 Toast 收起（撤销窗口即胶囊存在期间）
+      expect(screen.queryByText('已恢复所选版本')).toBeNull();
+    } finally {
+      unregister();
+    }
+  });
+
+  it('恢复 Toast 仍按默认时长自动消失（加动作不改时机）', () => {
+    vi.useFakeTimers();
+    try {
+      const session = renderDrawer();
+      restoreFlow(session);
+      expect(screen.getByText('已恢复所选版本')).toBeDefined();
+      act(() => {
+        vi.advanceTimersByTime(3999);
+      });
+      expect(screen.getByText('已恢复所选版本')).toBeDefined();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(screen.queryByText('已恢复所选版本')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

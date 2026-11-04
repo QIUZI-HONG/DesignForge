@@ -10,6 +10,8 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { t } from '@/i18n';
+
 import { MARKET_COLLECT_COMMAND } from '../api';
 import { MarketEmptyState, MarketErrorState, MarketWarningBanner } from './MarketStates';
 
@@ -50,20 +52,50 @@ describe('MarketEmptyState · 空态四类', () => {
   });
 });
 
-describe('MarketErrorState / MarketWarningBanner', () => {
-  it('错误态：显示消息与错误码，重试回调可触发', async () => {
+describe('MarketErrorState · 错误态人话化（票 06 / spec P1-2）', () => {
+  it('网络失败（daemon_unreachable）→ 人话主句 + 重试按钮；原始 message 与码沉进技术详情折叠', async () => {
     const user = userEvent.setup();
     const onRetry = vi.fn();
     const { container } = render(
-      <MarketErrorState message="请确认 daemon 已启动（默认 127.0.0.1:4318）" onRetry={onRetry} />,
+      <MarketErrorState
+        message="TypeError: Failed to fetch"
+        code="daemon_unreachable"
+        onRetry={onRetry}
+      />,
     );
-    expect(screen.getByText(/daemon 已启动/)).toBeTruthy();
-    expect(screen.getByText('DAEMON_UNREACHABLE')).toBeTruthy();
     expect(container.querySelector('[data-df-state="error"]')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: '重试' }));
+    // 人话（标题 + 主句）替代裸英文直出
+    expect(screen.getByText(t('market.error.title'))).toBeTruthy();
+    expect(screen.getByText(t('market.error.network.human'))).toBeTruthy();
+    expect(screen.queryByText('TypeError: Failed to fetch')?.closest('details')).not.toBeNull();
+    // 原始技术串与归一码都在默认收起的折叠里（报障可引用）
+    const details = container.querySelector('details');
+    expect(details).not.toBeNull();
+    expect(details?.open).toBe(false);
+    expect(details?.textContent).toContain('TypeError: Failed to fetch');
+    expect(details?.textContent).toContain('DAEMON_UNREACHABLE');
+    await user.click(screen.getByRole('button', { name: t('market.error.retry') }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it('非网络失败（daemon 明确拒绝，有码有中文文案）→ message 原样描述，码收折叠', () => {
+    const { container } = render(
+      <MarketErrorState
+        message="评分索引暂不可用"
+        code="market_score_unavailable"
+        onRetry={() => undefined}
+      />,
+    );
+    expect(screen.getByText('评分索引暂不可用')).toBeTruthy();
+    expect(screen.queryByText(t('market.error.network.human'))).toBeNull();
+    const details = container.querySelector('details');
+    expect(details?.textContent).toContain('MARKET_SCORE_UNAVAILABLE');
+    // 非网络失败的 message 不再重复进折叠（人话在描述位）
+    expect(details?.textContent).not.toContain('评分索引暂不可用');
+  });
+});
+
+describe('MarketErrorState / MarketWarningBanner', () => {
   it('部分失败提示条有 role=status（读屏可播报）', () => {
     render(<MarketWarningBanner message="部分来源结果加载失败：rate limit" />);
     expect(screen.getByRole('status').textContent).toContain('rate limit');

@@ -11,7 +11,7 @@ import { ToastProvider } from '@dforge/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-
+import { t } from '@/i18n';
 import { DocumentApiError } from '../api/documents';
 import { createHomeStore } from '../state/home-store';
 import { HomeView } from './HomeView';
@@ -298,6 +298,15 @@ describe('HomeView · AI 提示区（D3：与编辑器实态同步）', () => {
     await userEvent.click(screen.getByRole('button', { name: '打开 AI 助手' }));
     expect(onOpenAi).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/暂未接入/)).toBeNull();
+  });
+
+  it('AI 区文案来自 zh-CN 目录（票 02：不再承诺「初稿与图层结构」——文案口径见 i18n 目录钉子）', async () => {
+    renderHome({ docs: [] });
+    await screen.findByText('还没有设计文件');
+    // 渲染文本 = 目录文案（ADR-0003：组件不硬编码中文）
+    expect(screen.getByText(t('home.ai.title'))).toBeTruthy();
+    expect(screen.getByText(t('home.ai.desc'))).toBeTruthy();
+    expect(screen.getByRole('button', { name: t('home.ai.action') })).toBeTruthy();
   });
 
   it('autoOpenCreate（/?create=1 落点）→ 挂载即打开新建对话框', async () => {

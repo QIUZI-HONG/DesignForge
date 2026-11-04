@@ -27,6 +27,8 @@ export * as marketFixtures from './__fixtures__/market';
 export { classifyMarketOutcome, isSearchDegraded, type MarketOutcome } from './api';
 export { type BadgeTone, badgeClassName, meterFillClassName } from './badge-classes';
 export * from './components';
+export { type MarketEmptyKindInput, resolveMarketEmptyKind } from './empty-kind';
+export { type MarketFailureCopy, marketFailureText } from './failure-copy';
 export * from './feedback';
 export * from './filters';
 export * from './load-store';
@@ -40,3 +42,4 @@ export {
   useMarketPagination,
   useMarketQuery,
 } from './use-market';
+export { type MarketPanelData, PANEL_LIMIT, useMarketPanelData } from './use-market-panel';

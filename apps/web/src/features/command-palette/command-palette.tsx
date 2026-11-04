@@ -20,7 +20,9 @@
  *   条目不是 button：避免浮层「焦点入层」落到位选项上、焦点绕过搜索框）；
  * - 空态：查询无命中显示空结果态；失败态：命令抛错**就地**显示（`role="alert"`），
  *   面板不关；
- * - **本期不做「最近使用 / 常用」默认态**（后续票做）——空查询即全命令分组清单，不撒谎。
+ * - 「最近使用」（票 04 · spec P0-4）：本地记录最近执行的 5 条命令（本地优先不联网，
+ *   记录挂在 `executeCommand` 统一漏斗）——空查询时置顶成组，组内只含仍注册的命令；
+ *   记录为空不出组（不撒谎），搜索态不掺最近分组。
  */
 import { ChevronDownIcon, ChevronUpIcon, Overlay, SearchIcon } from '@dforge/ui';
 import {
@@ -35,7 +37,7 @@ import {
 
 import { t } from '@/i18n';
 
-import { executeCommand, useCommandList, useEditorUi } from '../editor-shell';
+import { executeCommand, loadRecentCommands, useCommandList, useEditorUi } from '../editor-shell';
 import {
   buildPaletteGroups,
   firstEnabledIndex,
@@ -45,6 +47,10 @@ import {
   type PaletteGroup,
   type PaletteItem,
 } from './palette-model';
+
+// 样式接线（票 04 · spec P0-4 根因修复）：本域样式表此前 25 条规则全仓无 import，
+// 面板以「无边框裸输入框」形态压在画布上——引入即恢复居中卡片 + 遮罩 + 焦点环全套。
+import './command-palette.css';
 
 /** 分组 + 组内条目的全局铺平下标（aria-activedescendant 与 DOM 顺序对齐的空间）。 */
 interface IndexedGroup {
@@ -97,20 +103,33 @@ export function CommandPalette() {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
   const [failedTitle, setFailedTitle] = useState<string | null>(null);
+  /** 最近执行的命令 id（最近序；打开面板时从本地记录刷新——票 04「最近使用」）。 */
+  const [recent, setRecent] = useState<string[]>([]);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const listboxId = useId();
 
-  const groups = useMemo(() => buildPaletteGroups({ commands, query }), [commands, query]);
+  const groups = useMemo(
+    () =>
+      buildPaletteGroups({
+        commands,
+        query,
+        recent,
+        recentGroupLabel: t('editor.palette.recentGroup'),
+      }),
+    [commands, query, recent],
+  );
   const items = useMemo(() => flattenPaletteItems(groups), [groups]);
   const indexedGroups = useMemo(() => withFlatIndexes(groups), [groups]);
 
-  // 打开时：清掉上次的查询与失败态（每次呼出都是干净的清单）
+  // 打开时：清掉上次的查询与失败态（每次呼出都是干净的清单），并刷新本地最近记录
+  // （关着面板的期间命令仍可能经快捷键/菜单执行过——每次呼出都重读，不缓存旧清单）
   useEffect(() => {
     if (!open) return;
     setQuery('');
     setFailedTitle(null);
+    setRecent(loadRecentCommands());
   }, [open]);
 
   // 高亮跟随列表变化（查询/命令表变动后落到首个可运行项）

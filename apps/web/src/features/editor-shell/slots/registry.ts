@@ -30,6 +30,14 @@ export type EditorSlotName =
   | 'toolbar'
   /** 左面板列（FE-04：图层面板 + 资产面板）。 */
   | 'left-panel'
+  /**
+   * 左面板**页签族扩展**（图层 / 资产之后追加的页签，如票 16 的「市场」入口）。
+   *
+   * 与 `left-panel` 的分工：`left-panel` 挂面板列的整块面板（宿主逐项渲染）；
+   * 本槽的条目是**页签语义**——消费方（`EditorPanels`）把条目拼进页签族、
+   * 仅在页签选中时才调用其 `render()` 渲染面板体（`label` 提供页签文案）。
+   */
+  | 'left-panel-tabs'
   /** 画布列（FE-06：画布本体 + 覆盖层；空槽时壳层渲染空态）。 */
   | 'canvas'
   /** 右面板列（FE-05 Inspector；FE-07 版本抽屉可挂于此）。 */
@@ -43,6 +51,11 @@ export interface EditorSlotItem {
   id: string;
   /** 排序权重（小在前；同值按注册顺序）。缺省 0。 */
   order?: number;
+  /**
+   * 页签文案（仅页签扩展槽 `left-panel-tabs` 用；每次渲染时调用，文案经 i18n）。
+   * 其余槽不读此字段。
+   */
+  label?: () => string;
   /** 渲染函数（每次渲染时调用；返回的节点由宿主放入该槽）。 */
   render: () => ReactNode;
 }

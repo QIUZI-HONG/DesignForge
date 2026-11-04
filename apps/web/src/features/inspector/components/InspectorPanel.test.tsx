@@ -26,12 +26,12 @@ import {
   type SceneNode,
   type Selection,
 } from '@dforge/engine';
+import { COMMIT_DELAY_MS } from '@dforge/ui';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 
-import { COMMIT_DELAY_MS } from '../model/draft';
 import { defaultEffect } from '../model/patches';
 import { FIXTURE_PAGE_ID, fixtureStack, selectionOf } from '../testing/fixtures';
 import { InspectorPanel } from './InspectorPanel';
@@ -313,6 +313,33 @@ describe('InspectorPanel · 效果分区（交付 c：可见可调，联动画�
     ];
     for (const name of paramNames) {
       expect(document.querySelector(`[data-df-inspector-field="${name}"]`), name).not.toBeNull();
+    }
+  });
+
+  it('效果类型名经 i18n 渲染（引擎 snake_case 契约值 → 目录词面），不裸键直出（票 10 · spec P1-6）', () => {
+    const { stack } = setup(['r1']);
+    // presetEffect 是整表替换语义：两条效果一次 patch 预置（避免后者覆盖前者）
+    act(() => {
+      stack.dispatch(
+        {
+          type: 'node.update',
+          pageId: FIXTURE_PAGE_ID,
+          nodeId: 'r1',
+          patch: {
+            effects: [dropShadow('#000000', 2, 4, 10, 1), defaultEffect('layer_blur')],
+          },
+        },
+        { label: '预置' },
+      );
+    });
+
+    const typeLabel = (effectType: string): string =>
+      document.querySelector(`[data-df-effect="${effectType}"] .dfi-effectrow__type`)
+        ?.textContent ?? '';
+    expect(typeLabel('drop_shadow')).toBe('投影');
+    expect(typeLabel('layer_blur')).toBe('层模糊');
+    for (const label of [typeLabel('drop_shadow'), typeLabel('layer_blur')]) {
+      expect(label).not.toContain('inspector.effect.');
     }
   });
 

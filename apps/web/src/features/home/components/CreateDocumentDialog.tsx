@@ -12,7 +12,7 @@ import { DOCUMENT_NAME_MAX_LENGTH, describeDocumentNameIssue } from '@dforge/con
  * 重名仍由服务端判定（返回「已存在」经父级 Toast 呈现）。
  */
 import { Button, Input, Modal } from '@dforge/ui';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
 
@@ -35,6 +35,7 @@ export function CreateDocumentDialog({
   const [name, setName] = useState(() => t('home.new.promptPlaceholder'));
   const [touched, setTouched] = useState(false);
   const [lastOpen, setLastOpen] = useState(open);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   // 默认名在**渲染期**随「打开」同一次提交落位（不是 effect）：
   // effect 在提交之后才跑，自动化/快速输入若落在这两步之间，会被迟到的默认名覆盖，
@@ -51,6 +52,18 @@ export function CreateDocumentDialog({
   const issue = touched ? describeDocumentNameIssue(name) : null;
   const invalid = issue !== null;
 
+  // 提交失败归位（票 09）：pending 从在飞跳回且对话框仍开着 = 提交失败（如重名）。
+  // 真实浏览器里「创建键禁用又恢复」已把焦点丢到 body（Esc 随之失灵，守卫只兜到层内），
+  // 这里在失败落定后把焦点直接送回名称输入框——用户下一步就是改名重试。
+  // 成功路径不走这里：父级先关对话框（open=false），flip 条件不成立，焦点交还打开者。
+  const lifecycleRef = useRef({ open, pending });
+  useEffect(() => {
+    const previous = lifecycleRef.current;
+    lifecycleRef.current = { open, pending };
+    if (!(previous.open && previous.pending && !pending && open)) return;
+    inputRef.current?.focus();
+  }, [open, pending]);
+
   const errorMessage = (): string => {
     if (issue === 'empty') return t('home.new.promptEmpty');
     if (issue === 'too_long') {
@@ -62,7 +75,11 @@ export function CreateDocumentDialog({
   const submit = (): void => {
     if (pending) return; // 创建在飞：Enter 与按钮的二次触发一律丢弃（父级在飞守卫的同侧防线）
     setTouched(true);
-    if (describeDocumentNameIssue(name) !== null) return;
+    if (describeDocumentNameIssue(name) !== null) {
+      // 校验失败：焦点回到首个非法字段（本对话框唯一的输入），分因文案照旧就地呈现
+      inputRef.current?.focus();
+      return;
+    }
     onSubmit(name);
   };
 
@@ -85,6 +102,7 @@ export function CreateDocumentDialog({
       }
     >
       <Input
+        ref={inputRef}
         fieldLabel={t('home.new.promptName')}
         placeholder={t('home.new.promptPlaceholder')}
         value={name}

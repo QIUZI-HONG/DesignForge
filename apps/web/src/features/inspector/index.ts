@@ -17,6 +17,7 @@
  * `scripts/verify-figma-inspector.mjs` 通过 `?df-state=` 驱动宿主页面取这三态。
  */
 
+export { COMMIT_DELAY_MS, type DraftCommit, useDraftCommit } from '@dforge/ui';
 export { AlignRow, type AlignRowProps } from './components/AlignRow';
 export {
   CanvasSettings,
@@ -28,8 +29,7 @@ export {
   type InspectorPanelProps,
   type SelectionSource,
 } from './components/InspectorPanel';
-export { MIXED_PLACEHOLDER, NumberField, type NumberFieldProps } from './components/NumberField';
-export { COMMIT_DELAY_MS, type DraftCommit, useDraftCommit } from './model/draft';
+export { MIXED_PLACEHOLDER } from './components/number-field-copy';
 export { createScrubSession, type ScrubSession } from './model/scrub-session';
 export {
   createPreviewDocument,

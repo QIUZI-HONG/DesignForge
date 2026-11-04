@@ -43,6 +43,12 @@
   font-size: var(--dfg-font-size-11);
 }
 
+/* 保存/载入失败的技术详情折叠（票 06 / P1-2）：与状态文案同行内联，不撑高顶栏 */
+.dfc-ws-save__tech {
+  display: inline-block;
+  margin-inline-start: var(--dfg-space-2);
+}
+
 /* 下半区：FE-05 Inspector（C5–C7 对标面） */
 .dfc-ws-right__inspector {
   flex: 1;

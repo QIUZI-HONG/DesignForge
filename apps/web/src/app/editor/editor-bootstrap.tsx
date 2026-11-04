@@ -34,11 +34,7 @@ import {
   OverlaysSlot,
   RightPanelSlot,
 } from '@/features/canvas/register';
-import {
-  CommandPaletteSlot,
-  registerCommandPalette,
-  ShortcutCheatSheetSlot,
-} from '@/features/command-palette/register';
+import { ShortcutCheatSheetSlot } from '@/features/command-palette/register';
 import {
   ReviewCommentLayerSlot,
   ReviewCommentsPanelSlot,
@@ -52,6 +48,7 @@ import {
   mountEditorSlotDeclarations,
   runEditorBootstrapEntries,
 } from '@/features/editor-shell';
+import { MARKET_TAB_ID, MarketPanelSlot, marketTabLabel } from '@/features/market/register';
 
 /**
  * 插槽挂载声明（**全部插槽在这一张表里**）。
@@ -73,6 +70,15 @@ export const EDITOR_SLOT_DECLARATIONS: readonly EditorSlotDeclaration[] = [
   },
   { slot: 'canvas', id: 'fe-06-canvas', order: 0, render: () => <CanvasSlot /> },
   { slot: 'left-panel', id: 'fe-04-panels', order: 0, render: () => <LeftPanelSlot /> },
+  // 票 16（spec P2）：编辑器内市场面板入口——左栏页签族扩展（图层/资产之后追加「市场」），
+  // 页签体承载既有市场面板内容；关闭回原页签、主题归编辑器壳层（见 market/register.tsx）
+  {
+    slot: 'left-panel-tabs',
+    id: MARKET_TAB_ID,
+    order: 0,
+    label: marketTabLabel,
+    render: () => <MarketPanelSlot />,
+  },
   { slot: 'right-panel', id: 'fe-06-right', order: 0, render: () => <RightPanelSlot /> },
   // AI 抽屉入口（D1）：工具栏按钮（命令面板走 `view.ai`，两处同一命令）
   { slot: 'toolbar', id: 'fe-10-ai-entry', order: 0, render: () => <AiEntryButton /> },
@@ -92,13 +98,9 @@ export const EDITOR_SLOT_DECLARATIONS: readonly EditorSlotDeclaration[] = [
   },
   { slot: 'overlays', id: 'fe-07-presenter', order: 10, render: () => <ReviewPresenterSlot /> },
   { slot: 'overlays', id: 'fe-07-versions', order: 11, render: () => <ReviewVersionsDrawerSlot /> },
-  // —— 工单 08 命令面板 + 快捷键速查（⌘/ 面板 · 长按修饰键速查卡；portal 到 body，槽位仅作挂载点）——
-  {
-    slot: 'overlays',
-    id: 'rw-08-command-palette',
-    order: 20,
-    render: () => <CommandPaletteSlot />,
-  },
+  // —— 工单 08 快捷键速查（长按修饰键速查卡；portal 到 body，槽位仅作挂载点）。
+  //    命令面板不再经编辑器插槽挂载（票 04 · spec P0-4）：面板是全局入口（任意页 ⌘K），
+  //    随命令面板域的全局宿主挂根布局（`app/layout.tsx`），编辑器内 ⌘/ 别名照常生效。
   {
     slot: 'overlays',
     id: 'rw-08-shortcut-cheatsheet',
@@ -114,8 +116,6 @@ const EDITOR_BOOTSTRAP_ENTRIES: readonly EditorBootstrapEntry[] = [
   { id: 'fe-06-workspace', setup: mountEditorWorkspace },
   // FE-07 评审：评论 / Present / 版本命令（顶栏预留入口据此点亮）
   { id: 'fe-07-review', setup: registerEditorReview },
-  // 工单 08 命令面板：`view.commandPalette` 接管注册（键位 ⌘K → 规格故事 14 的 ⌘/）
-  { id: 'rw-08-command-palette', setup: registerCommandPalette },
 ];
 
 /** 编辑器唯一客户端引导件（`app/editor/page.tsx` 渲染；不产生 DOM）。 */

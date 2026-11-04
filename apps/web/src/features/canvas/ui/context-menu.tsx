@@ -44,7 +44,10 @@ export function CanvasContextMenu({ session, point, epoch }: CanvasContextMenuPr
       <DropdownMenu
         key={epoch}
         label={t('canvas.menu.label')}
-        sections={contextMenuSections(session, t)}
+        sections={contextMenuSections(session, t, {
+          // 右键点在参考线上 → 前置「参考线」分组（票 12：右键删除入口）
+          guideId: session.guideIdAt(point),
+        })}
         defaultOpen
         align="start"
         tooltipDelay={0}

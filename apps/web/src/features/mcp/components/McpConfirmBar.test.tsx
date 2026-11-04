@@ -91,6 +91,44 @@ describe('MCP 确认条（F9 · 桩）', () => {
     expect(screen.getByRole('button', { name: '展开 diff（1 项）' })).toBeTruthy();
   });
 
+  it('终态留存（P1-1）：批准后随时间推进（越过 TTL）终态文案持续可见，倒计时区域不再渲染', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderBar();
+    await user.click(screen.getByRole('button', { name: '确认' }));
+    await waitFor(() => {
+      expect(screen.getByText('已确认')).toBeTruthy();
+    });
+
+    // 落定即出终态：倒计时区域（剩余 M:SS）不再出现
+    expect(screen.getByText(/桩：未产生真实写入/)).toBeTruthy();
+    expect(screen.queryByText(/剩余/)).toBeNull();
+
+    // 推进越过提案 TTL：组件侧终态不被翻转/清空（宿主的撤条是另一层职责）
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(screen.getByText('已确认')).toBeTruthy();
+    expect(screen.getByText(/桩：未产生真实写入/)).toBeTruthy();
+    expect(screen.getByText('桩')).toBeTruthy();
+    expect(screen.queryByText(/剩余/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '确认' })).toBeNull();
+  });
+
+  it('终态留存（P1-1）：拒绝后终态文案持续可见，倒计时区域不再渲染', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderBar({
+      ackResult: { ...ackApproved(), decision: 'rejected', note: '用户拒绝该提案，未产生任何写入' },
+    });
+    await user.click(screen.getByRole('button', { name: '拒绝' }));
+    await waitFor(() => {
+      expect(screen.getByText('已拒绝')).toBeTruthy();
+    });
+
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(screen.getByText('已拒绝')).toBeTruthy();
+    expect(screen.getByText(/桩：未产生真实写入/)).toBeTruthy();
+    expect(screen.queryByText(/剩余/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '拒绝' })).toBeNull();
+  });
+
   it('ack 被拒（重放/无效）：提示需重新发起 dryRun，不出现二次确认', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderBar({

@@ -11,11 +11,12 @@ import type { ConfigResponse } from '@dforge/contracts';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-
+import { t } from '@/i18n';
 import { DaemonClientError } from '../api/daemon-client';
 import type { SettingsApi } from '../api/settings-api';
 
 import {
+  CLEARED_SUMMARY,
   CONFIG_RESPONSE,
   deferred,
   makeApi,
@@ -124,6 +125,22 @@ describe('设置页 · 凭据掩码纪律', () => {
 
     expect(await screen.findByText(/未配置密钥：AI 为降级态/)).toBeTruthy();
     expect(api.clearApiKey).toHaveBeenCalledTimes(1);
+  });
+
+  it('未配置降级说明来自 zh-CN 目录（票 02：不再声称「本地模板兜底」）', async () => {
+    // 直接给未配置凭据（不清除流程）：未配置态的说明随分区首屏渲染
+    const api = makeApi({
+      loadConfig: vi.fn(async () => ({
+        ...CONFIG_RESPONSE,
+        credentials: { ...CONFIG_RESPONSE.credentials, deepseek: CLEARED_SUMMARY },
+      })),
+    });
+    const user = userEvent.setup();
+    renderPage(api);
+
+    await user.click(await screen.findByRole('button', { name: 'DeepSeek' }));
+    // 渲染文本 = 目录文案（ADR-0003：组件不硬编码中文；不实声明的钉子在 i18n 目录测试）
+    expect(await screen.findByText(t('settings.credential.missing'))).toBeTruthy();
   });
 
   it('密钥形态不合法：内联报错且不发请求', async () => {

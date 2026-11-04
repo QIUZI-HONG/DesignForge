@@ -8,8 +8,25 @@
 
 export type { DesignDocument, ScenePage } from './document';
 export { createDocument, createPage } from './document';
+export type {
+  EffectEditableField,
+  EffectField,
+  EffectFieldCompare,
+  EffectFieldSpec,
+  EffectNumberField,
+} from './effects';
+export {
+  EFFECT_FIELD_KEYS,
+  EFFECT_FIELDS,
+  effectCacheKey,
+  sameEffect,
+  sameEffects,
+  sigmaOf,
+} from './effects';
 export type { GridSettings, GridStyle } from './grid';
 export { defaultGridSettings } from './grid';
+export type { GuideAxis, PageGuide } from './guides';
+export { createGuide, GUIDE_ID_PREFIX, guidesOf } from './guides';
 export type { ComponentId, DocumentId, IdFactory, NodeId, PageId } from './ids';
 export { createIdFactory, ID_PREFIX, systemIdFactory } from './ids';
 export type {
@@ -71,10 +88,12 @@ export type {
 export { dropShadow, isPaintVisible, paintKeyColor, solidPaint, strokeOf } from './paint';
 export type { TextAlign, TextAutoResize, TextContent, TextSelection } from './text';
 export {
+  clampTextCharacters,
   defaultTextContent,
   deleteTextRange,
   normalizeSelection,
   replaceTextRange,
+  TEXT_CHARACTERS_MAX_LENGTH,
 } from './text';
 
 export type { DesignToken, TokenGroup, TokenSet, TokenType, TokenValue } from './tokens';

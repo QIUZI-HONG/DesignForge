@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 /**
- * 命令面板集成测试（工单 08）。
+ * 命令面板集成测试（工单 08 建域；票 04 · spec P0-4 全局化后行为）。
  *
- * seam：**真实接线形态**——壳层（全局键盘派发 + 内置命令）+ 本域登记项（⌘/ 接管
- * `view.commandPalette`）+ overlays 插槽挂面板，与 `app/editor/editor-bootstrap.tsx`
- * 的声明一一对应。断言走可观测行为：键位开关、角色（dialog/combobox/listbox/option）、
- * 过滤结果、aria-activedescendant 漫游、执行后的 store 变化与焦点落点。
+ * seam：**真实接线形态**——编辑器 = 壳层（全局键盘派发，主键位与别名都消费）+
+ * 本域全局宿主（`GlobalCommandPalette`：注册 `view.commandPalette` ⌘K + ⌘/ 别名、
+ * 渲染面板），与根布局 + 编辑器页的真实组合一致。断言走可观测行为：键位开关、
+ * 角色（dialog/combobox/listbox/option）、过滤结果、aria-activedescendant 漫游、
+ * 执行后的 store 变化与焦点落点。
  *
- * 键位口径（规格 §3-14）：改版后面板开关是 **⌘/**（经 shortcuts 惯例注册全局键），
- * ⌘K 不再是面板键位。
+ * 键位口径（票 04）：**⌘K 全局**（首页/设置/编辑器均可呼出——首页/设置页的接线
+ * 断言在 `app/global-command-palette.test.tsx`），⌘/ 保留为编辑器别名。
  */
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -16,30 +17,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CanvasHudProvider,
   EditorShell,
+  getCommand,
   registerCommand,
-  registerEditorSlotItem,
   resetCommandRegistry,
-  resetEditorSlots,
   useEditorUi,
   useEditorView,
 } from '../editor-shell';
-import { CommandPaletteSlot, registerCommandPalette } from './register';
+import { GlobalCommandPalette } from './register';
 
-/** 挂真实接线：壳层 + 本域命令接管 + overlays 插槽（引导声明表的测试等价物）。 */
+/** 挂真实接线：编辑器壳层（全局派发器）+ 根布局全局宿主（注册 + 面板）。 */
 function mountPalette() {
-  const view = render(
+  return render(
     <CanvasHudProvider>
       <EditorShell />
+      <GlobalCommandPalette />
     </CanvasHudProvider>,
   );
-  act(() => {
-    registerCommandPalette();
-    registerEditorSlotItem('overlays', {
-      id: 'rw-08-command-palette',
-      render: () => <CommandPaletteSlot />,
-    });
-  });
-  return view;
 }
 
 /** 在 window 上按一次键（全局派发的入口）。 */
@@ -49,20 +42,20 @@ function press(key: string, options: KeyboardEventInit = {}): void {
 
 beforeEach(() => {
   resetCommandRegistry();
-  resetEditorSlots();
   useEditorView.setState({ zoom: 1, activeTool: 'move' });
   useEditorUi.setState({ commandPaletteOpen: false, shortcutsOpen: false });
+  window.localStorage.clear();
 });
 
 afterEach(() => {
   resetCommandRegistry();
-  resetEditorSlots();
   useEditorView.setState({ zoom: 1, activeTool: 'move' });
   useEditorUi.setState({ commandPaletteOpen: false, shortcutsOpen: false });
+  window.localStorage.clear();
 });
 
-describe('开关（⌘/，经 shortcuts 惯例注册全局键）', () => {
-  it('⌘/ 打开命令面板，焦点落入搜索框', async () => {
+describe('开关（⌘K 全局主键位 + ⌘/ 编辑器别名，经 shortcuts 惯例注册）', () => {
+  it('⌘/ 打开命令面板（编辑器别名），焦点落入搜索框', async () => {
     mountPalette();
     press('/', { metaKey: true });
 
@@ -71,10 +64,18 @@ describe('开关（⌘/，经 shortcuts 惯例注册全局键）', () => {
     expect(document.activeElement).toBe(input);
   });
 
-  it('⌘K 不再是面板键位（改版后无命令占用 ⌘K）', async () => {
+  it('⌘K 同样呼出（票 04：全局主键位，别名共用同一命令），焦点落搜索框与 ⌘/ 同口径', async () => {
     mountPalette();
     press('k', { metaKey: true });
-    expect(screen.queryByRole('dialog', { name: '命令面板' })).toBeNull();
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+    expect(document.activeElement).toBe(within(dialog).getByRole('combobox'));
+  });
+
+  it('注册形状：主键位 ⌘K，附加键位 ⌘/', () => {
+    mountPalette();
+    const command = getCommand('view.commandPalette');
+    expect(command?.shortcut).toBe('⌘K');
+    expect(command?.shortcutAliases).toEqual(['⌘/']);
   });
 
   it('Esc 关闭面板（浮层栈语义，焦点回落原焦点元素）', async () => {
@@ -126,7 +127,7 @@ describe('可达性与内容（命令源唯一）', () => {
     expect(within(dialog).getByRole('option', { name: /演示/ })).toBeDefined();
   });
 
-  it('空查询默认态：全命令按分组列出，不出现「最近使用」组（本期不做，不撒谎）', async () => {
+  it('空查询且无最近记录：全命令按分组列出，不出现「最近使用」组（记录为空不出组，不撒谎）', async () => {
     mountPalette();
     press('/', { metaKey: true });
     const dialog = await screen.findByRole('dialog', { name: '命令面板' });
@@ -268,9 +269,12 @@ describe('执行', () => {
     });
 
     // 再开面板：当前工具已是 text → 「文本工具」置灰，点击不产生变化
+    // （执行过一条 → 最近使用组与工具组各有一行「文本工具」，取第一行点击）
     press('/', { metaKey: true });
     const reopened = await screen.findByRole('dialog', { name: '命令面板' });
-    fireEvent.click(within(reopened).getByRole('option', { name: /文本工具/ }));
+    const textOptions = within(reopened).getAllByRole('option', { name: /文本工具/ });
+    expect(textOptions.length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(textOptions[0] as HTMLElement);
     expect(useEditorView.getState().activeTool).toBe('text');
   });
 
@@ -296,5 +300,89 @@ describe('执行', () => {
       expect(screen.getByRole('alert').textContent).toContain('会炸的命令');
     });
     expect(screen.queryByRole('dialog', { name: '命令面板' })).not.toBeNull();
+  });
+});
+
+describe('最近使用（票 04 · spec P0-4：本地记录最近执行的 5 条）', () => {
+  /** 搜到指定命令并以回车执行（面板关闭即执行完成）。 */
+  async function runBySearch(dialog: HTMLElement, term: string): Promise<void> {
+    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: term } });
+    fireEvent.keyDown(within(dialog).getByRole('combobox'), { key: 'Enter' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '命令面板' })).toBeNull();
+    });
+  }
+
+  it('执行过的命令在重开面板时进入「最近使用」置顶组，组内按最近序排列', async () => {
+    mountPalette();
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), '矩形');
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), '文本');
+
+    press('/', { metaKey: true });
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+
+    // 置顶组在前，组内最近序：文本工具（刚执行）→ 矩形工具
+    const recentGroup = within(dialog)
+      .getAllByRole('option')
+      .slice(0, 2)
+      .map((option) => option.getAttribute('data-df-command'));
+    expect(recentGroup).toEqual(['tool.text', 'tool.rect']);
+    expect(within(dialog).getByText('最近使用')).toBeDefined();
+  });
+
+  it('重复执行去重：同一命令在「最近使用」组里只出现一次', async () => {
+    mountPalette();
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), 'zoomIn');
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), 'zoomIn');
+
+    press('/', { metaKey: true });
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+    const zoomOptions = within(dialog).getAllByRole('option', { name: /放大/ });
+    // 去重后最近组只有一行「放大」；另一行来自常规「视图」组
+    expect(zoomOptions).toHaveLength(2);
+    expect(zoomOptions[0]?.getAttribute('data-df-command')).toBe('view.zoomIn');
+  });
+
+  it('上限 5 条：第 6 条执行后最旧的退出「最近使用」组', async () => {
+    mountPalette();
+    for (const term of ['zoomIn', 'zoomOut', 'zoom100', '画板', '抓手', '矩形']) {
+      press('/', { metaKey: true });
+      await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), term);
+    }
+
+    press('/', { metaKey: true });
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+    const recentIds = within(dialog)
+      .getAllByRole('option')
+      .slice(0, 5)
+      .map((option) => option.getAttribute('data-df-command'));
+    expect(recentIds).toEqual([
+      'tool.rect',
+      'tool.hand',
+      'tool.frame',
+      'view.zoom100',
+      'view.zoomOut',
+    ]);
+    // 最旧的 zoomIn 已被挤出（只剩常规视图组那一行）
+    expect(within(dialog).getAllByRole('option', { name: /放大/ }).length).toBe(1);
+  });
+
+  it('本地持久：组件重挂（模拟页面切换）后记录仍在', async () => {
+    const first = mountPalette();
+    press('/', { metaKey: true });
+    await runBySearch(await screen.findByRole('dialog', { name: '命令面板' }), '矩形');
+    first.unmount();
+
+    mountPalette();
+    press('/', { metaKey: true });
+    const dialog = await screen.findByRole('dialog', { name: '命令面板' });
+    expect(document.querySelector('[role="option"]')?.getAttribute('data-df-command')).toBe(
+      'tool.rect',
+    );
+    expect(within(dialog).getByText('最近使用')).toBeDefined();
   });
 });

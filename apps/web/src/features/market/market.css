@@ -528,3 +528,14 @@
   color: var(--dfg-color-text-primary);
   font-family: var(--dfg-font-sans);
 }
+
+/* 编辑器左栏的页签体宿主（票 16）：主题归编辑器壳层（根 data-theme 深色），这里只管版式——
+   不设 min-height/100vh（那是 .dfg-market__dark-page 的页面级形态），填满扩展页签体即可 */
+.dfg-market__editor-host {
+  display: grid;
+  align-content: start;
+  gap: var(--dfg-space-3);
+  padding: var(--dfg-space-3);
+  color: var(--dfg-color-text-primary);
+  font-family: var(--dfg-font-sans);
+}

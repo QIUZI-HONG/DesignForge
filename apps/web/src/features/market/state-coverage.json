@@ -155,6 +155,7 @@
       "theme": "dark",
       "sourceFiles": [
         "apps/web/src/features/market/panel/MarketPanel.tsx",
+        "apps/web/src/features/market/components/MarketPanelBody.tsx",
         "apps/web/src/app/market/panel/page.tsx",
         "apps/web/src/features/market/components/MarketStates.tsx"
       ],
@@ -213,7 +214,7 @@
         },
         "empty": {
           "marker": "data-df-empty=\"index-missing\"",
-          "how": "无索引/无结果 → 「看板不下结论」空态"
+          "how": "无索引/无结果 → 「看板不下结论」空态 + 采集命令提示（与市场首页空态同源 MarketCollectHint）"
         },
         "error": {
           "marker": "data-df-state=\"error\"",

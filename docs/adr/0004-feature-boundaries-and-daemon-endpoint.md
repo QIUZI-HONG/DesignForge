@@ -258,3 +258,71 @@ canvas 装配层与 `/_canvas` 夹具的默认页名已改走引擎缺省 `creat
   `verify-figma-*.mjs`（component/editor/panels/inspect/home）与 `verify-shell-parity.mjs`
   仍各存一份 `resolveChrome`。收敛方案：随下一次「façade 清理」小票逐文件替换为
   `resolveChromeExecutable()`（替换是机械的，但每个文件都要重跑其门禁，不宜与本次整改混跑）。
+
+## 补记 · 债一清偿：页面身份收敛为 contracts 单一真源 + 页集映射 module（架构优化批 arch-01）
+
+日期：2026-11-04（上文「批次 4 复核遗留债登记」的债一，本条记**清偿**。）
+
+- **真源**：`packages/contracts` 新增 `pageFileId(index)` / `DEFAULT_PAGE_ID` / `DEFAULT_PAGE_NAME` /
+  `isPageFileId`；daemon 分配器、web 客户端、engine 缺省页名共用同一份约定（engine 不依赖
+  contracts，以「同值 + 变更须同步」注释登记）。
+- **根因修正（范围大于原债登记）**：原债只记「约定重复」，实查发现更重的事实——web 保存按
+  **数组下标**拼页 id、忽略 `page.id`，读取顺序探测且首个 404 即 `break`；页集一旦有洞
+  （外部客户端 / 手改 `.dfg` / Git 合并 / 导入），`load` 在洞处截断、`save` 跳号新建并把原页
+  变孤儿。**故清偿范围扩为「页集映射 module」**，而非只抽常量。
+- **module**：`apps/web/src/features/canvas/persistence/page-set.ts` —— `loadPageSet` 按 manifest
+  `pages[]` 读回 `{page, pageId}[]` + 未解析清单；`planPageSetSave(document, existingPageIds)`
+  产出 `{create, update, orphanPageIds}`；`page.id` 参与往返。
+- **daemon**：`createPage(documentId, name, { id? })` 接受目标 id（经既有页 id 白名单校验，
+  已占用 → 409 `doc_exists`），缺省保持跳号分配；`GET /documents/:id` 返回页清单（`DocumentDetail`）。
+- **孤儿策略**：manifest 中存在于文档之外的页面**不删除**，只在结果中报告 `orphanPageIds`
+  供上层决策——数据安全优先于自动清理。
+- **测试**：洞页集 `[page-1, page-3]` 往返、顺序页集回归、空文档口径、非本格式报错；红验尸
+  证明「改回顺序探测」会红（3 用例）。
+- **遗留（未纳入本票）**：`guard:vocab` 家族的「页 id 约定同源」判据未接入——约定已单源，
+  但门禁判据缺席；登记为后续小票。
+
+## 补记 · 债二清偿：figma 取证机抽为单一 module，7+1 份副本收口（架构优化批 arch-04）
+
+日期：2026-11-04（上文「批次 4 复核遗留债登记」的债二，本条记**清偿**；同时订正其范围。）
+
+- **范围订正**：债二记为「5 份 + shell-parity」，实况为 **7 份 figma 门禁 + shell-parity 各一份**
+  （component / editor / home / panels / review / inspect / inspector + verify-shell-parity）。
+- **module**：`scripts/lib/figma-evidence.mjs` —— `runFigmaGate({ gateName, page, units,
+  referenceDir, thresholds, prepare }) → { code, evidence }`，吸收参照集冻结判定、站点探测、
+  Chromium 解析、截图、像素比对、证据落盘、三态出口与阻塞文案。
+  **准确口径**：多数门禁侧只剩单元表 + prepare 剧本；`review` / `inspect` 仍保留各自的面级断言
+  （不强行上收，避免把面级语义塞进通用 module）。
+- **量化（分段记，避免把落地瞬间的数字当终态）**：arch-04 落地时 7 门禁 3495 → 2273 行（−1222）；
+  arch-05 凭「禁缺省连真实例」给 inspect 增补取证（+49 行）后，当前 7 门禁合计 **2322 行（−1173）**；
+  shell-parity 746 → 735（`resolveChromium` 副本删除，parity 段不动）；
+  `scripts/tests/figma-evidence.test.mjs` 9 条接入 `pnpm test:scripts`（当前 109 → 126，含 arch-05 的 6 条
+  与 arch-fix 的 2 条）。
+- **登记的语义变化**（改前/改后逐门禁对照 7/7 一致，退出码全为 2）：
+  1. Chromium 一律经 `lib/browser-toolchain.mjs` 的 `resolveChromeExecutable()`——非法
+     `BENCH_CHROME_EXECUTABLE` 由「稍后崩」改为**直接 exit 2 阻塞**（更诚实）；
+  2. `inspect` 的 `finish(code, message)` 分叉并入统一签名 `finish(evidence, code, message)`；
+  3. `inspect` 证据新增 `daemon` 键（记录本次取证指向的 daemon 来源）——arch-05 引入，属
+     第三条已登记语义变化；「证据字段集不变」的结论因此限定为「7/7 归档点一致 + 这两处增补」。
+- **事故与根因登记**：实施中一次未受控 inspect 运行连上了开发机在跑的 daemon（4318）并
+  创建/删除了一份临时文档（未触碰凭据）——违反「不得触碰开发机在跑的 daemon」。根因：
+  门禁在缺 `DF_DAEMON_URL` 时**缺省回退 `127.0.0.1:4318`**（真实例端口窗起点）。取证机抽出后
+  该坑单点可修：**显式 `DF_DAEMON_URL` 优先，否则自起夹具 daemon（临时数据根 + 空闲端口），
+  夹具起不来 → exit 2**；禁任何「缺省即连本机」残留（arch-05）。
+
+## 补记 · ② 新增公开面：`useDraftCommit`（修复批次 4 · arch-fix4 Spec P3）
+
+日期：2026-11-04（code-review 修复轮；上文 ② 的公开面纪律与既有例外结论不动，
+本条按「新增跨边界消费 = 显式加行」补记 arch-02 已下沉到 `@dforge/ui` 的原语。）
+
+- **公开面**：`packages/ui/src/index.ts` 的 `COMMIT_DELAY_MS` / `DraftCommit` /
+  `DraftCommitOptions` / `useDraftCommit` —— 草稿/提交括约原语（输入期间只改本地草稿、
+  提交时刻才发命令；300ms trailing debounce + flush/cancel），承载的不是数值编辑的私有
+  细节，而是「撤销粒度 = 一次修改 / Esc 回滚零成本」这条跨控件交互规格。
+- **为什么保留为包公开面（而非收回包内）**：同一原语服务 `NumberField`（数值）与
+  inspector 文本控件（`controls.tsx` 的 `useDraftCommit<string>`），拖拽 scrub 的
+  `setDraftLive` 语义也复用同一计时模型；收回包内会让 web 侧重长第二份计时实现
+  （arch-02 正是为消除该重复而把实现下沉到包内）。消费方经 `@dforge/ui` 包公开面导入。
+- **shim 清理**：删除 `apps/web/src/features/inspector/model/draft.ts`（纯 re-export），
+  inspector 控件与测试改为直接从 `@dforge/ui` 导入；`features/inspector/index.ts` 的既有
+  re-export 改为指向包公开面（该 feature 公开面本身不变）。

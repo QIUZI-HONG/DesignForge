@@ -30,6 +30,14 @@ async function writeStream(
   body: unknown,
 ): Promise<void> {
   const raw = reply.raw;
+  // SSE 直写裸响应会绕过 Fastify 的 reply.send 落头路径，必须把 onRequest CORS 钩子
+  // （cors.ts 同一策略对象）已设在 reply 上的策略头显式落到裸响应（allow-origin 回显 /
+  // vary: Origin；非白名单 Origin 时钩子未设放行头，这里自然也不放行）——否则浏览器
+  // 拦截流式响应（spec P0-1 断点一）。writeHead 与 setHeader 会合并，显式键优先。
+  for (const [name, value] of Object.entries(reply.getHeaders())) {
+    if (value === undefined) continue;
+    raw.setHeader(name, value);
+  }
   raw.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-cache, no-transform',
@@ -76,7 +84,7 @@ export function registerAiRoutes(app: FastifyInstance, context: DaemonContext): 
       credential: summary,
       degradedHint:
         runtime.apiKey === null
-          ? '未配置 DeepSeek key：AI 功能为降级态（建议清单），不影响编辑与出图'
+          ? '未配置 DeepSeek key：AI 功能为降级态（本地建议 · 非 AI 生成），不影响编辑与出图'
           : null,
     };
     return sendOk(reply, status);

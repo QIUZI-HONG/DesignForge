@@ -1,9 +1,11 @@
 /**
  * @dforge/daemon · DeepSeek 适配层（OpenAI-compatible，BYOK）。
  *
- * 纪律（架构 v1.1 §4.5.1 / §5.6）：
+ * 纪律（架构 v1.1 §4.5.1 / §5.6 + 票 03 / spec P0-2）：
  * - key 只在 daemon 侧解密使用；请求头携带 Authorization，**任何响应/日志不含明文 key**；
  * - 无 key / 上游失败 → **降级响应与真响应同构**（degraded + suggestions），前端无需分支；
+ *   无 key 时 content 由本地建议生成器（local-advisor.ts）产出真实可读的分步建议，
+ *   上游失败保持 partialContent（可能为空——不假装有产出；P5 落地后生成器作上游兜底）；
  * - 失败重试 ≤2 次（指数退避；429 与 5xx 同策略，超时/网络错误不重试）；
  * - 流式：SSE 帧为契约的 AiStreamEvent；`done` 永远携带完整响应（降级时亦然）。
  */
@@ -18,6 +20,8 @@ import type {
   AiSuggestion,
   AiUsage,
 } from '@dforge/contracts';
+
+import { generateLocalAdvice } from './local-advisor.ts';
 
 /** 上游单次请求超时。 */
 const UPSTREAM_TIMEOUT_MS = 60_000;
@@ -82,18 +86,36 @@ export function degradedResponse(options: {
   model: string;
   reason: AiDegradeReason;
   partialContent?: string;
+  /** 用户提示词（no-credentials 降级时交给本地建议生成器产出真实可读内容——票 03 / spec P0-2）。 */
+  prompt?: string;
 }): AiChatResponse {
+  // 未配置 key：content 由本地建议生成器产出（非空、确定性）；其余降级原因保持
+  // partialContent（可能为空——诚实呈现，不假装有产出；P5 落地后生成器再作上游兜底）。
+  const local =
+    options.reason === 'no-credentials' ? generateLocalAdvice(options.prompt ?? '') : null;
   return {
     runId: options.runId,
     provider: options.provider,
     model: options.model,
-    content: options.partialContent ?? '',
+    content: local === null ? (options.partialContent ?? '') : local.content,
     finishReason: 'degraded',
     usage: null,
     degraded: true,
     degradedReason: options.reason,
-    suggestions: suggestionsFor(options.reason),
+    suggestions:
+      local === null
+        ? suggestionsFor(options.reason)
+        : [...suggestionsFor(options.reason), ...local.suggestions],
   };
+}
+
+/** 取用户提示词（全部 user 消息按序拼接，去首尾空白）——本地建议生成器的输入。 */
+function promptOf(request: AiChatRequest): string {
+  return request.messages
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content)
+    .join('\n')
+    .trim();
 }
 
 /** AI 客户端接口。 */
@@ -241,6 +263,7 @@ export function createAiClient(options: {
           provider: 'deepseek',
           model: request.model ?? model,
           reason: 'no-credentials',
+          prompt: promptOf(request),
         });
       }
 
@@ -309,6 +332,7 @@ export function createAiClient(options: {
             provider: 'deepseek',
             model: effectiveModel,
             reason: 'no-credentials',
+            prompt: promptOf(request),
           }),
         };
         return;

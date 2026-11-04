@@ -133,6 +133,59 @@ describe('Modal（F1 模态族）', () => {
   });
 });
 
+describe('焦点守卫（浮层栈共有 · 票 09）', () => {
+  /**
+   * 缺陷形态（票 09）：真实浏览器里「禁用正在聚焦的提交键」会把焦点静默交回 body
+   * （jsdom 不复现这一步，只能用 blur() 模拟同一种「焦点被请出层外」），此后 Esc 的
+   * keydown 落在 body 上、不再经过 React 根 → 对话框关不掉。守卫应在焦点离层后把它
+   * 请回层内，让 Esc 始终可关。
+   */
+  function GuardHost() {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <Button onClick={() => setOpen(true)}>打开对话框</Button>
+        <Modal open={open} onOpenChange={setOpen} title="新建文件">
+          <button type="button" onClick={() => undefined}>
+            层内按钮
+          </button>
+        </Modal>
+      </>
+    );
+  }
+
+  it('焦点被请出层外（如提交键禁用丢焦）→ 守卫把焦点请回层内，Esc 仍可关', async () => {
+    const user = userEvent.setup();
+    render(<GuardHost />);
+    await user.click(screen.getByRole('button', { name: '打开对话框' }));
+    const dialog = screen.getByRole('dialog', { name: '新建文件' });
+    const inner = screen.getByRole('button', { name: '层内按钮' });
+    await user.click(inner);
+    expect(document.activeElement).toBe(inner);
+    // 模拟真实浏览器的「禁用聚焦中的按钮 → 焦点落到 body」（jsdom 不自发丢焦）
+    inner.blur();
+    await waitFor(() => {
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    });
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  it('守卫不劫持焦点交接：层关闭时焦点正常归还打开者（不闪回层内）', async () => {
+    const user = userEvent.setup();
+    render(<GuardHost />);
+    const opener = screen.getByRole('button', { name: '打开对话框' });
+    await user.click(opener);
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(document.activeElement).toBe(opener);
+  });
+});
+
 describe('Drawer（F2 抽屉族）', () => {
   function DrawerHost(props: { rememberKey?: string; storage?: Storage }) {
     const [open, setOpen] = useState(false);

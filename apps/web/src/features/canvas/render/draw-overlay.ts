@@ -10,7 +10,7 @@
  */
 
 import type { HandleId, Measurement, NodeId, SnapGuide, Viewport } from '@dforge/engine';
-import { normalizeRect, worldQuad } from '@dforge/engine';
+import { guidesOf, normalizeRect, worldQuad } from '@dforge/engine';
 import type { CanvasKit } from 'canvaskit-wasm';
 
 import { parseColor } from './color';
@@ -41,6 +41,8 @@ export interface OverlayCounters {
   draft: boolean;
   rulers: boolean;
   labels: number;
+  /** 页面参考线 + 拖拽预览的绘制条数（票 12）。 */
+  guides: number;
 }
 
 /** 标签内边距（屏幕 px，几何常量）。 */
@@ -246,6 +248,62 @@ function drawChipText(
   context.canvas.drawParagraph(paragraph, x, y);
 }
 
+/** 参考线线宽（屏幕 px）：常态 1、悬停/拖拽 2。 */
+const GUIDE_WIDTH_PX = 1;
+const GUIDE_WIDTH_ACTIVE_PX = 2;
+
+/** 画一条参考线（屏幕空间横贯画布；视口外不画不计数）。 */
+function drawGuideLine(
+  context: DrawContext,
+  frame: SceneFrame,
+  tools: DrawTools,
+  axis: 'x' | 'y',
+  position: number,
+  emphasized: boolean,
+): number {
+  const viewport = frame.viewport;
+  const { width, height } = frame.scale.size;
+  if (axis === 'x') {
+    const x = worldToScreenPoint(viewport, { x: position, y: 0 }).x;
+    if (x < 0 || x > width) return 0;
+    tools.line.setColor(cachedColor(context, context.palette.guide));
+    tools.line.setStrokeWidth(emphasized ? GUIDE_WIDTH_ACTIVE_PX : GUIDE_WIDTH_PX);
+    context.canvas.drawLine(x, 0, x, height, tools.line);
+    return 1;
+  }
+  const y = worldToScreenPoint(viewport, { x: 0, y: position }).y;
+  if (y < 0 || y > height) return 0;
+  tools.line.setColor(cachedColor(context, context.palette.guide));
+  tools.line.setStrokeWidth(emphasized ? GUIDE_WIDTH_ACTIVE_PX : GUIDE_WIDTH_PX);
+  context.canvas.drawLine(0, y, width, y, tools.line);
+  return 1;
+}
+
+/**
+ * 页面参考线（票 12）：常驻内容——**不随标尺显隐**（参考线随文档保存/加载，
+ * 隐藏标尺 ≠ 隐藏参考线）。悬停/拖拽加粗；拖拽中的线由预览呈现（不画两份）；
+ * 指针回到标尺条（overRuler）时预览不画——即将删除/取消的视觉前馈。
+ */
+function drawPageGuides(context: DrawContext, frame: SceneFrame, tools: DrawTools): number {
+  const dragging = frame.guideDrag;
+  let count = 0;
+  for (const guide of guidesOf(frame.page)) {
+    if (dragging !== null && dragging.originId === guide.id) continue;
+    count += drawGuideLine(
+      context,
+      frame,
+      tools,
+      guide.axis,
+      guide.position,
+      guide.id === frame.guideHoverId,
+    );
+  }
+  if (dragging !== null && !dragging.overRuler) {
+    count += drawGuideLine(context, frame, tools, dragging.axis, dragging.position, true);
+  }
+  return count;
+}
+
 /** 吸附参考线（红）与测量标注（红）。 */
 function drawSnap(
   context: DrawContext,
@@ -347,6 +405,7 @@ export function drawOverlay(
     draft: false,
     rulers: false,
     labels: 0,
+    guides: 0,
   };
   const kit = context.canvasKit;
   const viewport = frame.viewport;
@@ -355,6 +414,9 @@ export function drawOverlay(
     drawRulers(context, frame, tools, options.selectionFrame);
     counters.rulers = true;
   }
+
+  // 页面参考线（票 12）：常驻内容，先于选择 UI（与 Figma 相同的层级：内容上、手柄下）
+  counters.guides = drawPageGuides(context, frame, tools);
 
   if (frame.hoverId !== null && !frame.selection.includes(frame.hoverId)) {
     const quad = quadScreen(frame, frame.hoverId);

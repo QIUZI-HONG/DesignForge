@@ -118,6 +118,50 @@ describe('documents · 列表与读取', () => {
     }
   });
 
+  it('文档详情含 manifest 页清单（页集有洞也按 id 原样返回，不靠下标补位）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '有洞的页集');
+      // page-1 是建文档时的默认页；再按缺省分配建 page-2、按目标 id 建 page-3
+      const second = await injectJson(daemon.app, {
+        method: 'POST',
+        url: `/documents/${encodeURIComponent(id)}/pages`,
+        payload: { name: '第二页' },
+      });
+      expect(second.statusCode).toBe(201);
+      expect((second.payload as { result: { page: { id: string } } }).result.page.id).toBe(
+        'page-2',
+      );
+      const third = await injectJson(daemon.app, {
+        method: 'POST',
+        url: `/documents/${encodeURIComponent(id)}/pages`,
+        payload: { name: '第三页', id: 'page-3' },
+      });
+      expect(third.statusCode).toBe(201);
+      expect((third.payload as { result: { page: { id: string } } }).result.page.id).toBe('page-3');
+
+      // 删中间页 → manifest 页集留洞 [page-1, page-3]
+      const deleted = await injectJson(daemon.app, {
+        method: 'DELETE',
+        url: `/documents/${encodeURIComponent(id)}/pages/page-2`,
+      });
+      expect(deleted.statusCode).toBe(200);
+
+      const detail = await injectJson(daemon.app, {
+        method: 'GET',
+        url: `/documents/${encodeURIComponent(id)}`,
+      });
+      expect(detail.statusCode).toBe(200);
+      const document = (
+        detail.payload as { result: { document: { pages: { id: string }[]; pageCount: number } } }
+      ).result.document;
+      expect(document.pages.map((page) => page.id)).toEqual(['page-1', 'page-3']);
+      expect(document.pageCount).toBe(2);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('manifest 损坏的目录：列表跳过并给 warning（不整批失败）', async () => {
     const daemon = await createTestDaemon();
     try {
@@ -252,6 +296,61 @@ describe('documents · 页面读写（正文 opaque JSON）', () => {
       });
       expect(deleteLast.statusCode).toBe(409);
       expect((deleteLast.payload as { error: { code: string } }).error.code).toBe('doc_last_page');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('建页可指定目标 id（给定即按该 id 落页文件；重复/非法 id 分别 409/400）', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const id = await createDocument(daemon, '指定页 id');
+
+      const created = await injectJson(daemon.app, {
+        method: 'POST',
+        url: `/documents/${encodeURIComponent(id)}/pages`,
+        payload: { name: '自定义页', id: 'page-custom' },
+      });
+      expect(created.statusCode).toBe(201);
+      expect((created.payload as { result: { page: { id: string } } }).result.page.id).toBe(
+        'page-custom',
+      );
+      const pageEntries = await readdir(join(daemon.workspaceDir, `${id}.dfg`, 'pages'));
+      expect(pageEntries.sort()).toEqual(['page-1.json', 'page-custom.json']);
+
+      const duplicate = await injectJson(daemon.app, {
+        method: 'POST',
+        url: `/documents/${encodeURIComponent(id)}/pages`,
+        payload: { name: '撞 id', id: 'page-custom' },
+      });
+      expect(duplicate.statusCode).toBe(409);
+      expect((duplicate.payload as { error: { code: string } }).error.code).toBe('doc_exists');
+
+      const invalid = await injectJson(daemon.app, {
+        method: 'POST',
+        url: `/documents/${encodeURIComponent(id)}/pages`,
+        payload: { name: '越界 id', id: '../escape' },
+      });
+      expect(invalid.statusCode).toBe(400);
+      expect((invalid.payload as { error: { code: string } }).error.code).toBe('doc_invalid_id');
+
+      const wrongType = await injectJson(daemon.app, {
+        method: 'POST',
+        url: `/documents/${encodeURIComponent(id)}/pages`,
+        payload: { name: '非字符串 id', id: 42 },
+      });
+      expect(wrongType.statusCode).toBe(400);
+      expect((wrongType.payload as { error: { code: string } }).error.code).toBe('doc_invalid_id');
+
+      // 缺省分配不受影响：仍是「pages.length + 1 起跳号」的既有规则（此处 2 页 → page-3）
+      const allocated = await injectJson(daemon.app, {
+        method: 'POST',
+        url: `/documents/${encodeURIComponent(id)}/pages`,
+        payload: { name: '缺省分配' },
+      });
+      expect((allocated.payload as { result: { page: { id: string } } }).result.page.id).toBe(
+        'page-3',
+      );
     } finally {
       await daemon.cleanup();
     }

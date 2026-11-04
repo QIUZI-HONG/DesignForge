@@ -128,17 +128,19 @@ export const STATE_FAMILIES: StateFamilyEntry[] = [
     id: 'F17',
     name: '数值输入族',
     owner:
-      'RW-07 基础件（NumberField/Scrubber：步进、拖拽改值、解析标错、同步转圈）；Inspector 数值编辑由 app 级实现承接（features/inspector/components/NumberField.tsx——300ms 草稿提交/Esc 取消/混选起拖语义已被组件测试与 inspector-commit 门禁钉死，RW-10 有意不迁 DS 件），DS 件留作后续收敛',
-    components: ['NumberField', 'Scrubber'],
-    states: ['hover', 'active', 'disabled', 'loading', 'error'],
+      'RW-07 基础件（NumberField：草稿 + 300ms/松手单次提交、Esc 还原、键盘步进、min/max/step、混选与可选 scrub）；arch-02 起为数值编辑的单一 deep module，Inspector 数值输入与画布设置均消费它',
+    components: ['NumberField'],
+    // 数值编辑无异步态（没有 loading），非法输入走行内提示回滚而非错误态（没有 error）——
+    // F17 曾虚报这两态（arch-fix2 发现 B：data-df-state 只有 default/mixed/disabled）。
+    states: ['hover', 'active', 'disabled'],
     icon: 'MoveIcon',
   },
   {
     id: 'F18',
-    name: '色板与文字族',
+    name: '色板族',
     owner:
-      'RW-07 基础件（Swatch/ColorField/TypographyField：色块点选、hex 解析标错、无色斜纹）；Inspector 色板编辑由 app 级实现承接（features/inspector/components/controls.tsx 的 ColorFieldRow 等——RW-10 有意保留 app 级实现），DS 件留作后续收敛',
-    components: ['Swatch', 'ColorField', 'TypographyField'],
+      'RW-07 基础件（Swatch/ColorField：色块点选、hex 解析标错、无色斜纹）；Inspector 色板编辑由 app 级实现承接（features/inspector/components/controls.tsx 的 ColorFieldRow 等——RW-10 有意保留 app 级实现）',
+    components: ['Swatch', 'ColorField'],
     states: ['hover', 'active', 'disabled', 'empty', 'error'],
     icon: 'PipetteIcon',
   },

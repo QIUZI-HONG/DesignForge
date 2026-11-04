@@ -56,7 +56,16 @@ export function ShortcutsDialog() {
                   <tr key={row.command.id} data-df-command={row.command.id}>
                     <td>{row.command.title}</td>
                     <td className="dfg-editor-shortcuts__keys-col">
+                      {/* 主键位 + 附加键位（别名）并列：说明表与实际键位同步（票 04） */}
                       <kbd className="dfg-editor-shortcuts__keys">{row.shortcut}</kbd>
+                      {row.aliases.map((alias) => (
+                        <kbd
+                          key={alias}
+                          className="dfg-editor-shortcuts__keys dfg-editor-shortcuts__keys--alias"
+                        >
+                          {alias}
+                        </kbd>
+                      ))}
                     </td>
                   </tr>
                 ))}

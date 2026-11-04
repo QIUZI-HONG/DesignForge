@@ -4,6 +4,7 @@
  * 断言口径：用引擎夹具 + 真实 `CommandStack` 施加命令，再读**文档**验证结果——
  * 面板只构造命令、从不改文档对象；无操作时返回空列表（不污染撤销栈）。
  */
+import { DOCUMENT_NAME_MAX_LENGTH } from '@dforge/contracts';
 import {
   CommandStack,
   childrenOf,
@@ -129,6 +130,21 @@ describe('图层行命令', () => {
     stack.clearHistory();
     expect(renameLayerCommands(getPage(stack.document, 'p1'), 'p1', 'r1', '卡片主体')).toEqual([]);
     expect(renameLayerCommands(getPage(stack.document, 'p1'), 'p1', 'r1', '   ')).toEqual([]);
+  });
+
+  it('重命名：超长名钳制到 64 字符（与新建文件同源上限 DOCUMENT_NAME_MAX_LENGTH；票 11）', () => {
+    const stack = stackOf();
+    const page = getPage(stack.document, 'p1');
+    // 输入端（Tree maxLength）被绕过时（粘贴合成事件/其他调用方），写入端兜底钳制
+    run(stack, renameLayerCommands(page, 'p1', 'r2', '长'.repeat(5000)));
+    const renamed = getNode(getPage(stack.document, 'p1'), 'r2')?.name;
+    expect(renamed).toHaveLength(DOCUMENT_NAME_MAX_LENGTH);
+    expect(renamed).toBe('长'.repeat(DOCUMENT_NAME_MAX_LENGTH));
+    // 恰好 64 字符：不截断（产出命令的补丁名仍是 64 字符）
+    const atLimit = renameLayerCommands(getPage(stack.document, 'p1'), 'p1', 'r2', '界'.repeat(64));
+    expect(atLimit).toHaveLength(1);
+    const patch = (atLimit[0] as { patch: { name: string } }).patch;
+    expect(patch.name).toHaveLength(DOCUMENT_NAME_MAX_LENGTH);
   });
 
   it('删除：移除子树并可从历史复原', () => {

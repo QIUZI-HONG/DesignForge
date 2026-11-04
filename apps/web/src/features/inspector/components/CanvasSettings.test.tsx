@@ -7,10 +7,10 @@
  */
 
 import type { CommandStack } from '@dforge/engine';
+import { COMMIT_DELAY_MS } from '@dforge/ui';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { COMMIT_DELAY_MS } from '../model/draft';
 import { FIXTURE_PAGE_ID, fixtureStack } from '../testing/fixtures';
 import { CanvasSettings } from './CanvasSettings';
 

@@ -158,6 +158,50 @@ describe('对抗 · 新建对话的重复提交', () => {
     // 复核 Spec a3：daemon 的原文（内部口径）不再直出
     expect(screen.queryByText(/同名文档已存在/)).toBeNull();
   });
+
+  // 票 09 全流程（浏览器实测项的可自动化部分）：重名提交失败 → 焦点留在对话框内
+  // （真实浏览器里创建键禁用丢焦由浮层焦点守卫 + 对话框归位兜住，jsdom 不自发丢焦，
+  // 失焦瞬间的机制级复现在 @dforge/ui overlay.test.tsx 的焦点守卫用例）→ Esc 关闭
+  // → 重开默认名 → 改名再建成功。
+  it('重名提交失败 → 焦点在对话框内、Esc 关闭、重开流程正常', async () => {
+    let failNext = true; // 首建重名被拒，重开改名后成功
+    const created: DocumentSummary[] = []; // 桩按真实语义记账：list 反映已建文档
+    renderHome({
+      // 每次给新数组：setDocs 同引用会 bailout，列表刷新就看不见新卡片了
+      list: async () => ({ documents: [...created], warnings: [] }),
+      create: async (name) => {
+        if (failNext) throw new DocumentApiError('doc_exists', '同名文档已存在');
+        const doc = summary(name);
+        created.push(doc);
+        return doc;
+      },
+      remove: async (id) => ({ id, deleted: true }),
+    });
+    await screen.findByText('还没有设计文件');
+    await userEvent.click(screen.getByRole('button', { name: '新建设计文件' }));
+    const input = await screen.findByLabelText('文件名称');
+    fireEvent.change(input, { target: { value: '重复名' } });
+    await userEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    expect(await screen.findByText(/新建失败：已存在同名设计文件「重复名」/)).toBeTruthy();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    // 重开流程正常：默认名复位 → 改名 → 成功创建 → 新卡片出现
+    await userEvent.click(screen.getByRole('button', { name: '新建设计文件' }));
+    const reopened = await screen.findByLabelText('文件名称');
+    expect(reopened).toHaveProperty('value', '未命名设计');
+    failNext = false;
+    fireEvent.change(reopened, { target: { value: '改名文件' } });
+    fireEvent.keyDown(reopened, { key: 'Enter' });
+    expect(await screen.findByRole('link', { name: '打开「改名文件」' })).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });
 
 describe('对抗 · 搜索与市场降级', () => {

@@ -6,7 +6,12 @@
  * - 假端口：把契约事件序列变成「真 SSE 文本块」喂给适配层（不真调云端）；
  * - 可控端口：chatStream 由测试显式放行，用来观察运行中（loading/disabled）态。
  */
-import type { AiChatResponse, AiStatusResponse, AiStreamEvent } from '@dforge/contracts';
+import type {
+  AiChatResponse,
+  AiDegradeReason,
+  AiStatusResponse,
+  AiStreamEvent,
+} from '@dforge/contracts';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
@@ -35,7 +40,7 @@ export function statusUnconfigured(): AiStatusResponse {
       source: null,
       updatedAt: null,
     },
-    degradedHint: '未配置 DeepSeek key：AI 功能为降级态（建议清单），不影响编辑与出图',
+    degradedHint: '未配置 DeepSeek key：AI 功能为降级态（本地建议 · 非 AI 生成），不影响编辑与出图',
   };
 }
 
@@ -55,23 +60,38 @@ export function statusConfigured(): AiStatusResponse {
   };
 }
 
-/** 降级完成响应（与真响应同构）。 */
-export function degradedResponse(): AiChatResponse {
+/**
+ * 降级完成响应（与真响应同构；`reason` 注入降级原因，缺省 no-credentials；
+ * `options.content` 注入正文——无 key 降级时 daemon 产出的本地建议为非空串，
+ * 上游失败可能为空串，两种形态都要可测）。
+ */
+export function degradedResponse(
+  reason?: AiDegradeReason,
+  options?: { content?: string },
+): AiChatResponse {
+  // 建议按 reason 与 daemon suggestionsFor 同构：无 key → 配置凭据；上游失败 → 稍后重试；
+  // manual-edit 收尾（无 key 真跑时生成器还会追加逐族 manual-edit 条目，见票 03）。
+  const suggestions: AiChatResponse['suggestions'] =
+    (reason ?? 'no-credentials') === 'no-credentials'
+      ? [
+          {
+            kind: 'configure-credentials',
+            title: '未配置 DeepSeek API key',
+            detail: '在设置页填入 key（sk-…）后即可使用 AI 功能',
+          },
+        ]
+      : [{ kind: 'retry-later', title: '请求未能完成', detail: '可稍后重试' }];
   return {
     runId: 'ai_degraded',
     provider: 'deepseek',
     model: 'deepseek-chat',
-    content: '',
+    content: options?.content ?? '',
     finishReason: 'degraded',
     usage: null,
     degraded: true,
-    degradedReason: 'no-credentials',
+    degradedReason: reason ?? 'no-credentials',
     suggestions: [
-      {
-        kind: 'configure-credentials',
-        title: '未配置 DeepSeek API key',
-        detail: '在设置页填入 key（sk-…）后即可使用 AI 功能',
-      },
+      ...suggestions,
       { kind: 'manual-edit', title: '可先手动完成本次修改', detail: null },
     ],
   };
@@ -127,6 +147,34 @@ export function fakeAiPort(options: {
     },
   };
   return port;
+}
+
+/**
+ * 网络失败端口：`chatStream` 一开始迭代就抛给定错误（daemon 不可达时浏览器 fetch
+ * 抛 `TypeError: Failed to fetch` 的原样故障；票 06 人话化用例的驱动桩）。
+ */
+export function failingAiPort(message: string): FakeAiPort {
+  let streamCalls = 0;
+  let statusCalls = 0;
+  return {
+    get streamCalls() {
+      return streamCalls;
+    },
+    get statusCalls() {
+      return statusCalls;
+    },
+    async status() {
+      statusCalls += 1;
+      return statusConfigured();
+    },
+    chatStream() {
+      streamCalls += 1;
+      const iterator: AsyncIterator<string> = {
+        next: () => Promise.reject(new TypeError(message)),
+      };
+      return { [Symbol.asyncIterator]: () => iterator };
+    },
+  };
 }
 
 /** 可控端口：`chatStream` 阻塞直到 `release()` 被调用（观察运行中态）。 */

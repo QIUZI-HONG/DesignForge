@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_PAGE_ID,
+  DEFAULT_PAGE_NAME,
   DFG_MANIFEST_SCHEMA,
   describeDocumentNameIssue,
   documentIdFromName,
   isDfgManifest,
+  isPageFileId,
   isValidDocumentName,
+  pageFileId,
 } from './index.ts';
 
 describe('documents · 名称规则', () => {
@@ -63,5 +67,34 @@ describe('documents · manifest 校验', () => {
     expect(isDfgManifest({ ...manifest, pages: undefined })).toBe(false);
     expect(isDfgManifest({ ...manifest, pages: [{ id: 'p1' }] })).toBe(false);
     expect(isDfgManifest({ ...manifest, version: 1.5 })).toBe(false);
+  });
+});
+
+describe('documents · 页文件 id 与默认页（单一真源）', () => {
+  it('pageFileId 由 0 起的页面序号派生 page-{N}', () => {
+    expect(pageFileId(0)).toBe('page-1');
+    expect(pageFileId(1)).toBe('page-2');
+    expect(pageFileId(41)).toBe('page-42');
+  });
+
+  it('默认页身份 = page-1 / 页面 1（新建文档的占位页）', () => {
+    expect(DEFAULT_PAGE_ID).toBe('page-1');
+    expect(DEFAULT_PAGE_ID).toBe(pageFileId(0));
+    expect(DEFAULT_PAGE_NAME).toBe('页面 1');
+  });
+
+  it('isPageFileId 与 daemon 页 id 白名单同口径（合法/非法各档）', () => {
+    expect(isPageFileId('page-1')).toBe(true);
+    // 引擎历史缺省 id 仍落在白名单内（可作 daemon 页文件 id）
+    expect(isPageFileId('page_1')).toBe(true);
+    expect(isPageFileId('page-editor')).toBe(true);
+    expect(isPageFileId('')).toBe(false);
+    expect(isPageFileId('.')).toBe(false);
+    expect(isPageFileId('..')).toBe(false);
+    expect(isPageFileId('a/b')).toBe(false);
+    expect(isPageFileId('a b')).toBe(false);
+    expect(isPageFileId('页-1')).toBe(false);
+    expect(isPageFileId('a'.repeat(65))).toBe(false);
+    expect(isPageFileId(42)).toBe(false);
   });
 });
