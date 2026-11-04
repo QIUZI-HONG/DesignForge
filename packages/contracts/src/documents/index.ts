@@ -13,6 +13,42 @@ export const DFG_MANIFEST_SCHEMA = 'df.dfg.manifest/v1' as const;
 /** `.dfg` 目录后缀。 */
 export const DFG_DOCUMENT_SUFFIX = '.dfg' as const;
 
+/** 页文件 id 长度上限（daemon 页 id 白名单口径）。 */
+export const PAGE_FILE_ID_MAX_LENGTH = 64;
+
+/** daemon 页文件 id 的字符白名单（与 `apps/daemon/src/path-safety.ts` 同源同判据）。 */
+const PAGE_FILE_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * 页面序号（0 起）→ 页文件 id：`page-{N}`。
+ *
+ * **单一真源**：daemon 的跳号分配器、web 的空文档占位页、引擎的缺省页 id 都按此约定；
+ * 引擎不依赖 contracts（纯 TS 零运行时依赖），其常量注释里注明「与 contracts 同值」。
+ * 页文件 id 是**身份**（不是位置）：manifest 的 `pages[].id` 即该值。
+ */
+export function pageFileId(index: number): string {
+  return `page-${String(index + 1)}`;
+}
+
+/** 新建文档的默认页 id（`page-1`；daemon 落盘初始页与 web 空文档口径共用）。 */
+export const DEFAULT_PAGE_ID = pageFileId(0);
+
+/** 新建文档的默认页名（数据默认值，不是界面文案）。 */
+export const DEFAULT_PAGE_NAME = '页面 1' as const;
+
+/**
+ * 是否为合法的页文件 id（`[A-Za-z0-9._-]{1,64}`，拒绝 `.` / `..`）。
+ *
+ * 这是**页 id 白名单的唯一真源**：daemon 的 `isValidPageId` 直接委托本函数，
+ * web 的 mapping module 用它在保存时判断 `page.id` 能否原样作为页文件 id。
+ */
+export function isPageFileId(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  if (value.length === 0 || value.length > PAGE_FILE_ID_MAX_LENGTH) return false;
+  if (value === '.' || value === '..') return false;
+  return PAGE_FILE_ID_PATTERN.test(value);
+}
+
 /** 页面元数据（正文不在 manifest 内，落 pages/<pageId>.json）。 */
 export interface DfgPageMeta {
   id: string;
@@ -44,6 +80,22 @@ export interface DocumentSummary {
   pageCount: number;
   /** 文档体积（manifest + 页面正文合计字节）。 */
   sizeBytes: number;
+}
+
+/**
+ * 文档详情（`GET /documents/:documentId`）：摘要 + manifest 的页清单。
+ *
+ * 为什么单列而不是把 `pages` 塞进 `DocumentSummary`（列表项）：列表不需要逐页元数据，
+ * 而读写往返必须按 manifest 的**页 id 集合**（有序）寻址——页集有洞时不能靠下标猜 id。
+ */
+export interface DocumentDetail extends DocumentSummary {
+  /** manifest 的页元数据（顺序 = daemon 页顺序；`id` 即页文件 id）。 */
+  pages: DfgPageMeta[];
+}
+
+/** `GET /documents/:documentId` 响应。 */
+export interface DocumentDetailResponse {
+  document: DocumentDetail;
 }
 
 /** 列表里的跳过告警（目录损坏不阻塞列表：记录并继续）。 */
@@ -80,9 +132,15 @@ export interface DocumentDeleteResponse {
   deleted: boolean;
 }
 
-/** `POST /documents/:documentId/pages` 请求。 */
+/**
+ * `POST /documents/:documentId/pages` 请求。
+ *
+ * `id` 可选：缺省由 daemon 跳号分配（既有行为）；给定时按该 id 建页（页 id 是身份，
+ * 保存映射据此把内存页 id 原样落成页文件，不再「位置即身份」）。非法/已占用即 4xx/409。
+ */
 export interface PageCreateRequest {
   name: string;
+  id?: string;
 }
 
 /** 页面单对象响应。 */
