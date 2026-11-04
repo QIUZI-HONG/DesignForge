@@ -114,6 +114,15 @@ const DOC_FILE_MODE = 0o644;
 /** 正文嵌套深度上限：超过则 4xx 拒绝（`JSON.stringify` 递归序列化会栈溢出 → 500）。 */
 const MAX_BODY_DEPTH = 1024;
 
+/** 页面正文文件名后缀（`pages/<pageId>.json`）。 */
+const PAGE_FILE_SUFFIX = '.json';
+
+/**
+ * 页 id 的大小写归一键（Security S1）：macOS/Windows 大小写不敏感文件系统上
+ * `PAGE-1` 与 `page-1` 指向同一文件，占用判定必须按归一后比较，否则会绕过 409 清空既有正文。
+ */
+const foldPageId = (pageId: string): string => pageId.toLowerCase();
+
 /** manifest 提交的有界重试次数（跨进程并发写者的收敛上界；用尽 → `conflict`）。 */
 const MAX_COMMIT_ATTEMPTS = 3;
 
@@ -185,8 +194,24 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       paths.root,
       `${documentId}${DFG_DOCUMENT_SUFFIX}`,
       'pages',
-      `${pageId}.json`,
+      `${pageId}${PAGE_FILE_SUFFIX}`,
     );
+  };
+
+  /**
+   * 目标目录内既有页文件名（去掉 `.json`）——判定「已占用」的第二来源（Security S1）：
+   * manifest 未登记但盘上残留的 `pages/<id>.json` 同样不得被建页覆盖。
+   * 目录暂不可读时按空集处理，写前的 `lstat` 仍在提交内兜底。
+   */
+  const listPageIdsOnDisk = async (pagesDir: string): Promise<string[]> => {
+    try {
+      const entries = await readdir(pagesDir);
+      return entries
+        .filter((entry) => entry.endsWith(PAGE_FILE_SUFFIX))
+        .map((entry) => entry.slice(0, -PAGE_FILE_SUFFIX.length));
+    } catch {
+      return [];
+    }
   };
 
   /** 读取并校验 manifest（含 `pages[].id` —— 克隆来的 `.dfg` 是不可信输入）。 */
@@ -540,24 +565,46 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       if (!paths.ok) return paths;
       return lock.run(documentId, async () => {
         return commitManifest(documentId, paths.value, async (current) => {
-          if (requestedId !== undefined && current.pages.some((page) => page.id === requestedId)) {
+          // 「已占用」= manifest 页 id ∪ 目标目录内既有文件名，按大小写归一后比较
+          // （Security S1：大小写不敏感文件系统上 PAGE-1/page-1 是同一文件；残留页文件也不得覆盖）
+          const taken = new Map<string, string>();
+          for (const page of current.pages) taken.set(foldPageId(page.id), page.id);
+          for (const id of await listPageIdsOnDisk(paths.value.pagesDir)) {
+            if (!taken.has(foldPageId(id))) taken.set(foldPageId(id), id);
+          }
+          if (requestedId !== undefined) {
+            const conflictId = taken.get(foldPageId(requestedId));
+            if (conflictId !== undefined) {
+              return {
+                ok: false,
+                result: {
+                  ok: false,
+                  code: 'doc_exists',
+                  message: '页面 id 已被本文档占用',
+                  details: { documentId, pageId: requestedId, conflictId },
+                },
+              };
+            }
+          }
+          // 缺省：页面 id 递增分配（page-N），跳过已占用的编号（含大小写归一/盘上残留）；重试路径上按最新状态重算
+          let counter = current.pages.length + 1;
+          while (taken.has(foldPageId(pageFileId(counter - 1)))) counter += 1;
+          const pageId = requestedId ?? pageFileId(counter - 1);
+          const pagePath = await resolvePagePath(paths.value, documentId, pageId);
+          if (pagePath === null) return { ok: false, result: invalidPageId() };
+          // 写前存在性检查（第二层，Security S1）：目标文件已存在即拒绝，绝不覆盖既有正文
+          const existing = await lstat(pagePath).catch(() => null);
+          if (existing !== null) {
             return {
               ok: false,
               result: {
                 ok: false,
                 code: 'doc_exists',
-                message: '页面 id 已被本文档占用',
-                details: { documentId, pageId: requestedId },
+                message: '页面文件已存在于磁盘（拒绝覆盖既有正文）',
+                details: { documentId, pageId, conflictId: pageId },
               },
             };
           }
-          // 缺省：页面 id 递增分配（page-N），跳过已占用的编号；重试路径上按最新状态重算
-          const taken = new Set(current.pages.map((page) => page.id));
-          let counter = current.pages.length + 1;
-          while (taken.has(pageFileId(counter - 1))) counter += 1;
-          const pageId = requestedId ?? pageFileId(counter - 1);
-          const pagePath = await resolvePagePath(paths.value, documentId, pageId);
-          if (pagePath === null) return { ok: false, result: invalidPageId() };
           const now = new Date().toISOString();
           const page: DfgPageMeta = { id: pageId, name: name.trim(), updatedAt: now };
           await writeFileAtomic(pagePath, '{}\n', DOC_FILE_MODE);
