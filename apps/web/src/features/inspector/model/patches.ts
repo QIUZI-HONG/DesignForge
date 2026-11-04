@@ -25,6 +25,7 @@ import {
   type SceneNode,
   type ScenePage,
   type Stroke,
+  sameEffect,
   setNodeProps,
   solidPaint,
   type TextContent,
@@ -218,6 +219,17 @@ export function removeEffectCommands(
   });
 }
 
+/**
+ * 按键位构造单字段效果补丁：严格模式下「计算键」无法直接收窄到效果补丁形状，
+ * 在此一处集中展开（控件侧只传字段键与值，不再按字段写 switch）。
+ */
+export function effectPatch<K extends keyof Omit<Effect, 'type'>>(
+  key: K,
+  value: Effect[K],
+): Pick<Effect, K> {
+  return { [key]: value } as Pick<Effect, K>;
+}
+
 /** 批量改第 index 个效果的参数（部分补丁；未涉及参数保留；无变化/越界跳过）。 */
 export function updateEffectCommands(
   page: ScenePage,
@@ -230,16 +242,8 @@ export function updateEffectCommands(
     const current = node.effects[index];
     if (current === undefined) return null;
     const next: Effect = { ...current, ...patch };
-    if (
-      next.color === current.color &&
-      next.offsetX === current.offsetX &&
-      next.offsetY === current.offsetY &&
-      next.blur === current.blur &&
-      next.spread === current.spread &&
-      next.visible === current.visible
-    ) {
-      return null;
-    }
+    // 「无变化」由引擎描述表派生（字段集单一真源，漏字段 = 空修改产生历史）
+    if (sameEffect(next, current)) return null;
     return { effects: node.effects.map((effect, at) => (at === index ? next : effect)) };
   });
 }
