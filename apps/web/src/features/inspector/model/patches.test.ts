@@ -24,6 +24,7 @@ import {
   addEffectCommands,
   applyAutoLayoutCommands,
   defaultEffect,
+  effectPatch,
   removeEffectCommands,
   setBlendModeCommands,
   setFillColorCommands,
@@ -227,6 +228,12 @@ describe('effects 命令族（效果分区 · RW-10）', () => {
 
     // 全部越界：不产生空命令
     expect(removeEffectCommands(pageOf(stack), 'p1', ['r1', 'r2'], 9)).toEqual([]);
+  });
+
+  it('effectPatch：按键位构造单字段补丁（只含该字段，计算键收窄在写层一处）', () => {
+    expect(effectPatch('blur', 16)).toEqual({ blur: 16 });
+    expect(effectPatch('visible', false)).toEqual({ visible: false });
+    expect(effectPatch('color', '#00FF00')).toEqual({ color: '#00FF00' });
   });
 
   it('updateEffectCommands：按序号合并参数补丁；无变化/越界不出命令', () => {

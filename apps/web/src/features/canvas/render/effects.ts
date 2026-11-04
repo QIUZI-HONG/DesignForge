@@ -39,19 +39,19 @@
  *   经既有 `stats()` 观测通道供门禁读取（工单 09 验收项）。
  */
 
-import type { Effect } from '@dforge/engine';
+import { type Effect, effectCacheKey, sigmaOf } from '@dforge/engine';
 import type { CanvasKit, Color, ImageFilter, MaskFilter } from 'canvaskit-wasm';
 
 import { parseColor, withAlpha } from './color';
 
+/**
+ * 缓存键与 σ 换算由引擎 `EFFECT_FIELDS` 描述表派生（arch-03：字段集单一真源）。
+ * 此处转出以保留渲染模块的既有消费面（draw-scene / 测试按名引用）。
+ */
+export { effectCacheKey, sigmaOf };
+
 /** 高斯模糊的可见半径（Skia 经验法则：约 3σ 处截断）——saveLayer 边界外扩的依据。 */
 export const BLUR_REACH_SIGMAS = 3;
-
-/** Figma/CSS 的模糊半径 → 高斯 σ：减半；非有限或负值 → 0（硬边）。 */
-export function sigmaOf(blur: number): number {
-  if (!Number.isFinite(blur) || blur <= 0) return 0;
-  return blur / 2;
-}
 
 /**
  * 可绘制的效果列表（渲染入口的清洗层）：
@@ -84,19 +84,6 @@ export function visibleEffects(effects: readonly Effect[] | undefined): Effect[]
     out.push(effect);
   }
   return out;
-}
-
-/** 效果滤镜缓存键（所有影响渲染结果的字段都要进键，否则「改了参数没重画」）。 */
-export function effectCacheKey(effect: Effect, alpha: number): string {
-  return [
-    effect.type,
-    effect.color,
-    effect.offsetX,
-    effect.offsetY,
-    sigmaOf(effect.blur), // σ 归一化后进键（blur 抖动 ±0 不产生新对象）
-    effect.spread,
-    alpha,
-  ].join('|');
 }
 
 /** 效果色（CanvasKit Color）：效果色 alpha × 节点 alpha（效果是层级属性，不乘填充透明度）。 */

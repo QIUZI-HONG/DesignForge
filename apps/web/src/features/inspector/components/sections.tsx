@@ -24,6 +24,8 @@ import {
   type Command,
   type CommandStack,
   type Effect,
+  type EffectEditableField,
+  type EffectNumberField,
   type PageId,
   padding,
   type ScenePage,
@@ -41,6 +43,7 @@ import {
   applyAutoLayoutToSelectionCommands,
   defaultEffect,
   type EffectType,
+  effectPatch,
   removeEffectCommands,
   setFillColorCommands,
   setFillOpacityCommands,
@@ -494,6 +497,35 @@ export const CornerSection = memo(function CornerSection({
  * 效果（RW-10 交付 c）
  * ------------------------------------------------------------------------ */
 
+/** 效果行单个可编辑字段的控件规格（布局口径留 UI，编辑义务来自引擎描述表）。 */
+interface EffectRowControl {
+  /** 控件形态：数值 / 颜色 / 开关。 */
+  kind: 'number' | 'color' | 'switch';
+  /** 仅阴影类效果显示（层模糊没有偏移 / 扩展 / 颜色）。 */
+  shadowOnly: boolean;
+  /** 数值下限（模糊与扩展 ≥ 0；偏移可为负）。 */
+  min?: number;
+}
+
+/**
+ * 效果行控件表——穷尽断言：键集必须等于引擎 `EFFECT_FIELDS` 的全部可编辑字段
+ * （`Record<EffectEditableField, …>` 强制登记；`Effect` 新增可编辑字段而本行未接
+ * 控件 → 编译期报缺项）。数值控件由此表派生，颜色 / 可见性各有专用控件。
+ */
+const EFFECT_ROW_CONTROLS: Record<EffectEditableField, EffectRowControl> = {
+  offsetX: { kind: 'number', shadowOnly: true },
+  offsetY: { kind: 'number', shadowOnly: true },
+  blur: { kind: 'number', shadowOnly: false, min: 0 },
+  spread: { kind: 'number', shadowOnly: true, min: 0 },
+  color: { kind: 'color', shadowOnly: true },
+  visible: { kind: 'switch', shadowOnly: false },
+};
+
+/** 数值参数控件键（顺序 = 控件表声明序，与效果行既有渲染顺序一致）。 */
+const EFFECT_ROW_NUMBER_FIELDS = (Object.keys(EFFECT_ROW_CONTROLS) as EffectEditableField[]).filter(
+  (key): key is EffectNumberField => EFFECT_ROW_CONTROLS[key].kind === 'number',
+);
+
 /** 单条效果行（参数编辑经 node.update 命令；层模糊只显示适用参数）。 */
 const EffectRow = memo(function EffectRow({
   effect,
@@ -517,33 +549,24 @@ const EffectRow = memo(function EffectRow({
     actions.dispatch(updateEffectCommands(page, pageId, ids, index, patch), history);
   };
   /**
-   * 参数数值字段（走 scrub 会话：拖拽零写入，松手单事务）。
-   * 负值口径：偏移量可为负（投影方向不限）；模糊/扩展 min 0。
+   * 参数数值控件（走 scrub 会话：拖拽零写入，松手单事务）。
+   * 字段键集与下限来自控件表（引擎描述表派生）；负值口径：偏移可负，模糊/扩展 min 0。
    */
-  const param = (
-    key: 'offsetX' | 'offsetY' | 'blur' | 'spread',
-    label: string,
-    extra: { min?: number } = {},
-  ) => (
+  const param = (key: EffectNumberField) => (
     <FlowNumberField
+      key={key}
       actions={actions}
-      label={label}
+      label={t(`inspector.effect.${key}`)}
       fieldName={`effect-${index}-${key}`}
       value={effect[key]}
-      min={extra.min}
+      min={EFFECT_ROW_CONTROLS[key].min}
       precision={0}
-      onCommit={(value) => {
-        // 按键位显式展开（计算键在严格模式下无法收窄到效果补丁形状）
-        const patch: Partial<Omit<Effect, 'type'>> =
-          key === 'offsetX'
-            ? { offsetX: value }
-            : key === 'offsetY'
-              ? { offsetY: value }
-              : key === 'blur'
-                ? { blur: value }
-                : { spread: value };
-        actions.commitCommands(updateEffectCommands(page, pageId, ids, index, patch), history);
-      }}
+      onCommit={(value) =>
+        actions.commitCommands(
+          updateEffectCommands(page, pageId, ids, index, effectPatch(key, value)),
+          history,
+        )
+      }
     />
   );
 
@@ -573,10 +596,9 @@ const EffectRow = memo(function EffectRow({
         </button>
       </div>
       <div className="dfi-effectrow__params">
-        {isShadow ? param('offsetX', t('inspector.effect.offsetX')) : null}
-        {isShadow ? param('offsetY', t('inspector.effect.offsetY')) : null}
-        {param('blur', t('inspector.effect.blur'), { min: 0 })}
-        {isShadow ? param('spread', t('inspector.effect.spread'), { min: 0 }) : null}
+        {EFFECT_ROW_NUMBER_FIELDS.map((key) =>
+          EFFECT_ROW_CONTROLS[key].shadowOnly && !isShadow ? null : param(key),
+        )}
         {isShadow ? (
           <ColorFieldRow
             label={t('inspector.effect.color')}
