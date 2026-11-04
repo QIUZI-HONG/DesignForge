@@ -339,7 +339,7 @@ export const BoxIcon = createIcon(
 // 编辑器补全（RW-07：图层树 / Inspector / 命令面板；用词对齐 Figma 中文界面）
 // ---------------------------------------------------------------------------
 
-/** 拖拽把手（图层树行拖拽排序、Scrubber 抓手）。 */
+/** 拖拽把手（图层树行拖拽排序、数值编辑的 scrub 抓手）。 */
 export const GripIcon = createIcon(
   'GripIcon',
   <>
