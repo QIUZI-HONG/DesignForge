@@ -9,6 +9,7 @@
  */
 
 import { type CommandStack, findPage, type PageId, type PagePatch } from '@dforge/engine';
+import { NumberField } from '@dforge/ui';
 
 import { t } from '@/i18n';
 
@@ -17,7 +18,7 @@ import '../inspector.css';
 
 import { useDocumentSnapshot } from '../hooks/useDocumentSnapshot';
 import { DraftTextField, FieldRow, SwitchField } from './controls';
-import { NumberField } from './NumberField';
+import { MIXED_PLACEHOLDER, NUMBER_FIELD_MESSAGES } from './number-field-copy';
 
 /** 画布设置 props。 */
 export interface CanvasSettingsProps {
@@ -86,6 +87,8 @@ export function CanvasSettings({ stack, pageId }: CanvasSettingsProps) {
           min={1}
           max={512}
           precision={0}
+          mixedPlaceholder={MIXED_PLACEHOLDER}
+          messages={NUMBER_FIELD_MESSAGES}
           onCommit={(size) => update({ grid: { ...page.grid, size } })}
         />
       </FieldRow>

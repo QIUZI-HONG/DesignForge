@@ -8,6 +8,21 @@
 
 export type { DesignDocument, ScenePage } from './document';
 export { createDocument, createPage } from './document';
+export type {
+  EffectEditableField,
+  EffectField,
+  EffectFieldCompare,
+  EffectFieldSpec,
+  EffectNumberField,
+} from './effects';
+export {
+  EFFECT_FIELD_KEYS,
+  EFFECT_FIELDS,
+  effectCacheKey,
+  sameEffect,
+  sameEffects,
+  sigmaOf,
+} from './effects';
 export type { GridSettings, GridStyle } from './grid';
 export { defaultGridSettings } from './grid';
 export type { GuideAxis, PageGuide } from './guides';

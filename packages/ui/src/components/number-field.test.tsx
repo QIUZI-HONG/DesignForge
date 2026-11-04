@@ -1,274 +1,401 @@
 /**
- * NumberField / Scrubber 行为测试（RW-07 · 数值步进 + scrubbing）。
+ * NumberField（数值编辑 deep module · arch-02）语义规格。
  *
- * 断言角度（验收标准 §2 + §5，对应总纲 R-4「数值步进 + scrubbing」）：spinbutton 语义、
- * 键盘/按钮步进与边界钳制、拖拽改值（鼠标 scrubbing 的可达性等价路径是方向键）、
- * 非法输入标错、单位后缀、禁用/加载态——只测可观测行为。
+ * 规格来源：《前端验收标准 v1》C5/C6 与 inspector-commit 对抗用例——
+ * 草稿态、300ms 去抖、松手/Enter/blur 提交括约、Esc 还原、键盘步进、
+ * min/max/step、可选 scrub、混选「—」、可及性标签。
+ *
+ * 核心断言：**一次编辑恰一条命令**（连续输入/连续拖拽只提交一次；
+ * 提交时刻才调用 onCommit——撤销粒度 = 一次修改）。
  */
-import { fireEvent, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { NumberField } from './NumberField';
-import { Scrubber } from './Scrubber';
+import {
+  formatFieldNumber,
+  NumberField,
+  type NumberFieldMessages,
+  type NumberFieldProps,
+} from './NumberField';
 
-describe('NumberField · 语义与展示', () => {
-  it('spinbutton 语义：可访问名来自字段名，值/单位/边界进 aria', () => {
-    render(
-      <NumberField fieldLabel="宽度" value={16} unit="px" min={0} max={100} onChange={() => {}} />,
-    );
-    const input = screen.getByRole('spinbutton', { name: '宽度' });
-    expect(input.getAttribute('aria-valuenow')).toBe('16');
-    expect(input.getAttribute('aria-valuemin')).toBe('0');
-    expect(input.getAttribute('aria-valuemax')).toBe('100');
-    // 单位后缀灰显在输入框内（不在值文本里）
-    expect(screen.getByText('px')).toBeTruthy();
+/** 调用方注入的界面文案（本包不含业务文案；测试夹具即调用方）。 */
+const MESSAGES: NumberFieldMessages = {
+  reverted: '已恢复原值',
+  clamped: (value) => `已限制为 ${value}`,
+};
+
+/** 混选占位（生产由调用方从单点传入）。 */
+const MIXED = '—';
+
+describe('formatFieldNumber（数值显示口径）', () => {
+  it('整数不带小数位，浮点去掉尾随零', () => {
+    expect(formatFieldNumber(10, 0)).toBe('10');
+    expect(formatFieldNumber(1.5, 2)).toBe('1.5');
+    expect(formatFieldNumber(1.25, 2)).toBe('1.25');
   });
 
-  it('空值：aria-valuenow 缺省，输入框为空', () => {
-    render(<NumberField fieldLabel="圆角" value={null} onChange={() => {}} />);
-    const input = screen.getByRole('spinbutton', { name: '圆角' }) as HTMLInputElement;
-    expect(input.getAttribute('aria-valuenow')).toBeNull();
-    expect(input.value).toBe('');
-  });
-});
-
-describe('NumberField · 键入与提交', () => {
-  it('输入数字后 Enter 提交 onChange；失焦同效', async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<NumberField fieldLabel="X" defaultValue={0} onChange={onChange} />);
-    const input = screen.getByRole('spinbutton', { name: 'X' }) as HTMLInputElement;
-    await user.clear(input);
-    await user.type(input, '24');
-    await user.keyboard('{Enter}');
-    expect(onChange).toHaveBeenCalledWith(24);
-    expect(screen.queryByRole('alert')).toBeNull();
-
-    await user.clear(input);
-    await user.type(input, '36');
-    fireEvent.blur(input);
-    expect(onChange).toHaveBeenLastCalledWith(36);
-  });
-
-  it('单位后缀可随值一起键入（解析时剥离）', async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<NumberField fieldLabel="间距" unit="px" defaultValue={8} onChange={onChange} />);
-    const input = screen.getByRole('spinbutton', { name: '间距' }) as HTMLInputElement;
-    await user.clear(input);
-    await user.type(input, '12px');
-    await user.keyboard('{Enter}');
-    expect(onChange).toHaveBeenCalledWith(12);
-  });
-
-  it('非法输入：标错（aria-invalid + alert）且不上报，修正后恢复', async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(
-      <NumberField fieldLabel="X" defaultValue={1} onChange={onChange} errorMessage="请输入数字" />,
-    );
-    const input = screen.getByRole('spinbutton', { name: 'X' }) as HTMLInputElement;
-    await user.type(input, 'abc');
-    await user.keyboard('{Enter}');
-    expect(input.getAttribute('aria-invalid')).toBe('true');
-    expect(onChange).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert').textContent).toContain('请输入数字');
-
-    await user.clear(input);
-    await user.type(input, '10');
-    await user.keyboard('{Enter}');
-    expect(input.getAttribute('aria-invalid')).toBe('false');
-    expect(onChange).toHaveBeenCalledWith(10);
-  });
-
-  it('空值提交上报 null（清空字段）', async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<NumberField fieldLabel="X" defaultValue={16} onChange={onChange} />);
-    const input = screen.getByRole('spinbutton', { name: 'X' }) as HTMLInputElement;
-    await user.clear(input);
-    await user.keyboard('{Enter}');
-    expect(onChange).toHaveBeenCalledWith(null);
+  it('按精度四舍五入', () => {
+    expect(formatFieldNumber(0.3333, 2)).toBe('0.33');
+    expect(formatFieldNumber(1.6, 0)).toBe('2');
   });
 });
 
-describe('NumberField · 步进', () => {
-  it('↑/↓ 步进并按 min/max 钳制', async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    const { rerender } = render(
+/** 渲染一个受控字段（不带引擎，聚焦交互语义）。 */
+function renderField(props: Partial<NumberFieldProps> = {}) {
+  const onCommit = vi.fn();
+  const view = render(
+    <NumberField
+      label="X"
+      fieldName="x"
+      value={10}
+      mixedPlaceholder={MIXED}
+      messages={MESSAGES}
+      onCommit={onCommit}
+      {...props}
+    />,
+  );
+  const input = screen.getByRole('textbox', { name: props.label ?? 'X' }) as HTMLInputElement;
+  return { onCommit, input, view };
+}
+
+describe('NumberField · 显示与混选', () => {
+  it('单值：显示格式化后的值；混选：显示调用方占位并标 mixed', () => {
+    const { input } = renderField();
+    expect(input.value).toBe('10');
+
+    const view = render(
       <NumberField
-        fieldLabel="X"
-        defaultValue={10}
-        step={2}
-        min={0}
-        max={12}
-        onChange={onChange}
+        label="Y"
+        fieldName="y"
+        value={undefined}
+        mixedPlaceholder={MIXED}
+        messages={MESSAGES}
+        onCommit={vi.fn()}
       />,
     );
-    const input = screen.getByRole('spinbutton', { name: 'X' });
-    input.focus();
-    await user.keyboard('{ArrowUp}');
-    expect(onChange).toHaveBeenLastCalledWith(12);
-    rerender(
-      <NumberField fieldLabel="X" value={12} step={2} min={0} max={12} onChange={onChange} />,
+    const mixedInput = screen.getByRole('textbox', { name: 'Y' }) as HTMLInputElement;
+    expect(mixedInput.value).toBe('—');
+    expect(mixedInput.closest('[data-df-inspector-field]')?.getAttribute('data-df-state')).toBe(
+      'mixed',
     );
-    await user.keyboard('{ArrowUp}');
-    // 已到上界：不再上报
-    expect(onChange).toHaveBeenCalledTimes(1);
-    await user.keyboard('{ArrowDown}');
-    expect(onChange).toHaveBeenLastCalledWith(10);
+    view.unmount();
   });
 
-  it('步进按钮：点击上调/下调（视觉 affordance，键盘等价路径是方向键）', () => {
-    const onChange = vi.fn();
-    const { container } = render(
-      <NumberField fieldLabel="X" defaultValue={10} onChange={onChange} />,
-    );
-    const steps = container.querySelectorAll<HTMLButtonElement>('.dfg-numfield__step');
-    expect(steps.length).toBe(2);
-    fireEvent.click(steps[0] as HTMLButtonElement);
-    expect(onChange).toHaveBeenLastCalledWith(11);
-    fireEvent.click(steps[1] as HTMLButtonElement);
-    expect(onChange).toHaveBeenLastCalledWith(10);
-  });
-
-  it('小数步进不积浮点尾差（0.1 步进三次 = 0.3）', async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<NumberField fieldLabel="不透明度" defaultValue={0} step={0.1} onChange={onChange} />);
-    const input = screen.getByRole('spinbutton', { name: '不透明度' });
-    input.focus();
-    await user.keyboard('{ArrowUp}');
-    await user.keyboard('{ArrowUp}');
-    await user.keyboard('{ArrowUp}');
-    expect(onChange).toHaveBeenLastCalledWith(0.3);
+  it('可及性：标签即输入框的可访问名', () => {
+    renderField({ label: '宽度' });
+    expect(screen.getByRole('textbox', { name: '宽度' })).toBeTruthy();
   });
 });
 
-describe('NumberField · scrubbing（拖拽改值）', () => {
-  it('横向拖拽改值：越过阈值启动，增量按灵敏度折算', () => {
-    const onChange = vi.fn();
+describe('NumberField · 草稿与提交（一次编辑恰一条命令）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('输入期间不提交；静默 300ms 只提交一次（提交最终文本）', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '2' } });
+    fireEvent.change(input, { target: { value: '25' } });
+    fireEvent.change(input, { target: { value: '250' } });
+
+    expect(onCommit).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(299));
+    expect(onCommit).not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(250);
+  });
+
+  it('299ms 边界不提交，300ms 才提交（计时口径钉死）', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '77' } });
+    act(() => vi.advanceTimersByTime(299));
+    expect(onCommit).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(77);
+  });
+
+  it('Enter 立即提交（不等待 300ms），且之后不再有第二次', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '42' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(42);
+
+    act(() => vi.advanceTimersByTime(600));
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it('Esc 取消草稿：显示回滚到外部值且不提交', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '99' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(input.value).toBe('10');
+    act(() => vi.advanceTimersByTime(600));
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it('Esc 之后 blur 不得把取消变成提交', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '999' } });
+    act(() => vi.advanceTimersByTime(100));
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.blur(input);
+    act(() => vi.advanceTimersByTime(5000));
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it('blur 立即提交草稿一次，且不再有第二次（计时器被清）', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '7' } });
+    act(() => vi.advanceTimersByTime(100));
+    fireEvent.blur(input);
+
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(7);
+    act(() => vi.advanceTimersByTime(5000));
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it('值无变化时不提交（不产生空命令）', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '10' } });
+    act(() => vi.advanceTimersByTime(300));
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+});
+
+describe('NumberField · 键盘步进与范围', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('上下键步进 ±step；Shift 为 10 倍步进', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    act(() => vi.advanceTimersByTime(300));
+    expect(onCommit).toHaveBeenLastCalledWith(11);
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    act(() => vi.advanceTimersByTime(300));
+    expect(onCommit).toHaveBeenLastCalledWith(9);
+
+    fireEvent.keyDown(input, { key: 'ArrowUp', shiftKey: true });
+    act(() => vi.advanceTimersByTime(300));
+    expect(onCommit).toHaveBeenLastCalledWith(20);
+  });
+
+  it('步进受 min/max 夹取', () => {
+    const { onCommit, input } = renderField({ min: 0, max: 12 });
+    fireEvent.keyDown(input, { key: 'ArrowUp', shiftKey: true });
+    act(() => vi.advanceTimersByTime(300));
+    expect(onCommit).toHaveBeenLastCalledWith(12);
+  });
+});
+
+describe('NumberField · scrub（拖拽改值）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('拖拽期间不提交（含静默超窗），松手提交一次（1px = 1 步）', () => {
+    const { onCommit } = renderField();
+    const handle = screen.getByTestId('numberfield-scrub-x');
+
+    fireEvent.pointerDown(handle, { clientX: 100, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 110, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(900));
+    fireEvent.pointerMove(handle, { clientX: 130, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(900));
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(handle, { clientX: 130, pointerId: 1 });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(40);
+
+    act(() => vi.advanceTimersByTime(600));
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it('scrub 会话钩子：onScrubStart 先于提交，onScrubEnd 后于唯一一次提交', () => {
     const onScrubStart = vi.fn();
     const onScrubEnd = vi.fn();
+    const onCommit = vi.fn();
     render(
       <NumberField
-        fieldLabel="X"
-        defaultValue={0}
-        scrubSensitivity={0.5}
-        onChange={onChange}
+        label="X"
+        fieldName="x"
+        value={10}
+        mixedPlaceholder={MIXED}
+        messages={MESSAGES}
+        onCommit={onCommit}
         onScrubStart={onScrubStart}
         onScrubEnd={onScrubEnd}
       />,
     );
-    const input = screen.getByRole('spinbutton', { name: 'X' });
-    fireEvent.mouseDown(input, { button: 0, clientX: 10 });
-    // 未越过阈值（2px）：只聚焦，不改值
-    fireEvent.mouseMove(document, { clientX: 11 });
-    expect(onScrubStart).not.toHaveBeenCalled();
-    fireEvent.mouseMove(document, { clientX: 30 });
+    const handle = screen.getByTestId('numberfield-scrub-x');
+
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 1 });
     expect(onScrubStart).toHaveBeenCalledTimes(1);
-    // 起点 0 + 位移 20 × 0.5 = 10
-    expect(onChange).toHaveBeenLastCalledWith(10);
-    fireEvent.mouseMove(document, { clientX: 20 });
-    expect(onChange).toHaveBeenLastCalledWith(5);
-    fireEvent.mouseUp(document);
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.pointerMove(handle, { clientX: 5, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 12, pointerId: 1 });
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(handle, { clientX: 12, pointerId: 1 });
+    expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onScrubEnd).toHaveBeenCalledTimes(1);
   });
 
-  it('scrubbing=false 关闭拖拽改值（点击仍可进入编辑）', () => {
-    const onChange = vi.fn();
-    const onScrubStart = vi.fn();
-    render(
-      <NumberField
-        fieldLabel="X"
-        defaultValue={0}
-        scrubbing={false}
-        onChange={onChange}
-        onScrubStart={onScrubStart}
-      />,
-    );
-    const input = screen.getByRole('spinbutton', { name: 'X' });
-    fireEvent.mouseDown(input, { button: 0, clientX: 10 });
-    fireEvent.mouseMove(document, { clientX: 40 });
-    fireEvent.mouseUp(document);
-    expect(onScrubStart).not.toHaveBeenCalled();
-    expect(onChange).not.toHaveBeenCalled();
-  });
-});
-
-describe('NumberField · 禁用与加载', () => {
-  it('禁用：输入与步进都不可用', () => {
-    const onChange = vi.fn();
-    const { container } = render(
-      <NumberField fieldLabel="X" defaultValue={1} disabled onChange={onChange} />,
-    );
-    const input = screen.getByRole('spinbutton', { name: 'X' }) as HTMLInputElement;
-    expect(input.disabled).toBe(true);
-    const steps = container.querySelectorAll<HTMLButtonElement>('.dfg-numfield__step');
-    fireEvent.click(steps[0] as HTMLButtonElement);
-    fireEvent.click(steps[1] as HTMLButtonElement);
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it('加载（引擎同步中）：只读 + 行内转圈', () => {
-    const { container } = render(<NumberField fieldLabel="X" value={4} loading />);
-    const input = screen.getByRole('spinbutton', { name: 'X' }) as HTMLInputElement;
-    expect(input.readOnly).toBe(true);
-    expect(container.querySelector('.dfg-spinner')).not.toBeNull();
-  });
-
-  it('正常态辅助说明进 aria-describedby（与错误互斥占位）', () => {
-    render(<NumberField fieldLabel="X" value={1} hint="0–100 之间的整数" />);
-    const describedBy = screen
-      .getByRole('spinbutton', { name: 'X' })
-      .getAttribute('aria-describedby');
-    expect(describedBy).not.toBeNull();
-    expect(document.getElementById(describedBy as string)?.textContent).toContain('0–100');
-  });
-});
-
-describe('Scrubber（独立抓手：Inspector 标签等场景复用）', () => {
-  it('拖拽上报逐段横向增量', () => {
-    const onDelta = vi.fn();
+  it('值未变化即松手：给 onScrubEnd，但不提交', () => {
     const onScrubStart = vi.fn();
     const onScrubEnd = vi.fn();
+    const onCommit = vi.fn();
     render(
-      <Scrubber label="宽度" onDelta={onDelta} onScrubStart={onScrubStart} onScrubEnd={onScrubEnd}>
-        宽
-      </Scrubber>,
+      <NumberField
+        label="X"
+        fieldName="x"
+        value={10}
+        mixedPlaceholder={MIXED}
+        messages={MESSAGES}
+        onCommit={onCommit}
+        onScrubStart={onScrubStart}
+        onScrubEnd={onScrubEnd}
+      />,
     );
-    const scrubber = screen.getByRole('button', { name: '宽度' });
-    fireEvent.mouseDown(scrubber, { button: 0, clientX: 10 });
-    fireEvent.mouseMove(document, { clientX: 18 });
-    fireEvent.mouseMove(document, { clientX: 15 });
-    fireEvent.mouseUp(document);
-    expect(onDelta).toHaveBeenNthCalledWith(1, 8);
-    expect(onDelta).toHaveBeenNthCalledWith(2, -3);
-    expect(onScrubStart).toHaveBeenCalledTimes(1);
+    const handle = screen.getByTestId('numberfield-scrub-x');
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientX: 0, pointerId: 1 });
+    expect(onCommit).not.toHaveBeenCalled();
     expect(onScrubEnd).toHaveBeenCalledTimes(1);
   });
 
-  it('键盘方向键同样上报增量（可达性不只鼠标）', async () => {
-    const user = userEvent.setup();
-    const onDelta = vi.fn();
-    render(<Scrubber label="宽度" step={2} onDelta={onDelta} />);
-    screen.getByRole('button', { name: '宽度' }).focus();
-    await user.keyboard('{ArrowRight}');
-    await user.keyboard('{ArrowLeft}');
-    expect(onDelta).toHaveBeenNthCalledWith(1, 2);
-    expect(onDelta).toHaveBeenNthCalledWith(2, -2);
+  it('拖拽中途 Esc：丢弃草稿，之后松手不得提交', () => {
+    const onCommit = vi.fn();
+    render(
+      <NumberField
+        label="X"
+        fieldName="x"
+        value={10}
+        mixedPlaceholder={MIXED}
+        messages={MESSAGES}
+        onCommit={onCommit}
+      />,
+    );
+    const input = screen.getByRole('textbox', { name: 'X' });
+    const handle = screen.getByTestId('numberfield-scrub-x');
+    fireEvent.pointerDown(handle, { clientX: 100, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 200, pointerId: 1 });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+    act(() => vi.advanceTimersByTime(5000));
+    expect(onCommit).not.toHaveBeenCalled();
   });
 
-  it('禁用后不再上报增量', () => {
-    const onDelta = vi.fn();
-    render(<Scrubber label="宽度" disabled onDelta={onDelta} />);
-    const scrubber = screen.getByRole('button', { name: '宽度' }) as HTMLButtonElement;
-    expect(scrubber.disabled).toBe(true);
-    fireEvent.mouseDown(scrubber, { button: 0, clientX: 0 });
-    fireEvent.mouseMove(document, { clientX: 20 });
-    fireEvent.mouseUp(document);
-    expect(onDelta).not.toHaveBeenCalled();
+  it('scrubbing=false 关闭拖拽改值（键入路径不受影响）', () => {
+    const { onCommit, input } = renderField({ scrubbing: false });
+    const handle = screen.getByTestId('numberfield-scrub-x');
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 4 });
+    fireEvent.pointerMove(handle, { clientX: 20, pointerId: 4 });
+    fireEvent.pointerUp(handle, { clientX: 20, pointerId: 4 });
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '33' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(33);
+  });
+
+  it('混选（value undefined）：以基准值起拖，提交基准 + 位移', () => {
+    const onCommit = vi.fn();
+    render(
+      <NumberField
+        label="X"
+        fieldName="x"
+        value={undefined}
+        baseValue={100}
+        mixedPlaceholder={MIXED}
+        messages={MESSAGES}
+        onCommit={onCommit}
+      />,
+    );
+    const handle = screen.getByTestId('numberfield-scrub-x');
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 2 });
+    fireEvent.pointerMove(handle, { clientX: 5, pointerId: 2 });
+    fireEvent.pointerUp(handle, { clientX: 5, pointerId: 2 });
+    expect(onCommit).toHaveBeenCalledWith(105);
+  });
+});
+
+describe('NumberField · 非法输入与夹取提示', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('非法输入不提交并回滚显示，行内提示「已恢复原值」；下一次编辑即清除', () => {
+    const { onCommit, input } = renderField();
+    expect(screen.queryByRole('status')).toBeNull();
+    fireEvent.change(input, { target: { value: 'abc' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(input.value).toBe('10');
+    expect(screen.getByRole('status').textContent).toBe('已恢复原值');
+
+    fireEvent.change(input, { target: { value: '12' } });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('空串不产生提交（避免空命令）', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '' } });
+    act(() => vi.advanceTimersByTime(300));
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it('负值口径 · 坐标（无 min）：负值原样提交，不给限制提示', () => {
+    const { onCommit, input } = renderField();
+    fireEvent.change(input, { target: { value: '-99999' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(-99999);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('负值口径 · 尺寸（min 0）：负值被限制为 0 并给「已限制为 0」提示', () => {
+    const { onCommit, input } = renderField({ value: 80, min: 0, precision: 0 });
+    fireEvent.change(input, { target: { value: '-5' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith(0);
+    expect(screen.getByRole('status').textContent).toBe('已限制为 0');
+  });
+});
+
+describe('NumberField · disabled', () => {
+  it('输入框禁用且不响应拖拽', () => {
+    const { onCommit, input } = renderField({ disabled: true });
+    expect(input.disabled).toBe(true);
+    expect(screen.getByTestId('numberfield-scrub-x').getAttribute('aria-disabled')).toBe('true');
+    fireEvent.pointerDown(screen.getByTestId('numberfield-scrub-x'), { clientX: 0, pointerId: 3 });
+    fireEvent.pointerMove(screen.getByTestId('numberfield-scrub-x'), {
+      clientX: 20,
+      pointerId: 3,
+    });
+    fireEvent.pointerUp(screen.getByTestId('numberfield-scrub-x'), { clientX: 20, pointerId: 3 });
+    expect(onCommit).not.toHaveBeenCalled();
   });
 });

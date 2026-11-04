@@ -14,6 +14,8 @@ import {
   defaultGridSettings,
   dropShadow,
   type Effect,
+  effectCacheKey as engineEffectCacheKey,
+  sigmaOf as engineSigmaOf,
   type ScenePage,
 } from '@dforge/engine';
 import type { CanvasKit, ImageFilter } from 'canvaskit-wasm';
@@ -119,23 +121,9 @@ describe('effectCacheKey（复用缓存键契约）', () => {
     expect(effectCacheKey(a, 1)).toBe(effectCacheKey(b, 1));
   });
 
-  it('任一影响渲染的字段变化 → 键变化（漏字段 = 「改了参数没重画」）', () => {
-    const base = effectOf({});
-    const alpha = 1;
-    const keys = new Set<string>([effectCacheKey(base, alpha)]);
-    for (const variant of [
-      effectOf({ type: 'inner_shadow' }),
-      effectOf({ color: '#00FF00' }),
-      effectOf({ offsetX: 1 }),
-      effectOf({ offsetY: 1 }),
-      effectOf({ blur: 12 }), // σ 进键（blur 8→12 即 σ 4→6）
-      effectOf({ spread: 2 }),
-    ]) {
-      const key = effectCacheKey(variant, alpha);
-      expect(keys.has(key)).toBe(false);
-      keys.add(key);
-    }
-    expect(keys.size).toBe(7);
+  it('复用引擎描述表派生（同一函数，无本地字段副本）', () => {
+    expect(effectCacheKey).toBe(engineEffectCacheKey);
+    expect(sigmaOf).toBe(engineSigmaOf);
   });
 
   it('节点 alpha 变化 → 键变化（阴影色 alpha 随节点透明度乘算）', () => {

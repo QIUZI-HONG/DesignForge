@@ -1133,87 +1133,7 @@
   text-align: center;
 }
 
-/* ---------- NumberField / Scrubber（F17 数值输入族，RW-07） ---------- */
-
-.dfg-numfield__input {
-  text-align: left;
-}
-
-.dfg-numfield__unit {
-  flex: 0 0 auto;
-  font-size: var(--dfg-font-size-control);
-  color: var(--dfg-color-text-secondary);
-  user-select: none;
-}
-
-.dfg-numfield__steppers {
-  display: inline-flex;
-  flex-direction: column;
-  flex: 0 0 auto;
-}
-
-.dfg-numfield__step {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--dfg-space-3);
-  height: calc(var(--dfg-control-height-md) / 2);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--dfg-color-icon-secondary);
-  cursor: pointer;
-}
-
-.dfg-numfield__step:hover:not(:disabled) {
-  color: var(--dfg-color-icon-primary);
-}
-
-.dfg-numfield__step:disabled {
-  color: var(--dfg-color-icon-disabled);
-  cursor: not-allowed;
-}
-
-.dfg-numfield--invalid {
-  border-color: var(--dfg-color-danger);
-}
-
-/* 拖拽改值进行中：横向缩放暗示 + 防误选文本 */
-.dfg-numfield--scrubbing {
-  cursor: ew-resize;
-  user-select: none;
-}
-
-.dfg-numfield__status {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  color: var(--dfg-color-icon-secondary);
-}
-
-.dfg-scrubber {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--dfg-icon-gap);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: ew-resize;
-  user-select: none;
-}
-
-.dfg-scrubber--dragging {
-  cursor: ew-resize;
-}
-
-.dfg-scrubber:focus-visible {
-  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
-  outline-offset: var(--dfg-focus-ring-offset);
-}
-
-/* ---------- Swatch / ColorField / TypographyField（F18 色板与文字族，RW-07） ---------- */
+/* ---------- Swatch / ColorField（F18 色板与文字族，RW-07） ---------- */
 
 .dfg-swatch {
   position: relative;
@@ -1280,46 +1200,6 @@ button.dfg-swatch:focus-visible {
 
 .dfg-colorfield--invalid {
   border-color: var(--dfg-color-danger);
-}
-
-.dfg-typography__controls {
-  display: flex;
-  gap: var(--dfg-space-2);
-}
-
-.dfg-typography__select {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: var(--dfg-control-height-md);
-  padding-inline: var(--dfg-control-padding-x-sm);
-  border: var(--dfg-border-width-hairline) solid var(--dfg-color-border);
-  border-radius: var(--dfg-radius-md);
-  background-color: var(--dfg-color-surface);
-  color: var(--dfg-color-text-primary);
-  font-family: inherit;
-  font-size: var(--dfg-font-size-control);
-  cursor: pointer;
-  transition: border-color var(--dfg-duration-fast) var(--dfg-easing-standard);
-}
-
-.dfg-typography__select:hover:not(:disabled),
-.dfg-typography__select.dfg-state-hover:not(:disabled) {
-  border-color: var(--dfg-color-border-strong);
-}
-
-.dfg-typography__select:focus-visible {
-  outline: var(--dfg-focus-ring-width) solid var(--dfg-focus-ring-color);
-  outline-offset: var(--dfg-focus-ring-offset);
-}
-
-.dfg-typography__select[aria-invalid="true"] {
-  border-color: var(--dfg-color-danger);
-}
-
-.dfg-typography__select:disabled {
-  background-color: var(--dfg-color-surface-subtle);
-  color: var(--dfg-color-text-disabled);
-  cursor: not-allowed;
 }
 
 /* ---------- Tabs / TabPanel / Collapse（F19 页签与折叠族，RW-07） ---------- */
@@ -1506,7 +1386,6 @@ button.dfg-swatch:focus-visible {
   .dfg-input-wrap,
   .dfg-progress__bar,
   .dfg-tree__node,
-  .dfg-typography__select,
   .dfg-tabs__tab {
     transition: none;
   }

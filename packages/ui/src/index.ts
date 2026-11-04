@@ -49,14 +49,13 @@ export {
   type ModalProps,
   type ModalSize,
   NumberField,
+  type NumberFieldMessages,
   type NumberFieldProps,
   Overlay,
   type OverlayProps,
   Progress,
   type ProgressProps,
   type ProgressTone,
-  Scrubber,
-  type ScrubberProps,
   SegmentedControl,
   type SegmentedControlProps,
   type SegmentedOption,
@@ -90,9 +89,6 @@ export {
   Tree,
   type TreeNodeSpec,
   type TreeProps,
-  TypographyField,
-  type TypographyFieldProps,
-  type TypographyOption,
   useToast,
 } from './components/index';
 // 图标整体透出：单个图标（工具条/面板按名引用）与 ICONS 注册表（列举用）都要能取到
@@ -124,3 +120,10 @@ export {
   type TokenVars,
   themeOf,
 } from './tokens';
+// 草稿态 + 300ms 提交调度：数值编辑 module 内部语义，也是文本草稿（inspector controls）的共用实现
+export {
+  COMMIT_DELAY_MS,
+  type DraftCommit,
+  type DraftCommitOptions,
+  useDraftCommit,
+} from './utils/use-draft-commit';

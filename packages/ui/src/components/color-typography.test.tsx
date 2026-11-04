@@ -1,17 +1,19 @@
 /**
- * Swatch / ColorField / TypographyField 行为测试（RW-07 · 色板与字体最小集）。
+ * Swatch / ColorField 行为测试（RW-07 · 色板最小集）。
  *
- * 断言角度（验收标准 §2 + §5，对应总纲 R-4「色板/字号选择」）：色块展示与无色形态、
- * 色值提交与非法标错、清空语义、字号/字重选择的原生下拉语义——只测可观测行为。
+ * 断言角度（验收标准 §2 + §5，对应总纲 R-4「色板」）：色块展示与无色形态、
+ * 色值提交与非法标错、清空语义——只测可观测行为。
  * 测试里的 hex 是「调用方给的业务色值」（测试文件在 guard 白名单内）。
+ *
+ * arch-02：TypographyField（字号/字重下拉）为零生产消费的独立枚举控件，
+ * 与数值编辑 module 不构成同类语义；随旧 DS 件一并退役（票面「旧 DS 三件」清单）。
  */
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ColorField } from './ColorField';
 import { Swatch } from './Swatch';
-import { TypographyField } from './TypographyField';
 
 describe('Swatch（色板色块）', () => {
   it('纯展示：填充调用方给的色值', () => {
@@ -127,153 +129,5 @@ describe('ColorField（颜色输入 + 色块预览）', () => {
   it('禁用：输入不可用', () => {
     render(<ColorField fieldLabel="填充" value="#0d99ff" disabled onChange={() => {}} />);
     expect((screen.getByRole('textbox', { name: '填充' }) as HTMLInputElement).disabled).toBe(true);
-  });
-});
-
-describe('TypographyField（字号/字重最小集）', () => {
-  const sizes = [
-    { value: 12, label: '12' },
-    { value: 16, label: '16' },
-    { value: 24, label: '24' },
-  ];
-  const weights = [
-    { value: 400, label: '常规' },
-    { value: 500, label: '中' },
-    { value: 700, label: '粗' },
-  ];
-
-  it('分组语义 + 字号/字重两个下拉各具名', () => {
-    render(
-      <TypographyField
-        label="文字"
-        sizeLabel="字号"
-        weightLabel="字重"
-        size={16}
-        sizes={sizes}
-        weight={400}
-        weights={weights}
-        onChange={() => {}}
-      />,
-    );
-    expect(screen.getByRole('group', { name: '文字' })).toBeTruthy();
-    const sizeSelect = screen.getByRole('combobox', { name: '字号' }) as HTMLSelectElement;
-    const weightSelect = screen.getByRole('combobox', { name: '字重' }) as HTMLSelectElement;
-    expect(sizeSelect.value).toBe('16');
-    expect(weightSelect.value).toBe('400');
-  });
-
-  it('选择上报对应维度，另一维度保持', async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
-    const { rerender } = render(
-      <TypographyField
-        label="文字"
-        sizeLabel="字号"
-        weightLabel="字重"
-        size={16}
-        sizes={sizes}
-        weight={400}
-        weights={weights}
-        onChange={onChange}
-      />,
-    );
-    await user.selectOptions(screen.getByRole('combobox', { name: '字号' }), '24');
-    expect(onChange).toHaveBeenCalledWith({ size: 24 });
-
-    rerender(
-      <TypographyField
-        label="文字"
-        sizeLabel="字号"
-        weightLabel="字重"
-        size={24}
-        sizes={sizes}
-        weight={400}
-        weights={weights}
-        onChange={onChange}
-      />,
-    );
-    await user.selectOptions(screen.getByRole('combobox', { name: '字重' }), '700');
-    expect(onChange).toHaveBeenCalledWith({ weight: 700 });
-  });
-
-  it('选项禁用与整组禁用', () => {
-    const onChange = vi.fn();
-    const { rerender } = render(
-      <TypographyField
-        label="文字"
-        sizeLabel="字号"
-        weightLabel="字重"
-        size={16}
-        sizes={[...sizes, { value: 96, label: '96', disabled: true }]}
-        weight={400}
-        weights={weights}
-        disabled={false}
-        onChange={onChange}
-      />,
-    );
-    const sizeSelect = screen.getByRole('combobox', { name: '字号' }) as HTMLSelectElement;
-    const disabledOption = [...sizeSelect.options].find((option) => option.value === '96');
-    expect(disabledOption?.disabled).toBe(true);
-
-    rerender(
-      <TypographyField
-        label="文字"
-        sizeLabel="字号"
-        weightLabel="字重"
-        size={16}
-        sizes={sizes}
-        weight={400}
-        weights={weights}
-        disabled
-        onChange={onChange}
-      />,
-    );
-    expect((screen.getByRole('combobox', { name: '字号' }) as HTMLSelectElement).disabled).toBe(
-      true,
-    );
-    expect((screen.getByRole('combobox', { name: '字重' }) as HTMLSelectElement).disabled).toBe(
-      true,
-    );
-  });
-
-  it('错误文案经 alert 播报并关联 aria-describedby', () => {
-    render(
-      <TypographyField
-        label="文字"
-        sizeLabel="字号"
-        weightLabel="字重"
-        size={16}
-        sizes={sizes}
-        weight={400}
-        weights={weights}
-        invalid
-        errorMessage="字体不可用"
-        onChange={() => {}}
-      />,
-    );
-    expect(screen.getByRole('alert').textContent).toContain('字体不可用');
-    const describedBy = screen
-      .getByRole('combobox', { name: '字号' })
-      .getAttribute('aria-describedby');
-    expect(describedBy).not.toBeNull();
-    expect(document.getElementById(describedBy as string)?.textContent).toContain('字体不可用');
-  });
-
-  it('fireEvent 触发 change 同样上报（原生 select 语义）', () => {
-    const onChange = vi.fn();
-    render(
-      <TypographyField
-        label="文字"
-        sizeLabel="字号"
-        weightLabel="字重"
-        size={16}
-        sizes={sizes}
-        weight={400}
-        weights={weights}
-        onChange={onChange}
-      />,
-    );
-    fireEvent.change(screen.getByRole('combobox', { name: '字号' }), { target: { value: '12' } });
-    expect(onChange).toHaveBeenCalledWith({ size: 12 });
   });
 });
