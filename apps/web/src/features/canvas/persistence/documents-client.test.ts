@@ -16,6 +16,7 @@ import {
   loadDesignDocument,
   saveDesignDocument,
 } from './documents-client';
+import { pageIdOf } from './page-set';
 
 /** 内存版 daemon 信封路由（只实现本用例触达的文档/页路由；页集按 manifest 建模）。 */
 interface StubDocument {
@@ -114,7 +115,11 @@ function stubDaemon(): StubDaemon {
         return reply(404, { ok: false, error: { code: 'doc_not_found' } });
       const requested = body.id;
       const pageId = typeof requested === 'string' ? requested : allocatePageId(document);
-      if (document.pages.has(pageId)) {
+      // 与 daemon（arch-fix3）同口径：占用判定按大小写归一（PAGE-1/page-1 是同一页文件）
+      const occupied = [...document.pages.keys()].some(
+        (existing) => existing.toLowerCase() === pageId.toLowerCase(),
+      );
+      if (occupied) {
         return reply(409, { ok: false, error: { code: 'doc_exists' } });
       }
       document.pages.set(pageId, {});
@@ -409,6 +414,83 @@ describe('页集有洞（arch-01 · 页 id 是身份不是位置）', () => {
     if (!reloaded.ok) return;
     expect(reloaded.value.pages).toHaveLength(2);
     expect(reloaded.value.pages[1]?.nodes.n_2?.type).toBe('rect');
+  });
+
+  it('反例（Spec P1）：非法 id 页 + 后续页 preferred page-3——saveDesignDocument 连续两轮都成功、页文件数不增', async () => {
+    const daemon = stubDaemon();
+    daemon.seed('撞号', [
+      { id: 'page-1', body: {} },
+      { id: 'page-2', body: {} },
+    ]);
+    // existing={page-1,page-2}、文档页=[非法 id 页, page-1, page-2, page-3]
+    // 修复前：第 1 页补位拿到 page-3，第 4 页 preferred=page-3 再 create 一次 → 409 doc_exists。
+    const document = createDocument({
+      id: 'doc_local',
+      name: '撞号',
+      pages: [
+        createPage({
+          id: '第 1 页',
+          nodes: { n_a: createRect({ id: 'n_a', x: 1, y: 1, width: 2, height: 2 }) },
+          rootIds: ['n_a'],
+        }),
+        createPage({ id: 'page-1' }),
+        createPage({ id: 'page-2' }),
+        createPage({
+          id: 'page-3',
+          nodes: { n_3: createRect({ id: 'n_3', x: 3, y: 3, width: 2, height: 2 }) },
+          rootIds: ['n_3'],
+        }),
+      ],
+    });
+
+    const first = await saveDesignDocument(daemon.client, '撞号', document);
+    expect(first.ok, first.ok ? '' : first.error).toBe(true);
+    if (!first.ok) return;
+    expect([...new Set(first.value.pageIds)].length).toBe(4);
+    const afterFirst = daemon.pagesOf('撞号').size;
+    expect(afterFirst).toBe(4);
+
+    const second = await saveDesignDocument(daemon.client, '撞号', document);
+    expect(second.ok, second.ok ? '' : second.error).toBe(true);
+    if (!second.ok) return;
+    expect(daemon.pagesOf('撞号').size).toBe(afterFirst);
+    // 两轮都没有重复页文件、也没有把刚写入的页当孤儿
+    expect([...daemon.pagesOf('撞号').keys()].map((id) => id.toLowerCase())).toEqual([
+      'page-1',
+      'page-2',
+      'page-4',
+      'page-3',
+    ]);
+    expect(second.value.orphanPageIds).toEqual([]);
+  });
+
+  it('导入含非法页 id 的文档：保存后导出寻址 = 实际页文件名，且不回写 page.id（Spec P2）', async () => {
+    const daemon = stubDaemon();
+    const created = await daemon.client.createDocument('导出寻址');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const importedPage = createPage({
+      id: '第 2 页',
+      nodes: { n_2: createRect({ id: 'n_2', x: 5, y: 5, width: 6, height: 7 }) },
+      rootIds: ['n_2'],
+    });
+    const document = createDocument({
+      id: 'doc_local',
+      name: '导出寻址',
+      pages: [createPage({ id: 'page-1' }), importedPage],
+    });
+
+    const saved = await saveDesignDocument(daemon.client, created.value.id, document);
+    expect(saved.ok, saved.ok ? '' : saved.error).toBe(true);
+    if (!saved.ok) return;
+
+    // 导出按 daemon 坐标系寻址：经会话映射解析到落盘文件名（不是导入时的非法 id）
+    const exportPageId = pageIdOf(importedPage);
+    expect(exportPageId).not.toBeNull();
+    expect(exportPageId).toBe(saved.value.pageIds[1]);
+    expect(daemon.pagesOf(created.value.id).has(exportPageId as string)).toBe(true);
+    // 只读映射：文档真值未回写（否则会产生一条用户可见的撤销条目）
+    expect(importedPage.id).toBe('第 2 页');
   });
 
   it('空文档（`{}`）口径保持：一页空画布，id = page-1', async () => {

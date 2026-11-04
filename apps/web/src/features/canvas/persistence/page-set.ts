@@ -186,11 +186,19 @@ export interface PageSetSavePlan {
   orphanPageIds: string[];
 }
 
-/** 取首个未被占用的 `page-{N}`。 */
+/**
+ * 页 id 的大小写归一键——与 daemon `documents/store.ts` 的占用判定同口径
+ * （macOS/Windows 大小写不敏感文件系统上 `PAGE-1` 与 `page-1` 是同一页文件）。
+ */
+function foldPageId(pageId: string): string {
+  return pageId.toLowerCase();
+}
+
+/** 取首个未被占用的 `page-{N}`（`taken` 为**归一后**的 id 集合）。 */
 function nextFreePageId(taken: ReadonlySet<string>): string {
   for (let index = 0; ; index += 1) {
     const candidate = pageFileId(index);
-    if (!taken.has(candidate)) return candidate;
+    if (!taken.has(foldPageId(candidate))) return candidate;
   }
 }
 
@@ -202,6 +210,18 @@ function nextFreePageId(taken: ReadonlySet<string>): string {
  * WeakMap 不延长页面对象寿命（文档关闭/导出后映射随对象回收）。
  */
 const assignedPageIds = new WeakMap<ScenePage, string>();
+
+/**
+ * 文档页在 daemon 侧的页文件 id（保存计划实际采用的那个 id）。
+ *
+ * 只读会话内映射（`planPageSetSave` 写入），**不回写文档真值、不产生历史条目**：
+ * - 载入的页 `page.id` 已是 daemon 页 id、且未参与过保存 → null（调用方退回 `page.id`）；
+ * - 导入/外部文档的非法页 id 在保存时被改派为 `page-N` → 返回落盘 id
+ *   （导出等按 daemon 寻址的调用点必须经它解析，不能用仍是旧值的 `page.id`）。
+ */
+export function pageIdOf(page: ScenePage): string | null {
+  return assignedPageIds.get(page) ?? null;
+}
 
 /** 页 id 升序：`page-{N}` 按数字序，其余按字典序（孤儿复用顺序稳定、可预测）。 */
 function comparePageIds(left: string, right: string): number {
@@ -217,27 +237,36 @@ function comparePageIds(left: string, right: string): number {
 /**
  * 计算保存计划（不读写页文件；只读会话内的稳定映射）。
  *
- * - `page.id` 命中 `existingPageIds` → update 该 id（**按身份定位**，位置无关）；
+ * - `page.id` 命中 `existingPageIds` → update 该 id（**按身份定位**，位置无关；
+ *   大小写按 daemon 的归一口径视为同一页）；
  * - 未命中且自身 id 是合法页文件 id → create 并沿用该 id（身份可往返）；
  * - 非法/重复 id → 优先复用 manifest 中未被合法页 id 认领的孤儿页 id（升序），
  *   用尽才 create 首个空闲 `page-N`；
  * - 同一页面对象上次分配过 id → 本轮继续用它（不再重新分配）；
+ * - **本计划内页 id 唯一**（归一后）：改派页不得抢占其他页的合法自身 id；
+ *   冲突的 preferred（同 id 的第二个页 / 大小写变体）按孤儿池 → 空闲号改派；
  * - `existingPageIds` 中未被任何文档页认领的 → `orphanPageIds`（不删）。
  */
 export function planPageSetSave(
   document: DesignDocument,
   existingPageIds: readonly string[],
 ): PageSetSavePlan {
-  const existing = new Set(existingPageIds);
-  const taken = new Set(existingPageIds);
-  const claimed = new Set<string>();
+  // 既有页按 daemon 的归一口径索引：`PAGE-1` 与 `page-1` 是同一页文件。
+  const existingByFold = new Map<string, string>();
+  for (const pageId of existingPageIds) {
+    const fold = foldPageId(pageId);
+    if (!existingByFold.has(fold)) existingByFold.set(fold, pageId);
+  }
+
   const reserved = new Set<string>();
+  const reservedFolded = new Set<string>();
   const preferred: Array<string | null> = document.pages.map(() => null);
 
   // 第一轮：合法自身 id 全局优先（身份可往返；重复 id 只有首个认领）。
   document.pages.forEach((page, index) => {
     if (isPageFileId(page.id) && !reserved.has(page.id)) {
       reserved.add(page.id);
+      reservedFolded.add(foldPageId(page.id));
       preferred[index] = page.id;
     }
   });
@@ -245,45 +274,88 @@ export function planPageSetSave(
   document.pages.forEach((page, index) => {
     if (preferred[index] !== null) return;
     const stableId = assignedPageIds.get(page);
-    if (stableId !== undefined && isPageFileId(stableId) && !reserved.has(stableId)) {
+    if (
+      stableId !== undefined &&
+      isPageFileId(stableId) &&
+      !reservedFolded.has(foldPageId(stableId))
+    ) {
       reserved.add(stableId);
+      reservedFolded.add(foldPageId(stableId));
       preferred[index] = stableId;
     }
   });
 
   // 孤儿池：manifest 中未被文档页（自身合法 id / 会话稳定 id）认领的既有页 id。
-  const orphanPool = existingPageIds.filter((pageId) => !reserved.has(pageId)).sort(comparePageIds);
+  // 归一口径过滤，避免大小写变体把同一页文件同时放进「待复用」与「已预留」。
+  const orphanPool = existingPageIds
+    .filter((pageId) => !reservedFolded.has(foldPageId(pageId)))
+    .sort(comparePageIds);
   let orphanCursor = 0;
+
+  /**
+   * 本计划已占用的页 id（归一后）。
+   * **键的用途**：改派页（孤儿复用 / nextFree）必须避开它——否则会抢走另一页的
+   * preferred（如非法 id 页先分配了 `page-3`，后面合法 `page-3` 页再建一次 → 409），
+   * 也会让同一 preferred 的第二个页拿到重复 id。
+   */
+  const claimedFolded = new Set<string>();
 
   const create: PageSetCreate[] = [];
   const update: PageSetUpdate[] = [];
+
+  /** 取下一个未被本计划占用的孤儿 id（用尽 → null）。 */
+  const takeOrphan = (): string | null => {
+    while (orphanCursor < orphanPool.length) {
+      const candidate = orphanPool[orphanCursor];
+      orphanCursor += 1;
+      if (candidate === undefined) continue;
+      if (!claimedFolded.has(foldPageId(candidate))) return candidate;
+    }
+    return null;
+  };
 
   document.pages.forEach((page, index) => {
     const body = encodePageBody(document, page);
     const preferredId = preferred[index] ?? null;
     let pageId: string;
-    if (preferredId !== null) {
+    if (preferredId !== null && !claimedFolded.has(foldPageId(preferredId))) {
       pageId = preferredId;
     } else {
-      const orphanId = orphanPool[orphanCursor];
-      if (orphanId === undefined) {
-        pageId = nextFreePageId(taken);
-      } else {
-        orphanCursor += 1;
+      // 没有可用自身 id，或 preferred 已被本计划中的另一页占用（重复 id / 大小写变体）：
+      // 孤儿池优先 → 首个空闲号；两者都避开既有页、已预留的 preferred 与本计划已占用 id。
+      const orphanId = takeOrphan();
+      if (orphanId !== null) {
         pageId = orphanId;
+      } else {
+        pageId = nextFreePageId(
+          new Set([...existingByFold.keys(), ...reservedFolded, ...claimedFolded]),
+        );
       }
     }
-    taken.add(pageId);
-    claimed.add(pageId);
-    assignedPageIds.set(page, pageId);
+    // 归一口径命中既有页 → 按既有页的真实 id 写回（大小写变体不另建页文件）。
+    const existingId = existingByFold.get(foldPageId(pageId));
+    const assignedId = existingId ?? pageId;
+    claimedFolded.add(foldPageId(assignedId));
+    assignedPageIds.set(page, assignedId);
     // 命中既有页（含复用孤儿）走 update；否则 create 并沿用分配到的 id。
-    if (existing.has(pageId)) update.push({ pageId, body, index });
-    else create.push({ pageId, name: page.name, body, index });
+    if (existingId !== undefined) update.push({ pageId: assignedId, body, index });
+    else create.push({ pageId: assignedId, name: page.name, body, index });
   });
+
+  // 计划后置断言（内部不变量）：create 内、create ∪ update 内页 id 必须唯一——
+  // 重复 id 会让 daemon 第二次 create 以 409 拒绝，整次保存失败。
+  const plannedFolded = new Set<string>();
+  for (const entry of [...create, ...update]) {
+    const fold = foldPageId(entry.pageId);
+    if (plannedFolded.has(fold)) {
+      throw new Error(`保存计划出现重复页 id：${entry.pageId}`);
+    }
+    plannedFolded.add(fold);
+  }
 
   return {
     create,
     update,
-    orphanPageIds: existingPageIds.filter((pageId) => !claimed.has(pageId)),
+    orphanPageIds: existingPageIds.filter((pageId) => !plannedFolded.has(foldPageId(pageId))),
   };
 }

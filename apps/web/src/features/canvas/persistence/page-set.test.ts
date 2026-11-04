@@ -17,6 +17,7 @@ import {
   loadPageSet,
   type PageSetClient,
   type PageSetSavePlan,
+  pageIdOf,
   planPageSetSave,
 } from './page-set';
 
@@ -62,8 +63,12 @@ function fakeClient(init: { name?: string; pages: FakePage[] }): {
     },
     async createPage(_documentId, pageName, options) {
       const pageId = options?.id ?? `page-${String(nextNumber)}`;
-      // 与 daemon 同口径：显式 id 已被占用 → 409（计划不应发出这种 create）
-      if (pages.has(pageId)) return { ok: false, error: 'doc_exists' };
+      // 与 daemon 同口径（arch-fix3）：占用判定按大小写归一，
+      // 显式 id 已被占用（含 PAGE-1/page-1 变体）→ 409（计划不应发出这种 create）
+      const occupied = [...pages.keys()].some(
+        (existing) => existing.toLowerCase() === pageId.toLowerCase(),
+      );
+      if (occupied) return { ok: false, error: 'doc_exists' };
       nextNumber += 1;
       creates.push({ name: pageName, ...(options?.id === undefined ? {} : { id: options.id }) });
       pages.set(pageId, {
@@ -260,6 +265,72 @@ describe('planPageSetSave · 按 id 定位、孤儿只报告', () => {
     const reused = plan.update[0]?.body.page as { nodes: Record<string, unknown> };
     expect(reused.nodes.n_b).toBeDefined();
   });
+
+  it('反例（Spec P1）：非法 id 页不抢占后续页的合法 preferred——计划内页 id 唯一', () => {
+    // existing={page-1,page-2}、文档页=[非法 id 页, page-1, page-2, page-3]
+    // 修复前：第 1 页补位分到 page-3，第 4 页 preferred=page-3 直接采用 → 计划两个 create 同 id。
+    const document = createDocument({
+      id: 'doc-1',
+      pages: [
+        rectPage('第 1 页', 'n_a'),
+        rectPage('page-1', 'n_1'),
+        rectPage('page-2', 'n_2'),
+        rectPage('page-3', 'n_3'),
+      ],
+    });
+    const plan = planPageSetSave(document, ['page-1', 'page-2']);
+    const plannedIds = [...plan.create, ...plan.update].map((entry) => entry.pageId);
+
+    expect(new Set(plannedIds).size).toBe(plannedIds.length);
+    // 合法自身 id 优先：page-1/page-2 就地更新，page-3 按身份新建；
+    // 非法 id 页改派到首个真正空闲号 page-4（不抢占 page-3）。
+    expect(plan.update.map((entry) => entry.pageId)).toEqual(['page-1', 'page-2']);
+    expect(plan.create.map((entry) => entry.pageId)).toEqual(['page-4', 'page-3']);
+    expect(plan.orphanPageIds).toEqual([]);
+  });
+
+  it('两个页带相同 preferred id（精确重复）：计划无重复，后者改派空闲号', () => {
+    const document = createDocument({
+      id: 'doc-1',
+      pages: [rectPage('page-1', 'n_a'), rectPage('page-1', 'n_b')],
+    });
+    const plan = planPageSetSave(document, []);
+    expect(plan.create.map((entry) => entry.pageId)).toEqual(['page-1', 'page-2']);
+    expect(plan.update).toEqual([]);
+  });
+
+  it('两个页带同一 preferred id（大小写变体）：计划无重复，后者改派（daemon 归一口径）', () => {
+    const document = createDocument({
+      id: 'doc-1',
+      pages: [rectPage('page-1', 'n_a'), rectPage('PAGE-1', 'n_b')],
+    });
+    const plan = planPageSetSave(document, []);
+    expect(plan.create.map((entry) => entry.pageId)).toEqual(['page-1', 'page-2']);
+    const folded = plan.create.map((entry) => entry.pageId.toLowerCase());
+    expect(new Set(folded).size).toBe(folded.length);
+  });
+
+  it('大小写变体命中既有页：按既有页真实 id 写回，不新建重复页文件', () => {
+    const document = createDocument({
+      id: 'doc-1',
+      pages: [rectPage('PAGE-1', 'n_a')],
+    });
+    const plan = planPageSetSave(document, ['page-1']);
+    expect(plan.create).toEqual([]);
+    expect(plan.update.map((entry) => entry.pageId)).toEqual(['page-1']);
+    expect(plan.orphanPageIds).toEqual([]);
+  });
+
+  it('pageIdOf：未保存的页返回 null；计划分配后返回落盘 id，且不回写 page.id', () => {
+    const page = rectPage('第 1 页', 'n_a');
+    expect(pageIdOf(page)).toBeNull();
+
+    const plan = planPageSetSave(createDocument({ id: 'doc-1', pages: [page] }), ['page-1']);
+    expect(pageIdOf(page)).toBe('page-1');
+    expect(plan.update[0]?.pageId).toBe('page-1');
+    // 会话映射只服务 daemon 寻址，不改文档真值（否则会产生历史条目）
+    expect(page.id).toBe('第 1 页');
+  });
 });
 
 type Fake = ReturnType<typeof fakeClient>;
@@ -324,6 +395,38 @@ describe('planPageSetSave · 非法 id 页重复保存幂等（评审发现 1）
     if (!reloaded.ok) return;
     expect(reloaded.value.pages).toHaveLength(2);
     expect(reloaded.value.pages[1]?.page.nodes.n_2?.type).toBe('rect');
+  });
+
+  it('反例（Spec P1）：非法 id 页 + 后续页 preferred page-3——连续两次保存均成功、页文件不重复不增长', async () => {
+    const document = createDocument({
+      id: 'doc-1',
+      pages: [
+        rectPage('第 1 页', 'n_a'),
+        rectPage('page-1', 'n_1'),
+        rectPage('page-2', 'n_2'),
+        rectPage('page-3', 'n_3'),
+      ],
+    });
+    const fake = fakeClient({
+      pages: [
+        { meta: meta('page-1'), body: {} },
+        { meta: meta('page-2'), body: {} },
+      ],
+    });
+
+    // 第一轮：计划内若出现重复 page-3，applyPlan 的 create 会拿到 409 doc_exists（红）
+    const first = planPageSetSave(document, await pageIdsOf(fake));
+    await applyPlan(fake, first);
+    const afterFirst = await pageIdsOf(fake);
+    expect(afterFirst).toHaveLength(4);
+    expect(new Set(afterFirst).size).toBe(4);
+
+    // 第二轮：全部按身份 update，不建页、不增长（修复前第二次 create 仍撞号 → 整次保存失败）
+    const second = planPageSetSave(document, afterFirst);
+    expect(second.create).toEqual([]);
+    expect(second.orphanPageIds).toEqual([]);
+    await applyPlan(fake, second);
+    expect((await pageIdsOf(fake)).length).toBe(4);
   });
 
   it('合法 id 文档重复保存 3 次：完全幂等（不建页、孤儿为空）', async () => {
