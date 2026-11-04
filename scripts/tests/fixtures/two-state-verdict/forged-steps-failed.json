@@ -1,0 +1,11 @@
+{
+  "ticket": "fe-10",
+  "gate": "verify-ai-two-state",
+  "meta": { "stepsTotal": 13, "stepsFailed": 1 },
+  "steps": [
+    { "id": "A.status.degraded", "ok": true, "detail": "无 key → /ai/status 未配置 + 降级提示" },
+    { "id": "B.chat.sse", "ok": false, "detail": "伪造：数据面有一项失败" }
+  ],
+  "blockedReason": "UI 段阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）",
+  "exitCode": 2
+}

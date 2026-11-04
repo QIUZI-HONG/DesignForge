@@ -1,0 +1,13 @@
+{
+  "ticket": "fe-10",
+  "gate": "verify-ai-two-state",
+  "startedAt": "2026-11-03T00:00:00.000Z",
+  "meta": { "stepsTotal": 13, "stepsFailed": 0 },
+  "steps": [
+    { "id": "A.status.degraded", "ok": true, "detail": "无 key → /ai/status 未配置 + 降级提示" },
+    { "id": "B.upstream.authorization", "ok": true, "detail": "mock 上游收到哨兵 key" }
+  ],
+  "blockedReason": "UI 段阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）",
+  "uiEvidence": { "status": "blocked", "detail": "CI 无真 Chromium，挂点语义" },
+  "exitCode": 2
+}
