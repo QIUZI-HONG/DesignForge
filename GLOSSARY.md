@@ -79,11 +79,19 @@ _Avoid_: 与「页序」混用——顺序是展示属性，不是身份。
 
 **字段描述表（field descriptor table）**:
 纯数据类型的字段集单一清单（如 `EFFECT_FIELDS`）：每字段声明是否进缓存键、如何比较、是否可编辑，
-equality / 缓存键 / patch 形状 / 测试变体全部由它派生，并以 `satisfies Record<keyof T, …>` 让
-新增字段漏登记在**编译期**报错。
+**等值与缓存键由它派生**（这是本词的核心承诺），并以 `satisfies Record<keyof T, …>` 让新增字段
+漏登记在**编译期**报错。
+_边界_: 不承诺「patch 形状与测试变体也全派生」——当前 `effectPatch` 仍按字段泛型展开、
+渲染变体仍手写；那是下一步收敛项，不是本词已兑现的能力。
 _Avoid_: 与「配置表」混用——它不是可调参数，是类型义务的结构表达。
 
 **取证机（evidence machine）**:
 门禁共用的取证 module（`scripts/lib/figma-evidence.mjs`）：吸收参照集冻结判定、站点探测、
 Chromium 解析、截图、像素比对、证据落盘与三态出口；门禁侧只声明单元表与 prepare 剧本。
 _Avoid_: 与「测试脚本」混用——门禁是单元表，取证机才是 implementation。
+
+**孤儿页（orphan page）**:
+manifest 中登记、但当前设计文档已不再包含的页——页集映射的**报告对象**，不是删除对象。
+保存计划（`planPageSetSave`）把它们放进 `orphanPageIds` 供上层决策；映射 module 与 daemon
+都**不得**因「文档里没有」而删除它们（数据安全优先于自动清理）。
+_Avoid_: 与「垃圾页」「残留页」混用——后者暗示可以随手清掉。

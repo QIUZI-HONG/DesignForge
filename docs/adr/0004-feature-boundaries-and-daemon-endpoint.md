@@ -290,13 +290,20 @@ canvas 装配层与 `/_canvas` 夹具的默认页名已改走引擎缺省 `creat
   （component / editor / home / panels / review / inspect / inspector + verify-shell-parity）。
 - **module**：`scripts/lib/figma-evidence.mjs` —— `runFigmaGate({ gateName, page, units,
   referenceDir, thresholds, prepare }) → { code, evidence }`，吸收参照集冻结判定、站点探测、
-  Chromium 解析、截图、像素比对、证据落盘、三态出口与阻塞文案；门禁侧只剩单元表 + prepare 剧本。
-- **量化**：7 门禁 3495 → 2273 行（−1222）；shell-parity 746 → 735（`resolveChromium` 副本删除，
-  parity 段不动）；`scripts/tests/figma-evidence.test.mjs` 9 条接入 `pnpm test:scripts`（109→118）。
+  Chromium 解析、截图、像素比对、证据落盘、三态出口与阻塞文案。
+  **准确口径**：多数门禁侧只剩单元表 + prepare 剧本；`review` / `inspect` 仍保留各自的面级断言
+  （不强行上收，避免把面级语义塞进通用 module）。
+- **量化（分段记，避免把落地瞬间的数字当终态）**：arch-04 落地时 7 门禁 3495 → 2273 行（−1222）；
+  arch-05 凭「禁缺省连真实例」给 inspect 增补取证（+49 行）后，当前 7 门禁合计 **2322 行（−1173）**；
+  shell-parity 746 → 735（`resolveChromium` 副本删除，parity 段不动）；
+  `scripts/tests/figma-evidence.test.mjs` 9 条接入 `pnpm test:scripts`（当前 109 → 126，含 arch-05 的 6 条
+  与 arch-fix 的 2 条）。
 - **登记的语义变化**（改前/改后逐门禁对照 7/7 一致，退出码全为 2）：
   1. Chromium 一律经 `lib/browser-toolchain.mjs` 的 `resolveChromeExecutable()`——非法
      `BENCH_CHROME_EXECUTABLE` 由「稍后崩」改为**直接 exit 2 阻塞**（更诚实）；
-  2. `inspect` 的 `finish(code, message)` 分叉并入统一签名 `finish(evidence, code, message)`。
+  2. `inspect` 的 `finish(code, message)` 分叉并入统一签名 `finish(evidence, code, message)`；
+  3. `inspect` 证据新增 `daemon` 键（记录本次取证指向的 daemon 来源）——arch-05 引入，属
+     第三条已登记语义变化；「证据字段集不变」的结论因此限定为「7/7 归档点一致 + 这两处增补」。
 - **事故与根因登记**：实施中一次未受控 inspect 运行连上了开发机在跑的 daemon（4318）并
   创建/删除了一份临时文档（未触碰凭据）——违反「不得触碰开发机在跑的 daemon」。根因：
   门禁在缺 `DF_DAEMON_URL` 时**缺省回退 `127.0.0.1:4318`**（真实例端口窗起点）。取证机抽出后
