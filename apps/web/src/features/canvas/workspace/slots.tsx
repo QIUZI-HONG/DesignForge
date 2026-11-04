@@ -16,7 +16,7 @@
  */
 
 import { DEFAULT_PAGE_ID } from '@dforge/contracts';
-import type { DesignDocument } from '@dforge/engine';
+import type { DesignDocument, ScenePage } from '@dforge/engine';
 import { SegmentedControl, Tooltip } from '@dforge/ui';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -32,6 +32,7 @@ import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 import { installCanvasDebugHandle, sessionDebugHandle } from '../debug/canvas-debug';
+import { pageIdOf } from '../persistence/page-set';
 import { createFramePerfRecorder, type FramePerfRecorder } from '../render/frame-perf';
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
@@ -65,6 +66,19 @@ export const SHELL_COVERED_SHORTCUT_IDS: readonly string[] = [
   'zoomReset',
   'zoomFit',
 ];
+
+/**
+ * 文档页 → daemon 页 id。
+ *
+ * load 后 `page.id` 即 daemon 页 id；但导入文档里的**非法页 id**（如「第 1 页」）在保存时
+ * 被改派为 `page-N` 落盘，内存 `page.id` 仍是旧值（只读会话映射，不回写、不产生历史条目）。
+ * 导出按 daemon 坐标系寻址，必须经 `pageIdOf` 解析——否则会请求一个不存在的页
+ * （旧实现按位置派生反而不会错指）。未参与过保存的页退回 `page.id`（此时它就是身份）。
+ */
+function daemonPageIdOf(page: ScenePage | undefined): string | null {
+  if (page === undefined) return null;
+  return pageIdOf(page) ?? page.id;
+}
 
 /** 画布槽（FE-06 本体）：HUD 交给壳层渲染（C20 位置由壳层决定）。 */
 export function CanvasSlot() {
@@ -146,7 +160,10 @@ export function RightPanelSlot() {
   const workspace = getWorkspace();
   const tab = useWorkspaceUi((state) => state.rightPanelTab);
   const selection = useStore(workspace.canvas.store, (state) => state.selection);
-  const daemonDocumentId = useStore(workspace.documents.store, (state) => state.documentId);
+  // 订阅整个保存态（不只 documentId）：页 id 映射在保存计划执行时写入会话映射，
+  // 保存完成（status 变化）必须触发重渲染，导出才能拿到落盘页 id。
+  const documentState = useStore(workspace.documents.store);
+  const daemonDocumentId = documentState.documentId;
   const document = useSyncExternalStore(
     (listener) => workspace.canvas.stack.subscribe(() => listener()),
     () => workspace.canvas.stack.getSnapshot(),
@@ -154,9 +171,9 @@ export function RightPanelSlot() {
   );
   const page = document.pages.find((candidate) => candidate.id === workspace.pageId);
   const activeNodeId = selection.activeId ?? selection.ids[0] ?? null;
-  // daemon 侧页面 id 直接用页身份（load 后 page.id = daemon 页 id，save 按 id 定位）——
+  // daemon 侧页面 id 走会话映射（非法 id 页保存后已改派为 page-N，原 id 不可寻址）——
   // 页集有洞时「位置 = 身份」的旧派生会把第二页错指到 page-2
-  const daemonPage = page?.id ?? document.pages[0]?.id ?? DEFAULT_PAGE_ID;
+  const daemonPage = daemonPageIdOf(page) ?? daemonPageIdOf(document.pages[0]) ?? DEFAULT_PAGE_ID;
   if (!mounted) return null;
 
   return (
@@ -227,13 +244,16 @@ function ImageTab() {
  *
  * 编辑器侧的文档 id 是引擎文档 id（内存文档为 `doc-editor`），**不能**直接当 daemon id 用
  * ——缺陷现场「导出报 doc_not_found」正是这个错位：未落盘的文档在 daemon 里根本不存在。
- * 因此这里取文档桥的 `documentId`（落盘后 = daemon 侧真 id）；页面 id 直接用页身份
- * （load 后 `page.id` = daemon 页 id，save 按 id 定位，页集有洞时不再按序号猜 id）；
+ * 因此这里取文档桥的 `documentId`（落盘后 = daemon 侧真 id）；页面 id 经会话映射解析
+ * （load 后 `page.id` = daemon 页 id；导入的非法 id 页保存时被改派为 `page-N`，
+ * 内存 `page.id` 不回写——必须用落盘 id 寻址，页集有洞时也不按序号猜 id）；
  * 未落盘时明确提示「先保存」，不给会失败的按钮。
  */
 function ExportTab({ document }: { document: DesignDocument }) {
   const workspace = getWorkspace();
-  const documentId = useStore(workspace.documents.store, (state) => state.documentId);
+  // 订阅整个保存态：保存完成后 status 变化要触发重渲染，页面 id 映射才可见
+  const documentState = useStore(workspace.documents.store);
+  const documentId = documentState.documentId;
   if (documentId === null) {
     return (
       <p className="dfc-ws-right__hint" data-df-export-hint="need-save">
@@ -245,7 +265,7 @@ function ExportTab({ document }: { document: DesignDocument }) {
   return (
     <ExportPanel
       documentId={documentId}
-      pageId={page?.id ?? document.pages[0]?.id ?? DEFAULT_PAGE_ID}
+      pageId={daemonPageIdOf(page) ?? daemonPageIdOf(document.pages[0]) ?? DEFAULT_PAGE_ID}
     />
   );
 }
