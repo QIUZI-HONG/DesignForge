@@ -74,6 +74,20 @@ function safePrefix(label) {
 }
 
 /**
+ * 清临时根的删除口径（docs/agents/implementation-workflow.md 纪律）。
+ *
+ * 为什么必须可重试：夹具数据根里有 telemetry 追加写（`apps/daemon/src/context.ts`），
+ * 目录可能在删除瞬间仍被写入；一次 ENOTEMPTY 不该留下静默残留。
+ * `maxRetries`/`retryDelay` 由 `fs.rm` 内部重试承担（arch-fix2 发现 C）。
+ */
+export const TEMP_ROOT_RM_OPTIONS = Object.freeze({
+  recursive: true,
+  force: true,
+  maxRetries: 5,
+  retryDelay: 50,
+});
+
+/**
  * 解析门禁要用的 daemon 基址：显式 env 优先，否则自起夹具。
  *
  * @param {{
@@ -101,7 +115,7 @@ export async function resolveDaemon({
   log = (line) => console.error(line),
   start = startFixtureDaemon,
   mkdtempImpl = (prefix) => mkdtemp(join(tmpdir(), prefix)),
-  rmImpl = (path) => rm(path, { recursive: true, force: true }),
+  rmImpl = (path) => rm(path, TEMP_ROOT_RM_OPTIONS),
   timeoutMs = 20_000,
   releaseTimeoutMs = 5000,
 } = {}) {
@@ -120,6 +134,23 @@ export async function resolveDaemon({
   }
 
   const slug = safePrefix(label);
+
+  /**
+   * 清临时根：删除失败**记录**（路径 + 原因），不静默吞掉，也不翻转 `close()` 的
+   * `released` 判定——回收成功口径是端口释放（既有 harness 先例）；残留目录须可见可查。
+   */
+  const removeTempRoot = async (dir) => {
+    try {
+      await rmImpl(dir);
+      return true;
+    } catch (error) {
+      log(
+        `[daemon] ⚠ 临时目录删除失败（${dir}）：${String(error?.message ?? error).slice(0, 500)}`,
+      );
+      return false;
+    }
+  };
+
   log(`[daemon] 未设 DF_DAEMON_URL → 自起夹具 daemon（${slug}）：临时数据根 + 空闲端口。`);
   const dataRoot = await mkdtempImpl(`df-gate-${slug}-data-`);
   const workspaceDir = await mkdtempImpl(`df-gate-${slug}-ws-`);
@@ -128,8 +159,8 @@ export async function resolveDaemon({
   try {
     daemon = await start({ dataRoot, workspaceDir, timeoutMs, detached: true });
   } catch (error) {
-    await rmImpl(dataRoot).catch(() => undefined);
-    await rmImpl(workspaceDir).catch(() => undefined);
+    await removeTempRoot(dataRoot);
+    await removeTempRoot(workspaceDir);
     throw new DaemonFixtureError(
       `门禁夹具 daemon 起不来（${slug}）：${String(error?.message ?? error).slice(0, 1500)}`,
       { cause: error },
@@ -154,10 +185,14 @@ export async function resolveDaemon({
     process.off('exit', onExit);
     await daemon.close();
     const released = await waitForPortRelease(port, { timeoutMs: releaseTimeoutMs });
-    await rmImpl(dataRoot).catch(() => undefined);
-    await rmImpl(workspaceDir).catch(() => undefined);
+    const dataRootRemoved = await removeTempRoot(dataRoot);
+    const workspaceDirRemoved = await removeTempRoot(workspaceDir);
     if (released) {
-      log(`[daemon] 夹具已回收：端口 ${String(port)} 已释放，临时数据根已删除。`);
+      log(
+        dataRootRemoved && workspaceDirRemoved
+          ? `[daemon] 夹具已回收：端口 ${String(port)} 已释放，临时数据根已删除。`
+          : `[daemon] 夹具已回收：端口 ${String(port)} 已释放（临时目录未完全删除，见上方告警）。`,
+      );
     } else {
       log(`[daemon] ✗ 夹具端口未释放（${String(port)}）——请检查残留 daemon 进程。`);
     }

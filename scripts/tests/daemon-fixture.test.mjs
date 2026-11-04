@@ -14,7 +14,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -24,6 +24,7 @@ import {
   DaemonFixtureError,
   isPortListening,
   resolveDaemon,
+  TEMP_ROOT_RM_OPTIONS,
   waitForPortRelease,
 } from '../lib/daemon-fixture.mjs';
 
@@ -144,6 +145,47 @@ test('夹具起不来：抛 DaemonFixtureError（exit 2 依据），清理临时
   );
   assert.equal(existsSync(captured.dataRoot), false);
   assert.equal(existsSync(captured.workspaceDir), false);
+});
+
+test('临时根删除口径：recursive/force + 5 次重试、50ms 间隔（workflow 纪律）', () => {
+  assert.deepEqual(TEMP_ROOT_RM_OPTIONS, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 50,
+  });
+});
+
+test('临时根删除失败不静默：记录路径/原因，且不翻转 released（端口释放即回收成功）', async () => {
+  const logs = [];
+  const daemon = await resolveDaemon({
+    env: {},
+    label: 'unit-test-rm-fail',
+    log: (line) => logs.push(line),
+    start: async () => ({
+      url: 'http://127.0.0.1:51236',
+      pid: undefined,
+      close: async () => {},
+    }),
+    rmImpl: async () => {
+      throw Object.assign(new Error('ENOTEMPTY: directory not empty'), { code: 'ENOTEMPTY' });
+    },
+  });
+  try {
+    assert.deepEqual(
+      await daemon.close(),
+      { released: true },
+      '清理失败不得把已释放的夹具判成回收失败',
+    );
+  } finally {
+    await rm(daemon.dataRoot, TEMP_ROOT_RM_OPTIONS);
+    await rm(daemon.workspaceDir, TEMP_ROOT_RM_OPTIONS);
+  }
+
+  const text = logs.join('\n');
+  assert.match(text, /临时目录删除失败（[^）]+）/);
+  assert.match(text, /ENOTEMPTY/);
+  assert.match(text, /端口 51236 已释放（临时目录未完全删除，见上方告警）/);
 });
 
 test('waitForPortRelease：仍在监听 → false；关闭后 → true', async () => {
