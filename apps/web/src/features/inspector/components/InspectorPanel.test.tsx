@@ -26,12 +26,12 @@ import {
   type SceneNode,
   type Selection,
 } from '@dforge/engine';
+import { COMMIT_DELAY_MS } from '@dforge/ui';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 
-import { COMMIT_DELAY_MS } from '../model/draft';
 import { defaultEffect } from '../model/patches';
 import { FIXTURE_PAGE_ID, fixtureStack, selectionOf } from '../testing/fixtures';
 import { InspectorPanel } from './InspectorPanel';

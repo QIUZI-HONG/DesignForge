@@ -8,10 +8,9 @@
  * 文案一律由调用方传入（本模块不含业务文案）。
  */
 
-import { ColorField as UiColorField } from '@dforge/ui';
+import { ColorField as UiColorField, useDraftCommit } from '@dforge/ui';
 import { type ChangeEvent, type KeyboardEvent, type ReactNode, useId } from 'react';
 
-import { useDraftCommit } from '../model/draft';
 import { MIXED_PLACEHOLDER } from './number-field-copy';
 
 /** 文本字段 props。 */

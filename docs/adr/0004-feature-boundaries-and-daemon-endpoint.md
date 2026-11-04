@@ -309,3 +309,20 @@ canvas 装配层与 `/_canvas` 夹具的默认页名已改走引擎缺省 `creat
   门禁在缺 `DF_DAEMON_URL` 时**缺省回退 `127.0.0.1:4318`**（真实例端口窗起点）。取证机抽出后
   该坑单点可修：**显式 `DF_DAEMON_URL` 优先，否则自起夹具 daemon（临时数据根 + 空闲端口），
   夹具起不来 → exit 2**；禁任何「缺省即连本机」残留（arch-05）。
+
+## 补记 · ② 新增公开面：`useDraftCommit`（修复批次 4 · arch-fix4 Spec P3）
+
+日期：2026-11-04（code-review 修复轮；上文 ② 的公开面纪律与既有例外结论不动，
+本条按「新增跨边界消费 = 显式加行」补记 arch-02 已下沉到 `@dforge/ui` 的原语。）
+
+- **公开面**：`packages/ui/src/index.ts` 的 `COMMIT_DELAY_MS` / `DraftCommit` /
+  `DraftCommitOptions` / `useDraftCommit` —— 草稿/提交括约原语（输入期间只改本地草稿、
+  提交时刻才发命令；300ms trailing debounce + flush/cancel），承载的不是数值编辑的私有
+  细节，而是「撤销粒度 = 一次修改 / Esc 回滚零成本」这条跨控件交互规格。
+- **为什么保留为包公开面（而非收回包内）**：同一原语服务 `NumberField`（数值）与
+  inspector 文本控件（`controls.tsx` 的 `useDraftCommit<string>`），拖拽 scrub 的
+  `setDraftLive` 语义也复用同一计时模型；收回包内会让 web 侧重长第二份计时实现
+  （arch-02 正是为消除该重复而把实现下沉到包内）。消费方经 `@dforge/ui` 包公开面导入。
+- **shim 清理**：删除 `apps/web/src/features/inspector/model/draft.ts`（纯 re-export），
+  inspector 控件与测试改为直接从 `@dforge/ui` 导入；`features/inspector/index.ts` 的既有
+  re-export 改为指向包公开面（该 feature 公开面本身不变）。
