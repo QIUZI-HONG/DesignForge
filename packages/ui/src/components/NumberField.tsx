@@ -4,300 +4,252 @@
 // 无需每个消费方各自包一层 'use client' 包装器；令牌与图标仍是纯模块，可在服务端使用。
 
 /**
- * NumberField —— 数值输入（步进 + scrubbing；RW-07，Inspector 重写票消费）。
+ * NumberField —— 数值编辑 deep module（arch-02：把 Inspector 的活件提为 DS 单一实现）。
  *
- * 口径（总纲 R-4 / 验收标准 §2）：外形沿用 Input 的包裹层（`dfg-input-wrap`，
- * 焦点环落在外层 `:focus-within`，语义档口径见 components.css）；单位后缀灰显在
- * 输入框内、不进值文本（解析时容忍用户随值键入单位）。
+ * interface（调用方只学这一套）：
+ * - `value` / `onCommit`：外部真值与提交时刻（一次调用 = 一条命令）；
+ * - `min` / `max` / `step` / `precision`：范围、键盘步进与显示/提交取整；
+ * - 可选 scrub：`onScrubStart` / `onScrubEnd` 括约一段拖拽会话（拖拽中零写入、松手单次提交）；
+ * - `label` / `fieldName`：可访问名与门禁挂点；
+ * - `mixedPlaceholder` / `messages`：调用方文案（本包不含业务文案；混选占位与提示均经 i18n 注入）。
  *
- * 交互：
- * - **步进**：↑/↓（焦点在输入框时）与右侧上下小步进钮共用 `stepBy`——按 `step`
- *   增减、按 `min/max` 钳制、按 `precision` 取整（小数步进不积浮点尾差）；
- *   步进钮是纯视觉 affordance（`aria-hidden`），键盘等价路径就是输入框方向键；
- * - **scrubbing**（默认开）：在输入框上按住横向拖动改值——位移越过小阈值才算拖
- *   （区分「点击进入编辑」），起点为当前值、增量按 `scrubSensitivity` 折算；
- *   `onScrubStart/onScrubEnd` 供调用方挂撤销一步回退（RW-10 口径）；
- * - **键入提交**：Enter/失焦提交；空串上报 `null`（清空）；解析失败保留原文、
- *   标错（`aria-invalid` + `role="alert"` 文案）且不上报；键入值不钳制（交给
- *   调用方校验，与步进/拖拽的钳制口径分开）；
- * - **加载**：只读 + 行内转圈（引擎同步中的表达，RW-10）。
+ * implementation（隐藏在本 module 内）：
+ * - 草稿态 + 300ms trailing debounce——连续输入/连续拖拽只落**一次**提交（撤销粒度 = 一次修改）；
+ * - Enter/blur/松手 flush；Esc 丢弃草稿（取消不得变成提交）；↑/↓（Shift ×10）键盘步进；
+ * - 夹取/取整、非法输入回滚与行内提示（文案由调用方注入）。
+ *
+ * 视觉：本 module 由 Inspector 活件提升而来，票面冻结外观——类名与
+ * `apps/web/src/features/inspector/inspector.css` 的造型规则保持逐字不变（本票不改样式/令牌）。
  */
-import {
-  forwardRef,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-  type ReactNode,
-  useId,
-  useRef,
-  useState,
-} from 'react';
 
-import { ChevronDownIcon, ChevronUpIcon } from '../icons/index';
-import { PRIMITIVES } from '../tokens';
-import { cx } from '../utils/class-names';
-import { useHorizontalScrub } from '../utils/use-scrub';
-import { Spinner } from './Spinner';
+import { type ChangeEvent, type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
 
-/** 默认小数位（步进/拖拽取整，避免浮点尾差）。 */
-const DEFAULT_PRECISION = 2;
+import { useDraftCommit } from '../utils/use-draft-commit';
 
-/** 拖拽激活阈值（位移超过才算 scrubbing，与「点击进入编辑」区分）。 */
-const SCRUB_THRESHOLD = 2;
-
-/** NumberField props。 */
-export interface NumberFieldProps {
-  /** 字段名（给出后渲染 label 并与控件关联，如「宽度」）。 */
-  fieldLabel?: ReactNode;
-  /** 当前值（受控；`null` = 无值）。 */
-  value?: number | null;
-  /** 初值（非受控）。 */
-  defaultValue?: number | null;
-  onChange?: (value: number | null) => void;
-  /** 步进增量（方向键与步进钮共用；默认 1）。 */
-  step?: number;
-  min?: number;
-  max?: number;
-  /** 步进/拖拽结果的小数位（默认 2；仅作用于生成的值，不重排键入文本）。 */
-  precision?: number;
-  /** 单位后缀（灰显，如 px；解析时容忍随值键入）。 */
-  unit?: string;
-  disabled?: boolean;
-  /** 加载中：只读 + 转圈（引擎同步中）。 */
-  loading?: boolean;
-  /** 外部校验错误（与解析失败共用错误样式）。 */
-  invalid?: boolean;
-  /** 校验错误文案（给出即错误态，读屏播报；文案由调用方给）。 */
-  errorMessage?: ReactNode;
-  /** 正常态辅助说明。 */
-  hint?: ReactNode;
-  /** 是否开启拖拽改值（默认开）。 */
-  scrubbing?: boolean;
-  /** 每像素位移的值增量系数（默认 1；0.1 表示拖 10 像素改 1）。 */
-  scrubSensitivity?: number;
-  onScrubStart?: () => void;
-  onScrubEnd?: () => void;
-  size?: 'sm' | 'md';
-  id?: string;
-  className?: string;
-  /** 交互层类名（状态强制类与截图门禁取样用，同 Input.wrapClassName）。 */
-  wrapClassName?: string;
+/** 数值格式化：按精度四舍五入并去掉尾随零（10 → "10"，1.50 → "1.5"）。 */
+export function formatFieldNumber(value: number, precision = 2): string {
+  return String(roundTo(value, precision));
 }
 
-/** 按小数位取整（消浮点尾差）。 */
-function roundTo(value: number, precision: number): number {
+/** 四舍五入到指定小数位。 */
+function roundTo(value: number, precision = 2): number {
   const factor = 10 ** precision;
   return Math.round(value * factor) / factor;
 }
 
-/** 区间钳制。 */
-function clampTo(value: number, min: number | undefined, max: number | undefined): number {
-  if (min !== undefined && value < min) return min;
-  if (max !== undefined && value > max) return max;
-  return value;
+/** 数值编辑器的界面文案（由调用方经 i18n 目录提供；本包不含业务文案）。 */
+export interface NumberFieldMessages {
+  /** 空/非法输入被拒绝后的回滚提示。 */
+  reverted: string;
+  /** 越界被夹取后的提示；参数为夹取后的显示值。 */
+  clamped(value: string): string;
 }
 
-/** 解析输入文本：`undefined` = 非法；`null` = 空（无值）。 */
-function parseValue(raw: string, unit: string | undefined): number | null | undefined {
-  const trimmed = raw.trim();
-  if (trimmed === '') return null;
-  let body = trimmed;
-  if (unit !== undefined && body.toLowerCase().endsWith(unit.toLowerCase())) {
-    body = body.slice(0, -unit.length);
-  }
-  const parsed = Number(body.trim());
-  return Number.isNaN(parsed) ? undefined : parsed;
+/** 数值输入 props（interface 只暴露调用方需要知道的语义）。 */
+export interface NumberFieldProps {
+  /** 显示名（如 X / Y / W / H，i18n 文本；同时作为输入框的可访问名）。 */
+  label: string;
+  /** 取样名（data-df-inspector-field，门禁挂点）。 */
+  fieldName: string;
+  /** 外部真值；undefined = 混选（显示调用方给的占位）。 */
+  value: number | undefined;
+  /** 混选时的拖拽/步进起始基准（主选中节点的值）。 */
+  baseValue?: number | undefined;
+  /** 步进量（默认 1；Shift 为 10 倍）。 */
+  step?: number | undefined;
+  min?: number | undefined;
+  max?: number | undefined;
+  /** 显示与提交的小数位（默认 2）。 */
+  precision?: number | undefined;
+  /** 单位后缀（如 %），显示在输入框右侧。 */
+  suffix?: string | undefined;
+  /** 混选占位（生产从 `@/lib/unavailable` 单点传入）。 */
+  mixedPlaceholder: string;
+  /** 行内提示文案（调用方 i18n）。 */
+  messages: NumberFieldMessages;
+  disabled?: boolean;
+  /** 是否开启拖拽改值（默认开；关闭后标签不再是拖拽把手，键入路径不受影响）。 */
+  scrubbing?: boolean | undefined;
+  /** 提交回调（提交时刻才调用；值已夹取与取整）。 */
+  onCommit(value: number): void;
+  /**
+   * 拖拽会话开启（pointerdown 即开，与引擎 interaction 会话的 begin 同语义；
+   * RW-10：调用方用它括约「拖拽中不写文档、松手单事务提交」）。
+   */
+  onScrubStart?: (() => void) | undefined;
+  /** 拖拽会话收口（在唯一一次提交之后 / 值未变化即松手时；与 commit/end 成对）。 */
+  onScrubEnd?: (() => void) | undefined;
+}
+
+/** 拖拽会话。 */
+interface ScrubSession {
+  active: boolean;
+  startX: number;
+  startValue: number;
 }
 
 /** 数值输入控件。 */
-export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(function NumberField(
-  {
-    fieldLabel,
-    value,
-    defaultValue = null,
-    onChange,
-    step = 1,
-    min,
-    max,
-    precision = DEFAULT_PRECISION,
-    unit,
-    disabled = false,
-    loading = false,
-    invalid = false,
-    errorMessage,
-    hint,
-    scrubbing = true,
-    scrubSensitivity = 1,
-    onScrubStart,
-    onScrubEnd,
-    size = 'md',
-    id,
-    className,
-    wrapClassName,
-  },
-  ref,
-) {
-  const autoId = useId();
-  const inputId = id ?? `dfg-numfield-${autoId}`;
-  const errorId = `${inputId}-error`;
-  const hintId = `${inputId}-hint`;
+export function NumberField({
+  label,
+  fieldName,
+  value,
+  baseValue,
+  step = 1,
+  min,
+  max,
+  precision = 2,
+  suffix,
+  mixedPlaceholder,
+  messages,
+  disabled = false,
+  scrubbing = true,
+  onCommit,
+  onScrubStart,
+  onScrubEnd,
+}: NumberFieldProps) {
+  const scrubRef = useRef<ScrubSession>({ active: false, startX: 0, startValue: 0 });
+  // 行内提示（G3）：拒绝/限制都要说一声——「已恢复原值」/「已限制为 N」；
+  // 下一次编辑即清除（不长期驻留，也不挡住数字）。
+  const [notice, setNotice] = useState<string | null>(null);
+  const externalText = value === undefined ? mixedPlaceholder : formatFieldNumber(value, precision);
 
-  const controlled = value !== undefined;
-  const [innerValue, setInnerValue] = useState<number | null>(defaultValue);
-  const committed = controlled ? (value as number | null) : innerValue;
-  const [draft, setDraft] = useState<string | null>(null); // 编辑中草稿；null = 非编辑态
-  const [parseInvalid, setParseInvalid] = useState(false);
-  const scrubBase = useRef(0);
-
-  const isDisabled = disabled || loading;
-  const isInvalid = invalid || parseInvalid;
-  const describedBy =
-    errorMessage !== undefined ? errorId : hint !== undefined ? hintId : undefined;
-
-  const emit = (next: number | null): void => {
-    if (!controlled) setInnerValue(next);
-    onChange?.(next);
+  const clampValue = (candidate: number): number => {
+    let next = candidate;
+    if (min !== undefined) next = Math.max(min, next);
+    if (max !== undefined) next = Math.min(max, next);
+    return roundTo(next, precision);
   };
 
-  const scrub = useHorizontalScrub({
-    disabled: isDisabled || !scrubbing,
-    threshold: SCRUB_THRESHOLD,
-    onStart: () => {
-      scrubBase.current = committed ?? 0;
-      setDraft(null);
-      setParseInvalid(false);
-      onScrubStart?.();
+  const { draft, setDraft, setDraftLive, flush, cancel } = useDraftCommit<string>({
+    value: externalText,
+    // 提交时刻：解析 → 夹取 → 无变化则静默回滚（不产生空命令）
+    commit: (text) => {
+      const trimmed = text.trim();
+      const parsed = Number(trimmed);
+      if (trimmed === '' || !Number.isFinite(parsed)) {
+        setNotice(messages.reverted);
+        return;
+      }
+      const next = clampValue(parsed);
+      // 负值口径：坐标（X/Y 无 min）允许负值（画布原点可负，Figma 同口径）；
+      // 尺寸类（min 0）越界即夹取，并明确告知夹取结果，不静默改值。
+      const outOfRange = (min !== undefined && parsed < min) || (max !== undefined && parsed > max);
+      setNotice(outOfRange ? messages.clamped(formatFieldNumber(next, precision)) : null);
+      if (value !== undefined && next === value) return;
+      onCommit(next);
     },
-    onMove: (_delta, total) => {
-      emit(clampTo(roundTo(scrubBase.current + total * scrubSensitivity, precision), min, max));
-    },
-    onEnd: onScrubEnd,
   });
 
-  const commit = (): void => {
-    if (draft === null) return;
-    const parsed = parseValue(draft, unit);
-    if (parsed === undefined) {
-      // 非法输入：保留原文让用户看到错在哪，标错且不上报
-      setParseInvalid(true);
+  const display = draft ?? externalText;
+
+  /** 当前数值基准：草稿 > 外部值 > 混选基准 > 0。 */
+  const currentNumber = (): number => {
+    if (draft !== null) {
+      const parsed = Number(draft.trim());
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return value ?? baseValue ?? 0;
+  };
+
+  const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    setNotice(null); // 用户重新编辑：旧提示立即退场
+    setDraft(event.target.value);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      flush();
       return;
     }
-    setDraft(null);
-    setParseInvalid(false);
-    if (parsed !== committed) emit(parsed);
-  };
-
-  const stepBy = (direction: 1 | -1): void => {
-    if (isDisabled) return;
-    const base = committed ?? (min !== undefined ? min : 0);
-    const next = clampTo(roundTo(base + direction * step, precision), min, max);
-    setDraft(null);
-    setParseInvalid(false);
-    if (next !== committed) emit(next);
-  };
-
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
-    if (event.key === 'ArrowUp') {
+    if (event.key === 'Escape') {
       event.preventDefault();
-      stepBy(1);
-    } else if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      stepBy(-1);
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      commit();
+      cancel();
+      return;
     }
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      const direction = event.key === 'ArrowUp' ? 1 : -1;
+      const magnitude = step * (event.shiftKey ? 10 : 1);
+      setDraft(formatFieldNumber(clampValue(currentNumber() + direction * magnitude), precision));
+    }
+  };
+
+  const handlePointerDown = (event: PointerEvent<HTMLElement>): void => {
+    if (disabled || !scrubbing) return;
+    event.preventDefault();
+    scrubRef.current = { active: true, startX: event.clientX, startValue: currentNumber() };
+    // 会话开启先于任何提交（RW-10：拖拽中不写文档的括约起点）
+    onScrubStart?.();
+    // jsdom 无指针捕获（可选调用）；真实浏览器里保证拖出元素仍收到 move/up
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLElement>): void => {
+    const session = scrubRef.current;
+    if (!session.active || disabled || !scrubbing) return;
+    const dx = event.clientX - session.startX;
+    const scale = event.shiftKey ? 10 : 1;
+    // 拖拽期间只改草稿（不安排自动提交）：连续位移最终由松手时的 flush 收口
+    setDraftLive(formatFieldNumber(clampValue(session.startValue + dx * step * scale), precision));
+  };
+
+  const handlePointerUp = (): void => {
+    if (!scrubRef.current.active) return;
+    scrubRef.current.active = false;
+    flush();
+    // 会话收口在唯一一次提交之后（值未变化即松手时也收口，括约必成对）
+    onScrubEnd?.();
   };
 
   return (
-    <div className={cx('dfg-field', className)}>
-      {fieldLabel === undefined ? null : (
-        <label className="dfg-field__label" htmlFor={inputId}>
-          {fieldLabel}
-        </label>
-      )}
-      <div
-        className={cx(
-          'dfg-input-wrap',
-          'dfg-numfield',
-          size === 'sm' && 'dfg-input-wrap--sm',
-          isInvalid && 'dfg-numfield--invalid',
-          isDisabled && 'dfg-input-wrap--disabled',
-          scrub.dragging && 'dfg-numfield--scrubbing',
-          wrapClassName,
-        )}
-      >
+    // 外层单元（cell）：门禁/测试的字段挂点 + 状态都在这一个元素上（单点），
+    // 内层仍是原来的控件盒子（几何不变，见 inspector.css 的 .dfi-numberfield-cell）
+    <div
+      className="dfi-numberfield-cell"
+      data-df-inspector-field={fieldName}
+      data-df-state={disabled ? 'disabled' : value === undefined ? 'mixed' : 'default'}
+    >
+      <div className="dfi-numberfield">
+        {/* 标签即拖拽把手：按下即起拖（Figma 惯例；onDoubleClick 仅抑制双击选中文本的默认行为）；
+            键盘步进由输入框的上下键承担（把手不进 Tab 序列） */}
+        <button
+          type="button"
+          className="dfi-numberfield__label"
+          data-testid={`numberfield-scrub-${fieldName}`}
+          data-df-scrub=""
+          tabIndex={-1}
+          aria-disabled={disabled}
+          data-df-state={disabled ? 'disabled' : 'default'}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={() => {
+            scrubRef.current.active = false;
+            onScrubEnd?.(); // 异常终止也收口（零提交，括约仍成对）
+          }}
+          onDoubleClick={(event) => event.preventDefault()}
+        >
+          {label}
+        </button>
         <input
-          ref={ref}
-          id={inputId}
+          className="dfi-numberfield__input"
           type="text"
           inputMode="decimal"
-          role="spinbutton"
-          className="dfg-input dfg-numfield__input"
-          value={draft ?? (committed === null ? '' : String(committed))}
-          aria-valuenow={committed === null ? undefined : committed}
-          aria-valuetext={
-            unit !== undefined && committed !== null ? `${committed}${unit}` : undefined
-          }
-          aria-valuemin={min}
-          aria-valuemax={max}
-          aria-invalid={isInvalid ? 'true' : 'false'}
-          aria-describedby={describedBy}
+          aria-label={label}
+          value={display}
           disabled={disabled}
-          readOnly={loading || undefined}
-          onChange={(event) => {
-            setDraft(event.target.value);
-          }}
+          onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onBlur={commit}
-          onMouseDown={(event: ReactMouseEvent<HTMLInputElement>) => {
-            // 点击＝进入编辑；拖动＝改值（阈值判定在钩子里）
-            scrub.onMouseDown(event);
-          }}
+          onBlur={() => flush()}
         />
-        {unit === undefined ? null : <span className="dfg-numfield__unit">{unit}</span>}
-        {loading ? (
-          <span className="dfg-numfield__status">
-            <Spinner size="sm" />
-          </span>
-        ) : (
-          <span className="dfg-numfield__steppers">
-            <button
-              type="button"
-              className="dfg-numfield__step"
-              tabIndex={-1}
-              aria-hidden="true"
-              disabled={isDisabled}
-              onClick={() => {
-                stepBy(1);
-              }}
-            >
-              <ChevronUpIcon size={PRIMITIVES.iconSize.sm} />
-            </button>
-            <button
-              type="button"
-              className="dfg-numfield__step"
-              tabIndex={-1}
-              aria-hidden="true"
-              disabled={isDisabled}
-              onClick={() => {
-                stepBy(-1);
-              }}
-            >
-              <ChevronDownIcon size={PRIMITIVES.iconSize.sm} />
-            </button>
-          </span>
-        )}
+        {suffix === undefined ? null : <span className="dfi-numberfield__suffix">{suffix}</span>}
       </div>
-      {errorMessage === undefined ? null : (
-        <span className="dfg-field__error" id={errorId} role="alert">
-          {errorMessage}
-        </span>
+      {notice === null ? null : (
+        <p className="dfi-hint dfi-numberfield__notice" role="status">
+          {notice}
+        </p>
       )}
-      {errorMessage === undefined && hint !== undefined ? (
-        <span className="dfg-field__hint" id={hintId}>
-          {hint}
-        </span>
-      ) : null}
     </div>
   );
-});
+}

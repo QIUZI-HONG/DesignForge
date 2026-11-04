@@ -12,7 +12,7 @@ import { ColorField as UiColorField } from '@dforge/ui';
 import { type ChangeEvent, type KeyboardEvent, type ReactNode, useId } from 'react';
 
 import { useDraftCommit } from '../model/draft';
-import { MIXED_PLACEHOLDER } from './NumberField';
+import { MIXED_PLACEHOLDER } from './number-field-copy';
 
 /** 文本字段 props。 */
 export interface DraftTextFieldProps {

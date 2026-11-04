@@ -28,7 +28,7 @@ export {
   type InspectorPanelProps,
   type SelectionSource,
 } from './components/InspectorPanel';
-export { MIXED_PLACEHOLDER, NumberField, type NumberFieldProps } from './components/NumberField';
+export { MIXED_PLACEHOLDER } from './components/number-field-copy';
 export { COMMIT_DELAY_MS, type DraftCommit, useDraftCommit } from './model/draft';
 export { createScrubSession, type ScrubSession } from './model/scrub-session';
 export {

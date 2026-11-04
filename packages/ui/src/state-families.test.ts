@@ -43,6 +43,14 @@ describe('状态族登记表', () => {
     expect(missing).toEqual([]);
   });
 
+  it('F17 数值输入族指向单一 deep module（arch-02：不再登记双实现）', () => {
+    const family = STATE_FAMILIES.find((entry) => entry.id === 'F17');
+    expect(family?.components).toEqual(['NumberField']);
+    // 双实现与「留作后续收敛」的登记口径已退役；Inspector 消费同一 module。
+    expect(family?.owner).not.toContain('留作后续收敛');
+    expect(family?.owner).not.toContain('app 级实现承接');
+  });
+
   it('六态被各族完整覆盖（验收标准 §5 缺项即缺陷）', () => {
     const covered = new Set(STATE_FAMILIES.flatMap((family) => family.states));
     expect([...covered].sort()).toEqual([...INTERACTION_STATES].sort());

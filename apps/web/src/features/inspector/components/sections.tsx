@@ -33,7 +33,7 @@ import {
   selectionNodes,
   type TextContent,
 } from '@dforge/engine';
-import { Collapse, SegmentedControl } from '@dforge/ui';
+import { Collapse, NumberField, type NumberFieldProps, SegmentedControl } from '@dforge/ui';
 import { memo, type ReactNode, useState } from 'react';
 
 import { t } from '@/i18n';
@@ -66,7 +66,7 @@ import {
   readTextField,
 } from '../model/readers';
 import { ColorFieldRow, FieldRow, SelectField, SwitchField } from './controls';
-import { NumberField, type NumberFieldProps } from './NumberField';
+import { MIXED_PLACEHOLDER, NUMBER_FIELD_MESSAGES } from './number-field-copy';
 
 /** 分区 id（设计页折叠分区）。 */
 export type InspectorSectionId = 'size' | 'fill' | 'stroke' | 'corner' | 'effects' | 'text';
@@ -126,20 +126,23 @@ function CollapsibleSection({
 }
 
 /**
- * 会话接线的数值字段：`onScrubStart/End` 接 scrub 会话（引擎 interaction 会话同语义：
- * 拖拽中不写文档、松手单事务提交），onCommit 由调用方经 `commitCommands` 落命令。
+ * 会话接线的数值字段（薄 adapter，无语义副本）：`onScrubStart/End` 接 scrub 会话
+ * （引擎 interaction 会话同语义：拖拽中不写文档、松手单事务提交），
+ * onCommit 由调用方经 `commitCommands` 落命令；文案与混选占位在此统一注入。
  */
 function FlowNumberField({
   actions,
   onCommit,
   ...rest
-}: Omit<NumberFieldProps, 'onScrubStart' | 'onScrubEnd'> & {
+}: Omit<NumberFieldProps, 'onScrubStart' | 'onScrubEnd' | 'messages' | 'mixedPlaceholder'> & {
   actions: SectionActions;
   onCommit(value: number): void;
 }) {
   return (
     <NumberField
       {...rest}
+      messages={NUMBER_FIELD_MESSAGES}
+      mixedPlaceholder={MIXED_PLACEHOLDER}
       onCommit={onCommit}
       onScrubStart={actions.beginScrub}
       onScrubEnd={actions.endScrub}
