@@ -24,7 +24,5 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test-setup.ts'],
-    // isolate: false——依据 tp2 优化批实验：两轮 1700 全绿、web 测试 12.4s→6.4s；RTL 每用例自动清理不受影响；仅 web 包启用。
-    isolate: false,
   },
 });
