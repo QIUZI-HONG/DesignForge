@@ -29,7 +29,7 @@ import {
   type PageId,
   type Selection,
 } from '@dforge/engine';
-import { TabPanel, Tabs } from '@dforge/ui';
+import { NumberField, TabPanel, Tabs } from '@dforge/ui';
 import { useCallback, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
@@ -52,7 +52,7 @@ import { createScrubSession } from '../model/scrub-session';
 import { AlignRow } from './AlignRow';
 import { CanvasSettings } from './CanvasSettings';
 import { FieldRow, SelectField } from './controls';
-import { NumberField } from './NumberField';
+import { MIXED_PLACEHOLDER, NUMBER_FIELD_MESSAGES } from './number-field-copy';
 import {
   BLEND_MODES,
   CornerSection,
@@ -221,6 +221,8 @@ function InspectorBody({
                   max={100}
                   precision={0}
                   suffix="%"
+                  mixedPlaceholder={MIXED_PLACEHOLDER}
+                  messages={NUMBER_FIELD_MESSAGES}
                   onScrubStart={beginScrub}
                   onScrubEnd={endScrub}
                   onCommit={(value) =>

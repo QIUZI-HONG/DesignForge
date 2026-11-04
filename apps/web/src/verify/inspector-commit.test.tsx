@@ -8,6 +8,10 @@
  * 3. 批量修改一次撤销全还原。
  *
  * 对抗手法：fake timers 边界（299/300/301ms）+ 中途 Esc + 中途失焦 + 拖拽中停顿 > 300ms。
+ *
+ * arch-02：数值编辑的**语义**测试集中在 `@dforge/ui` 的 NumberField（含 299/300 边界、
+ * Esc-after-blur、拖拽停顿等对抗用例）；本文件保留 InspectorPanel → 命令栈的**集成**断言
+ * （一次修改一条历史 / Esc 零历史 / 混选单事务）。
  */
 import {
   CommandStack,
@@ -22,7 +26,6 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InspectorPanel } from '@/features/inspector/components/InspectorPanel';
-import { NumberField } from '@/features/inspector/components/NumberField';
 
 /** 单节点文档（矩形 x=10）。 */
 function makeStack(): CommandStack {
@@ -35,113 +38,6 @@ function makeStack(): CommandStack {
 function nodeOf(stack: CommandStack, id: string): SceneNode {
   return getPage(stack.getSnapshot(), 'page_1').nodes[id] as SceneNode;
 }
-
-describe('NumberField · 300ms 提交（fake timers 对抗）', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  function renderField(onCommit: (value: number) => void, value = 10) {
-    render(<NumberField label="X" fieldName="x" value={value} onCommit={onCommit} />);
-    const input = screen.getByLabelText('X') as HTMLInputElement;
-    const handle = screen.getByTestId('numberfield-scrub-x');
-    return { input, handle };
-  }
-
-  it('连续敲键（每次间隔 < 300ms）只提交一次，且只提交最终值', () => {
-    const onCommit = vi.fn();
-    const { input } = renderField(onCommit);
-
-    fireEvent.change(input, { target: { value: '1' } });
-    act(() => vi.advanceTimersByTime(299));
-    fireEvent.change(input, { target: { value: '12' } });
-    act(() => vi.advanceTimersByTime(299));
-    fireEvent.change(input, { target: { value: '123' } });
-    expect(onCommit).not.toHaveBeenCalled();
-
-    act(() => vi.advanceTimersByTime(300));
-    expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit).toHaveBeenCalledWith(123);
-  });
-
-  it('299ms 边界不提交，300ms 才提交（计时口径钉死）', () => {
-    const onCommit = vi.fn();
-    const { input } = renderField(onCommit);
-    fireEvent.change(input, { target: { value: '77' } });
-    act(() => vi.advanceTimersByTime(299));
-    expect(onCommit).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(1));
-    expect(onCommit).toHaveBeenCalledTimes(1);
-  });
-
-  it('Esc 取消：零提交、零历史；随后的 blur 也不得提交（取消不能变提交）', () => {
-    const onCommit = vi.fn();
-    const { input } = renderField(onCommit);
-    fireEvent.change(input, { target: { value: '999' } });
-    act(() => vi.advanceTimersByTime(100));
-    fireEvent.keyDown(input, { key: 'Escape' });
-    fireEvent.blur(input);
-    act(() => vi.advanceTimersByTime(5000));
-    expect(onCommit).not.toHaveBeenCalled();
-  });
-
-  it('中途失焦立刻提交一次，且不再有第二次（计时器被清）', () => {
-    const onCommit = vi.fn();
-    const { input } = renderField(onCommit);
-    fireEvent.change(input, { target: { value: '42' } });
-    act(() => vi.advanceTimersByTime(100));
-    fireEvent.blur(input);
-    expect(onCommit).toHaveBeenCalledTimes(1);
-    act(() => vi.advanceTimersByTime(5000));
-    expect(onCommit).toHaveBeenCalledTimes(1);
-  });
-
-  it('Enter 立即提交（不用等 300ms）', () => {
-    const onCommit = vi.fn();
-    const { input } = renderField(onCommit);
-    fireEvent.change(input, { target: { value: '8' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onCommit).toHaveBeenCalledTimes(1);
-  });
-
-  it('拖拽 scrub：连续位移只提交一次；中途停顿超过 300ms 也不提交（由松手收口）', () => {
-    const onCommit = vi.fn();
-    const { handle } = renderField(onCommit);
-    fireEvent.pointerDown(handle, { clientX: 100, pointerId: 1 });
-    fireEvent.pointerMove(handle, { clientX: 110, pointerId: 1 });
-    fireEvent.pointerMove(handle, { clientX: 120, pointerId: 1 });
-    act(() => vi.advanceTimersByTime(900)); // 拖拽中停顿：不得被 trailing debounce 截断
-    expect(onCommit).not.toHaveBeenCalled();
-    fireEvent.pointerMove(handle, { clientX: 130, pointerId: 1 });
-    fireEvent.pointerUp(handle, { pointerId: 1 });
-    expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit).toHaveBeenCalledWith(40); // 起点 10 + 位移 30（step 1）
-  });
-
-  it('拖拽中途 Esc：丢弃草稿，之后松手不得提交', () => {
-    const onCommit = vi.fn();
-    const { input, handle } = renderField(onCommit);
-    fireEvent.pointerDown(handle, { clientX: 100, pointerId: 1 });
-    fireEvent.pointerMove(handle, { clientX: 200, pointerId: 1 });
-    fireEvent.keyDown(input, { key: 'Escape' });
-    fireEvent.pointerUp(handle, { pointerId: 1 });
-    act(() => vi.advanceTimersByTime(5000));
-    expect(onCommit).not.toHaveBeenCalled();
-  });
-
-  it('空串/非法值不产生提交（避免空历史）', () => {
-    const onCommit = vi.fn();
-    const { input } = renderField(onCommit);
-    fireEvent.change(input, { target: { value: '' } });
-    act(() => vi.advanceTimersByTime(300));
-    fireEvent.change(input, { target: { value: 'abc' } });
-    act(() => vi.advanceTimersByTime(300));
-    expect(onCommit).not.toHaveBeenCalled();
-  });
-});
 
 describe('InspectorPanel · 300ms 提交接到命令栈（集成）', () => {
   beforeEach(() => {

@@ -5,12 +5,15 @@
  * 这些用例是**提交时序的规格**：输入期间只改草稿，提交时刻才发命令
  * （撤销粒度 = 一次修改）；Esc 回滚草稿；无变更不产生空命令。
  * 用 fake timers 断言「连续变更只提交一次」。
+ *
+ * arch-02：实现从 `features/inspector/model/draft` 下沉到 `@dforge/ui`，
+ * 测试随实现走（数值编辑 module 与文本草稿共用这一份计时语义）。
  */
 
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { COMMIT_DELAY_MS, useDraftCommit } from './draft';
+import { COMMIT_DELAY_MS, useDraftCommit } from './use-draft-commit';
 
 describe('useDraftCommit（300ms 提交语义）', () => {
   beforeEach(() => {
