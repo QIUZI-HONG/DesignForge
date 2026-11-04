@@ -76,6 +76,9 @@ jobs:
       #   exit 1 = 数据面真违规（红）；
       #   exit 2 仅当证据合格（bootstrap 阻塞如 daemon 起不来会留下失败步骤 → 红）；
       #   其余退出码一律红。
+      # 判码已抽共享裁决 scripts/lib/two-state-verdict.mjs（tp2-03 去重；单测在
+      # scripts/tests/two-state-verdict.test.mjs，随「脚本单测」步跑）——语义与
+      # tp1-05 原两段内联判码逐语义等价，门禁脚本本身与口径未变。
       # NODE_OPTIONS：脚本直跑前端 .ts 适配层，node 22.6–23.5 需 type-stripping 旗标
       # （22.18+ 缺省已开，显式设置无害，跨 22.x 补丁版稳定）。
       - name: MCP 桩契约门禁（两态 + 显式桩标注；非浏览器，CI 完整判定）
@@ -93,31 +96,7 @@ jobs:
           node scripts/verify-ai-two-state.mjs
           code=$?
           set -e
-          if [ "$code" -eq 0 ]; then
-            echo "AI 两态门禁在 CI 完整通过（含 UI 段）：本步骤此后应改为必须 exit 0。"
-            exit 0
-          fi
-          if [ "$code" -ne 2 ]; then
-            echo "违规：AI 两态门禁 exit=$code（1=数据面断言失败；其余=非预期）——真失败，不得当阻塞。"
-            exit 1
-          fi
-          node <<'EOF'
-          const evidence = JSON.parse(
-            require('node:fs').readFileSync('artifacts/verify-ai-two-state/evidence.json', 'utf8'),
-          );
-          const failed = evidence.meta?.stepsFailed ?? -1;
-          const blocked =
-            typeof evidence.blockedReason === 'string' && evidence.blockedReason.length > 0;
-          if (failed !== 0 || !blocked) {
-            console.error(
-              `违规：exit 2 但证据不符（stepsFailed=${String(failed)}，blockedReason=${JSON.stringify(evidence.blockedReason)}）——bootstrap 阻塞不得冒充 UI 段挂点。`,
-            );
-            process.exit(1);
-          }
-          console.log(
-            `OK：数据面两态 ${String(evidence.meta?.stepsTotal ?? '?')} 步全过（mock 上游，不出机）；仅 UI 挂载段阻塞（exit 2 非通过，UI 段挂点）。`,
-          );
-          EOF
+          node scripts/lib/two-state-verdict.mjs artifacts/verify-ai-two-state/evidence.json "$code" "AI 两态门禁"
 
       - name: 出图两态门禁（数据面真跑；UI 挂载段无 Chromium → 阻塞语义，挂点）
         env:
@@ -128,31 +107,7 @@ jobs:
           node scripts/verify-image-two-state.mjs
           code=$?
           set -e
-          if [ "$code" -eq 0 ]; then
-            echo "出图两态门禁在 CI 完整通过（含 UI 段）：本步骤此后应改为必须 exit 0。"
-            exit 0
-          fi
-          if [ "$code" -ne 2 ]; then
-            echo "违规：出图两态门禁 exit=$code（1=数据面断言失败；其余=非预期）——真失败，不得当阻塞。"
-            exit 1
-          fi
-          node <<'EOF'
-          const evidence = JSON.parse(
-            require('node:fs').readFileSync('artifacts/verify-image-two-state/evidence.json', 'utf8'),
-          );
-          const failed = evidence.meta?.stepsFailed ?? -1;
-          const blocked =
-            typeof evidence.blockedReason === 'string' && evidence.blockedReason.length > 0;
-          if (failed !== 0 || !blocked) {
-            console.error(
-              `违规：exit 2 但证据不符（stepsFailed=${String(failed)}，blockedReason=${JSON.stringify(evidence.blockedReason)}）——bootstrap 阻塞不得冒充 UI 段挂点。`,
-            );
-            process.exit(1);
-          }
-          console.log(
-            `OK：数据面两态 ${String(evidence.meta?.stepsTotal ?? '?')} 步全过（mock ComfyUI，不出机）；仅 UI 挂载段阻塞（exit 2 非通过，UI 段挂点）。`,
-          );
-          EOF
+          node scripts/lib/two-state-verdict.mjs artifacts/verify-image-two-state/evidence.json "$code" "出图两态门禁"
 
       # 参照集门禁在 CI 无参照集，**必须** exit 2（阻塞）并点名「参照集未冻结」：
       #   本步骤断言的是**三态语义契约**（脚本确已执行、不得零校验 exit 0 假绿），
