@@ -58,6 +58,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  // tp2-05 · F-3 ③：beforeEach 写入的 data-theme=dark 由 `test-setup.ts` 全局兜底
+  // 按用例前快照还原（结构修，逐文件不重复实现）。
 });
 
 describe('ComponentPanel · 空选与普通节点（创建组件入口）', () => {

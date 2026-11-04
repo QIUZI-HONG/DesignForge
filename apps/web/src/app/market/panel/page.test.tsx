@@ -34,6 +34,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // tp2-05 · F-3 ⑤：render/断言抛错路径的主题泄漏（页面组件卸载恢复不执行）由
+  // `test-setup.ts` 全局兜底按用例前快照还原（结构修，等价 try/finally 覆盖）。
 });
 
 /** 让假 fetch 返回一个成功信封。 */

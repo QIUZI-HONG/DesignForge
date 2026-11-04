@@ -45,6 +45,8 @@ import {
 } from './workspace-session';
 
 afterEach(() => {
+  // tp2-05 · F-3 ④复核：useEditorUi 重置在基线已存在（企业报告清单与现状有出入，已核实）；
+  // 命令/插槽注册表、主题、localStorage 的兜底复位由 `test-setup.ts` 全局兜底承接。
   resetCommandRegistry();
   resetWorkspace();
   useWorkspaceUi.setState({ rightPanelTab: 'inspect', aiDrawerOpen: false });
