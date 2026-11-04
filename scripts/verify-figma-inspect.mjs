@@ -25,6 +25,14 @@
  *      `[data-df-component="panel|badge|override-row|overrides-section|variant-select"]`。
  *   缺挂点 → 该单元判失败（1），宿主不可达 → exit 2（阻塞）。
  *
+ * 取证实现统一在 `scripts/lib/figma-evidence.mjs`（arch-04）：本脚本只声明**单元表 + DOM
+ * 不变量剧本 + 功能段**；`finish` 签名已从分叉的 `(code, message)` 统一为
+ * `(evidence, code, message)`（阻塞原因按 `；` 合并入 `blockedReason`）。
+ *
+ * **语义变化（arch-04 登记）**：Chromium 解析统一走 `lib/browser-toolchain.mjs` 的
+ * `resolveChromeExecutable()`，即 `BENCH_CHROME_EXECUTABLE` **存在才采用**。此前本门禁
+ * 对非法 env 会带病进入浏览器阶段（稍后崩），现在直接 exit 2 阻塞（与 lib 及 shell-parity 同口径）。
+ *
  * 用法（仓库根执行）：
  *   node scripts/verify-figma-inspect.mjs                    # 默认 http://127.0.0.1:3210/editor
  *   DF_DAEMON_URL=http://127.0.0.1:4318 node scripts/verify-figma-inspect.mjs --only C15
@@ -36,11 +44,10 @@
  *（参照集未冻结 / daemon 未启动 / 宿主不可达 / Chromium 或依赖缺失）——`2` 绝不等价于通过。
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
-import { bboxOfDiff } from './lib/pixels.mjs';
+import { inspectReferenceDir, runFigmaGate } from './lib/figma-evidence.mjs';
 
 const WEB_URL = process.env.DF_WEB_URL ?? 'http://127.0.0.1:3210';
 const HOST_URL = process.env.DF_INSPECT_URL ?? `${WEB_URL}/editor`;
@@ -64,11 +71,6 @@ const flagValue = (name) => {
 };
 const only = flagValue('--only');
 const maxRatio = Number(flagValue('--max-ratio') ?? '0.001');
-
-const startedAt = new Date();
-const stamp = startedAt.toISOString().replaceAll(':', '-').replace(/\..+$/, '');
-const evidenceDir = join(EVIDENCE_ROOT, TICKET);
-const evidencePath = join(evidenceDir, `verify-figma-inspect-${stamp}.json`);
 
 /** 导出功能段用的页面体（daemon 简化渲染子集：矩形 + 文本；来源形状见 daemon «最小场景» 文档）。 */
 const PAGE_BODY = {
@@ -166,66 +168,6 @@ const STATE_COVERAGE = [
   },
 ];
 
-/** 证据骨架（字段按《前端验收标准 v1》§4）。 */
-function baseEvidence() {
-  return {
-    ticket: 'FE-08',
-    gate: 'verify-figma-inspect',
-    page: '/editor（检查态 C15 / 代码导出 F6 / 组件 C17 · 深色 UI3）',
-    level: 'A（布局/几何/尺寸/颜色；字形与阴影按 B 级人工复核）',
-    params: {
-      threshold: THRESHOLD,
-      maxRatio,
-      engine: 'pixelmatch@8.0.0',
-      aaIgnore: true,
-      controlHeight: CONTROL_HEIGHT,
-      componentPurple: COMPONENT_PURPLE,
-      engineVersionNote: '升级比对库 = 重定基线（研究 #5 §3.4）',
-    },
-    viewport: { width: 1440, height: 900, dpr: 1.5 },
-    startedAt: startedAt.toISOString(),
-    hostUrl: HOST_URL,
-    daemonUrl: DAEMON_URL,
-    referenceDir: REF_DIR,
-    functional: { status: 'pending', baseUrl: DAEMON_URL, formats: [], cleanup: 'pending' },
-    units: [],
-    stateCoverage: STATE_COVERAGE.map((entry) => ({ ...entry, status: 'pending' })),
-    artifacts: {},
-    humanReview: {
-      verdict: 'pending',
-      reviewer: null,
-      reason: '自动判定只给 A 级结论；字形/阴影/动效终态按 B 级需人工复核登记。',
-    },
-    exitCode: 2,
-  };
-}
-
-const evidence = baseEvidence();
-const blockedReasons = [];
-let failures = 0;
-
-/** 落盘证据并结束进程。 */
-function finish(code, message) {
-  evidence.exitCode = code;
-  evidence.finishedAt = new Date().toISOString();
-  evidence.blockedReason = blockedReasons.length > 0 ? blockedReasons.join('；') : null;
-  mkdirSync(evidenceDir, { recursive: true });
-  writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
-  if (message) console.error(message);
-  console.error(`证据：${evidencePath}`);
-  process.exit(code);
-}
-
-/** `{sha256, length}` 指纹（大件入证据的约定）。 */
-function fingerprint(filePath) {
-  const buffer = readFileSync(filePath);
-  return {
-    path: filePath,
-    sha256: createHash('sha256').update(buffer).digest('hex'),
-    length: buffer.length,
-  };
-}
-
 /** 极简 HTTP 客户端：返回 `{ status, json, text }`（与 verify-daemon 同口径）。 */
 async function call(baseUrl, method, path, body) {
   try {
@@ -248,24 +190,25 @@ async function call(baseUrl, method, path, body) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// ① 功能段：daemon /export 三档（不依赖参照集）
-// ---------------------------------------------------------------------------
-
-async function runFunctional() {
-  const functional = evidence.functional;
+/**
+ * 功能段：daemon /export 三档（不依赖参照集）。
+ * daemon 未启动 → 记阻塞原因并**继续**跑对照段（它会独立再给出参照集阻塞）。
+ */
+async function runFunctional(ctx) {
+  const functional = ctx.evidence.functional;
   const health = await call(DAEMON_URL, 'GET', '/health');
   if (health.status !== 200) {
     functional.status = 'blocked';
     functional.reason = `daemon 不可达：${DAEMON_URL}/health（HTTP ${String(health.status)}）`;
-    blockedReasons.push('阻塞：daemon 未启动');
-    console.error(
-      [
-        `阻塞：daemon 未启动（本门禁不做自动拉起，避免污染用户数据根）。`,
+    ctx.block({
+      reason: '阻塞：daemon 未启动',
+      stop: false,
+      message: [
+        '阻塞：daemon 未启动（本门禁不做自动拉起，避免污染用户数据根）。',
         `原因：${functional.reason}`,
         '提示：另开终端执行 `pnpm --filter @dforge/daemon dev`（或设 DF_DAEMON_URL 指向已运行实例）后重跑。',
-      ].join('\n'),
-    );
+      ],
+    });
     return;
   }
   functional.health = { status: health.status };
@@ -276,7 +219,7 @@ async function runFunctional() {
   if (created.status !== 201 || typeof documentId !== 'string') {
     functional.status = 'failed';
     functional.reason = `临时文档创建失败：HTTP ${String(created.status)} ${created.text.slice(0, 200)}`;
-    failures += 1;
+    ctx.failures += 1;
     return;
   }
   functional.documentId = documentId;
@@ -297,7 +240,7 @@ async function runFunctional() {
   if (saved.status !== 200) {
     functional.status = 'failed';
     functional.reason = `页面保存失败：HTTP ${String(saved.status)} ${saved.text.slice(0, 200)}`;
-    failures += 1;
+    ctx.failures += 1;
   }
 
   for (const check of FORMAT_CHECKS) {
@@ -312,11 +255,11 @@ async function runFunctional() {
     const record = (id, ok, detail) => {
       unit.assertions.push({ id, ok, detail });
       if (ok) {
-        if (verbose) console.error(`  ✓ ${check.format}/${id}`);
+        if (verbose) ctx.log(`  ✓ ${check.format}/${id}`);
       } else {
         unit.status = 'failed';
-        failures += 1;
-        console.error(`  ✗ ${check.format}/${id} —— ${detail}`);
+        ctx.failures += 1;
+        ctx.log(`  ✗ ${check.format}/${id} —— ${detail}`);
       }
     };
 
@@ -371,41 +314,7 @@ async function runFunctional() {
   functional.maxScale = MAX_SCALE;
 
   if (functional.status === 'passed') {
-    console.error('功能段通过：导出三档均产出文件（字节数 >0、PNG 头校验、sha256 一致）。');
-  }
-}
-
-// ---------------------------------------------------------------------------
-// ② 对照段：参照集 + 页面截图（pixelmatch）
-// ---------------------------------------------------------------------------
-
-/** 参照集探测：目录存在且有 PNG 才算「已冻结」。 */
-function inspectReferenceDir() {
-  if (!existsSync(REF_DIR)) return { ready: false, reason: `参照集目录不存在：${REF_DIR}` };
-  const files = readdirSync(REF_DIR).filter((name) => name.endsWith('.png'));
-  if (files.length === 0) return { ready: false, reason: `参照集为空（无 PNG）：${REF_DIR}` };
-  return { ready: true, files };
-}
-
-/** 缓存的 Chromium 可执行文件（playwright-core 需显式 executablePath）。 */
-function resolveChrome() {
-  if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) return process.env.BENCH_CHROME_EXECUTABLE;
-  const cacheRoot = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(cacheRoot)) return undefined;
-  const candidates = readdirSync(cacheRoot)
-    .filter((name) => name.startsWith('chromium-'))
-    .sort()
-    .map((name) => join(cacheRoot, name, 'chrome-linux64', 'chrome'));
-  return candidates.find((file) => existsSync(file));
-}
-
-/** 宿主页探测（不可达即阻塞，不猜）。 */
-async function probeHost() {
-  try {
-    const response = await fetch(`${HOST_URL}?${UNITS[0].query}`, { redirect: 'follow' });
-    return { reachable: response.ok, status: response.status };
-  } catch (error) {
-    return { reachable: false, status: 0, error: String(error) };
+    ctx.log('功能段通过：导出三档均产出文件（字节数 >0、PNG 头校验、sha256 一致）。');
   }
 }
 
@@ -466,211 +375,146 @@ function domFindings(payload) {
   return findings;
 }
 
-async function runParity() {
-  const reference = inspectReferenceDir();
-  evidence.reference = reference.ready
-    ? { ready: true, pngCount: reference.files.length }
-    : { ready: false, reason: reference.reason };
-
-  if (!reference.ready) {
-    for (const entry of evidence.stateCoverage) {
-      entry.status = 'pending';
-      entry.note = 'REF-01（Figma 参照集冻结）未完成；本门禁按三态退出码记阻塞，禁止以近似图判绿。';
-    }
-    blockedReasons.push('阻塞：参照集未冻结');
-    console.error(
-      [
-        '阻塞：参照集未冻结（REF-01 未完成）——不得以自截图/近似图假绿。',
-        `原因：${reference.reason}`,
-        '待办：按 figma-editor-C15-inspect-dark.png / figma-editor-F6-code-export-dark.png /',
-        '      figma-editor-C17-components-dark.png 落盘参照集后重跑本门禁。',
-      ].join('\n'),
-    );
-    return;
-  }
-
-  const host = await probeHost();
-  if (!host.reachable) {
-    blockedReasons.push(`阻塞：宿主页不可达（${HOST_URL}）`);
-    console.error(
-      [
-        '阻塞：宿主页不可达（本门禁需编辑器路由按头部「宿主协议」暴露挂点）。',
-        `原因：HTTP ${String(host.status)}`,
-        '提示：先起站点（pnpm --filter @dforge/web build && pnpm --filter @dforge/web start），',
-        '      或设 DF_INSPECT_URL 指向已运行实例。',
-      ].join('\n'),
-    );
-    return;
-  }
-
-  const chrome = resolveChrome();
-  if (chrome === undefined) {
-    blockedReasons.push('阻塞：未找到 Chromium 可执行文件');
-    console.error('阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）。');
-    return;
-  }
-
-  const { chromium } = await import('playwright-core');
-  const { PNG } = await import('pngjs');
-  const pixelmatch = (await import('pixelmatch')).default;
-
-  const actualDir = join(evidenceDir, 'actual');
-  const diffDir = join(evidenceDir, 'diff');
-  mkdirSync(actualDir, { recursive: true });
-  mkdirSync(diffDir, { recursive: true });
-
-  const browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox'] });
-  const context = await browser.newContext({
-    viewport: { width: evidence.viewport.width, height: evidence.viewport.height },
-    deviceScaleFactor: evidence.viewport.dpr,
-  });
-  const page = await context.newPage();
-
-  const targets = only === undefined ? UNITS : UNITS.filter((unit) => unit.id === only);
-  if (targets.length === 0) {
-    await browser.close();
-    blockedReasons.push(`阻塞：未知的 --only=${String(only)}`);
-    console.error(
-      `阻塞：未知的 --only=${String(only)}（可用：${UNITS.map((u) => u.id).join(' / ')}）。`,
-    );
-    return;
-  }
-
-  for (const unit of targets) {
-    const record = {
-      id: unit.id,
-      title: unit.title,
-      ref: join(REF_DIR, unit.ref),
-      status: 'pending',
-      diff: null,
-      invariants: [],
-      artifacts: {},
-    };
-    evidence.units.push(record);
-
-    await page.goto(`${HOST_URL}?${unit.query}`, { waitUntil: 'networkidle' });
-    // 字体就绪后再取样（禁静默回退；字体未就绪的截图不可作判据）
-    await page.evaluate(() => document.fonts.ready);
-    try {
-      await page.waitForSelector(unit.root, { timeout: 5000 });
-    } catch {
-      // 挂点缺失由下面的不变量断言记账（不在这里吞掉）
-    }
-
-    record.invariants = await page.evaluate(domFindings, { unit, controlHeight: CONTROL_HEIGHT });
-    for (const finding of record.invariants) {
-      if (!finding.ok) {
-        failures += 1;
-        console.error(`  ✗ ${unit.id} 不变量 —— ${finding.note}`);
-      } else if (verbose) {
-        console.error(`  ✓ ${unit.id} ${finding.note}`);
+await runFigmaGate({
+  gateName: 'verify-figma-inspect',
+  ticket: TICKET,
+  page: '/editor（检查态 C15 / 代码导出 F6 / 组件 C17 · 深色 UI3）',
+  level: 'A（布局/几何/尺寸/颜色；字形与阴影按 B 级人工复核）',
+  params: {
+    threshold: THRESHOLD,
+    maxRatio,
+    engine: 'pixelmatch@8.0.0',
+    aaIgnore: true,
+    controlHeight: CONTROL_HEIGHT,
+    componentPurple: COMPONENT_PURPLE,
+    engineVersionNote: '升级比对库 = 重定基线（研究 #5 §3.4）',
+  },
+  viewport: { width: 1440, height: 900, dpr: 1.5 },
+  extras: {
+    hostUrl: HOST_URL,
+    daemonUrl: DAEMON_URL,
+    functional: { status: 'pending', baseUrl: DAEMON_URL, formats: [], cleanup: 'pending' },
+  },
+  stateCoverage: STATE_COVERAGE.map((entry) => ({ ...entry, status: 'pending' })),
+  recordKey: 'units',
+  evidenceShape: 'inspect',
+  referenceDir: REF_DIR,
+  evidenceRoot: EVIDENCE_ROOT,
+  url: HOST_URL,
+  only,
+  units: UNITS,
+  capture: {
+    kind: 'element',
+    goto: false,
+    perUnitGoto: true,
+    fontsPerUnit: true,
+    unitUrl: (unit) => `${HOST_URL}?${unit.query}`,
+  },
+  thresholds: { threshold: THRESHOLD, maxRatio },
+  reference: {
+    when: 'early',
+    // 参照集未冻结 = 阻塞，但功能段原因继续累计（`blockedReason` 按 `；` 合并）。
+    stop: false,
+    skipUnitsOnBlock: true,
+    reason: () => '阻塞：参照集未冻结',
+    message: (_ctx, reference) => [
+      '阻塞：参照集未冻结（REF-01 未完成）——不得以自截图/近似图假绿。',
+      `原因：${reference.reason}`,
+      '待办：按 figma-editor-C15-inspect-dark.png / figma-editor-F6-code-export-dark.png /',
+      '      figma-editor-C17-components-dark.png 落盘参照集后重跑本门禁。',
+    ],
+    onBlocked: (ctx, reference) => {
+      ctx.evidence.reference = { ready: false, reason: reference.reason };
+      for (const entry of ctx.evidence.stateCoverage) {
+        entry.status = 'pending';
+        entry.note =
+          'REF-01（Figma 参照集冻结）未完成；本门禁按三态退出码记阻塞，禁止以近似图判绿。';
       }
-    }
-
-    const refPath = record.ref;
-    const actualPath = join(actualDir, `${unit.id}.png`);
-    const element = page.locator(unit.root);
-    try {
-      await element.screenshot({ path: actualPath, animations: 'disabled' });
-    } catch (error) {
-      record.status = 'screenshot-failed';
-      record.error = String(error).slice(0, 300);
-      failures += 1;
-      console.error(`  ✗ ${unit.id} 截图失败 —— ${record.error}`);
-      continue;
-    }
-    record.artifacts.actual = fingerprint(actualPath);
-
-    if (!existsSync(refPath)) {
-      record.status = 'missing-reference';
-      record.reference = refPath;
-      failures += 1;
-      console.error(`  ✗ ${unit.id}：参照图缺失（${basename(refPath)}）`);
-      continue;
-    }
-    record.artifacts.ref = fingerprint(refPath);
-
-    const refPng = PNG.sync.read(readFileSync(refPath));
-    const actualPng = PNG.sync.read(readFileSync(actualPath));
-    if (refPng.width !== actualPng.width || refPng.height !== actualPng.height) {
-      record.status = 'size-mismatch';
-      record.diff = {
-        bbox: null,
-        diffPixels: null,
-        ratio: null,
-        reference: { width: refPng.width, height: refPng.height },
-        actual: { width: actualPng.width, height: actualPng.height },
-      };
-      failures += 1;
-      continue;
-    }
-
-    const diffPng = new PNG({ width: refPng.width, height: refPng.height });
-    const diffPixels = pixelmatch(
-      refPng.data,
-      actualPng.data,
-      diffPng.data,
-      refPng.width,
-      refPng.height,
-      { threshold: THRESHOLD, includeAA: false },
-    );
-    const total = refPng.width * refPng.height;
-    const ratio = total === 0 ? 0 : diffPixels / total;
-    const diffPath = join(diffDir, `${unit.id}.png`);
-    writeFileSync(diffPath, PNG.sync.write(diffPng));
-    record.artifacts.diff = fingerprint(diffPath);
-    record.diff = {
-      bbox: bboxOfDiff(diffPng),
-      diffPixels,
-      ratio: Number(ratio.toFixed(6)),
-      totalPixels: total,
-    };
-    record.status = ratio <= maxRatio ? 'passed' : 'failed';
-    if (record.status === 'failed') {
-      failures += 1;
-      console.error(`  ✗ ${unit.id}：差异率 ${(ratio * 100).toFixed(4)}% > 容差`);
-    } else if (verbose) {
-      console.error(`  ✓ ${unit.id}：差异率 ${(ratio * 100).toFixed(4)}%`);
-    }
-  }
-
-  await browser.close();
-
-  // 状态覆盖：有取样单元的状态挂上对照单元；无独立视觉态的在 vitest/jsdom 里取证
-  evidence.stateCoverage = evidence.stateCoverage.map((entry) => {
-    if (entry.via === 'dom' || entry.via === 'screenshot+dom') {
-      return {
-        ...entry,
-        status: 'covered-by-dom-assertions',
-        note: '由本脚本的 DOM 不变量断言与 vitest 用例共同取证（见 units[].invariants）。',
-      };
-    }
-    return {
-      ...entry,
-      status: 'pending-human-or-ref',
-      note: '取终态截图对照（本段参照集冻结后纳入参照单元）。',
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// 主流程
-// ---------------------------------------------------------------------------
-
-try {
-  await runFunctional();
-  await runParity();
-} catch (error) {
-  // 脚本层意外错误（浏览器崩溃/依赖缺失等）：记阻塞（判不了），证据里留原因，绝不冒充通过
-  blockedReasons.push(`阻塞：门禁执行失败（${String(error).slice(0, 200)}）`);
-  console.error(`阻塞：门禁执行失败 —— ${String(error)}`);
-}
-
-const code = blockedReasons.length > 0 ? 2 : failures === 0 ? 0 : 1;
-const summary =
-  code === 2
-    ? `阻塞：${blockedReasons.join('；')}（exit 2 ≠ 通过）。`
-    : code === 1
-      ? `违规：${String(failures)} 项断言失败或超差（逐项明细见证据 JSON）。`
-      : '通过：功能段三档断言全过，对照段全部在容差内。';
-finish(code, summary);
+    },
+  },
+  probe: {
+    url: `${HOST_URL}?${UNITS[0].query}`,
+    mode: 'follow',
+    stop: false,
+    skipUnitsOnBlock: true,
+    reason: () => `阻塞：宿主页不可达（${HOST_URL}）`,
+    message: (_ctx, result) => [
+      '阻塞：宿主页不可达（本门禁需编辑器路由按头部「宿主协议」暴露挂点）。',
+      `原因：HTTP ${String(result.status)}`,
+      '提示：先起站点（pnpm --filter @dforge/web build && pnpm --filter @dforge/web start），',
+      '      或设 DF_INSPECT_URL 指向已运行实例。',
+    ],
+  },
+  chrome: {
+    stop: false,
+    skipUnitsOnBlock: true,
+    reason: () => '阻塞：未找到 Chromium 可执行文件',
+    message: () => ['阻塞：未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）。'],
+  },
+  logFailures: true,
+  logMissingReference: true,
+  failLogSuffix: ' > 容差',
+  blockedReason: 'joined',
+  catchErrors: true,
+  hooks: {
+    // 功能段先跑（不依赖参照集；阻塞原因累计后继续）。
+    beforeReference: async (ctx) => {
+      await runFunctional(ctx);
+      // 参照集落点也先记入证据（参照集判定随后由 module 执行）。
+      const reference = inspectReferenceDir(REF_DIR);
+      ctx.evidence.reference = reference.ready
+        ? { ready: true, pngCount: reference.files.length }
+        : { ready: false, reason: reference.reason };
+    },
+    // DOM 不变量（每单元截图前）：缺挂点 = 失败（exit 1），但截图仍取（证据留档）。
+    beforeCapture: async (ctx, { unit, record, page }) => {
+      await page.waitForSelector(unit.root, { timeout: 5000 }).catch(() => null);
+      record.invariants = await page.evaluate(domFindings, {
+        unit,
+        controlHeight: CONTROL_HEIGHT,
+      });
+      for (const finding of record.invariants) {
+        if (!finding.ok) {
+          ctx.failures += 1;
+          ctx.log(`  ✗ ${unit.id} 不变量 —— ${finding.note}`);
+        } else if (verbose) {
+          ctx.log(`  ✓ ${unit.id} ${finding.note}`);
+        }
+      }
+    },
+    // 未知的 --only 在单元表解析后阻塞（原实现同口径：截图阶段前即返回）。
+    afterUnitsResolved: (ctx) => {
+      if (ctx.targets.length === 0) {
+        ctx.block({
+          reason: `阻塞：未知的 --only=${String(only)}`,
+          message: `阻塞：未知的 --only=${String(only)}（可用：${UNITS.map((unit) => unit.id).join(
+            ' / ',
+          )}）。`,
+        });
+      }
+    },
+    afterUnits: (ctx) => {
+      if (ctx.skipUnits || ctx.pendingFinish !== null) return;
+      ctx.evidence.stateCoverage = ctx.evidence.stateCoverage.map((entry) => {
+        if (entry.via === 'dom' || entry.via === 'screenshot+dom') {
+          return {
+            ...entry,
+            status: 'covered-by-dom-assertions',
+            note: '由本脚本的 DOM 不变量断言与 vitest 用例共同取证（见 units[].invariants）。',
+          };
+        }
+        return {
+          ...entry,
+          status: 'pending-human-or-ref',
+          note: '取终态截图对照（本段参照集冻结后纳入参照单元）。',
+        };
+      });
+    },
+  },
+  verbose,
+  messages: {
+    blocked: (ctx) => `阻塞：${ctx.blockedReasons.join('；')}（exit 2 ≠ 通过）。`,
+    fail: (ctx) => `违规：${String(ctx.failures)} 项断言失败或超差（逐项明细见证据 JSON）。`,
+    pass: () => '通过：功能段三档断言全过，对照段全部在容差内。',
+  },
+});
