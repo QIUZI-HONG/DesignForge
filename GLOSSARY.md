@@ -66,3 +66,24 @@ _Avoid_: 与「错误提示」混用——报错是事后，边界是事前。
 **失败恢复**:
 失败发生时，用户拿到可执行的下一步（重试 / 降级 / 回滚 / 换路径），而不是停在断点或无出口的循环里。
 _Avoid_: 与「错误文案」混用——文案只是恢复路径的一部分，不是恢复本身。
+
+### 架构 module 词（架构审查产物）
+
+本组词为 deepening 落地的具名 module；评审与重构一律使用本组术语，不另造「组件 / 服务 / 接口层」。
+
+**页集映射（page-set mapping）**:
+文档侧 `pages[]` 与 daemon 侧页文件集合之间的 module：**页 id 即身份**（位置不参与寻址），
+`loadPageSet` 按 manifest `pages[]` 读回、`planPageSetSave` 产出 create / update / 孤儿计划。
+页集有洞时不再截断；孤儿页**只报告不删除**（禁静默删用户数据）。
+_Avoid_: 与「页序」混用——顺序是展示属性，不是身份。
+
+**字段描述表（field descriptor table）**:
+纯数据类型的字段集单一清单（如 `EFFECT_FIELDS`）：每字段声明是否进缓存键、如何比较、是否可编辑，
+equality / 缓存键 / patch 形状 / 测试变体全部由它派生，并以 `satisfies Record<keyof T, …>` 让
+新增字段漏登记在**编译期**报错。
+_Avoid_: 与「配置表」混用——它不是可调参数，是类型义务的结构表达。
+
+**取证机（evidence machine）**:
+门禁共用的取证 module（`scripts/lib/figma-evidence.mjs`）：吸收参照集冻结判定、站点探测、
+Chromium 解析、截图、像素比对、证据落盘与三态出口；门禁侧只声明单元表与 prepare 剧本。
+_Avoid_: 与「测试脚本」混用——门禁是单元表，取证机才是 implementation。
