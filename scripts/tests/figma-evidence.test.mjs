@@ -19,7 +19,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { after, test } from 'node:test';
 
 import { PNG } from 'pngjs';
@@ -389,4 +389,20 @@ test('证据记录：unit/editor 的 missing-reference 与 size-mismatch 均带 
       assert.deepEqual(record.actual, { width: 2, height: 2 }, label);
     }
   }
+});
+
+test('inspect 证据 ref 恢复为绝对路径（arch-fix 发现 3）', async () => {
+  const root = tempRoot();
+  const referenceDir = join(root, 'reference');
+  mkdirSync(referenceDir);
+  paintPng(join(referenceDir, 'unit_a.png'), 255);
+  const result = await runFigmaGate({
+    ...gateSpec({ referenceDir, evidenceRoot: join(root, 'evidence'), page: fakePage() }),
+    evidenceShape: 'inspect',
+    units: [{ id: 'unit/a', title: '单元 A', ref: 'unit_a.png' }],
+  });
+  assert.equal(result.code, 0);
+  const ref = result.evidence.units[0].ref;
+  assert.equal(ref, join(referenceDir, 'unit_a.png'));
+  assert.ok(isAbsolute(ref));
 });

@@ -27,7 +27,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import { resolveChromeExecutable } from './browser-toolchain.mjs';
 import { bboxOfDiff } from './pixels.mjs';
@@ -219,7 +219,7 @@ function createEvidence(spec, startedAt) {
   };
 }
 
-function createRecord(evidenceShape, unit) {
+function createRecord(evidenceShape, unit, referenceDir) {
   switch (evidenceShape) {
     case 'editor':
     case 'unit':
@@ -232,7 +232,9 @@ function createRecord(evidenceShape, unit) {
       return {
         id: unit.id,
         title: unit.title,
-        ref: unit.ref,
+        // 与旧门禁同口径：ref 是绝对路径（参照集冻结后 units[].ref 只有文件名）
+        ref:
+          unit.ref === undefined || isAbsolute(unit.ref) ? unit.ref : join(referenceDir, unit.ref),
         status: 'pending',
         diff: null,
         invariants: [],
@@ -495,7 +497,7 @@ async function runUnits(ctx) {
   if (ctx.pendingFinish !== null) return;
 
   for (const unit of units) {
-    const record = createRecord(style, unit);
+    const record = createRecord(style, unit, spec.referenceDir);
     evidence[spec.recordKey].push(record);
 
     let phase = 'goto';
