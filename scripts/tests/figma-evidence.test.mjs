@@ -39,9 +39,9 @@ after(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
 
-/** 写一张 2×2 纯色 PNG（r 通道区分参照图与实际图）。 */
-function paintPng(filePath, red) {
-  const png = new PNG({ width: 2, height: 2 });
+/** 写一张纯色 PNG（默认 2×2；r 通道区分参照图与实际图）。 */
+function paintPng(filePath, red, width = 2, height = 2) {
+  const png = new PNG({ width, height });
   for (let index = 0; index < png.data.length; index += 4) {
     png.data[index] = red;
     png.data[index + 1] = 0;
@@ -358,4 +358,35 @@ test('runFigmaGate：Chromium 缺失 → exit 2（阻塞；合法前置不成立
   );
   assert.equal(result.code, 2);
   assert.match(result.evidence.blockedReason, /Chromium/);
+});
+
+test('证据记录：unit/editor 的 missing-reference 与 size-mismatch 均带 status（arch-fix 发现 2）', async () => {
+  const cases = [
+    { shape: 'unit', status: 'missing-reference', reference: null },
+    { shape: 'unit', status: 'size-mismatch', reference: [3, 1] },
+    { shape: 'editor', status: 'missing-reference', reference: null },
+    { shape: 'editor', status: 'size-mismatch', reference: [3, 1] },
+  ];
+  for (const item of cases) {
+    const root = tempRoot();
+    const referenceDir = join(root, 'reference');
+    mkdirSync(referenceDir);
+    // 参照集目录必须「已冻结」（有 PNG），但本单元的参照图缺失 / 尺寸不符
+    if (item.reference === null) paintPng(join(referenceDir, 'other.png'), 255);
+    else paintPng(join(referenceDir, 'unit_a.png'), 255, item.reference[0], item.reference[1]);
+    const result = await runFigmaGate({
+      ...gateSpec({ referenceDir, evidenceRoot: join(root, 'evidence'), page: fakePage() }),
+      evidenceShape: item.shape,
+    });
+    const label = `${item.shape}/${item.status}`;
+    assert.equal(result.code, 1, label);
+    const record = result.evidence.units[0];
+    assert.equal(record.status, item.status, label);
+    if (item.status === 'missing-reference') {
+      assert.ok(record.reference.endsWith('unit_a.png'), label);
+    } else {
+      assert.deepEqual(record.reference, { width: 3, height: 1 }, label);
+      assert.deepEqual(record.actual, { width: 2, height: 2 }, label);
+    }
+  }
 });

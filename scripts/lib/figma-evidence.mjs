@@ -248,8 +248,11 @@ function createRecord(evidenceShape, unit) {
 function setUnitOutcome(evidenceShape, record, unit, outcome) {
   switch (evidenceShape) {
     case 'unit':
-      if (outcome.status === 'missing-reference') record.reference = outcome.reference;
-      else if (outcome.status === 'size-mismatch') {
+      if (outcome.status === 'missing-reference') {
+        record.status = outcome.status;
+        record.reference = outcome.reference;
+      } else if (outcome.status === 'size-mismatch') {
+        record.status = outcome.status;
         record.reference = outcome.reference;
         record.actual = outcome.actual;
       } else {
@@ -259,8 +262,11 @@ function setUnitOutcome(evidenceShape, record, unit, outcome) {
       }
       return;
     case 'editor':
-      if (outcome.status === 'missing-reference') record.reference = outcome.reference;
-      else if (outcome.status === 'size-mismatch') {
+      if (outcome.status === 'missing-reference') {
+        record.status = outcome.status;
+        record.reference = outcome.reference;
+      } else if (outcome.status === 'size-mismatch') {
+        record.status = outcome.status;
         record.reference = outcome.reference;
         record.actual = outcome.actual;
       } else {
