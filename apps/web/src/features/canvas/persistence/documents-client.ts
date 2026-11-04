@@ -14,7 +14,7 @@ import { DAEMON_ROUTES } from '@dforge/contracts';
 import type { DesignDocument } from '@dforge/engine';
 import { parseDocument } from '@dforge/engine';
 
-import { type ClientResult, isEmptyBody, loadPageSet, planPageSetSave } from './page-set';
+import { type ClientResult, loadPageSet, planPageSetSave } from './page-set';
 
 export type { CanvasPageBody, ClientResult } from './page-set';
 // 正文信封与编解码随 mapping module 迁至 `./page-set`；此处保持既有导入路径向后兼容。
@@ -202,9 +202,10 @@ export interface SaveDesignDocumentResult {
  * create（身份可往返）；非法/重复 → 分配空闲 `page-N`。manifest 里多出来的页只进
  * `orphanPageIds`，**不删除**（数据安全优先）。
  *
- * 唯一例外（保持既有空文档口径）：新建文档只有一个空白占位页（正文 `{}`，用户内容为空的
- * `page-1`）且没有文档页认领它时，把第一页写进该占位页（等价于旧行为「保存进 page-1」），
- * 避免每次新建文档都多出一个空孤儿页。占位页正文非空（有用户数据）则不复用。
+ * 为什么不再「把第一页塞进新建文档的空白占位页」：那会把正文写进 `page-1` 而内存页 id
+ * 仍是调用方的 id（如 `page-editor`），下一次保存/导出就会错位（重复建页或 404）。
+ * 身份一致优先——编辑器侧默认页 id 已对齐 `page-1`（引擎缺省），新建文档的首存自然命中
+ * 占位页；自定义页 id 的文档按自身 id 建页，`page-1` 只作为孤儿被报告。
  */
 export async function saveDesignDocument(
   client: DocumentsClient,
@@ -215,19 +216,7 @@ export async function saveDesignDocument(
   if (!detail.ok) return detail;
   const existingPageIds = detail.value.pages.map((page) => page.id);
   const plan = planPageSetSave(document, existingPageIds);
-  let orphanPageIds = plan.orphanPageIds;
-
-  if (plan.update.length === 0 && existingPageIds.length === 1 && plan.create.length > 0) {
-    const placeholderId = existingPageIds[0] as string;
-    const placeholder = await client.readPage(documentId, placeholderId);
-    if (placeholder.ok && isEmptyBody(placeholder.value)) {
-      const first = plan.create.shift();
-      if (first !== undefined) {
-        plan.update.push({ pageId: placeholderId, body: first.body, index: first.index });
-        orphanPageIds = orphanPageIds.filter((pageId) => pageId !== placeholderId);
-      }
-    }
-  }
+  const orphanPageIds = plan.orphanPageIds;
 
   const pageIds: string[] = new Array<string>(document.pages.length).fill('');
   for (const entry of plan.update) {

@@ -318,7 +318,30 @@ describe('页集有洞（arch-01 · 页 id 是身份不是位置）', () => {
     expect(daemon.requests.some((request) => request.startsWith('POST'))).toBe(false);
   });
 
-  it('新建文档的空白占位页（`{}`）被复用：不产生第二个空页/孤儿', async () => {
+  it('新建文档（页 id 已对齐 page-1）：原位更新空白占位页，不新建、无孤儿', async () => {
+    const daemon = stubDaemon();
+    const created = await daemon.client.createDocument('新文件');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    // 编辑器侧默认页 id 已与 daemon 的占位页对齐（page-1）
+    const local = createDocument({
+      id: 'doc_local',
+      name: '新文件',
+      pages: [createPage({ id: 'page-1' })],
+    });
+
+    const saved = await saveDesignDocument(daemon.client, created.value.id, local);
+    expect(saved.ok, saved.ok ? '' : saved.error).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.value.pageIds).toEqual(['page-1']);
+    expect(saved.value.orphanPageIds).toEqual([]);
+    expect([...daemon.pagesOf(created.value.id).keys()]).toEqual(['page-1']);
+    expect(
+      daemon.requests.some((request) => request.startsWith('POST') && request.endsWith('/pages')),
+    ).toBe(false);
+  });
+
+  it('新建文档 + 自定义页 id：按自身 id 建页（身份稳定）；占位页只报告为孤儿、不删除', async () => {
     const daemon = stubDaemon();
     const created = await daemon.client.createDocument('新文件');
     expect(created.ok).toBe(true);
@@ -332,9 +355,11 @@ describe('页集有洞（arch-01 · 页 id 是身份不是位置）', () => {
     const saved = await saveDesignDocument(daemon.client, created.value.id, local);
     expect(saved.ok, saved.ok ? '' : saved.error).toBe(true);
     if (!saved.ok) return;
-    expect(saved.value.pageIds).toEqual(['page-1']);
-    expect(saved.value.orphanPageIds).toEqual([]);
-    expect([...daemon.pagesOf(created.value.id).keys()]).toEqual(['page-1']);
+    expect(saved.value.pageIds).toEqual(['page-editor']);
+    // 占位页仍在磁盘上（只报告，不删）
+    expect(saved.value.orphanPageIds).toEqual(['page-1']);
+    expect([...daemon.pagesOf(created.value.id).keys()]).toEqual(['page-1', 'page-editor']);
+    expect(daemon.requests.some((request) => request.startsWith('DELETE'))).toBe(false);
   });
 
   it('空文档（`{}`）口径保持：一页空画布，id = page-1', async () => {

@@ -195,7 +195,7 @@ describe('载入（?documentId= → daemon 文档）', () => {
     const workspace = makeWorkspace(daemon);
 
     // 载入前：内存「未命名文件」（这正是缺陷现场用户看到的空画布）
-    expect(workspace.canvas.document().pages[0]?.id).toBe('page-editor');
+    expect(workspace.canvas.document().pages[0]?.id).toBe('page-1');
 
     const result = await workspace.documents.load('验收演示稿');
     expect(result.ok).toBe(true);
@@ -226,7 +226,7 @@ describe('载入（?documentId= → daemon 文档）', () => {
     expect(workspace.documents.store.getState().error).toContain('doc_not_found');
     // 文档真值保持原样（不能因为载入失败把用户当前内容清掉）
     expect(workspace.canvas.document().name).toBe('未命名文件');
-    expect(workspace.canvas.page().id).toBe('page-editor');
+    expect(workspace.canvas.page().id).toBe('page-1');
   });
 
   it('打开新建（daemon 尚无设计内容，正文为空对象）的文档：给空画布可编辑，不是错误态', async () => {
