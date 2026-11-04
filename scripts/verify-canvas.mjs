@@ -27,11 +27,14 @@
  * 证据字段按验收标准 §4：`diff{bbox,diffPixels,ratio}` 为顶层摘要（无比对时三项 null + note）。
  *
  * 用法（仓库根执行）：
- *   node scripts/verify-canvas.mjs                 # 自动起 daemon（临时目录）+ next dev
+ *   node scripts/verify-canvas.mjs                 # 自动起夹具 daemon（临时目录 + 4480 起空闲端口）+ next dev
  *   DF_WEB_URL=http://localhost:3000 node scripts/verify-canvas.mjs
- *   DF_DAEMON_URL=http://127.0.0.1:4318 node scripts/verify-canvas.mjs --verbose
+ *   DF_DAEMON_URL=http://127.0.0.1:5000 node scripts/verify-canvas.mjs --verbose
  *
  * 环境变量：DF_WEB_URL / DF_DAEMON_URL / DF_EVIDENCE_DIR / DF_REF_DIR / BENCH_CHROME_EXECUTABLE。
+ *
+ * daemon 来源（arch-05 口径）：显式 `DF_DAEMON_URL`（或 `--daemon-url`）→ 外部实例，不可达即
+ * exit 2；未设 → 自起夹具 daemon（临时数据根 + 4480 起空闲端口，**不碰 3000/4318 真实例端口窗**）。
  *
  * 为什么浏览器与 daemon 不同源也能跑：daemon（INF-01）当前**不发 CORS 头**，浏览器直连会被拦；
  * 本脚本用 Playwright 路由把页面里的 `/df-daemon/**` 同源请求转发给真实 daemon（Node 侧 fetch）——
@@ -382,7 +385,8 @@ async function ensureDaemon(webPort) {
   ].join(',');
   workspaceDir = await mkdtemp(join(tmpdir(), 'df-fe06-ws-'));
   const dataRoot = await mkdtemp(join(tmpdir(), 'df-fe06-data-'));
-  const port = await freePort(4318);
+  // 端口纪律（arch-05）：daemon 端口从 4480 起，远离站点 3000/3210 与开发机真实例 4318 端口窗。
+  const port = await freePort(4480);
   const started = startProcess(process.execPath, [join(REPO_ROOT, 'apps/daemon/src/main.ts')], {
     env: {
       DF_WORKSPACE_DIR: workspaceDir,
