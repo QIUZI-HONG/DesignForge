@@ -17,6 +17,7 @@ import {
   type SceneNode,
   type ScenePage,
   type Selection,
+  sameEffects,
   selectionNodes,
   type TextContent,
 } from '@dforge/engine';
@@ -127,23 +128,7 @@ export function readStrokeWidth(page: ScenePage, selection: Selection) {
   return readField<number>(page, selection, (node) => node.strokes[0]?.width);
 }
 
-/** 效果列表是否结构一致（逐字段比较——Effect 是纯数据，引用不等不代表值不等）。 */
-export function sameEffects(a: readonly Effect[], b: readonly Effect[]): boolean {
-  if (a.length !== b.length) return false;
-  return a.every((effect, index) => {
-    const other = b[index];
-    return (
-      other !== undefined &&
-      effect.type === other.type &&
-      effect.color === other.color &&
-      effect.offsetX === other.offsetX &&
-      effect.offsetY === other.offsetY &&
-      effect.blur === other.blur &&
-      effect.spread === other.spread &&
-      effect.visible === other.visible
-    );
-  });
-}
+/** 效果列表结构等值：由引擎 `EFFECT_FIELDS` 描述表派生（同一字段集单一真源）。 */
 
 /**
  * 读效果列表三态（RW-10 效果分区）。
