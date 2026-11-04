@@ -18,11 +18,10 @@
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
+import { isPageFileId } from '@dforge/contracts';
+
 /** 标识符长度上限（与 `DOCUMENT_NAME_MAX_LENGTH` 同口径：避免超长目录名）。 */
 export const ID_MAX_LENGTH = 64;
-
-/** 页 id 严格白名单（daemon 自生成 `page-N`——外部输入一律不放行）。 */
-const ASCII_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 /** 跨平台文件系统保留字符（路径分隔符与 Windows 保留字符一并拒绝）。 */
 const RESERVED_CHARS = /[\\/:*?"<>|]/;
@@ -37,14 +36,12 @@ function hasControlChar(value: string): boolean {
 }
 
 /**
- * 页 id 白名单：`[A-Za-z0-9._-]{1,64}`，且显式拒绝 `.` / `..`。
- * 页面 id 由 daemon 分配（`page-N`），不存在合法外部输入 → 一律从严。
+ * 页 id 白名单：委托 `@dforge/contracts` 的 `isPageFileId`（单一真源）。
+ * `[A-Za-z0-9._-]{1,64}`，且显式拒绝 `.` / `..`；缺省仍由 daemon 分配 `page-N`，
+ * 但「按目标 id 建页」允许调用方传入符合本白名单的 id（web 保存映射用）。
  */
 export function isValidPageId(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  if (value.length === 0 || value.length > ID_MAX_LENGTH) return false;
-  if (value === '.' || value === '..') return false;
-  return ASCII_ID_PATTERN.test(value);
+  return isPageFileId(value);
 }
 
 /**

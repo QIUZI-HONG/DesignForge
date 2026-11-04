@@ -18,6 +18,14 @@ function readStringField(body: unknown, field: string): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+/** 读可选字段的原始值（区分「未给」与「给了非字符串」——后者要按非法 id 拒绝）。 */
+function readOptionalStringField(body: unknown, field: string): string | undefined | null {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const value = (body as Record<string, unknown>)[field];
+  if (value === undefined) return undefined;
+  return typeof value === 'string' ? value : null;
+}
+
 /** 注册文档路由。 */
 export function registerDocumentsRoutes(app: FastifyInstance, context: DaemonContext): void {
   const store = context.documents;
@@ -94,7 +102,16 @@ export function registerDocumentsRoutes(app: FastifyInstance, context: DaemonCon
     if (name === null) {
       return sendFail(reply, 'doc_invalid_name', 'name 必须是非空字符串（≤64 字符）');
     }
-    const result = await store.createPage(documentId, name);
+    // 可选目标 id：未给 → daemon 跳号分配；给了非字符串 → 按非法页 id 拒绝（不静默忽略）
+    const pageId = readOptionalStringField(request.body, 'id');
+    if (pageId === null) {
+      return sendFail(reply, 'doc_invalid_id', 'id 必须是合法页 id 字符串（[A-Za-z0-9._-]{1,64}）');
+    }
+    const result = await store.createPage(
+      documentId,
+      name,
+      pageId === undefined ? undefined : { id: pageId },
+    );
     if (!result.ok) {
       return sendFail(reply, result.code, result.message, result.details);
     }
