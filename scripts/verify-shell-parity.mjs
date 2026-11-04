@@ -35,10 +35,12 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { resolveChromeExecutable } from './lib/browser-toolchain.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHELL_DIR = join(REPO_ROOT, 'apps', 'desktop');
@@ -508,28 +510,15 @@ async function runAlive() {
   return result;
 }
 
-/** 找 Chromium 可执行文件（FE-01 同口径：`BENCH_CHROME_EXECUTABLE` 优先，其次探测 playwright 缓存）。 */
-function resolveChromium() {
-  if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) {
-    return existsSync(process.env.BENCH_CHROME_EXECUTABLE)
-      ? process.env.BENCH_CHROME_EXECUTABLE
-      : undefined;
-  }
-  const cacheRoot = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(cacheRoot)) {
-    return undefined;
-  }
-  const candidates = readdirSync(cacheRoot)
-    .filter((name) => name.startsWith('chromium-'))
-    .sort()
-    .map((name) => join(cacheRoot, name, 'chrome-linux64', 'chrome'));
-  return candidates.find((file) => existsSync(file));
-}
+/**
+ * 找 Chromium 可执行文件：实现收口到 `lib/browser-toolchain.mjs`（arch-04，与 7 份
+ * figma 门禁同一处；`BENCH_CHROME_EXECUTABLE` 存在才采用，其次探测 playwright 缓存）。
+ */
 
 /** 浏览器侧采集（`--live-browser` 诊断模式；验收只认冻结参照）。 */
 async function captureBrowser(url, outPath) {
   const playwright = await import('playwright-core');
-  const executablePath = resolveChromium();
+  const executablePath = resolveChromeExecutable();
   // `DFORGE_PARITY_HEADED=1`：在真实显示上采集（与壳内同为「有显示」的 AA 口径）。
   // 默认无头（研究 #5 工具链口径）；两者差异是字形抗锯齿口径问题，属诊断信息，不作验收证据。
   const headed = process.env.DFORGE_PARITY_HEADED === '1';
@@ -617,7 +606,7 @@ async function runParity() {
   let partnerPng = refPng;
   if (!frozen && liveBrowser) {
     const url = process.env.DFORGE_PARITY_URL ?? 'http://127.0.0.1:3000/';
-    if (!resolveChromium()) {
+    if (!resolveChromeExecutable()) {
       result.notes.push(`${TOOLCHAIN_BLOCKED}（未找到 Chromium 可执行文件）`);
       return result;
     }

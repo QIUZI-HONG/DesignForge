@@ -27,7 +27,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import { resolveChromeExecutable } from './browser-toolchain.mjs';
 import { bboxOfDiff } from './pixels.mjs';
@@ -199,7 +199,7 @@ function safeName(id) {
 
 function createEvidence(spec, startedAt) {
   return {
-    ticket: spec.ticket,
+    ticket: spec.evidenceTicket ?? spec.ticket.toUpperCase(),
     gate: spec.gateName,
     page: spec.page,
     level: spec.level ?? DEFAULT_LEVEL,
@@ -344,8 +344,8 @@ function missingReference(ref, path) {
   };
 }
 
-function referencePathFor(spec, unit) {
-  if (typeof spec.referencePath === 'function') return spec.referencePath(unit);
+function referencePathFor(spec, unit, ctx) {
+  if (typeof spec.referencePath === 'function') return spec.referencePath(unit, ctx);
   if (unit.ref !== undefined) return { path: join(spec.referenceDir, unit.ref) };
   return { path: join(spec.referenceDir, `${safeName(unit.id)}.png`) };
 }
@@ -420,15 +420,17 @@ async function captureUnit(spec, unit, page, actualPath) {
   });
 }
 
-function block(ctx, { reason, message, stop = true, skipUnits = false }) {
+function block(ctx, { reason, message, stop = true, skipUnits = false, code = GATE_EXIT.BLOCKED }) {
   if (reason !== undefined && reason !== null) {
     ctx.blockedReasons.push(reason);
     ctx.evidence.blockedReason = reason;
   }
   if (skipUnits) ctx.skipUnits = true;
   const text = Array.isArray(message) ? message.join('\n') : message;
-  if (text) ctx.log(text);
-  if (stop) ctx.pendingFinish = { code: GATE_EXIT.BLOCKED, message: text };
+  // stop=true 的文案由 finish 统一打印（避免阻塞文案双写）；stop=false 的阶段性
+  // 阻塞（inspect 的功能段/参照集）立即打印，后续仍继续收集其余阻塞原因。
+  if (text && !stop) ctx.log(text);
+  if (stop) ctx.pendingFinish = { code, message: text };
 }
 
 function closeBrowser(ctx) {
@@ -484,6 +486,7 @@ async function runUnits(ctx) {
   ctx.units = units;
   ctx.targets = units;
   await spec.hooks?.afterUnitsResolved?.(ctx);
+  if (ctx.pendingFinish !== null) return;
 
   for (const unit of units) {
     const record = createRecord(style, unit);
@@ -498,7 +501,10 @@ async function runUnits(ctx) {
         unitContext = opened.context;
         page = opened.page;
       } else if (capture.perUnitGoto === true) {
-        const url = typeof spec.url === 'function' ? spec.url(ctx, unit) : spec.url;
+        const url =
+          typeof capture.unitUrl === 'function'
+            ? capture.unitUrl(unit, ctx)
+            : (unit.url ?? (typeof spec.url === 'function' ? spec.url(ctx, unit) : spec.url));
         await page.goto(url, { waitUntil: capture.waitUntil ?? 'networkidle' });
         if (capture.waitFor !== undefined) await page.waitForSelector(capture.waitFor);
         if (capture.fontsPerUnit === true) await page.evaluate(() => document.fonts.ready);
@@ -566,7 +572,7 @@ async function runUnits(ctx) {
         continue;
       }
 
-      const reference = referencePathFor(spec, unit);
+      const reference = referencePathFor(spec, unit, ctx);
       const refPath = reference.path ?? null;
       if (style === 'inspect' && refPath !== null && existsSync(refPath)) {
         record.artifacts.ref = fingerprint(refPath);
@@ -605,15 +611,20 @@ async function runUnits(ctx) {
         }
       } else if (outcome.status === 'fail') {
         ctx.failures += 1;
-        if (ctx.spec.verbose === true) {
+        if (ctx.spec.verbose === true || ctx.spec.logFailures === true) {
           ctx.log(
-            `  ✗ ${unit.id ?? unit.state}：差异率 ${((outcome.diff?.ratio ?? 0) * 100).toFixed(4)}%`,
+            `  ✗ ${unit.id ?? unit.state}：差异率 ${((outcome.diff?.ratio ?? 0) * 100).toFixed(4)}%${
+              ctx.spec.failLogSuffix ?? ''
+            }`,
           );
         }
       } else {
         ctx.failures += 1;
-        if (ctx.spec.verbose === true && outcome.status === 'missing-reference') {
-          const label = typeof outcome.reference === 'string' ? outcome.reference : '';
+        if (
+          (ctx.spec.verbose === true || ctx.spec.logMissingReference === true) &&
+          outcome.status === 'missing-reference'
+        ) {
+          const label = typeof outcome.reference === 'string' ? basename(outcome.reference) : '';
           ctx.log(`  ✗ ${unit.id ?? unit.state}：参照图缺失（${label}）`);
         }
       }
@@ -631,7 +642,8 @@ async function runUnits(ctx) {
         }
         continue;
       }
-      if (capture.unitError === 'pending') {
+      // 面板/评审面的 pending 口径只覆盖「取样阶段取不到」；比对阶段的异常仍按脚本层错误抛出。
+      if (capture.unitError === 'pending' && phase !== 'compare') {
         record.status = 'pending';
         record.reason = `状态在宿主页上取不到：${
           error instanceof Error ? error.message : String(error)
@@ -651,6 +663,7 @@ async function runUnits(ctx) {
     } finally {
       if (unitContext !== null) await unitContext.close();
     }
+    if (ctx.pendingFinish !== null) return;
   }
 }
 
@@ -713,6 +726,8 @@ export async function runFigmaGate(spec) {
     log: deps.log,
     deps,
   };
+  // 钩子把「阶段性阻塞 / 提前收尾」交回取证 module（文案与三态出口只此一处）。
+  ctx.block = (options) => block(ctx, options);
 
   const finishOptions = {
     evidenceDir,
@@ -721,7 +736,9 @@ export async function runFigmaGate(spec) {
     log: deps.log,
     exit: deps.exit,
   };
-  const finalize = (code, message) => {
+  const finalize = async (code, message) => {
+    // 资源回收（如 home 的夹具 daemon / 同源网关）在**每条出口**都跑一次，含早期阻塞路径。
+    await hooks.cleanup?.(ctx);
     if (spec.blockedReason === 'joined') {
       evidence.blockedReason = ctx.blockedReasons.length > 0 ? ctx.blockedReasons.join('；') : null;
     }
@@ -732,9 +749,16 @@ export async function runFigmaGate(spec) {
   const referenceConfig = spec.reference ?? {};
   const referenceEnabled = referenceConfig.when !== 'skip';
 
+  const stopIfPending = async () => {
+    if (ctx.pendingFinish === null) return false;
+    await closeBrowser(ctx);
+    return true;
+  };
+  const finishPending = () => finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
+
   try {
     await hooks.beforeReference?.(ctx);
-    if (ctx.pendingFinish !== null) await closeBrowser(ctx);
+    if (await stopIfPending()) return finishPending();
 
     if (referenceEnabled) {
       const reference = inspectReferenceDir(spec.referenceDir);
@@ -749,44 +773,33 @@ export async function runFigmaGate(spec) {
         });
       }
     }
-    if (ctx.pendingFinish !== null) {
-      await closeBrowser(ctx);
-      return finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
-    }
+    if (await stopIfPending()) return finishPending();
 
-    if (!ctx.skipUnits) {
+    if (!ctx.skipUnits && spec.probe !== undefined) {
       const probeConfig = spec.probe;
-      if (probeConfig !== undefined) {
-        const url = typeof probeConfig.url === 'function' ? probeConfig.url(ctx) : probeConfig.url;
-        const result = await deps.probe(url, { mode: probeConfig.mode ?? 'follow' });
-        if (!result.reachable) {
-          await probeConfig.onBlocked?.(ctx, result);
-          block(ctx, {
-            reason:
-              probeConfig.reason?.(ctx, result) ??
-              `站点不可达：${url}（HTTP ${String(result.status)}）`,
-            message: probeConfig.message?.(ctx, result) ?? [
-              '阻塞：站点不可达（本门禁需站点可访问）。',
-              '提示：先起站点（如 pnpm --filter @dforge/web build && pnpm --filter @dforge/web start），',
-              '或设置 DF_WEB_URL 指向已运行实例。',
-            ],
-            stop: probeConfig.stop !== false,
-            skipUnits: probeConfig.skipUnitsOnBlock === true,
-          });
-        }
+      const url = typeof probeConfig.url === 'function' ? probeConfig.url(ctx) : probeConfig.url;
+      const result = await deps.probe(url, { mode: probeConfig.mode ?? 'follow' });
+      if (!result.reachable) {
+        await probeConfig.onBlocked?.(ctx, result);
+        block(ctx, {
+          reason:
+            probeConfig.reason?.(ctx, result) ??
+            `站点不可达：${url}（HTTP ${String(result.status)}）`,
+          message: probeConfig.message?.(ctx, result) ?? [
+            '阻塞：站点不可达（本门禁需站点可访问）。',
+            '提示：先起站点（如 pnpm --filter @dforge/web build && pnpm --filter @dforge/web start），',
+            '或设置 DF_WEB_URL 指向已运行实例。',
+          ],
+          stop: probeConfig.stop !== false,
+          skipUnits: probeConfig.skipUnitsOnBlock === true,
+        });
       }
     }
-    if (ctx.pendingFinish !== null) {
-      await closeBrowser(ctx);
-      return finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
-    }
+    if (await stopIfPending()) return finishPending();
 
     if (!ctx.skipUnits) {
       await hooks.beforeBrowser?.(ctx);
-      if (ctx.pendingFinish !== null) {
-        await closeBrowser(ctx);
-        return finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
-      }
+      if (await stopIfPending()) return finishPending();
 
       if (spec.chrome !== undefined) {
         ctx.chrome = deps.resolveChrome();
@@ -800,79 +813,70 @@ export async function runFigmaGate(spec) {
           });
         }
       }
-      if (ctx.pendingFinish !== null) {
-        await closeBrowser(ctx);
-        return finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
-      }
-
-      ctx.url = typeof spec.url === 'function' ? spec.url(ctx) : spec.url;
-      await openBrowser(ctx);
-
-      if (spec.mount !== undefined) {
-        const selector = spec.mount.selector;
-        if (spec.mount.wait !== false) {
-          await ctx.page
-            .waitForSelector(selector, {
-              state: 'attached',
-              timeout: spec.mount.timeout ?? 3000,
-            })
-            .catch(() => null);
-        }
-        const count = await ctx.page.locator(selector).count();
-        if (count === 0) {
-          await spec.mount.onBlocked?.(ctx);
-          block(ctx, {
-            reason: spec.mount.reason?.(ctx) ?? `页面未挂载对照面（找不到 ${selector}）`,
-            message: spec.mount.message?.(ctx) ?? ['阻塞：宿主页未挂载对照面。'],
-            stop: spec.mount.stop !== false,
-            skipUnits: spec.mount.skipUnitsOnBlock === true,
-          });
-        }
-      }
-      if (ctx.pendingFinish !== null) {
-        await closeBrowser(ctx);
-        return finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
-      }
-
-      await hooks.afterMount?.(ctx);
-      if (ctx.pendingFinish !== null) {
-        await closeBrowser(ctx);
-        return finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
-      }
-
-      if (referenceEnabled && referenceConfig.when === 'late') {
-        const reference = ctx.reference ?? inspectReferenceDir(spec.referenceDir);
-        ctx.reference = reference;
-        if (!reference.ready) {
-          await referenceConfig.onBlocked?.(ctx, reference);
-          block(ctx, {
-            reason: referenceConfig.reason?.(ctx, reference) ?? reference.reason,
-            message:
-              referenceConfig.message?.(ctx, reference) ?? defaultReferenceMessage(reference),
-            stop: referenceConfig.stop !== false,
-            skipUnits: referenceConfig.skipUnitsOnBlock === true,
-          });
-        }
-      }
-      if (ctx.pendingFinish !== null) {
-        await closeBrowser(ctx);
-        return finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
-      }
+      if (await stopIfPending()) return finishPending();
 
       if (!ctx.skipUnits) {
-        await hooks.beforeUnits?.(ctx);
-        if (ctx.pendingFinish !== null) {
-          await closeBrowser(ctx);
-          return finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
+        ctx.url = typeof spec.url === 'function' ? spec.url(ctx) : spec.url;
+        await openBrowser(ctx);
+
+        if (spec.mount !== undefined) {
+          const selector = spec.mount.selector;
+          if (spec.mount.wait !== false) {
+            await ctx.page
+              .waitForSelector(selector, {
+                state: 'attached',
+                timeout: spec.mount.timeout ?? 3000,
+              })
+              .catch(() => null);
+          }
+          const count = await ctx.page.locator(selector).count();
+          if (count === 0) {
+            await spec.mount.onBlocked?.(ctx);
+            block(ctx, {
+              reason: spec.mount.reason?.(ctx) ?? `页面未挂载对照面（找不到 ${selector}）`,
+              message: spec.mount.message?.(ctx) ?? ['阻塞：宿主页未挂载对照面。'],
+              stop: spec.mount.stop !== false,
+              skipUnits: spec.mount.skipUnitsOnBlock === true,
+            });
+          }
         }
-        await runUnits(ctx);
+        if (await stopIfPending()) return finishPending();
+
+        if (!ctx.skipUnits) {
+          await hooks.afterMount?.(ctx);
+          if (await stopIfPending()) return finishPending();
+
+          if (referenceEnabled && referenceConfig.when === 'late') {
+            const reference = ctx.reference ?? inspectReferenceDir(spec.referenceDir);
+            ctx.reference = reference;
+            if (!reference.ready) {
+              await referenceConfig.onBlocked?.(ctx, reference);
+              block(ctx, {
+                reason: referenceConfig.reason?.(ctx, reference) ?? reference.reason,
+                message:
+                  referenceConfig.message?.(ctx, reference) ?? defaultReferenceMessage(reference),
+                stop: referenceConfig.stop !== false,
+                skipUnits: referenceConfig.skipUnitsOnBlock === true,
+              });
+            }
+          }
+          if (await stopIfPending()) return finishPending();
+
+          if (!ctx.skipUnits) {
+            await hooks.beforeUnits?.(ctx);
+            if (await stopIfPending()) return finishPending();
+            await runUnits(ctx);
+            // 需要页面仍打开的门禁后置断言（如 inspector 的提交时序探针）。
+            if (ctx.pendingFinish === null) await hooks.afterUnitsWithPage?.(ctx);
+            if (await stopIfPending()) return finishPending();
+          }
+        }
+        await closeBrowser(ctx);
       }
-      await closeBrowser(ctx);
     }
 
     await hooks.afterUnits?.(ctx);
-    if (ctx.pendingFinish !== null)
-      return finalize(ctx.pendingFinish.code, ctx.pendingFinish.message);
+    if (await stopIfPending()) return finishPending();
     await hooks.finalize?.(ctx);
   } catch (error) {
     await closeBrowser(ctx);

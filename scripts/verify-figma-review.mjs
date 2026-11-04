@@ -14,6 +14,13 @@
  *
  * 判定：pixelmatch 8.0.0（threshold 0.1）+ pngjs 逐单元比对，差异像素率 ≤ `--max-ratio` 通过。
  *
+ * 取证实现统一在 `scripts/lib/figma-evidence.mjs`（arch-04）：本脚本只声明**单元表 +
+ * prepare 剧本 + 交互断言清单**。参照集判定按本门禁口径**晚于交互断言**（先出真实信号）。
+ *
+ * **语义变化（arch-04 登记）**：Chromium 解析统一走 `lib/browser-toolchain.mjs` 的
+ * `resolveChromeExecutable()`，即 `BENCH_CHROME_EXECUTABLE` **存在才采用**。此前本门禁
+ * 对非法 env 会带病进入浏览器阶段（稍后崩），现在直接 exit 2 阻塞（与 lib 及 shell-parity 同口径）。
+ *
  * 退出码（三态，**禁止假绿**）：
  *   0 = 全部通过；
  *   1 = 交互断言失败 / 有单元超差或参照图缺失（参照集已冻结的前提下）；
@@ -30,12 +37,10 @@
  *           DF_EVIDENCE_DIR（证据根，默认 ~/df-evidence）、
  *           BENCH_CHROME_EXECUTABLE（Chromium 可执行文件；否则自动探测缓存）。
  */
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { bboxOfDiff } from './lib/pixels.mjs';
+import { runFigmaGate } from './lib/figma-evidence.mjs';
 
 const WEB_URL = process.env.DF_WEB_URL ?? 'http://127.0.0.1:3210';
 const REVIEW_URL = process.env.DF_REVIEW_URL ?? `${WEB_URL}/editor`;
@@ -57,11 +62,6 @@ const flagValue = (name) => {
 };
 const only = flagValue('--only');
 const maxRatio = Number(flagValue('--max-ratio') ?? '0.001');
-
-const startedAt = new Date();
-const stamp = startedAt.toISOString().replaceAll(':', '-').replace(/\..+$/, '');
-const evidenceDir = join(EVIDENCE_ROOT, TICKET);
-const evidencePath = join(evidenceDir, `verify-figma-review-${stamp}.json`);
 
 /**
  * 取样单元：`root` 取组件边界；`prepare` 把宿主页推进到该状态。
@@ -305,323 +305,128 @@ async function createComment(page, text) {
   await page.waitForSelector('[data-df-comment-pin]', { timeout: 3000 });
 }
 
-/** 证据骨架（字段按《前端验收标准 v1》§4；阻塞时也落盘，记录待办）。 */
-function baseEvidence() {
-  return {
-    ticket: 'FE-07',
-    gate: 'verify-figma-review',
-    page: REVIEW_URL,
-    level: 'A（布局/几何/颜色；字形与阴影按 B 级人工复核）',
-    params: {
-      threshold: THRESHOLD,
-      maxRatio,
-      engine: 'pixelmatch@8.0.0',
-      aaIgnore: true,
-      margin: MARGIN,
-      engineVersionNote: '升级比对库 = 重定基线（研究 #5 §3.4）',
-    },
-    viewport: { width: 1440, height: 900, dpr: 1.5 },
-    startedAt: startedAt.toISOString(),
-    webUrl: WEB_URL,
-    reviewUrl: REVIEW_URL,
-    referenceDir: REF_DIR,
-    samples: [],
-    interactions: [],
-    stateCoverage: STATES.map((state) => ({ state, samples: [], status: 'pending' })),
-    artifacts: {},
-    humanReview: {
-      verdict: 'pending',
-      reviewer: null,
-      reason: '自动判定只给 A 级结论；字形/阴影/动效终态（含恢复流程录屏）按 B 级需人工复核登记。',
-    },
-    exitCode: 2,
-  };
-}
-
-/** 落盘证据并结束进程。 */
-function finish(evidence, code, message) {
-  evidence.exitCode = code;
-  evidence.finishedAt = new Date().toISOString();
-  mkdirSync(evidenceDir, { recursive: true });
-  writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
-  if (message) console.error(message);
-  console.error(`证据：${evidencePath}`);
-  process.exit(code);
-}
-
-/** `{sha256, length}` 指纹。 */
-function fingerprint(filePath) {
-  const buffer = readFileSync(filePath);
-  return {
-    path: filePath,
-    sha256: createHash('sha256').update(buffer).digest('hex'),
-    length: buffer.length,
-  };
-}
-
-/** 参照集探测：目录存在且有 PNG 才算「已冻结」。 */
-function inspectReferenceDir() {
-  if (!existsSync(REF_DIR)) return { ready: false, reason: `参照集目录不存在：${REF_DIR}` };
-  const files = readdirSync(REF_DIR).filter((name) => name.endsWith('.png'));
-  if (files.length === 0) return { ready: false, reason: `参照集为空（无 PNG）：${REF_DIR}` };
-  return { ready: true, files };
-}
-
-/** 缓存的 Chromium 可执行文件（研究 #5：playwright-core 1.63 需显式 executablePath）。 */
-function resolveChrome() {
-  if (process.env.BENCH_CHROME_EXECUTABLE !== undefined) return process.env.BENCH_CHROME_EXECUTABLE;
-  const cacheRoot = join(homedir(), '.cache', 'ms-playwright');
-  if (!existsSync(cacheRoot)) return undefined;
-  const candidates = readdirSync(cacheRoot)
-    .filter((name) => name.startsWith('chromium-'))
-    .sort()
-    .map((name) => join(cacheRoot, name, 'chrome-linux64', 'chrome'));
-  return candidates.find((file) => existsSync(file));
-}
-
-/** 站点探测（不可达即阻塞，不猜）。 */
-async function probeSite(url) {
-  try {
-    const response = await fetch(url, { redirect: 'manual' });
-    return { reachable: response.status < 500, status: response.status };
-  } catch (error) {
-    return { reachable: false, status: 0, error: String(error) };
-  }
-}
-
-const evidence = baseEvidence();
-
-// —— 第一道：参照集探测（只探测不即退：交互断言与参照集无关，先跑出真实信号）。 ——
-const reference = inspectReferenceDir();
-
-// —— 第二道：评审面是否已挂载（FE-03 的编辑器路由接线）。 ——
-const site = await probeSite(REVIEW_URL);
-if (!site.reachable) {
-  evidence.blockedReason = `评审页不可达：${REVIEW_URL}（HTTP ${String(site.status)}）`;
-  finish(
-    evidence,
-    2,
-    [
-      '阻塞：评审页不可达（本门禁需评审面可访问）。',
-      '提示：先起站点（如 pnpm --filter @dforge/web build && pnpm --filter @dforge/web start），',
-      '或设置 DF_REVIEW_URL 指向已挂载评审面的页面。',
-    ].join('\n'),
-  );
-}
-
-const chrome = resolveChrome();
-if (chrome === undefined) {
-  evidence.blockedReason = '未找到 Chromium 可执行文件（BENCH_CHROME_EXECUTABLE 未设且缓存缺失）';
-  finish(
-    evidence,
-    2,
-    '阻塞：未找到 Chromium 可执行文件（研究 #5：playwright-core 需显式 executablePath）。',
-  );
-}
-
-const { chromium } = await import('playwright-core');
-const { PNG } = await import('pngjs');
-const pixelmatch = (await import('pixelmatch')).default;
-
-const actualDir = join(evidenceDir, 'actual');
-const diffDir = join(evidenceDir, 'diff');
-mkdirSync(actualDir, { recursive: true });
-mkdirSync(diffDir, { recursive: true });
-
-const browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox'] });
-const context = await browser.newContext({
-  viewport: { width: evidence.viewport.width, height: evidence.viewport.height },
-  deviceScaleFactor: evidence.viewport.dpr,
-});
-const page = await context.newPage();
-await page.goto(REVIEW_URL, { waitUntil: 'networkidle' });
-// 字体就绪后再取样（ADR-0003：禁止静默回退；字体未就绪的截图一律不可作判据）
-await page.evaluate(() => document.fonts.ready);
-
-// 等水合：插槽注册在客户端模块求值期发生，SSR 首屏还没有评审面
-await page
-  .waitForSelector('[data-df-comment-layer], [data-df-versions-root]', {
-    state: 'attached',
-    timeout: 8000,
-  })
-  .catch(() => null);
-const mounted = await page.locator('[data-df-comment-layer], [data-df-versions-root]').count();
-if (mounted === 0) {
-  await browser.close();
-  evidence.blockedReason = `页面未挂载评审面（找不到 [data-df-comment-layer]/[data-df-versions-root]）：${REVIEW_URL}`;
-  finish(
-    evidence,
-    2,
-    [
-      '阻塞：宿主页未挂载评论层 / 版本抽屉。',
-      '待办：FE-03 编辑器壳在编辑器路由挂载 `features/editor-review` 的组件',
-      '（CommentLayer 进画布区域；CommentsModeToggle / PresentButton / VersionsButton 进顶栏插槽；',
-      'VersionsDrawer 与 Presenter 挂布局外层）后重跑。',
-    ].join('\n'),
-  );
-}
-
-// —— 第三道：交互断言（与参照集无关，失败即逻辑缺陷 → exit 1；跳过 = 阻塞 → exit 2）。 ——
-let interactionFailures = 0;
-let interactionSkips = 0;
-for (const interaction of INTERACTIONS) {
-  const record = { id: interaction.id, note: interaction.note };
-  try {
-    const result = await interaction.run(page);
-    record.status = result.status;
-    if (result.note !== undefined) record.note = result.note;
-    if (result.reason !== undefined) record.reason = result.reason;
-    if (result.status === 'failed') interactionFailures += 1;
-    if (result.status === 'skipped') interactionSkips += 1;
-  } catch (error) {
-    record.status = 'failed';
-    record.reason = error instanceof Error ? error.message : String(error);
-    interactionFailures += 1;
-  }
-  evidence.interactions.push(record);
-  if (verbose)
-    console.error(`  交互 ${record.status === 'passed' ? '✓' : record.status} ${record.id}`);
-  await page.goto(REVIEW_URL, { waitUntil: 'networkidle' });
-}
-
-if (interactionFailures > 0) {
-  await browser.close();
-  finish(
-    evidence,
-    1,
-    `违规：${String(interactionFailures)} 条交互断言失败（逻辑缺陷，不等参照集）。明细见证据 JSON。`,
-  );
-}
-
-if (interactionSkips > 0) {
-  await browser.close();
-  evidence.blockedReason = `${String(interactionSkips)} 条交互断言前置不成立（跳过）；${reference.ready ? '' : `参照集：${reference.reason}`}`;
-  finish(
-    evidence,
-    2,
-    [
-      `阻塞：${String(interactionSkips)} 条交互断言前置不成立（如实记 skipped，不计通过）。`,
-      '常见前置：文档里没有画板（FE-06 画布/文档接入）、宿主未暴露缩放入口等——见证据 JSON 的 interactions.reason。',
-    ].join('\n'),
-  );
-}
-
-// —— 第三道：参照集（REF-01）。未冻结 = 阻塞，任何「通过」都是假绿。 ——
-if (!reference.ready) {
-  await browser.close();
-  evidence.blockedReason = reference.reason;
-  finish(
-    evidence,
-    2,
-    [
+await runFigmaGate({
+  gateName: 'verify-figma-review',
+  ticket: TICKET,
+  page: REVIEW_URL,
+  level: 'A（布局/几何/颜色；字形与阴影按 B 级人工复核）',
+  params: {
+    threshold: THRESHOLD,
+    maxRatio,
+    engine: 'pixelmatch@8.0.0',
+    aaIgnore: true,
+    margin: MARGIN,
+    engineVersionNote: '升级比对库 = 重定基线（研究 #5 §3.4）',
+  },
+  viewport: { width: 1440, height: 900, dpr: 1.5 },
+  extras: { webUrl: WEB_URL, reviewUrl: REVIEW_URL },
+  stateCoverage: STATES.map((state) => ({ state, samples: [], status: 'pending' })),
+  recordKey: 'samples',
+  recordExtras: { interactions: [] },
+  evidenceShape: 'sample',
+  humanReview: {
+    verdict: 'pending',
+    reviewer: null,
+    reason: '自动判定只给 A 级结论；字形/阴影/动效终态（含恢复流程录屏）按 B 级需人工复核登记。',
+  },
+  referenceDir: REF_DIR,
+  evidenceRoot: EVIDENCE_ROOT,
+  url: REVIEW_URL,
+  only,
+  units: SAMPLES,
+  capture: {
+    kind: 'clip',
+    margin: MARGIN,
+    perUnitGoto: true,
+    waitTimeout: 3000,
+    unitError: 'pending',
+  },
+  thresholds: { threshold: THRESHOLD, maxRatio },
+  reference: {
+    // 交互断言与参照集无关：参照集判定推迟到交互断言之后（先跑出真实信号）。
+    when: 'late',
+    message: (_ctx, reference) => [
       '阻塞：参照集未冻结（REF-01 未完成）。',
       `原因：${reference.reason}`,
       `评审参照集路径：${REF_DIR}（文件名 = 取样名把 / 换成 _，如 comments_pins.png）`,
       '交互断言已跑完（见证据 JSON 的 interactions；全绿也不代表通过——像素判定缺参照集）。',
       '待办：冻结参照集后运行本门禁逐单元取证；在此之前不得以自截图/近似图假绿。',
-    ].join('\n'),
-  );
-}
+    ],
+  },
+  probe: {
+    url: REVIEW_URL,
+    mode: 'manual',
+    reason: (_ctx, result) => `评审页不可达：${REVIEW_URL}（HTTP ${String(result.status)}）`,
+    message: () => [
+      '阻塞：评审页不可达（本门禁需评审面可访问）。',
+      '提示：先起站点（如 pnpm --filter @dforge/web build && pnpm --filter @dforge/web start），',
+      '或设置 DF_REVIEW_URL 指向已挂载评审面的页面。',
+    ],
+  },
+  chrome: {},
+  mount: {
+    selector: '[data-df-comment-layer], [data-df-versions-root]',
+    wait: true,
+    timeout: 8000,
+    reason: `页面未挂载评审面（找不到 [data-df-comment-layer]/[data-df-versions-root]）：${REVIEW_URL}`,
+    message: () => [
+      '阻塞：宿主页未挂载评论层 / 版本抽屉。',
+      '待办：FE-03 编辑器壳在编辑器路由挂载 `features/editor-review` 的组件',
+      '（CommentLayer 进画布区域；CommentsModeToggle / PresentButton / VersionsButton 进顶栏插槽；',
+      'VersionsDrawer 与 Presenter 挂布局外层）后重跑。',
+    ],
+  },
+  hooks: {
+    // 交互断言（与参照集无关，失败即逻辑缺陷 → exit 1；跳过 = 阻塞 → exit 2）。
+    afterMount: async (ctx) => {
+      const evidence = ctx.evidence;
+      let interactionFailures = 0;
+      let interactionSkips = 0;
+      for (const interaction of INTERACTIONS) {
+        const record = { id: interaction.id, note: interaction.note };
+        try {
+          const result = await interaction.run(ctx.page);
+          record.status = result.status;
+          if (result.note !== undefined) record.note = result.note;
+          if (result.reason !== undefined) record.reason = result.reason;
+          if (result.status === 'failed') interactionFailures += 1;
+          if (result.status === 'skipped') interactionSkips += 1;
+        } catch (error) {
+          record.status = 'failed';
+          record.reason = error instanceof Error ? error.message : String(error);
+          interactionFailures += 1;
+        }
+        evidence.interactions.push(record);
+        if (verbose) {
+          ctx.log(`  交互 ${record.status === 'passed' ? '✓' : record.status} ${record.id}`);
+        }
+        await ctx.page.goto(REVIEW_URL, { waitUntil: 'networkidle' });
+      }
 
-const targets = only === undefined ? SAMPLES : SAMPLES.filter((sample) => sample.id === only);
-let failures = 0;
-let pending = 0;
+      if (interactionFailures > 0) {
+        ctx.block({
+          code: 1,
+          message: `违规：${String(interactionFailures)} 条交互断言失败（逻辑缺陷，不等参照集）。明细见证据 JSON。`,
+        });
+        return;
+      }
 
-for (const sample of targets) {
-  const safeName = sample.id.replaceAll('/', '_');
-  const refPath = join(REF_DIR, `${safeName}.png`);
-  const actualPath = join(actualDir, `${safeName}.png`);
-  const record = { id: sample.id, note: sample.note, root: sample.root };
-
-  try {
-    // 每个单元从头开始：回评审页再进状态（避免上一个单元的残留状态污染）
-    await page.goto(REVIEW_URL, { waitUntil: 'networkidle' });
-    if (sample.prepare !== undefined) await sample.prepare(page);
-    const target = page.locator(sample.root);
-    await target.first().waitFor({ state: 'visible', timeout: 3000 });
-    const box = await target.first().boundingBox();
-    if (box === null) throw new Error('元素没有包围盒');
-    // 组件完整边界 + 8px 留白（几何计算；留白是 spec 固定值）
-    const clip = {
-      x: Math.max(0, box.x - MARGIN),
-      y: Math.max(0, box.y - MARGIN),
-      width: box.width + MARGIN * 2,
-      height: box.height + MARGIN * 2,
-    };
-    await page.screenshot({ path: actualPath, clip, animations: 'disabled' });
-  } catch (error) {
-    pending += 1;
-    record.status = 'pending';
-    record.reason = `状态在宿主页上取不到：${error instanceof Error ? error.message : String(error)}`;
-    evidence.samples.push(record);
-    if (verbose) console.error(`  … ${sample.id}：${record.reason}`);
-    continue;
-  }
-
-  if (!existsSync(refPath)) {
-    failures += 1;
-    record.status = 'missing-reference';
-    record.reference = refPath;
-    evidence.samples.push(record);
-    if (verbose) console.error(`  ✗ ${sample.id}：参照图缺失（${safeName}.png）`);
-    continue;
-  }
-
-  const refPng = PNG.sync.read(readFileSync(refPath));
-  const actualPng = PNG.sync.read(readFileSync(actualPath));
-  if (refPng.width !== actualPng.width || refPng.height !== actualPng.height) {
-    failures += 1;
-    record.status = 'size-mismatch';
-    record.reference = { width: refPng.width, height: refPng.height };
-    record.actual = { width: actualPng.width, height: actualPng.height };
-    evidence.samples.push(record);
-    continue;
-  }
-
-  const diffPng = new PNG({ width: refPng.width, height: refPng.height });
-  const diffPixels = pixelmatch(
-    refPng.data,
-    actualPng.data,
-    diffPng.data,
-    refPng.width,
-    refPng.height,
-    {
-      threshold: THRESHOLD,
-      includeAA: false,
+      if (interactionSkips > 0) {
+        evidence.blockedReason = `${String(interactionSkips)} 条交互断言前置不成立（跳过）；${
+          ctx.reference?.ready === true ? '' : `参照集：${ctx.reference?.reason ?? ''}`
+        }`;
+        ctx.block({
+          message: [
+            `阻塞：${String(interactionSkips)} 条交互断言前置不成立（如实记 skipped，不计通过）。`,
+            '常见前置：文档里没有画板（FE-06 画布/文档接入）、宿主未暴露缩放入口等——见证据 JSON 的 interactions.reason。',
+          ],
+        });
+      }
     },
-  );
-  const total = refPng.width * refPng.height;
-  const ratio = total === 0 ? 0 : diffPixels / total;
-  const diffPath = join(diffDir, `${safeName}.png`);
-  writeFileSync(diffPath, PNG.sync.write(diffPng));
-
-  const status = ratio <= maxRatio ? 'pass' : 'fail';
-  if (status === 'fail') failures += 1;
-  record.status = status;
-  record.diff = {
-    diffPixels,
-    totalPixels: total,
-    ratio: Number(ratio.toFixed(6)),
-    bbox: bboxOfDiff(diffPng),
-  };
-  record.artifacts = {
-    ref: fingerprint(refPath),
-    actual: fingerprint(actualPath),
-    diff: fingerprint(diffPath),
-  };
-  evidence.samples.push(record);
-  if (verbose) {
-    console.error(
-      `  ${status === 'pass' ? '✓' : '✗'} ${sample.id}：差异率 ${(ratio * 100).toFixed(4)}%`,
-    );
-  }
-}
-
-for (const state of STATES) {
-  const hits = targets.filter((sample) => sample.id.endsWith(`/${state}`));
-  evidence.stateCoverage = evidence.stateCoverage.map((item) =>
-    item.state === state
-      ? {
+    afterUnits: (ctx) => {
+      ctx.evidence.stateCoverage = ctx.evidence.stateCoverage.map((item) => {
+        const hits = ctx.targets.filter((sample) => sample.id.endsWith(`/${item.state}`));
+        return {
           ...item,
           samples: hits.map((sample) => sample.id),
           status: hits.length === 0 ? 'missing' : 'covered',
@@ -629,32 +434,19 @@ for (const state of STATES) {
             hits.length === 0
               ? '本票未列出该态的独立取样单元（按需补挂点）。'
               : '有取样单元；待参照集冻结后逐单元出 A 级结论（缺项即缺陷）。',
-        }
-      : item,
-  );
-}
-
-await browser.close();
-
-// 判定：拦截到的（pending 取样单元）= 阻塞；超差/缺参照 = 违规；否则通过。
-
-// 判定：pending（状态取不到）= 阻塞；超差/缺参照 = 违规；否则通过。
-if (pending > 0) {
-  finish(
-    evidence,
-    2,
-    [
-      `阻塞：${String(pending)} 个取样单元的状态在宿主页上取不到（记录为 pending，不计通过）。`,
+        };
+      });
+    },
+  },
+  verbose,
+  messages: {
+    pass: (ctx) =>
+      `通过：${String(ctx.targets.length)} 个取样单元全部在容差内（≤ ${(maxRatio * 100).toFixed(2)}%）。`,
+    fail: (ctx) =>
+      `违规：${String(ctx.failures)} 个单元超差或参照图缺失（逐单元明细见证据 JSON）。`,
+    pending: (ctx) => [
+      `阻塞：${String(ctx.pending)} 个取样单元的状态在宿主页上取不到（记录为 pending，不计通过）。`,
       '提示：宿主页需要提供对应状态（评论钉点与解决段 / Present 空态 / 版本空态等），见各单元 note。',
-    ].join('\n'),
-  );
-}
-
-const code = failures === 0 ? 0 : 1;
-finish(
-  evidence,
-  code,
-  failures === 0
-    ? `通过：${String(targets.length)} 个取样单元全部在容差内（≤ ${(maxRatio * 100).toFixed(2)}%）。`
-    : `违规：${String(failures)} 个单元超差或参照图缺失（逐单元明细见证据 JSON）。`,
-);
+    ],
+  },
+});
