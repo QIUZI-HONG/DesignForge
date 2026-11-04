@@ -36,6 +36,8 @@ afterEach(() => {
   cleanup();
   resetEditorSlots();
   vi.unstubAllGlobals();
+  // tp2-05 · F-3 ②：主题（data-theme）还原、FEEDBACK_KEY 等 localStorage 清空、
+  // 命令注册表复位由 `test-setup.ts` 全局兜底统一落账（结构修，逐文件不重复实现）。
 });
 
 /** 让假 fetch 返回一个成功信封。 */

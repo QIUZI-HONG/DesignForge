@@ -23,7 +23,7 @@ import { ToastProvider } from '@dforge/ui';
 import { act, render } from '@testing-library/react';
 import { hydrateRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { resetWorkspace } from '@/features/canvas';
 import { resetReviewSessionForTest } from '@/features/editor-review/register';
@@ -48,7 +48,45 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+const fetchMock = vi.fn();
+
 beforeEach(() => {
+  // tp2-05 · F-3 ①：AiDrawerSlot 挂载即经 useAiRun 探活 `GET /ai/status`（真发到缺省
+  // 端口窗），与其他文件同口径 stub fetch——「未配置」信封让抽屉落降级提示，不发真请求。
+  fetchMock.mockReset();
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        ok: true,
+        result: {
+          provider: 'deepseek',
+          model: '',
+          baseUrl: '',
+          configured: false,
+          credential: {
+            provider: 'deepseek',
+            hasKey: false,
+            maskedKey: null,
+            source: null,
+            updatedAt: null,
+          },
+          degradedHint: '未配置',
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  resetCommandRegistry();
+  resetEditorSlots();
+  resetWorkspace();
+  resetReviewSessionForTest();
+});
+
+afterEach(() => {
+  // tp2-05 · F-3 ①：本文件此前只有 beforeEach 复位，最后一个用例的注册产物
+  // （命令/插槽/工作区/评审会话四类模块单例）会跨文件残留（isolate:false 翻车现场）。
+  vi.unstubAllGlobals();
   resetCommandRegistry();
   resetEditorSlots();
   resetWorkspace();
