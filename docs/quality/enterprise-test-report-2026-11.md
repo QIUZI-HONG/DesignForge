@@ -194,3 +194,29 @@ v1.1 登记的 **F-3（测试卫生泄漏五点）关闭**；`isolate=false` 从
 ### 仍 blocked-on-user（不变）
 
 Chromium 系统库（用户已确认亲跑 sudo）· REF-01 素材（用户裁定跳过，维持登记）· push + 人审（架构批为 Medium，daemon 新 API 面需 1 人审）· 战役 B 处置。
+
+---
+
+## v1.4 附记（2026-11-04 · 合并 main + CI 绿 + 战役 B 处置）
+
+### ① 合并 main 与 CI 验证（自动完成）
+
+- 集成分支 `integration/test-execution-phase1`（952411f）推送 origin 成功 → `--no-ff` 合入 main（**0309a18**，298 files +20957/−4825）→ push main 触发 CI。
+- **CI 结果（GitHub Actions run 41857730142）：`verify` job conclusion = success**。独立 runner 环境（ubuntu、无 Chromium、无 gh 凭据）对本地 3372 例全绿的完整背书；仓库纪律「推送后读 CI 须 success」已满足。
+- 合并时 21 个未跟踪文件碰撞（`.scratch/ux-audit-remediation/*` 与 3 份报告）已核实分支内为完成态、本地旧稿备份于 `/home/QIU/df-merge-backup-20261104/` 后清理，零数据损失。
+
+### ② 战役 B（`integration/test-remediation-v2`，140 提交）处置决策（已定，分析底稿 `~/df-evidence/campaign-b/disposition.md`）
+
+- **决策：不整支合并。** merge-tree 实测 14 文件内容冲突、5 处语义级双实现（Host 双钩子 / store.ts / documents-client / 焦点守卫 / 两态证据契约）；整支合并 ≈3–5 人日且需重写本批已落地的两档 store 守护。
+- **改为摘樱桃路线**（约 2–3 人日，按价值排序）：**票 18** 导出诚实化（tip 的 `scene.ts` 仍静默截断——本报告 TC-EXP-06 是路径安全，不覆盖此项）→ **票 19** 提交原子性（manifest 字节 CAS / SE-5 竞态；与 arch 守护语义相抵需重写守护）→ **票 17** 粘贴悬空引用（tip 完全未修，数据丢失类）→ **票 25** UI 焦点；02/03/22 留痕不摘（已超越或断言互斥）；B 独有的 access-control baseUrl 收敛面单独立票。
+- 战役 B 分支原样保留存档。
+
+### ③ REF-01（用户裁定跳过）与 Chromium（唯一物理阻塞）
+
+- REF-01：维持登记（视觉对照门禁继续 exit 2；**冻结前须先修 R-12**：截图门禁浏览器侧未显式传 `?daemon=`）。
+- Chromium 系统库：`sudo apt-get install -y libnspr4 libnss3 libasound2 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libgbm1`——**本会话唯一无法代办的项**（需用户密码）；装完即补跑 e2e:smoke / verify:canvas / 两态 UI 段 / TC-AI-03④⑤ 浏览器复核。
+
+### ④ 终态
+
+- **main = 0309a18（CI 绿）**；本仓自会话起新增：守护回归 24 例 + 4 个 deep module + 门禁收口 −1173 行 + 测试卫生根治 + isolate 落地（web 12.8s→6.4s）。
+- 全部工作树已清（除前序战役遗留）；文档四件齐：测试设计 / spec / 企业报告（v1→v1.4）/ 架构评审报告。
