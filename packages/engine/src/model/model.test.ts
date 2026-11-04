@@ -84,6 +84,17 @@ describe('model · 文档构造', () => {
     expect(doc.pages[0]?.rootIds).toEqual([]);
     expect(() => createDocument({ id: 'doc2', pages: [] })).toThrow('至少需要一个页面');
   });
+
+  it('默认页身份与 @dforge/contracts 的 pageFileId(0) 同值（page-1，不再是 page_1）', () => {
+    const doc = createDocument({ id: 'doc1' });
+    // 引擎零运行时依赖、不引 contracts：常量注释声明「与 contracts 同值，变更须同步」
+    expect(doc.pages[0]?.id).toBe('page-1');
+    expect(doc.pages[0]?.name).toBe('页面 1');
+    // 注入能力保留：确定性测试可指定默认页 id
+    expect(createDocument({ id: 'doc2', defaultPageId: 'page_injected' }).pages[0]?.id).toBe(
+      'page_injected',
+    );
+  });
 });
 
 describe('model · 文本编辑操作', () => {

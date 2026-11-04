@@ -17,7 +17,7 @@
  */
 
 import type { DesignDocument, PageId, Selection } from '@dforge/engine';
-import { createDocument, createPage, createSelection, IDLE } from '@dforge/engine';
+import { createDocument, createSelection, IDLE } from '@dforge/engine';
 import {
   type ComponentPreviewState,
   createComponentsPreviewDocument,
@@ -87,12 +87,9 @@ export function documentForPreset(preset: WorkspacePreset): DesignDocument {
   if (preset.inspector !== null) return createPreviewDocument();
   if (preset.inspect !== null) return createInspectPreviewDocument();
   if (preset.components !== null) return createComponentsPreviewDocument(preset.components);
-  // 页面名走引擎缺省（`createPage` 的 `'页面 1'`）：默认名单一真源，装配层不另抄一份（复核 J5）
-  return createDocument({
-    id: 'doc-editor',
-    name: '未命名文件',
-    pages: [createPage({ id: 'page-editor' })],
-  });
+  // 页 id/页名走引擎缺省（`page-1` / `'页面 1'`）：默认值单一真源，装配层不另抄一份
+  // （复核 J5；arch-01 起缺省页 id 与 daemon 页文件 id 对齐，新建文档首存不再多出一页）
+  return createDocument({ id: 'doc-editor', name: '未命名文件' });
 }
 
 /** 预设 → 初始选择集。 */

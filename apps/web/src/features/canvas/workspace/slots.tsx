@@ -15,6 +15,7 @@
  * - `overlays`   → FE-10 `AiDrawer`（AI 助手）+ MCP 确认条容器（常驻，不随面板开合）。
  */
 
+import { DEFAULT_PAGE_ID } from '@dforge/contracts';
 import type { DesignDocument } from '@dforge/engine';
 import { SegmentedControl, Tooltip } from '@dforge/ui';
 import { useRouter } from 'next/navigation';
@@ -31,7 +32,6 @@ import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 import { installCanvasDebugHandle, sessionDebugHandle } from '../debug/canvas-debug';
-import { daemonPageId } from '../persistence/documents-client';
 import { createFramePerfRecorder, type FramePerfRecorder } from '../render/frame-perf';
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
@@ -154,9 +154,9 @@ export function RightPanelSlot() {
   );
   const page = document.pages.find((candidate) => candidate.id === workspace.pageId);
   const activeNodeId = selection.activeId ?? selection.ids[0] ?? null;
-  // daemon 侧页面 id：按 daemon 的分配规则（页面序号 → page-{N}）派生
-  const index = document.pages.findIndex((candidate) => candidate.id === workspace.pageId);
-  const daemonPage = daemonPageId(index < 0 ? 0 : index);
+  // daemon 侧页面 id 直接用页身份（load 后 page.id = daemon 页 id，save 按 id 定位）——
+  // 页集有洞时「位置 = 身份」的旧派生会把第二页错指到 page-2
+  const daemonPage = page?.id ?? document.pages[0]?.id ?? DEFAULT_PAGE_ID;
   if (!mounted) return null;
 
   return (
@@ -227,8 +227,9 @@ function ImageTab() {
  *
  * 编辑器侧的文档 id 是引擎文档 id（内存文档为 `doc-editor`），**不能**直接当 daemon id 用
  * ——缺陷现场「导出报 doc_not_found」正是这个错位：未落盘的文档在 daemon 里根本不存在。
- * 因此这里取文档桥的 `documentId`（落盘后 = daemon 侧真 id），页面 id 按 daemon 的
- * `page-{N}` 分配规则由页面序号派生；未落盘时明确提示「先保存」，不给会失败的按钮。
+ * 因此这里取文档桥的 `documentId`（落盘后 = daemon 侧真 id）；页面 id 直接用页身份
+ * （load 后 `page.id` = daemon 页 id，save 按 id 定位，页集有洞时不再按序号猜 id）；
+ * 未落盘时明确提示「先保存」，不给会失败的按钮。
  */
 function ExportTab({ document }: { document: DesignDocument }) {
   const workspace = getWorkspace();
@@ -240,8 +241,13 @@ function ExportTab({ document }: { document: DesignDocument }) {
       </p>
     );
   }
-  const index = document.pages.findIndex((candidate) => candidate.id === workspace.pageId);
-  return <ExportPanel documentId={documentId} pageId={daemonPageId(index < 0 ? 0 : index)} />;
+  const page = document.pages.find((candidate) => candidate.id === workspace.pageId);
+  return (
+    <ExportPanel
+      documentId={documentId}
+      pageId={page?.id ?? document.pages[0]?.id ?? DEFAULT_PAGE_ID}
+    />
+  );
 }
 
 /**

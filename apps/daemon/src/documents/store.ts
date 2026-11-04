@@ -21,16 +21,20 @@ import { lstat, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import type {
   DfgManifest,
   DfgPageMeta,
+  DocumentDetail,
   DocumentListResponse,
   DocumentListWarning,
   DocumentSummary,
 } from '@dforge/contracts';
 import {
+  DEFAULT_PAGE_ID,
+  DEFAULT_PAGE_NAME,
   DFG_DOCUMENT_SUFFIX,
   DFG_MANIFEST_SCHEMA,
   documentIdFromName,
   isDfgManifest,
   isValidDocumentName,
+  pageFileId,
 } from '@dforge/contracts';
 
 import type { ConfigStore } from '../config/store.ts';
@@ -84,12 +88,20 @@ interface DocPaths {
 export interface DocumentStore {
   list(): Promise<DocumentListResponse>;
   create(name: string): Promise<StoreResult<DocumentSummary>>;
-  get(documentId: string): Promise<StoreResult<DocumentSummary>>;
+  /** 文档详情（摘要 + manifest 页清单——页集有洞时按 id 原样给出，不靠下标补位）。 */
+  get(documentId: string): Promise<StoreResult<DocumentDetail>>;
   rename(documentId: string, name: string): Promise<StoreResult<DocumentSummary>>;
   remove(documentId: string): Promise<StoreResult<{ id: string }>>;
   readPage(documentId: string, pageId: string): Promise<StoreResult<PageReadResult>>;
   savePage(documentId: string, pageId: string, body: unknown): Promise<StoreResult<DfgPageMeta>>;
-  createPage(documentId: string, name: string): Promise<StoreResult<DfgPageMeta>>;
+  /**
+   * 建页：缺省跳号分配（`page-N`）；`options.id` 给定时按该 id 建页（已存在 → `doc_exists`）。
+   */
+  createPage(
+    documentId: string,
+    name: string,
+    options?: { id?: string },
+  ): Promise<StoreResult<DfgPageMeta>>;
   deletePage(
     documentId: string,
     pageId: string,
@@ -239,6 +251,16 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
     };
   };
 
+  /** 详情 = 摘要 + manifest 页清单（页面元数据按 manifest 顺序；不读正文）。 */
+  const detailOf = async (
+    documentId: string,
+    paths: DocPaths,
+    manifest: DfgManifest,
+  ): Promise<DocumentDetail> => ({
+    ...(await summaryOf(documentId, paths, manifest)),
+    pages: manifest.pages.map((page) => ({ ...page })),
+  });
+
   /**
    * manifest 读改写提交（**必须在 `lock.run(documentId)` 内调用**）：
    * 1. 读当前 manifest → 交给 `plan` 计算下一版（plan 内先落正文，manifest 是提交点）；
@@ -336,9 +358,9 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           version: 1,
           createdAt: now,
           updatedAt: now,
-          pages: [{ id: 'page-1', name: '页面 1', updatedAt: now }],
+          pages: [{ id: DEFAULT_PAGE_ID, name: DEFAULT_PAGE_NAME, updatedAt: now }],
         };
-        const pagePath = await resolvePagePath(paths.value, id, 'page-1');
+        const pagePath = await resolvePagePath(paths.value, id, DEFAULT_PAGE_ID);
         if (pagePath === null) return invalidPageId();
         await writeFileAtomic(pagePath, '{}\n', DOC_FILE_MODE);
         await writeFileAtomic(
@@ -350,12 +372,12 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       });
     },
 
-    async get(documentId: string): Promise<StoreResult<DocumentSummary>> {
+    async get(documentId: string): Promise<StoreResult<DocumentDetail>> {
       const paths = await resolveDocPaths(documentId);
       if (!paths.ok) return paths;
       const manifest = await readManifestAt(paths.value, documentId);
       if (!manifest.ok) return manifest;
-      return { ok: true, value: await summaryOf(documentId, paths.value, manifest.value) };
+      return { ok: true, value: await detailOf(documentId, paths.value, manifest.value) };
     },
 
     async rename(documentId: string, name: string): Promise<StoreResult<DocumentSummary>> {
@@ -499,7 +521,11 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       });
     },
 
-    async createPage(documentId: string, name: string): Promise<StoreResult<DfgPageMeta>> {
+    async createPage(
+      documentId: string,
+      name: string,
+      options?: { id?: string },
+    ): Promise<StoreResult<DfgPageMeta>> {
       if (!isValidDocumentName(name)) {
         return {
           ok: false,
@@ -508,15 +534,28 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           details: { name },
         };
       }
+      const requestedId = options?.id;
+      if (requestedId !== undefined && !isValidPageId(requestedId)) return invalidPageId();
       const paths = await resolveDocPaths(documentId);
       if (!paths.ok) return paths;
       return lock.run(documentId, async () => {
         return commitManifest(documentId, paths.value, async (current) => {
-          // 页面 id 递增分配（page-N），跳过已占用的编号；重试路径上按最新状态重算
+          if (requestedId !== undefined && current.pages.some((page) => page.id === requestedId)) {
+            return {
+              ok: false,
+              result: {
+                ok: false,
+                code: 'doc_exists',
+                message: '页面 id 已被本文档占用',
+                details: { documentId, pageId: requestedId },
+              },
+            };
+          }
+          // 缺省：页面 id 递增分配（page-N），跳过已占用的编号；重试路径上按最新状态重算
           const taken = new Set(current.pages.map((page) => page.id));
           let counter = current.pages.length + 1;
-          while (taken.has(`page-${counter}`)) counter += 1;
-          const pageId = `page-${counter}`;
+          while (taken.has(pageFileId(counter - 1))) counter += 1;
+          const pageId = requestedId ?? pageFileId(counter - 1);
           const pagePath = await resolvePagePath(paths.value, documentId, pageId);
           if (pagePath === null) return { ok: false, result: invalidPageId() };
           const now = new Date().toISOString();

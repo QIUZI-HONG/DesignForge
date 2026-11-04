@@ -2,27 +2,28 @@
  * 文档持久化客户端（走 daemon 的 `.dfg` 目录态 API）。
  *
  * 映射口径（与 daemon 的 manifest 约定一致）：
- * - 一个 daemon 文档 ↔ 一个设界文档（Design IR）；设计页 N ↔ `page-{N}`（daemon 的分配规则）；
+ * - 一个 daemon 文档 ↔ 一个设界文档（Design IR）；**页 id 是身份**——load 按 manifest 的
+ *   `pages[]` 读、`page.id` 即 daemon 页 id，save 按 `page.id` 定位（mapping 归 `./page-set`）；
  * - 页面正文是 **opaque JSON**：本客户端在其中放 `{ $format, $version, page, tokens }`
  *   （daemon 只校验 JSON 可解析，不解析节点语义——归属裁决见 `_shared.md` §2）；
  * - 读回时用引擎的 `parseDocument` 做**结构校验**（悬空引用/多父/环都会在此被打回）。
  */
 
+import type { DocumentDetail } from '@dforge/contracts';
 import { DAEMON_ROUTES } from '@dforge/contracts';
-import type { DesignDocument, ScenePage } from '@dforge/engine';
-import { createPage, emptyTokenSet, parseDocument, type TokenSet } from '@dforge/engine';
+import type { DesignDocument } from '@dforge/engine';
+import { parseDocument } from '@dforge/engine';
 
-/** 页面正文信封。 */
-export interface CanvasPageBody {
-  $format: 'dforge.canvas.page';
-  $version: 1;
-  page: ScenePage;
-  tokens: TokenSet;
-}
+import { type ClientResult, loadPageSet, planPageSetSave } from './page-set';
 
-/** 信封标识。 */
-export const CANVAS_PAGE_FORMAT = 'dforge.canvas.page' as const;
-export const CANVAS_PAGE_VERSION = 1;
+export type { CanvasPageBody, ClientResult } from './page-set';
+// 正文信封与编解码随 mapping module 迁至 `./page-set`；此处保持既有导入路径向后兼容。
+export {
+  CANVAS_PAGE_FORMAT,
+  CANVAS_PAGE_VERSION,
+  decodePageBody,
+  encodePageBody,
+} from './page-set';
 
 /** 客户端选项。 */
 export interface DocumentsClientOptions {
@@ -32,21 +33,22 @@ export interface DocumentsClientOptions {
   fetchImpl?: typeof fetch;
 }
 
-/** 结果形状：调用方只需要「成功/失败 + 原因」。 */
-export type ClientResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
 /** 文档客户端。 */
 export interface DocumentsClient {
   readonly baseUrl: string;
   createDocument(name: string): Promise<ClientResult<{ id: string; name: string }>>;
   /** 按名查找（幂等保存：同名文档已存在时复用它，而不是报 doc_exists）。 */
   findDocumentByName(name: string): Promise<ClientResult<{ id: string; name: string } | null>>;
-  getDocument(
-    documentId: string,
-  ): Promise<ClientResult<{ id: string; name: string; pageCount: number }>>;
+  /** 文档详情（摘要 + manifest 页清单——load 按页 id 读取的依据）。 */
+  getDocument(documentId: string): Promise<ClientResult<DocumentDetail>>;
   readPage(documentId: string, pageId: string): Promise<ClientResult<unknown>>;
   savePage(documentId: string, pageId: string, body: unknown): Promise<ClientResult<void>>;
-  createPage(documentId: string, name: string): Promise<ClientResult<{ id: string; name: string }>>;
+  /** 建页；`options.id` 给定时按该 id 建（保存映射靠它让页 id 成为稳定身份）。 */
+  createPage(
+    documentId: string,
+    name: string,
+    options?: { id?: string },
+  ): Promise<ClientResult<{ id: string; name: string }>>;
 }
 
 /** 由路由模板与参数拼 URL。 */
@@ -153,7 +155,7 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
         routeUrl(base, DAEMON_ROUTES.documentGet.path, { documentId }),
       );
       if (!result.ok) return result;
-      const value = result.value as { document: { id: string; name: string; pageCount: number } };
+      const value = result.value as { document: DocumentDetail };
       return { ok: true, value: value.document };
     },
     async readPage(documentId, pageId) {
@@ -173,11 +175,11 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
       );
       return result.ok ? { ok: true, value: undefined } : result;
     },
-    async createPage(documentId, name) {
+    async createPage(documentId, name, options) {
       const result = await request(
         DAEMON_ROUTES.documentPageCreate.method,
         routeUrl(base, DAEMON_ROUTES.documentPageCreate.path, { documentId }),
-        { name },
+        { name, ...(options?.id === undefined ? {} : { id: options.id }) },
       );
       if (!result.ok) return result;
       const value = result.value as { page: { id: string; name: string } };
@@ -186,65 +188,58 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
   };
 }
 
-/** 设计页正文编码。 */
-export function encodePageBody(document: DesignDocument, page: ScenePage): CanvasPageBody {
-  return {
-    $format: CANVAS_PAGE_FORMAT,
-    $version: CANVAS_PAGE_VERSION,
-    page,
-    tokens: document.tokens,
-  };
+/** 保存结果（`pageIds` 与文档页顺序对齐；`orphanPageIds` **只报告不删除**）。 */
+export interface SaveDesignDocumentResult {
+  documentId: string;
+  pageIds: string[];
+  orphanPageIds: string[];
 }
 
-/** 设计页正文解码（非本格式 → null）。 */
-export function decodePageBody(body: unknown): CanvasPageBody | null {
-  if (typeof body !== 'object' || body === null) return null;
-  const record = body as Partial<CanvasPageBody>;
-  if (record.$format !== CANVAS_PAGE_FORMAT) return null;
-  if (record.page === undefined) return null;
-  return {
-    $format: CANVAS_PAGE_FORMAT,
-    $version: typeof record.$version === 'number' ? record.$version : CANVAS_PAGE_VERSION,
-    page: record.page,
-    tokens: record.tokens ?? emptyTokenSet(),
-  };
-}
-
-/** 设计页 id ↔ daemon 页面 id（daemon 的分配规则：`page-{N}`）。 */
-export function daemonPageId(index: number): string {
-  return `page-${index + 1}`;
-}
-
-/** 保存整个设计文档（逐页 PUT；页面不存在时先创建）。 */
+/**
+ * 保存整个设计文档（按 `page.id` 定位页文件；未命中才建页）。
+ *
+ * 委托 `./page-set` 的计划：页面 id 命中现有页 → update；未命中且 id 合法 → 按该 id
+ * create（身份可往返）；非法/重复 → 分配空闲 `page-N`。manifest 里多出来的页只进
+ * `orphanPageIds`，**不删除**（数据安全优先）。
+ *
+ * 为什么不再「把第一页塞进新建文档的空白占位页」：那会把正文写进 `page-1` 而内存页 id
+ * 仍是调用方的 id（如 `page-editor`），下一次保存/导出就会错位（重复建页或 404）。
+ * 身份一致优先——编辑器侧默认页 id 已对齐 `page-1`（引擎缺省），新建文档的首存自然命中
+ * 占位页；自定义页 id 的文档按自身 id 建页，`page-1` 只作为孤儿被报告。
+ */
 export async function saveDesignDocument(
   client: DocumentsClient,
   documentId: string,
   document: DesignDocument,
-): Promise<ClientResult<{ documentId: string; pageIds: string[] }>> {
-  const pageIds: string[] = [];
-  for (const [index, page] of document.pages.entries()) {
-    let pageId = daemonPageId(index);
-    const body = encodePageBody(document, page);
-    let saved = await client.savePage(documentId, pageId, body);
-    if (!saved.ok) {
-      // 页面不存在（或首次保存）：按 daemon 的分配规则创建一页再写
-      const created = await client.createPage(documentId, page.name);
-      if (!created.ok) return created;
-      pageId = created.value.id;
-      saved = await client.savePage(documentId, pageId, body);
-      if (!saved.ok) return saved;
-    }
-    pageIds.push(pageId);
+): Promise<ClientResult<SaveDesignDocumentResult>> {
+  const detail = await client.getDocument(documentId);
+  if (!detail.ok) return detail;
+  const existingPageIds = detail.value.pages.map((page) => page.id);
+  const plan = planPageSetSave(document, existingPageIds);
+  const orphanPageIds = plan.orphanPageIds;
+
+  const pageIds: string[] = new Array<string>(document.pages.length).fill('');
+  for (const entry of plan.update) {
+    const saved = await client.savePage(documentId, entry.pageId, entry.body);
+    if (!saved.ok) return saved;
+    pageIds[entry.index] = entry.pageId;
   }
-  return { ok: true, value: { documentId, pageIds } };
+  for (const entry of plan.create) {
+    const created = await client.createPage(documentId, entry.name, { id: entry.pageId });
+    if (!created.ok) return created;
+    const saved = await client.savePage(documentId, created.value.id, entry.body);
+    if (!saved.ok) return saved;
+    pageIds[entry.index] = created.value.id;
+  }
+  return { ok: true, value: { documentId, pageIds, orphanPageIds } };
 }
 
 /**
- * 读取设计文档（顺序探测 `page-{N}` 直到缺失）。
+ * 读取设计文档（按 manifest 的 `pages[]`；委托 `./page-set` 的 loadPageSet）。
  *
- * **空文档口径**（D-2 闭环的必要一环）：daemon 的「新建设计文件」只写 `{}` 作为页正文
- * （daemon 只做 opaque JSON 存储，不写设计语义）。因此「首屏正文是空对象」= 这份文档
- * 尚无设计内容 → 给一份含一个空页面的文档（页面 id 与 daemon 的 `page-1` 对齐），
+ * **空文档口径**（D-2 闭环的必要一环）保持：daemon 的「新建设计文件」只写 `{}` 作为页正文
+ * （daemon 只做 opaque JSON 存储，不写设计语义）。因此「页正文是空对象」= 这份文档
+ * 尚无设计内容 → 给一份含一页空画布的文档（页 id 沿用 daemon 的 manifest），
  * 用户从首页点开新文件就是**空画布可画**，而不是「结构非法」错误态。
  * 反过来：正文是非空但非本格式的 JSON（外来/损坏内容）仍按结构错误上报——不静默吞掉别人的数据。
  */
@@ -252,32 +247,20 @@ export async function loadDesignDocument(
   client: DocumentsClient,
   documentId: string,
 ): Promise<ClientResult<DesignDocument>> {
-  const summary = await client.getDocument(documentId);
-  if (!summary.ok) return summary;
-  const pages: ScenePage[] = [];
-  let tokens: TokenSet | null = null;
-  let firstBodyEmpty = false;
-  for (let index = 0; index < 64; index += 1) {
-    const body = await client.readPage(documentId, daemonPageId(index));
-    if (!body.ok) break;
-    const decoded = decodePageBody(body.value);
-    if (decoded === null) {
-      if (index === 0) firstBodyEmpty = isEmptyBody(body.value);
-      break;
-    }
-    pages.push(decoded.page);
-    tokens = tokens ?? decoded.tokens;
-  }
-  if (pages.length === 0 && firstBodyEmpty) {
-    // 新建文档的空白首页：名字沿用 daemon 的默认页面名（数据默认值，不是界面文案）
-    pages.push(createPage({ id: daemonPageId(0), name: '页面 1' }));
+  const loaded = await loadPageSet(client, documentId);
+  if (!loaded.ok) return loaded;
+  if (loaded.value.unresolvedPageIds.length > 0) {
+    return {
+      ok: false,
+      error: `文档页文件缺失或不可读：${loaded.value.unresolvedPageIds.join('、')}`,
+    };
   }
   try {
     const parsed = parseDocument({
       id: documentId,
-      name: summary.value.name,
-      pages,
-      tokens: tokens ?? emptyTokenSet(),
+      name: loaded.value.name,
+      pages: loaded.value.pages.map((entry) => entry.page),
+      tokens: loaded.value.tokens,
     });
     return { ok: true, value: parsed.document };
   } catch (error) {
@@ -286,11 +269,4 @@ export async function loadDesignDocument(
       error: `文档结构非法：${error instanceof Error ? error.message : String(error)}`,
     };
   }
-}
-
-/** 是否为「空正文」（daemon 新建文档的 `{}`；也容忍显式 null）。 */
-function isEmptyBody(body: unknown): boolean {
-  if (body === null) return true;
-  if (typeof body !== 'object') return false;
-  return Object.keys(body as Record<string, unknown>).length === 0;
 }
