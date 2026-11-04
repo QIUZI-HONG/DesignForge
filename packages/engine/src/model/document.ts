@@ -13,6 +13,19 @@ import type { SceneNode } from './node';
 import type { TokenSet } from './tokens';
 import { emptyTokenSet } from './tokens';
 
+/**
+ * 文档缺省页 id（**与 `@dforge/contracts` 的 `DEFAULT_PAGE_ID` / `pageFileId(0)` 同值**）。
+ *
+ * 引擎零运行时依赖、不 import contracts；该常量是引擎侧的落点，**变更须与 contracts 同步**
+ * ——页 id 是跨进程身份（daemon manifest 的 `pages[].id` = 页文件 id），两侧漂移会让
+ * 「新建文档 → 首存」凭空多出一页。历史缺省是 `page_1`（下划线），与 daemon 的 `page-1`
+ * 不是同一个身份，故在此纠正。
+ */
+export const DEFAULT_PAGE_ID = 'page-1';
+
+/** 缺省页名（与 `@dforge/contracts` 的 `DEFAULT_PAGE_NAME` 同值；数据默认值，不是界面文案）。 */
+export const DEFAULT_PAGE_NAME = '页面 1';
+
 /** 页面：节点表（扁平）+ 顶层顺序 + 页面设置。 */
 export interface ScenePage {
   id: PageId;
@@ -50,7 +63,7 @@ export function createPage(init: {
 }): ScenePage {
   return {
     id: init.id,
-    name: init.name ?? '页面 1',
+    name: init.name ?? DEFAULT_PAGE_NAME,
     nodes: init.nodes ?? {},
     rootIds: init.rootIds ?? [],
     backgroundColor: init.backgroundColor ?? '#F5F5F5',
@@ -68,7 +81,9 @@ export function createDocument(init: {
   /** 无页面时的默认页面 id（确定性测试可注入）。 */
   defaultPageId?: PageId;
 }): DesignDocument {
-  const pages = init.pages ?? [createPage({ id: init.defaultPageId ?? 'page_1', name: '页面 1' })];
+  const pages = init.pages ?? [
+    createPage({ id: init.defaultPageId ?? DEFAULT_PAGE_ID, name: DEFAULT_PAGE_NAME }),
+  ];
   if (pages.length === 0) {
     throw new Error('文档至少需要一个页面');
   }
