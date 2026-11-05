@@ -161,6 +161,40 @@ describe('loadPageSet · 按 manifest 的 pages[] 读取', () => {
     expect(loaded.value.pages[0]?.page.nodes).toEqual({});
   });
 
+  it('旧文档兼容（audit-d01 · D-01）：manifest=[page-1 空占位, page_1 有内容] → 当前页=内容页，占位页沉底不丢', async () => {
+    const document = createDocument({ id: 'doc-1', pages: [createPage({ id: 'p' })] });
+    const fake = fakeClient({
+      pages: [
+        // 历史构建把夹具页落成 page_1，daemon 的占位页 page-1 留成空体且排在前列
+        { meta: meta('page-1', '页面 1'), body: {} },
+        { meta: meta('page_1', '页面 1'), body: body(document, rectPage('page_1', 'n_1')) },
+      ],
+    });
+
+    const loaded = await loadPageSet(fake.client, 'doc-1');
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    // 空占位页不排前：当前页（会话初始页 = pages[0]）必须是真实内容页
+    expect(loaded.value.pages.map((entry) => entry.pageId)).toEqual(['page_1', 'page-1']);
+    expect(loaded.value.pages[0]?.page.nodes.n_1?.type).toBe('rect');
+    // 占位页仍在页集里（不静默删数据）
+    expect(loaded.value.pages[1]?.pageId).toBe('page-1');
+    expect(loaded.value.pages[1]?.page.nodes).toEqual({});
+  });
+
+  it('兼容不误伤：manifest=[page-1 有内容] 单页 → 顺序与内容照旧', async () => {
+    const document = createDocument({ id: 'doc-1', pages: [createPage({ id: 'p' })] });
+    const fake = fakeClient({
+      pages: [{ meta: meta('page-1'), body: body(document, rectPage('page-1', 'n_1')) }],
+    });
+
+    const loaded = await loadPageSet(fake.client, 'doc-1');
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.value.pages.map((entry) => entry.pageId)).toEqual(['page-1']);
+    expect(loaded.value.pages[0]?.page.nodes.n_1?.type).toBe('rect');
+  });
+
   it('非本格式的非空正文 → 结构错误（点名页 id，不静默吞掉别人的数据）', async () => {
     const fake = fakeClient({
       pages: [{ meta: meta('page-1'), body: { hello: 'world' } }],
