@@ -8,7 +8,7 @@
 import type { AiChatRequest, AiStatusResponse } from '@dforge/contracts';
 import { DAEMON_ROUTES } from '@dforge/contracts';
 
-import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 /** daemon 请求失败（信封 error 的形状对齐；UI 只读 code/message）。 */
 export class DaemonRequestError extends Error {
@@ -74,6 +74,7 @@ export function createAiPort(options: { baseUrl?: string; fetchImpl?: typeof fet
     async status(signal) {
       const response = await doFetch(`${baseUrl}${DAEMON_ROUTES.aiStatus.path}`, {
         method: DAEMON_ROUTES.aiStatus.method,
+        headers: daemonAuthHeaders(), // 本地令牌鉴权（audit-d02 · D-02）
         ...(signal === undefined ? {} : { signal }),
       });
       return readEnvelope<AiStatusResponse>(response);
@@ -82,7 +83,7 @@ export function createAiPort(options: { baseUrl?: string; fetchImpl?: typeof fet
     async *chatStream(request, signal) {
       const response = await doFetch(`${baseUrl}${DAEMON_ROUTES.aiChat.path}`, {
         method: DAEMON_ROUTES.aiChat.method,
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...daemonAuthHeaders() },
         body: JSON.stringify({ ...request, stream: true }),
         ...(signal === undefined ? {} : { signal }),
       });

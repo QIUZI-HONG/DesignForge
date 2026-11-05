@@ -26,7 +26,7 @@ import {
   isApiSuccess,
 } from '@dforge/contracts';
 
-import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 /** 失败类别（见模块头注释）。 */
 export type DaemonClientErrorKind = 'api' | 'network';
@@ -96,7 +96,11 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
       requestOptions: DaemonRequestOptions = {},
     ): Promise<T> {
       const url = `${baseUrl}${route.path}`;
-      const headers: Record<string, string> = { accept: 'application/json' };
+      // 本地令牌鉴权（audit-d02 · D-02）：单点解析鉴权头（无令牌 → 空对象，头不存在）
+      const headers: Record<string, string> = {
+        accept: 'application/json',
+        ...daemonAuthHeaders(),
+      };
       const init: RequestInit = { method: requestOptions.method ?? route.method, headers };
       if (requestOptions.body !== undefined) {
         headers['content-type'] = 'application/json';

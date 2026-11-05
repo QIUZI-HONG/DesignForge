@@ -14,7 +14,7 @@ import type {
 } from '@dforge/contracts';
 import { DAEMON_ROUTES } from '@dforge/contracts';
 
-import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 /** daemon 请求失败（信封 error 的形状对齐）。 */
 export class DaemonRequestError extends Error {
@@ -81,11 +81,15 @@ export function createMcpPort(
   const doFetch = options.fetchImpl ?? fetch;
 
   const request = async <T>(path: string, method: string, body?: unknown): Promise<T> => {
+    // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象
     const response = await doFetch(`${baseUrl}${path}`, {
       method,
       ...(body === undefined
-        ? {}
-        : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+        ? { headers: daemonAuthHeaders() }
+        : {
+            headers: { 'content-type': 'application/json', ...daemonAuthHeaders() },
+            body: JSON.stringify(body),
+          }),
     });
     return readEnvelope<T>(response);
   };

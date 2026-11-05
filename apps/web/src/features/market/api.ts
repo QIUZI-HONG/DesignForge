@@ -22,7 +22,11 @@ import type {
 } from '@dforge/contracts';
 import { DAEMON_ROUTES } from '@dforge/contracts';
 
-import { DAEMON_ENDPOINT_DEFAULT, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import {
+  DAEMON_ENDPOINT_DEFAULT,
+  daemonAuthHeaders,
+  resolveDaemonEndpointSync,
+} from '@/lib/daemon-endpoint';
 
 /**
  * daemon 缺省地址（端口窗起点）。解析顺序**全站收敛**在 `@/lib/daemon-endpoint`
@@ -212,9 +216,13 @@ async function requestJson<T>(
   const fetchImpl = options.fetchImpl ?? fetch;
   const init: RequestInit = { method: options.method ?? 'GET' };
   if (options.signal !== undefined) init.signal = options.signal;
+  // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象（头不存在）
+  init.headers = {
+    ...daemonAuthHeaders(),
+    ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
+  };
   if (options.body !== undefined) {
     init.method = 'POST';
-    init.headers = { 'content-type': 'application/json' };
     init.body = JSON.stringify(options.body);
   }
   try {

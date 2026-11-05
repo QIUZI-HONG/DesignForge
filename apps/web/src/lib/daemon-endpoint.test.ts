@@ -10,10 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DAEMON_ENDPOINT_DEFAULT,
   DaemonEndpointError,
+  daemonAuthHeaders,
   daemonEndpointCandidates,
   resetDaemonEndpointCache,
   resolveDaemonEndpoint,
   resolveDaemonEndpointSync,
+  resolveDaemonToken,
   withDaemonEndpoint,
 } from './daemon-endpoint';
 
@@ -198,5 +200,93 @@ describe('withDaemonEndpoint（站内跳转携带当前端点 · D-3/UX-01）', 
     );
     expect(withDaemonEndpoint('//cdn.example.com/x', onEndpoint)).toBe('//cdn.example.com/x');
     expect(withDaemonEndpoint('#anchor', onEndpoint)).toBe('#anchor');
+  });
+});
+
+describe('resolveDaemonToken / daemonAuthHeaders（本地令牌 · audit-d02 D-02）', () => {
+  /** 内存存储后端（localStorage 形状子集）。 */
+  function memoryStorage(initial: Record<string, string> = {}) {
+    const map = new Map(Object.entries(initial));
+    return {
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => void map.set(key, value),
+      dump: () => Object.fromEntries(map.entries()),
+    };
+  }
+
+  it('解析顺序：查询参数 → env → 本地存储（先到先用）', () => {
+    const storage = memoryStorage({ 'dfg:daemon-token': 'stored-token' });
+    // 存储兜底
+    expect(resolveDaemonToken({ storage })).toBe('stored-token');
+    // env 覆盖存储
+    vi.stubEnv('NEXT_PUBLIC_DF_DAEMON_TOKEN', 'env-token');
+    expect(resolveDaemonToken({ storage })).toBe('env-token');
+    // 查询参数覆盖一切
+    expect(resolveDaemonToken({ storage, search: '?dfToken=url-token' })).toBe('url-token');
+  });
+
+  it('查询参数命中即持久化到存储（宿主注入一次，后续不依赖 URL）', () => {
+    const storage = memoryStorage();
+    resolveDaemonToken({ storage, search: '?dfToken=abc123' });
+    expect(storage.dump()['dfg:daemon-token']).toBe('abc123');
+    // 下一跳无查询串 → 从存储取
+    expect(resolveDaemonToken({ storage, search: '' })).toBe('abc123');
+  });
+
+  it('空白令牌视为未给；显式 storage:null / envToken:undefined 禁用对应来源', () => {
+    expect(resolveDaemonToken({ storage: memoryStorage(), search: '?dfToken=%20%20' })).toBe(
+      undefined,
+    );
+    expect(resolveDaemonToken({ storage: null, envToken: undefined })).toBe(undefined);
+    expect(resolveDaemonToken({ storage: null, envToken: 'from-env' })).toBe('from-env');
+  });
+
+  it('daemonAuthHeaders：有令牌 → x-df-token 头；无令牌 → 空对象（头不存在）', () => {
+    expect(daemonAuthHeaders({ storage: null, envToken: 't1' })).toEqual({ 'x-df-token': 't1' });
+    expect(daemonAuthHeaders({ storage: null, envToken: undefined })).toEqual({});
+  });
+
+  it('坏存储（读抛错）静默降级为无令牌，不炸调用方', () => {
+    const badStorage = {
+      getItem: () => {
+        throw new Error('privacy mode');
+      },
+      setItem: () => {
+        throw new Error('privacy mode');
+      },
+    };
+    expect(resolveDaemonToken({ storage: badStorage, search: '' })).toBe(undefined);
+  });
+});
+
+describe('withDaemonEndpoint · 令牌随行（audit-d02）', () => {
+  const encoded = encodeURIComponent('http://127.0.0.1:4545');
+
+  it('当前页带 ?daemon= 且带 ?dfToken= → 两个参数都续写', () => {
+    expect(
+      withDaemonEndpoint('/editor', {
+        search: `?daemon=${encoded}&dfToken=tok123`,
+      }),
+    ).toBe(`/editor?daemon=${encoded}&dfToken=tok123`);
+  });
+
+  it('当前页只有 ?daemon=（令牌已在存储）→ 只续写端点，URL 不凭空添令牌', () => {
+    expect(withDaemonEndpoint('/editor', { search: `?daemon=${encoded}` })).toBe(
+      `/editor?daemon=${encoded}`,
+    );
+  });
+
+  it('站内已有 dfToken 参数 → 就地覆盖（幂等）；其余参数逐字保留', () => {
+    const once = withDaemonEndpoint('/editor?keep=1', {
+      search: `?daemon=${encoded}&dfToken=old`,
+    });
+    expect(once).toBe(`/editor?keep=1&daemon=${encoded}&dfToken=old`);
+    expect(withDaemonEndpoint(once, { search: `?daemon=${encoded}&dfToken=old` })).toBe(once);
+  });
+
+  it('站外地址不续写令牌（不泄本地凭据到外部）', () => {
+    expect(
+      withDaemonEndpoint('https://example.com/a', { search: `?daemon=${encoded}&dfToken=tok` }),
+    ).toBe('https://example.com/a');
   });
 });
