@@ -12,8 +12,8 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
-
 import { createTestDaemon, injectJson } from './testing/harness.ts';
+import { TOKEN_HEADER } from './token.ts';
 
 /** 构造一份合法 manifest 文本（可注入任意 pageId —— 模拟「仓库里克隆来的 .dfg」）。 */
 function manifestText(id: string, pageIds: string[] = ['page-1']): string {
@@ -199,7 +199,7 @@ describe('对抗 · 错误形状', () => {
       const malformed = await daemon.app.inject({
         method: 'POST',
         url: '/documents',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: '{bad',
       });
       expect(malformed.statusCode).toBe(400);
@@ -212,7 +212,7 @@ describe('对抗 · 错误形状', () => {
       const oversized = await daemon.app.inject({
         method: 'POST',
         url: '/documents',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: JSON.stringify({ name: 'big', pad: 'x'.repeat(1_200_000) }),
       });
       expect(oversized.statusCode).toBe(400);
@@ -235,7 +235,7 @@ describe('对抗 · 错误形状', () => {
       const res = await daemon.app.inject({
         method: 'PUT',
         url: '/documents/deep/pages/page-1',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: deep,
       });
       expect(res.statusCode).toBe(400);

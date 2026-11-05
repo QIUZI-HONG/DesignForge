@@ -46,6 +46,8 @@ interface SpawnedDaemon {
   child: DaemonChild;
   port: number;
   baseUrl: string;
+  /** 本地令牌（daemon 落在其数据根 daemon-token；audit-d02 · D-02 起所有路由要求携带）。 */
+  token: string;
 }
 
 /** 全体存活子进程登记（finally 兜底回收；只按精确 PID kill）。 */
@@ -113,10 +115,13 @@ async function spawnDaemon(options: {
   }
 
   const address = new URL(baseUrl);
+  // 令牌文件由 daemon 启动时落盘（/health 已 200 = 应用装配完成，文件必已存在）
+  const token = (await readFile(join(options.dataRoot, 'daemon-token'), 'utf8')).trim();
   return {
     child,
     port: Number(address.port),
     baseUrl,
+    token,
   };
 }
 
@@ -168,16 +173,16 @@ async function expectPortReleased(port: number): Promise<void> {
   throw new Error(`端口 ${port} 未释放（子进程回收不彻底）`);
 }
 
-/** JSON POST/PUT 便捷（fetch 走真实 socket）。 */
+/** JSON POST/PUT 便捷（fetch 走真实 socket；携带本地令牌头）。 */
 async function jsonRequest(
-  baseUrl: string,
+  daemon: SpawnedDaemon,
   method: 'POST' | 'PUT',
   path: string,
   payload: unknown,
 ): Promise<{ status: number; json: unknown }> {
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(`${daemon.baseUrl}${path}`, {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-df-token': daemon.token },
     body: JSON.stringify(payload),
   });
   let json: unknown = null;
@@ -189,9 +194,14 @@ async function jsonRequest(
   return { status: response.status, json };
 }
 
-/** GET JSON 便捷。 */
-async function jsonGet(baseUrl: string, path: string): Promise<{ status: number; json: unknown }> {
-  const response = await fetch(`${baseUrl}${path}`);
+/** GET JSON 便捷（携带本地令牌头）。 */
+async function jsonGet(
+  daemon: SpawnedDaemon,
+  path: string,
+): Promise<{ status: number; json: unknown }> {
+  const response = await fetch(`${daemon.baseUrl}${path}`, {
+    headers: { 'x-df-token': daemon.token },
+  });
   let json: unknown = null;
   try {
     json = await response.json();
@@ -222,14 +232,14 @@ describe.skipIf(!IS_POSIX)('documents · 进程级崩溃恢复（TC-DOC-05 · �
       }[] = [];
       try {
         // 前置：已建文档并成功保存 v1 正文
-        const created = await jsonRequest(daemon.baseUrl, 'POST', '/documents', {
+        const created = await jsonRequest(daemon, 'POST', '/documents', {
           name: '崩溃恢复',
         });
         expect(created.status).toBe(201);
         const id = (created.json as { result: { document: { id: string } } }).result.document.id;
         const v1Body = { mark: 'v1', pad: 'v1'.repeat(512) };
         const savedV1 = await jsonRequest(
-          daemon.baseUrl,
+          daemon,
           'PUT',
           `/documents/${encodeURIComponent(id)}/pages/page-1`,
           { body: v1Body },
@@ -249,7 +259,7 @@ describe.skipIf(!IS_POSIX)('documents · 进程级崩溃恢复（TC-DOC-05 · �
           const v2Body = { mark: `v2-r${round}`, pad: 'x'.repeat(1_020_000) };
           writtenBodies.push(v2Body);
           const inFlight = jsonRequest(
-            daemon.baseUrl,
+            daemon,
             'PUT',
             `/documents/${encodeURIComponent(id)}/pages/page-1`,
             { body: v2Body },
@@ -297,7 +307,7 @@ describe.skipIf(!IS_POSIX)('documents · 进程级崩溃恢复（TC-DOC-05 · �
 
         // ④ GET manifest 与 page-1（API 读侧）：均可解析、正文 ∈ 已写集合、无 version↔正文错位
         // （manifest.json 是提交点，version 以盘上 manifest 为准——DocumentSummary 不含 version）
-        const got = await jsonGet(daemon.baseUrl, `/documents/${encodeURIComponent(id)}`);
+        const got = await jsonGet(daemon, `/documents/${encodeURIComponent(id)}`);
         expect(got.status).toBe(200);
         const summary = (got.json as { result: { document: { pageCount: number } } }).result
           .document;
@@ -308,10 +318,7 @@ describe.skipIf(!IS_POSIX)('documents · 进程级崩溃恢复（TC-DOC-05 · �
           version: number;
         };
         expect(finalManifest0.version).toBe(prevVersion);
-        const page = await jsonGet(
-          daemon.baseUrl,
-          `/documents/${encodeURIComponent(id)}/pages/page-1`,
-        );
+        const page = await jsonGet(daemon, `/documents/${encodeURIComponent(id)}/pages/page-1`);
         expect(page.status).toBe(200);
         const readBody = (page.json as { result: { body: { mark: string } } }).result.body;
         expect(writtenBodies).toContainEqual(readBody);
@@ -327,7 +334,7 @@ describe.skipIf(!IS_POSIX)('documents · 进程级崩溃恢复（TC-DOC-05 · �
         const pageEntries = await readdir(join(docDir, 'pages'));
         expect(pageEntries).toContain('page-1.json');
         const tmpRemnants = pageEntries.filter((entry) => /^\.[0-9a-f]+\.tmp$/.test(entry));
-        const list = await jsonGet(daemon.baseUrl, '/documents');
+        const list = await jsonGet(daemon, '/documents');
         expect((list.json as { result: { documents: unknown[] } }).result.documents).toHaveLength(
           1,
         );
@@ -335,14 +342,14 @@ describe.skipIf(!IS_POSIX)('documents · 进程级崩溃恢复（TC-DOC-05 · �
         // 后续写完全不受影响：再执行一次 PUT+GET
         const finalBody = { mark: 'final', pad: 'final'.repeat(512) };
         const finalPut = await jsonRequest(
-          daemon.baseUrl,
+          daemon,
           'PUT',
           `/documents/${encodeURIComponent(id)}/pages/page-1`,
           { body: finalBody },
         );
         expect(finalPut.status).toBe(200);
         const finalRead = await jsonGet(
-          daemon.baseUrl,
+          daemon,
           `/documents/${encodeURIComponent(id)}/pages/page-1`,
         );
         expect((finalRead.json as { result: { body: unknown } }).result.body).toEqual(finalBody);
@@ -382,7 +389,7 @@ describe.skipIf(!IS_POSIX)('documents · 跨进程并发写（TC-DOC-07 · 守�
       const daemonB = await spawnDaemon({ dataRoot: dataRootB, workspaceDir });
       try {
         // 前置：同一文档同页 page-1（经 A 创建，manifest version=1）
-        const created = await jsonRequest(daemonA.baseUrl, 'POST', '/documents', {
+        const created = await jsonRequest(daemonA, 'POST', '/documents', {
           name: '并发 409',
         });
         expect(created.status).toBe(201);
@@ -393,18 +400,18 @@ describe.skipIf(!IS_POSIX)('documents · 跨进程并发写（TC-DOC-07 · 守�
         const submissions = [
           ...Array.from({ length: 20 }, (_unused, index) => ({
             process: 'A' as const,
-            baseUrl: daemonA.baseUrl,
+            daemon: daemonA,
             body: { marker: `proc-A-#${index}`, pad: 'a'.repeat(2048) },
           })),
           ...Array.from({ length: 20 }, (_unused, index) => ({
             process: 'B' as const,
-            baseUrl: daemonB.baseUrl,
+            daemon: daemonB,
             body: { marker: `proc-B-#${index}`, pad: 'b'.repeat(2048) },
           })),
         ];
         const responses = await Promise.all(
           submissions.map(async (submission) => {
-            const result = await jsonRequest(submission.baseUrl, 'PUT', pageUrl, {
+            const result = await jsonRequest(submission.daemon, 'PUT', pageUrl, {
               body: submission.body,
             });
             return { submission, result };
@@ -432,7 +439,7 @@ describe.skipIf(!IS_POSIX)('documents · 跨进程并发写（TC-DOC-07 · 守�
         // 内容即算成功（过期覆盖），会吞掉先写者的自增；因此跨进程下 version 不恒等于
         // 1+成功数，但必 ≥2（最后一次写入恒属于成功者：失败者的 confirm 失败⇒其后还有写入）
         // 且被成功数封顶（每次成功至多贡献一次自增）。
-        const finalRead = await jsonGet(daemonA.baseUrl, pageUrl);
+        const finalRead = await jsonGet(daemonA, pageUrl);
         expect(finalRead.status).toBe(200);
         const finalBody = (finalRead.json as { result: { body: unknown } }).result.body;
         expect(submissions.map((submission) => submission.body)).toContainEqual(finalBody);
@@ -470,8 +477,8 @@ describe.skipIf(!IS_POSIX)('documents · 双进程并发建文档（TC-DOC-10 ·
       try {
         // 双进程变体（同 DF_WORKSPACE_DIR、端口错开）：各 1×POST 同名文档，全并发
         const [resA, resB] = await Promise.all([
-          jsonRequest(daemonA.baseUrl, 'POST', '/documents', { name: '并发文档' }),
-          jsonRequest(daemonB.baseUrl, 'POST', '/documents', { name: '并发文档' }),
+          jsonRequest(daemonA, 'POST', '/documents', { name: '并发文档' }),
+          jsonRequest(daemonB, 'POST', '/documents', { name: '并发文档' }),
         ]);
 
         const statuses = [resA.status, resB.status].sort((a, b) => a - b);

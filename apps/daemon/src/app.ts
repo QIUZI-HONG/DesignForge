@@ -39,6 +39,12 @@ import { registerMcpRoutes } from './routes/mcp.ts';
 import { registerTelemetryRoutes } from './routes/telemetry.ts';
 import type { TelemetryStore } from './telemetry/store.ts';
 import { createTelemetryStore } from './telemetry/store.ts';
+import {
+  authDisabledFromEnv,
+  createTokenPolicy,
+  ensureTokenFile,
+  registerTokenGuard,
+} from './token.ts';
 
 /** 应用构造选项（缺省全部走真实路径；测试通过注入切换）。 */
 export interface DaemonAppOptions {
@@ -72,6 +78,13 @@ export interface DaemonAppOptions {
   corsOrigins?: string[];
   /** Host allowlist 覆盖（缺省读 `DFORGE_ALLOWED_HOSTS`/`DF_ALLOWED_HOSTS`，再回退本机回环）。 */
   allowedHosts?: string[];
+  /**
+   * 本地令牌覆盖（audit-d02 · D-02）：显式给出则不读写令牌文件（测试/门禁注入）；
+   * 缺省启动时确保 `<dataRoot>/daemon-token`（0600，已存在则复用）。
+   */
+  daemonToken?: string;
+  /** 显式关闭本地令牌鉴权（缺省读 `DF_AUTH_DISABLED`；逃生阀，缺省必须开）。 */
+  authDisabled?: boolean;
 }
 
 /** 运行时上下文（路由注册共用；所有路径/存储的唯一入口）。 */
@@ -164,15 +177,25 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
 
   const app = Fastify({ logger: options.logger ?? false });
   registerErrorHandlers(app);
-  // 受控 CORS：web 开发态（localhost:3000）与打包壳（Origin: null）跨源直连；
-  // 白名单外不放行（受控白名单，不通配）——详见 cors.ts 模块头注释
-  registerCors(app, createCorsPolicy(options.corsOrigins ?? corsOriginsFromEnv(process.env)));
+  // 本地令牌鉴权（audit-d02 · D-02）：缺省开启；令牌文件 `<dataRoot>/daemon-token`（0600）。
+  // 钩子次序 = Host allowlist → 令牌 → CORS：无令牌请求在 CORS 层之前 401（不带 CORS 头），
+  // `Origin: null` 的放行因此只在带合法令牌（打包壳）时可达——见 cors.ts / token.ts 模块头
+  const authDisabled = options.authDisabled ?? authDisabledFromEnv(process.env);
+  const daemonToken = authDisabled
+    ? null
+    : (options.daemonToken ?? (await ensureTokenFile(paths.daemonTokenPath)));
   // 请求级 Host allowlist：回环清单外（含伪造 Host）一律 403，收口 DNS-rebinding 面
   // （TC-SEC-02 实证暴露）——详见 host.ts 模块头注释
   registerHostGuard(
     app,
     createHostPolicy(options.allowedHosts ?? allowedHostsFromEnv(process.env)),
   );
+  if (daemonToken !== null) {
+    registerTokenGuard(app, createTokenPolicy(daemonToken));
+  }
+  // 受控 CORS：web 开发态（localhost:3000）与打包壳（Origin: null）跨源直连；
+  // 白名单外不放行（受控白名单，不通配）——详见 cors.ts 模块头注释
+  registerCors(app, createCorsPolicy(options.corsOrigins ?? corsOriginsFromEnv(process.env)));
 
   // GET /health —— 基座握手（verify-daemon 与 FE-12 壳用它判活）
   app.get(DAEMON_ROUTES.health.path, () => ({

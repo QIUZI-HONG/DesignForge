@@ -3,15 +3,30 @@
  *
  * 提供：临时数据根注入、假上游 fetch（记录调用）、日志捕获。
  * 纪律：测试一律注入临时目录（不碰真实 `~/.dforge`）与假 fetch（不出网）。
+ *
+ * 令牌（audit-d02 · D-02）：夹具 daemon 与生产同口径——**令牌鉴权缺省开启**，令牌经
+ * `daemonToken` 注入（不写数据根的令牌文件，测试免落盘竞态），并装饰到 app 上
+ * （`dfTestToken`）；`injectJson` 自动携带 `x-df-token`，存量用例零改动；要测「无令牌
+ * 401」等对抗形态，用裸 `app.inject` 不带头即可。`authDisabled: true` 显式关闭（仅令牌
+ * 鉴权自身的对照用例使用）。
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { FastifyInstance } from 'fastify';
 import type { DaemonAppOptions } from '../app.ts';
 import { createDaemonApp } from '../app.ts';
+import { TOKEN_FILE_BASENAME, TOKEN_HEADER } from '../token.ts';
+
+/** injectJson 自动携带令牌所读的 app 装饰键（仅测试脚手架装饰；生产 app 无此键）。 */
+declare module 'fastify' {
+  interface FastifyInstance {
+    dfTestToken?: string | null;
+  }
+}
 
 /** 假上游调用记录。 */
 export interface FetchCall {
@@ -28,6 +43,8 @@ export interface TestDaemon {
   dataRoot: string;
   workspaceDir: string;
   credentialsPath: string;
+  /** 本地令牌（鉴权开启时非 null；authDisabled 时为 null）。 */
+  token: string | null;
   capturedLogs: string[];
   fetchCalls: FetchCall[];
   cleanup(): Promise<void>;
@@ -45,6 +62,13 @@ export interface TestDaemonOptions {
   mcpAckTtlMs?: number;
   corsOrigins?: string[];
   allowedHosts?: string[];
+  /**
+   * 本地令牌覆盖：缺省自动生成随机值（测试令牌不落数据根文件）；显式 `null` 走**生产
+   * 文件形态**（app 内 `ensureTokenFile` 落 `<dataRoot>/daemon-token`，句柄回读同值）。
+   */
+  daemonToken?: string | null;
+  /** 显式关闭本地令牌鉴权（缺省开启，与生产同口径）。 */
+  authDisabled?: boolean;
 }
 
 /** 创建测试用 daemon（临时目录 + 假上游 + 日志捕获）。 */
@@ -76,6 +100,15 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     return options.fetchImpl(url, init);
   };
 
+  // 令牌：鉴权开启时给夹具一个确定令牌（显式覆盖 > 自动随机；`null` = 生产文件形态）
+  const authDisabled = options.authDisabled === true;
+  const tokenFromFile = options.daemonToken === null;
+  const token = authDisabled
+    ? null
+    : tokenFromFile
+      ? null
+      : (options.daemonToken ?? randomBytes(32).toString('hex'));
+
   const appOptions: DaemonAppOptions = {
     dataRoot,
     workspaceDir,
@@ -98,15 +131,30 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     ...(options.mcpAckTtlMs === undefined ? {} : { mcpAckTtlMs: options.mcpAckTtlMs }),
     ...(options.corsOrigins === undefined ? {} : { corsOrigins: options.corsOrigins }),
     ...(options.allowedHosts === undefined ? {} : { allowedHosts: options.allowedHosts }),
+    ...(token === null ? {} : { daemonToken: token }),
+    authDisabled,
   };
   const app = await createDaemonApp(appOptions);
+
+  // 生产文件形态：令牌由 app 落盘，句柄回读同值（启动时序保证文件先于监听存在）
+  const resolvedToken =
+    token ??
+    (tokenFromFile ? (await readFile(join(dataRoot, TOKEN_FILE_BASENAME), 'utf8')).trim() : null);
+  // 令牌装饰：injectJson 据此自动携带（见模块头注释）；authDisabled 时为 null 不装饰
+  if (resolvedToken !== null) {
+    app.decorate('dfTestToken', resolvedToken);
+  }
 
   // 测试默认把 ComfyUI 指向本机一个大概率不存在的端口前的配置，可按需覆盖
   if (options.comfyBaseUrl !== undefined) {
     await app.inject({
       method: 'PUT',
       url: '/config',
-      payload: { comfy: { baseUrl: options.comfyBaseUrl } },
+      headers:
+        resolvedToken === null
+          ? { 'content-type': 'application/json' }
+          : { [TOKEN_HEADER]: resolvedToken, 'content-type': 'application/json' },
+      payload: JSON.stringify({ comfy: { baseUrl: options.comfyBaseUrl } }),
     });
   }
 
@@ -116,6 +164,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     dataRoot,
     workspaceDir,
     credentialsPath: join(dataRoot, 'credentials.json'),
+    token: resolvedToken,
     capturedLogs,
     fetchCalls,
     async cleanup(): Promise<void> {
@@ -129,18 +178,26 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
   };
 }
 
-/** 便捷：JSON 请求。 */
+/** 便捷：JSON 请求（夹具装饰了 `dfTestToken` 时自动携带令牌头；见模块头注释）。 */
 export async function injectJson(
   app: FastifyInstance,
   options: { method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url: string; payload?: unknown },
 ): Promise<{ statusCode: number; payload: unknown; raw: string }> {
+  const testToken = app.dfTestToken;
   const response = await app.inject({
     method: options.method,
     url: options.url,
     ...(options.payload === undefined
-      ? {}
+      ? {
+          ...(testToken === undefined || testToken === null
+            ? {}
+            : { headers: { [TOKEN_HEADER]: testToken } }),
+        }
       : {
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            ...(testToken === undefined || testToken === null ? {} : { [TOKEN_HEADER]: testToken }),
+          },
           payload: JSON.stringify(options.payload),
         }),
   });

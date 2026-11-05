@@ -9,12 +9,16 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { TOKEN_FILE_BASENAME } from './token.ts';
+
 /** daemon 持久化路径集合（单一真源，路由与客户端只从这里取）。 */
 export interface DaemonPaths {
   dataRoot: string;
   configJsonPath: string;
   credentialsPath: string;
   credentialsKeyPath: string;
+  /** 本地令牌文件（audit-d02 · D-02：0600，启动时确保存在；本机文件权限即边界）。 */
+  daemonTokenPath: string;
   /** 工作目录缺省值（可被 config.workspaceDir 覆盖）。 */
   workspaceDirDefault: string;
   /** 市场索引候选路径（按序探测；MK-04 产物为 `ads/df.marketplace.index.v1.json`）。 */
@@ -36,6 +40,7 @@ export function resolveDaemonPaths(dataRoot: string): DaemonPaths {
     configJsonPath: join(dataRoot, 'config.json'),
     credentialsPath: join(dataRoot, 'credentials.json'),
     credentialsKeyPath: join(dataRoot, 'credentials.key'),
+    daemonTokenPath: join(dataRoot, TOKEN_FILE_BASENAME),
     workspaceDirDefault: join(dataRoot, 'workspace'),
     marketIndexCandidates: [
       join(dataRoot, 'market', 'df.marketplace.index.v1.json'),

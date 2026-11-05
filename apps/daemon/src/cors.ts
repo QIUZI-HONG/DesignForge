@@ -3,15 +3,19 @@
  *
  * 背景（架构口径「同源 HTTP」）：web 开发态跑在 `http://localhost:3000`、daemon 在
  * `http://127.0.0.1:4318`，浏览器直连必然跨源；打包桌面壳以 `file://` 装载页面时
- * 浏览器发出的 `Origin` 为字面量 `null`。这里做**白名单受控放行**，而不是 `*`：
- * - 默认仅本机开发来源（localhost:3000 / 127.0.0.1:3000），可用环境变量覆盖；
- * - 无 `Origin` 头（curl / Node 客户端 / 同源网关）直接放行——CORS 是浏览器机制，
- *   非浏览器客户端不受影响；
- * - `Origin: null` 放行：打包壳（file:// 或本地静态服务）的真实形态，且伪造 `null`
- *   的来源本来也绕不过本机回环语义（daemon 只监听 127.0.0.1，威胁模型是「本机其他页面」，
- *   受控白名单正是为了收窄它）；
- * - **非白名单来源：不加任何 CORS 头（让浏览器自行拒绝），但 API 语义不变**
- *   （服务端照常处理，不引入 403「伪安全」——真正的访问控制边界在回环监听与未来令牌）。
+ * 浏览器发出的 `Origin` 为字面量 `null`。这里做**白名单受控放行**，而不是 `*`。
+ *
+ * **2026-11 审计后收敛（audit-d02 · D-02）——本模块不再自认访问控制边界**：
+ * 旧注释称「真正的访问控制边界在回环监听与未来令牌」，审计实证（h1-probe）证明回环监听
+ * 不构成边界——`Origin: null`（沙箱 iframe 可伪造的形态）曾拿到 ACAO + 200 全量文档，
+ * 白名单外 Origin 的写请求也曾照常进业务处理。收敛后的取舍：
+ * - **令牌闸门在前**（token.ts 钩子，Host allowlist 之后、本钩子之前）：除 `/health` 与
+ *   预检外，无令牌/错令牌一律 401——401 发生在本钩子之前，**不带任何 CORS 头**；
+ * - `Origin: null` 的白名单放行**只在令牌合法时可达**（打包壳 file:// 形态携带令牌后才
+ *   走到本钩子）；无令牌的 null 请求在令牌层已 401，不再出现「ACAO: null + 200 全量数据」；
+ * - 白名单机制与 ACAO 头行为对**合法请求**（带令牌）保持不变：白名单内回显 Origin、
+ *   白名单外只给 `vary: Origin`（浏览器自行拒绝读响应，服务端语义照旧）；
+ * - 允许请求头新增 `x-df-token`（令牌鉴权的浏览器携带形态）。
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -22,8 +26,8 @@ export const DEFAULT_CORS_ORIGINS = ['http://localhost:3000', 'http://127.0.0.1:
 /** 允许的请求方法（与 DAEMON_ROUTES 使用的集合一致）。 */
 export const CORS_ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 
-/** 允许的请求头（本段 API 只用 content-type；新增头必须在此登记）。 */
-export const CORS_ALLOWED_HEADERS = ['content-type'] as const;
+/** 允许的请求头（content-type + 本地令牌头；新增头必须在此登记）。 */
+export const CORS_ALLOWED_HEADERS = ['content-type', 'x-df-token'] as const;
 
 /** 预检缓存：短（600s），开发期改白名单不必等长缓存过期。 */
 export const CORS_MAX_AGE_SECONDS = 600;
@@ -58,13 +62,17 @@ export interface CorsPolicy {
   isAllowed(origin: string): boolean;
 }
 
-/** 创建策略：精确匹配（大小写不敏感比较 host 部分），`null` 恒放行。 */
+/**
+ * 创建策略：精确匹配（大小写不敏感比较 host 部分），`null` 放行。
+ * 注意（audit-d02 · D-02）：`null` 的放行只在**令牌合法的请求**上可达——令牌闸门
+ * （token.ts，注册在本钩子之前）已把无令牌请求 401 掉；本策略不再单独承载 null 的
+ * 访问控制判断。 */
 export function createCorsPolicy(origins: readonly string[] = DEFAULT_CORS_ORIGINS): CorsPolicy {
   const normalized = origins.map((origin) => origin.toLowerCase());
   return {
     origins: [...origins],
     isAllowed(origin: string): boolean {
-      if (origin === 'null') return true; // 打包壳（file://）形态，理由见模块头注释
+      if (origin === 'null') return true; // 打包壳（file://）形态；可达性由令牌闸门保证
       return normalized.includes(origin.toLowerCase());
     },
   };

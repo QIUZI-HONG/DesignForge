@@ -34,6 +34,11 @@ describe('ipc · 错误码表', () => {
     expect(DF_ERROR_HTTP_STATUS.host_not_allowed).toBe(403);
   });
 
+  it('unauthorized 映射 401（本地令牌鉴权；audit-d02 · D-02）', () => {
+    expect(DF_ERROR_CODES).toContain('unauthorized');
+    expect(DF_ERROR_HTTP_STATUS.unauthorized).toBe(401);
+  });
+
   it('未启动态与缺模型态映射为非 2xx（前端可分支）', () => {
     expect(DF_ERROR_HTTP_STATUS.comfy_unreachable).toBe(503);
     expect(DF_ERROR_HTTP_STATUS.comfy_model_missing).toBe(422);

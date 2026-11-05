@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-
 import { createTestDaemon } from '../testing/harness.ts';
+import { TOKEN_HEADER } from '../token.ts';
 
 describe('daemon · 健康检查（基座冒烟）', () => {
   it('GET /health 返回成功信封与数据目录信息', async () => {
@@ -21,10 +21,14 @@ describe('daemon · 健康检查（基座冒烟）', () => {
     }
   });
 
-  it('未知路由返回统一错误形状（not_found）', async () => {
+  it('未知路由返回统一错误形状（not_found）——令牌合法后才走到路由层', async () => {
     const daemon = await createTestDaemon();
     try {
-      const response = await daemon.app.inject({ method: 'GET', url: '/nope' });
+      const response = await daemon.app.inject({
+        method: 'GET',
+        url: '/nope',
+        headers: { [TOKEN_HEADER]: daemon.token ?? '' },
+      });
       expect(response.statusCode).toBe(404);
       const payload = response.json() as { ok: boolean; error: { code: string } };
       expect(payload.ok).toBe(false);
@@ -34,13 +38,13 @@ describe('daemon · 健康检查（基座冒烟）', () => {
     }
   });
 
-  it('非法 JSON 请求体返回统一错误形状（bad_request）', async () => {
+  it('非法 JSON 请求体返回统一错误形状（bad_request）——令牌合法后才走到解析层', async () => {
     const daemon = await createTestDaemon();
     try {
       const response = await daemon.app.inject({
         method: 'PUT',
         url: '/config',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: '{oops',
       });
       expect(response.statusCode).toBe(400);
