@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * 草稿态 + 提交调度（C5 核心交互语义；arch-02 从 inspector 下沉到 DS）。
  *
