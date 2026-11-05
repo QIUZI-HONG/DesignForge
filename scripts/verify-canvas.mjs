@@ -655,21 +655,25 @@ async function main() {
   // --- 断言 ⑥：保存 → 重载 → 恢复（持久化往返） ---
   const beforeSave = await api.geometry(rectId);
   await page.click('[data-df-studio-action="save"]');
-  const documentId = await waitFor(
-    () => page.evaluate(() => globalThis.__dforgeCanvas.documentId()),
-    {
-      timeout: 30000,
-      interval: 200,
-      label: '保存到 daemon',
-    },
-  ).catch(() => null);
-  const saveNotice =
-    documentId === null
-      ? await page
-          .locator('[data-df-studio-notice]')
-          .textContent()
-          .catch(() => null)
-      : null;
+  // 等保存**态**落定（`[data-df-save-state="saved"]`，与 editor / layers 门禁同一读点）
+  // 再取 documentId——保存身份在内容落盘完成前不可见（audit-d01 · D-01 缺陷 B），
+  // 等错信号会中止在途内容 PUT，把「没保存完」误判成「保存断裂」。
+  const savedInTime = await page
+    .waitForSelector('[data-df-save-state="saved"]', { timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false);
+  const saveState = await page
+    .locator('[data-df-save-state]')
+    .getAttribute('data-df-save-state')
+    .catch(() => null);
+  const documentId = await page.evaluate(() => globalThis.__dforgeCanvas.documentId());
+  // 超时取证路径（既有口径保留）：保存态没落定时，把界面 notice 原文留进证据
+  const saveNotice = savedInTime
+    ? null
+    : await page
+        .locator('[data-df-studio-notice]')
+        .textContent()
+        .catch(() => null);
   const reloadUrl = `${canvasUrl}&doc=${encodeURIComponent(documentId ?? '')}`;
   await page.goto(reloadUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page.waitForSelector('canvas[data-df-canvas]', { timeout: 60_000 });
@@ -690,12 +694,15 @@ async function main() {
   record(
     assertions,
     'A6-save-reload-restore',
-    documentId !== null &&
+    savedInTime === true &&
+      documentId !== null &&
       afterReload !== null &&
       afterReload.x === beforeSave.x &&
       afterReload.y === beforeSave.y &&
       afterReload.width === beforeSave.width,
     {
+      savedInTime,
+      saveState,
       documentId,
       saveNotice,
       beforeSave: { x: beforeSave.x, y: beforeSave.y, width: beforeSave.width },
@@ -909,7 +916,14 @@ async function runWiring(page, api) {
   await page.mouse.click(blank.x, blank.y);
 
   // 1) 选择：点选 / Shift 加选 / 框选
-  const rectId = (await api.nodeIds())[0];
+  const nodeIds = await api.nodeIds();
+  const rectId = nodeIds[0];
+  if (rectId === undefined) {
+    // 空守卫（audit-d01 · D-01 ④）：样例文档没有可操作节点时明确记失败并提前返回——
+    // 不得让 undefined 流进后续 evaluate（indexOf 崩溃会把真因掩成脚本异常）。
+    report('W0-前置：样例文档存在可操作节点', false, { nodeIds });
+    return;
+  }
   const secondId = await api.createRect({ x: 520, y: 320, width: 120, height: 90 });
   const rectCenter = await api.centerOf(rectId);
   const rectPoint = await api.toPage(rectCenter);
