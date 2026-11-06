@@ -124,6 +124,23 @@ const JUDGED_THRESHOLD_FIELDS = [
   'm5SaveRoundTripMs',
 ];
 
+/**
+ * 阈值比较容差（毫秒）——阈值入库粒度为 0.1ms（基线校准规则「较差值向上取整到 0.1ms」），
+ * 实测值是 IEEE 双浮点的累计结果，表示噪声可比粒度低约 11 个数量级
+ * （audit-d07 实录：interval p95 = 16.800000000000182 vs 阈值 16.8，被无容差比较判成
+ * 「超阈 0.0000000000002ms」的假违规）。1e-6ms（1 纳秒）只吸收表示伪差，
+ * 比阈值粒度低 5 个数量级——不放过任何真实回退（真实回退 ≥ 粒度 0.1ms）。
+ */
+const THRESHOLD_EPSILON_MS = 1e-6;
+
+/**
+ * 阈值超限判定（唯一比较口径；evaluatePerf / evaluatePerfRun 共用）。
+ * 实测值严格大于「阈值 + 容差」才算超阈——粒度内的浮点伪差不算性能回退。
+ */
+function exceedsThreshold(value, threshold) {
+  return value > threshold + THRESHOLD_EPSILON_MS;
+}
+
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
 const selfTestMode = args.includes('--self-test');
@@ -323,7 +340,7 @@ export function evaluatePerf(snapshot, baseline, options) {
   }
   if (
     typeof thresholds.m2IntervalP95Ms === 'number' &&
-    snapshot.interval.p95Ms > thresholds.m2IntervalP95Ms
+    exceedsThreshold(snapshot.interval.p95Ms, thresholds.m2IntervalP95Ms)
   ) {
     violations.push(
       `interval.p95Ms ${snapshot.interval.p95Ms}ms > 阈值 ${thresholds.m2IntervalP95Ms}ms（M2 交互帧率回退）`,
@@ -331,7 +348,7 @@ export function evaluatePerf(snapshot, baseline, options) {
   }
   if (
     typeof thresholds.m2DurationP95Ms === 'number' &&
-    snapshot.duration.p95Ms > thresholds.m2DurationP95Ms
+    exceedsThreshold(snapshot.duration.p95Ms, thresholds.m2DurationP95Ms)
   ) {
     violations.push(
       `duration.p95Ms ${snapshot.duration.p95Ms}ms > 阈值 ${thresholds.m2DurationP95Ms}ms（绘制耗时回退）`,
@@ -512,7 +529,7 @@ export function evaluatePerfRun(run, baseline) {
   const violations = [];
   const judge = (label, value, threshold) => {
     if (typeof threshold !== 'number') return; // 记录性
-    if (value > threshold) {
+    if (exceedsThreshold(value, threshold)) {
       violations.push(`${label} ${value}ms > 阈值 ${threshold}ms（@${run.size}）`);
     }
   };
@@ -711,6 +728,22 @@ export function selfTest() {
     [
       'interval p95 超阈',
       evaluatePerf({ ...snapshot, interval: { ...snapshot.interval, p95Ms: 20 } }, baseline).code,
+      1,
+    ],
+    [
+      'interval p95 阈值粒度容差（浮点表示伪差 16.700000000000003 vs 16.7 不判违规）',
+      evaluatePerf(
+        { ...snapshot, interval: { ...snapshot.interval, p95Ms: 16.700000000000003 } },
+        baseline,
+      ).code,
+      0,
+    ],
+    [
+      '运行包 interval p95 粒度容差（真实回退 16.8 > 16.7 仍判违规）',
+      evaluatePerfRun(
+        { ...run, m2: { intervalP95Ms: 16.8, intervalP99Ms: 17, intervalSamples: 120 } },
+        baseline,
+      ).code,
       1,
     ],
     ['全达标（快照判定）', evaluatePerf(snapshot, baseline).code, 0],
