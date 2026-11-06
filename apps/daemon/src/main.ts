@@ -6,7 +6,8 @@
  * - `DFORGE_CORS_ORIGINS`（CORS 白名单，逗号分隔；缺省仅本机开发来源，别名 `DF_CORS_ORIGINS`）；
  * - `DFORGE_ALLOWED_HOSTS`（Host allowlist 扩展，逗号分隔；缺省仅本机回环 127.0.0.1/localhost/::1，
  *   别名 `DF_ALLOWED_HOSTS`——非回环部署经反代接入时用）；
- * - `DF_DEEPSEEK_API_KEY`（凭据库只读回退源；AI 供应商/模型等改走 `PUT /config`）。
+ * - `DF_DEEPSEEK_API_KEY`（凭据库只读回退源；AI 供应商/模型等改走 `PUT /config`）；
+ * - `DF_BODY_LIMIT`（请求体上限，audit-d05 · D-08；`32mb`/`512kb`/裸字节数，缺省 32 MB）。
  * 启动成功后向 stdout 打印一行 `[daemon] listening on http://host:port`（脚本据此取端口）。
  */
 

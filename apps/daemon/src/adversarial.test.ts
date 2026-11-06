@@ -193,8 +193,10 @@ describe('对抗 · 并发与原子写', () => {
 });
 
 describe('对抗 · 错误形状', () => {
+  // 注：缺省 bodyLimit 已上调 32MB（audit-d05 · D-08）——本用例显式注入 64KB 小上限，
+  // 让「超大请求体」形态在用例内可控地复现（1.2MB 在缺省 32MB 下已是合法请求）。
   it('畸形 JSON / 未知路由 / 超大请求体 均为统一失败信封', async () => {
-    const daemon = await createTestDaemon();
+    const daemon = await createTestDaemon({ bodyLimit: 64 * 1024 });
     try {
       const malformed = await daemon.app.inject({
         method: 'POST',
@@ -213,10 +215,10 @@ describe('对抗 · 错误形状', () => {
         method: 'POST',
         url: '/documents',
         headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
-        payload: JSON.stringify({ name: 'big', pad: 'x'.repeat(1_200_000) }),
+        payload: JSON.stringify({ name: 'big', pad: 'x'.repeat(200_000) }),
       });
-      expect(oversized.statusCode).toBe(400);
-      expect(oversized.json()).toMatchObject({ ok: false, error: { code: 'bad_request' } });
+      expect(oversized.statusCode).toBe(413);
+      expect(oversized.json()).toMatchObject({ ok: false, error: { code: 'body_too_large' } });
     } finally {
       await daemon.cleanup();
     }

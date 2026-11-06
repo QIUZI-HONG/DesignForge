@@ -13,6 +13,8 @@ export const DF_ERROR_CODES = [
   'not_found',
   'conflict',
   'internal',
+  // 请求体超限（audit-d05 · D-08：daemon bodyLimit 可配置 DF_BODY_LIMIT，超限 413 人话中文）
+  'body_too_large',
   // 本地令牌鉴权（audit-d02 · D-02：daemon 本地特权面收敛——除 /health 与 CORS 预检外
   // 一律要求令牌，缺失/错误 401；令牌文件 `<dataRoot>/daemon-token` 0600）
   'unauthorized',
@@ -65,6 +67,7 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   not_found: 404,
   conflict: 409,
   internal: 500,
+  body_too_large: 413,
   unauthorized: 401,
   host_not_allowed: 403,
   doc_not_found: 404,

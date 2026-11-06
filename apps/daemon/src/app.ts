@@ -8,11 +8,12 @@
  * - 凭据只在 daemon 侧解密使用，任何响应/日志不得出现明文 key。
  */
 
-import { apiFailure, DAEMON_ROUTES } from '@dforge/contracts';
+import { apiFailure, DAEMON_ROUTES, DF_ERROR_HTTP_STATUS } from '@dforge/contracts';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import Fastify from 'fastify';
 import type { AiClient } from './ai/client.ts';
 import { createAiClient } from './ai/client.ts';
+import { bodyLimitFromEnv, formatBodyLimit } from './body-limit.ts';
 import type { ConfigStore } from './config/store.ts';
 import { createConfigStore } from './config/store.ts';
 import type { DaemonPaths } from './context.ts';
@@ -85,6 +86,11 @@ export interface DaemonAppOptions {
   daemonToken?: string;
   /** 显式关闭本地令牌鉴权（缺省读 `DF_AUTH_DISABLED`；逃生阀，缺省必须开）。 */
   authDisabled?: boolean;
+  /**
+   * 请求体上限字节数（audit-d05 · D-08；缺省读 `DF_BODY_LIMIT`，再回退 32 MB——
+   * 5k 节点文档数 MB 级，Fastify 缺省 1MiB 不够）。
+   */
+  bodyLimit?: number;
 }
 
 /** 运行时上下文（路由注册共用；所有路径/存储的唯一入口）。 */
@@ -175,8 +181,10 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
     startedAt: now(),
   };
 
-  const app = Fastify({ logger: options.logger ?? false });
-  registerErrorHandlers(app);
+  // 请求体上限（audit-d05 · D-08）：显式选项 > env DF_BODY_LIMIT > 缺省 32 MB（见 body-limit.ts）
+  const bodyLimit = options.bodyLimit ?? bodyLimitFromEnv(process.env);
+  const app = Fastify({ logger: options.logger ?? false, bodyLimit });
+  registerErrorHandlers(app, bodyLimit);
   // 本地令牌鉴权（audit-d02 · D-02）：缺省开启；令牌文件 `<dataRoot>/daemon-token`（0600）。
   // 钩子次序 = Host allowlist → 令牌 → CORS：无令牌请求在 CORS 层之前 401（不带 CORS 头），
   // `Origin: null` 的放行因此只在带合法令牌（打包壳）时可达——见 cors.ts / token.ts 模块头
@@ -223,7 +231,7 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
 }
 
 /** 统一错误处理：所有失败都以 `{ ok:false, error }` 形状返回。 */
-function registerErrorHandlers(app: FastifyInstance): void {
+function registerErrorHandlers(app: FastifyInstance, bodyLimit: number): void {
   app.setErrorHandler((rawError, _request, reply) => {
     const error = rawError as { statusCode?: number; message?: string };
     const statusCode = typeof error.statusCode === 'number' ? error.statusCode : 500;
@@ -231,6 +239,20 @@ function registerErrorHandlers(app: FastifyInstance): void {
       typeof error.message === 'string' ? error.message.slice(0, 300) : '未提供错误信息';
     if (statusCode >= 500) {
       reply.status(500).send(apiFailure('internal', 'daemon 内部错误', { reason: message }));
+      return;
+    }
+    // 请求体超限（audit-d05 · D-08）：保留 413 语义 + 人话中文（Fastify 原文是英文
+    // "Request body is too large"，且曾被 4xx 归一分支折叠成 400）
+    if (statusCode === DF_ERROR_HTTP_STATUS.body_too_large) {
+      reply
+        .status(DF_ERROR_HTTP_STATUS.body_too_large)
+        .send(
+          apiFailure(
+            'body_too_large',
+            `请求体超过 daemon 上限（${formatBodyLimit(bodyLimit)}）：请减小请求，或设置环境变量 DF_BODY_LIMIT 调大（如 DF_BODY_LIMIT=64mb）`,
+            { limit: bodyLimit },
+          ),
+        );
       return;
     }
     // 4xx（含 Fastify 的 JSON 解析/校验错误）统一归入 bad_request
