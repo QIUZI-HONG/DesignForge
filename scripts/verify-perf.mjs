@@ -1483,7 +1483,11 @@ async function mainRealChain(baselineInput, requestedSizes) {
       });
       const pageBody = buildPageBody(document);
       const firstNodeId = document.pages[0].rootIds[0];
-      const created = await daemonCreateDocument(daemonUrl, `perf-bench-${size}`, fixtureDaemon.token);
+      const created = await daemonCreateDocument(
+        daemonUrl,
+        `perf-bench-${size}`,
+        fixtureDaemon.token,
+      );
       if (!created.ok) {
         evidence.tiers.push({
           size,

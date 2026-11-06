@@ -12,9 +12,9 @@
  * 并把工作目录指向给定夹具目录——取样与判定都跑在真链路上。
  */
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
-import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';

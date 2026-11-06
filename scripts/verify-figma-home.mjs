@@ -161,9 +161,11 @@ await runFigmaGate({
       gateway === null
         ? ''
         : `?daemon=${encodeURIComponent(`${gateway.url}/df`)}` +
-          (daemon === null || daemon === undefined
-            ? ''
-            : `&dfToken=${encodeURIComponent(daemon.token)}`)
+          (
+            daemon === null || daemon === undefined
+              ? ''
+              : `&dfToken=${encodeURIComponent(daemon.token)}`
+          )
     }`,
   only,
   onlyKey: 'state',

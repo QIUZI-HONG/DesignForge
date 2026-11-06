@@ -42,10 +42,10 @@ import {
   readlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 import { resolveChromeExecutable } from './lib/browser-toolchain.mjs';

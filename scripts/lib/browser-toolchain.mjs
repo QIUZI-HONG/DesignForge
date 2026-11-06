@@ -58,7 +58,12 @@ export function resolveChromeExecutable() {
  * @param {string} [prefix] 页面里的相对前缀（默认 {@link DAEMON_ROUTE_PREFIX}）
  * @param {{ token?: string | null }} [options] 令牌注入（页面未带头时用；测试转发器专用）
  */
-export async function forwardDaemonRequests(page, daemonUrl, prefix = DAEMON_ROUTE_PREFIX, options = {}) {
+export async function forwardDaemonRequests(
+  page,
+  daemonUrl,
+  prefix = DAEMON_ROUTE_PREFIX,
+  options = {},
+) {
   await page.route(`**${prefix}/**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -66,7 +71,7 @@ export async function forwardDaemonRequests(page, daemonUrl, prefix = DAEMON_ROU
     const hasBody = request.method() !== 'GET' && request.method() !== 'HEAD';
     // 令牌：页面自带 → 透传；否则回退注入值（外部 daemon 形态）
     const pageToken = request.headers()['x-df-token'];
-    const token = pageToken ?? (options.token ?? null);
+    const token = pageToken ?? options.token ?? null;
     try {
       const response = await fetch(target, {
         method: request.method(),

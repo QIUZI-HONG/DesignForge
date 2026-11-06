@@ -129,7 +129,9 @@ export async function resolveDaemon({
     log(`[daemon] 使用外部 daemon（DF_DAEMON_URL 显式给定）：${url}`);
     const externalToken = typeof env.DF_DAEMON_TOKEN === 'string' ? env.DF_DAEMON_TOKEN.trim() : '';
     if (externalToken === '') {
-      log('[daemon] ⚠ 外部 daemon 未给 DF_DAEMON_TOKEN：非 /health 直连请求将被 401（daemon 令牌鉴权，audit-d02）。');
+      log(
+        '[daemon] ⚠ 外部 daemon 未给 DF_DAEMON_TOKEN：非 /health 直连请求将被 401（daemon 令牌鉴权，audit-d02）。',
+      );
     }
     return {
       url,
