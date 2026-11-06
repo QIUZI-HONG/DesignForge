@@ -8,7 +8,8 @@
  *    `contents/{path}`、`search/repositories`、`rate_limit` —— **全部 GET**；
  *  - 条件请求：core 资源带 `If-None-Match`，304 → 返回缓存解析结果（不重复下载）；
  *  - 录制/重放：录制 fetch 写 JSONL 样本；重放 fetch 离线复跑（缺样本抛
- *    `ReplayMissError`——明确阻塞，不静默伪造）。
+ *    `ReplayMissError`——明确阻塞，不静默伪造）。样本解析容错（audit-d05 · D-07）：
+ *    单个坏行跳过并告警（`ParseRecordedOptions.onWarning`，缺省 stderr），不炸整批。
  */
 
 import { spawnSync } from 'node:child_process';
@@ -521,14 +522,49 @@ export function createRecordingFetch(
   };
 }
 
-/** 解析 JSONL 样本为录制响应数组（重放入口）。 */
-export function parseRecordedResponses(jsonl: string): RecordedResponse[] {
+/** 解析告警选项（audit-d05 · D-07）：坏行跳过但不许静默吞——逐行告警，缺省写 stderr。 */
+export interface ParseRecordedOptions {
+  /** 告警接收器（缺省 `process.stderr.write`；调用方注入以进日志/计数）。 */
+  onWarning?: (warning: string) => void;
+}
+
+/**
+ * 解析 JSONL 样本为录制响应数组（重放入口）。
+ *
+ * 容错口径（audit-d05 · D-07）：单个坏行（非 JSON 文本/非响应形状）**跳过并告警**，
+ * 好行照常解析——坏行不再炸整批重放；告警带行号与截断原文，计数即告警条数。
+ */
+export function parseRecordedResponses(
+  jsonl: string,
+  opts?: ParseRecordedOptions,
+): RecordedResponse[] {
+  const warn = opts?.onWarning ?? ((warning: string) => process.stderr.write(`${warning}\n`));
   const out: RecordedResponse[] = [];
-  for (const line of jsonl.split('\n')) {
-    const trimmed = line.trim();
+  const lines = jsonl.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = (lines[index] ?? '').trim();
     if (trimmed === '') continue;
-    const parsed = JSON.parse(trimmed) as RecordedResponse;
-    out.push(parsed);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      warn(
+        `重放样本第 ${index + 1} 行不是合法 JSON，已跳过：${trimmed.slice(0, 80)}（原文 ${trimmed.length} 字符）`,
+      );
+      continue;
+    }
+    // 形状守门：非对象或缺 url 的行无法参与重放（createReplayFetch 按 url 建索引），同样跳过
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      typeof (parsed as { url?: unknown }).url !== 'string'
+    ) {
+      warn(
+        `重放样本第 ${index + 1} 行不是录制响应形状（缺 url），已跳过：${trimmed.slice(0, 80)}`,
+      );
+      continue;
+    }
+    out.push(parsed as RecordedResponse);
   }
   return out;
 }
