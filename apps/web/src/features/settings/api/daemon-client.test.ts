@@ -113,6 +113,25 @@ describe('daemon 请求：信封解包与错误形状', () => {
     expect(error).toBeInstanceOf(DaemonClientError);
     expect((error as DaemonClientError).kind).toBe('network');
   });
+
+  it('daemon 活着但不响应：到注入上限落为 network 类超时错误（audit-d04 · D-04，不永久 pending）', async () => {
+    // 替身永不落定（也不看 signal）——调用方只能靠超时上限脱身
+    const fetchImpl: typeof fetch = (() => new Promise<Response>(() => undefined)) as typeof fetch;
+    const client = createDaemonClient({ fetchImpl, timeoutMs: 120 });
+
+    const startedAt = Date.now();
+    const error: unknown = await client.request(DAEMON_ROUTES.config).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DaemonClientError);
+    const typed = error as DaemonClientError;
+    expect(typed.kind).toBe('network');
+    expect(typed.code).toBeNull();
+    // 超时人话（含「请求超时」→ daemon-failure 归网络族 → 设置页给统一失败文案），
+    // 不误套「请确认 daemon 已启动」的不可达引导
+    expect(typed.message).toContain('请求超时');
+    expect(typed.message).not.toContain('无法连接本地服务');
+    // 有界：注入 120ms 上限生效（真等不会超过测试超时）
+    expect(Date.now() - startedAt).toBeLessThan(4_000);
+  });
 });
 
 describe('settings api：端点落点与载荷', () => {

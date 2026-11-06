@@ -11,9 +11,12 @@
  *
  * 错误形态对齐既有 `{ok:false,error}` 信封（同 `DebugIoResult`）：
  * 解析失败给引擎领域错误原文（中文人话，如「文档内容不是合法 JSON」），界面提示
- * 由宿主经 i18n 包一层（见 `editor.import.failed`）。
+ * 由宿主经 i18n 包一层（见 `editor.import.failed`）；本模块自产的两条文案（无可用页面）
+ * 也直接取自 i18n 目录（audit-d04 · D-10：zh-CN 唯一暴露，不硬编码中文字面量）。
  */
 import { countNodes, parseDocument } from '@dforge/engine';
+
+import { t } from '@/i18n';
 
 import type { DocumentBridge } from './document-bridge';
 
@@ -25,7 +28,7 @@ export type ImportIrResult = { ok: true; nodes: number } | { ok: false; error: s
  *
  * - 解析失败（非法 JSON / 结构校验不过 / 超深载荷）→ 引擎领域错误原文，会话保持原样；
  * - 文档无可用页面 → 不替换（防御分支：引擎解析已拒绝空页文档，桥再拒一次；
- *   与 `/_canvas` 既有实现同一文案口径）；
+ *   文案键 `editor.load.noPages`，两宿主同源）；
  * - 成功 → `adoptLocal` 已换真值并清落盘身份（导入的是另一份内容，不写回上一份文档）。
  */
 export function importIrIntoBridge(text: string, bridge: DocumentBridge): ImportIrResult {
@@ -36,7 +39,7 @@ export function importIrIntoBridge(text: string, bridge: DocumentBridge): Import
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
   if (!bridge.adoptLocal(parsed.document)) {
-    return { ok: false, error: '文档无可用页面' };
+    return { ok: false, error: t('editor.load.noPages') };
   }
   const firstPage = parsed.document.pages[0];
   return { ok: true, nodes: firstPage === undefined ? 0 : countNodes(firstPage) };
