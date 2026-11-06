@@ -28,7 +28,7 @@ import { t } from '@/i18n';
 // 面板样式（令牌变量；禁裸值——样式集中在 editor-components.css）
 import '../editor-components.css';
 
-import { useDocumentSnapshot } from '../hooks/useDocumentSnapshot';
+import { useDocumentSnapshot } from '@/lib/use-document-snapshot';
 import {
   COMPONENT_COMMAND_LABELS,
   createComponentFromSelection,

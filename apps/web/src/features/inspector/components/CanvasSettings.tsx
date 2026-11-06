@@ -16,7 +16,7 @@ import { t } from '@/i18n';
 // 面板样式（令牌变量；禁裸值——样式集中在 inspector.css）
 import '../inspector.css';
 
-import { useDocumentSnapshot } from '../hooks/useDocumentSnapshot';
+import { useDocumentSnapshot } from '@/lib/use-document-snapshot';
 import { DraftTextField, FieldRow, SwitchField } from './controls';
 import { MIXED_PLACEHOLDER, NUMBER_FIELD_MESSAGES } from './number-field-copy';
 

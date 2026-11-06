@@ -25,7 +25,7 @@ import { useMemo } from 'react';
 
 import { t } from '@/i18n';
 
-import { useDocumentSnapshot } from '../hooks/useDocumentSnapshot';
+import { useDocumentSnapshot } from '@/lib/use-document-snapshot';
 import {
   AlignBottomIcon,
   AlignHCenterIcon,

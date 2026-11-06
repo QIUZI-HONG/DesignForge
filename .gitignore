@@ -15,6 +15,10 @@ dist/
 coverage/
 artifacts/
 
+# 本地草稿区（audit-d10 · D-15）：一次性草稿与临时脚本不入库；
+# gitignore 不影响已跟踪的历史文件（.scratch/ 下既有跟踪文件保持原状）
+.scratch/
+
 # 画布运行时资产（FE-06：CanvasKit wasm + Noto Sans SC 子集，第三方二进制不入库）
 # 生成：pnpm --filter @dforge/web copy:canvaskit（node src/features/canvas/tools/copy-canvaskit-assets.mjs）
 apps/web/public/canvaskit/
