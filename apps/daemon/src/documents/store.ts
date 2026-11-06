@@ -25,6 +25,7 @@ import type {
   DocumentListResponse,
   DocumentListWarning,
   DocumentSummary,
+  PageWriteResponse,
 } from '@dforge/contracts';
 import {
   DEFAULT_PAGE_ID,
@@ -57,6 +58,7 @@ export type StoreErrorCode =
   | 'doc_invalid_body'
   | 'doc_invalid_manifest'
   | 'doc_last_page'
+  | 'doc_revision_conflict'
   | 'not_found'
   | 'conflict';
 
@@ -93,15 +95,29 @@ export interface DocumentStore {
   rename(documentId: string, name: string): Promise<StoreResult<DocumentSummary>>;
   remove(documentId: string): Promise<StoreResult<{ id: string }>>;
   readPage(documentId: string, pageId: string): Promise<StoreResult<PageReadResult>>;
-  savePage(documentId: string, pageId: string, body: unknown): Promise<StoreResult<DfgPageMeta>>;
+  /**
+   * 保存页面正文（audit-d06 · D-05 支持条件保存）：
+   * `options.expectedRevision` 给定时在**提交锁内**比对 manifest.version——不匹配即
+   * 409 `doc_revision_conflict`（正文与版本不变）；未给定时走旧行为
+   * （last-write-wins，向后兼容硬约束：旧客户端不破）。
+   * 成功返回新页元数据 + 写入后的文档 revision（多写保存链据此推进下一写的基线）。
+   */
+  savePage(
+    documentId: string,
+    pageId: string,
+    body: unknown,
+    options?: { expectedRevision?: number },
+  ): Promise<StoreResult<PageWriteResponse>>;
   /**
    * 建页：缺省跳号分配（`page-N`）；`options.id` 给定时按该 id 建页（已存在 → `doc_exists`）。
+   * `options.expectedRevision` 同 savePage 的条件保存语义（基线过期 → 409，不静默追加
+   * 到他人已修改的文档上）。
    */
   createPage(
     documentId: string,
     name: string,
-    options?: { id?: string },
-  ): Promise<StoreResult<DfgPageMeta>>;
+    options?: { id?: string; expectedRevision?: number },
+  ): Promise<StoreResult<PageWriteResponse>>;
   deletePage(
     documentId: string,
     pageId: string,
@@ -151,6 +167,24 @@ function invalidPageId(): StoreResult<never> {
 
 function pageNotFound(documentId: string, pageId: string): StoreResult<never> {
   return { ok: false, code: 'not_found', message: '页面不存在', details: { documentId, pageId } };
+}
+
+/**
+ * revision 冲突（audit-d06 · D-05 · Q2=A）：条件保存的基线过期——409 拒绝，正文与版本
+ * **不变**（不落盘）；不做自动合并。前端据此渲染「文档已被另一窗口修改」+ 手动刷新。
+ */
+function revisionConflict(
+  documentId: string,
+  pageId: string,
+  expectedRevision: number,
+  currentRevision: number,
+): StoreResult<never> {
+  return {
+    ok: false,
+    code: 'doc_revision_conflict',
+    message: '文档已被另一窗口修改：本次保存基于旧版本，已拒绝（请刷新载入最新版本后再保存）',
+    details: { documentId, pageId, expectedRevision, currentRevision },
+  };
 }
 
 /** manifest 提交计划：成功给出「下一个 manifest + 返回值」，失败给出统一存储错误。 */
@@ -272,6 +306,8 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       createdAt: manifest.createdAt,
       updatedAt: manifest.updatedAt,
       pageCount: manifest.pages.length,
+      // revision = manifest.version（保存冲突检测的基线；audit-d06 · D-05）
+      revision: manifest.version,
       sizeBytes,
     };
   };
@@ -504,7 +540,8 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       documentId: string,
       pageId: string,
       body: unknown,
-    ): Promise<StoreResult<DfgPageMeta>> {
+      options?: { expectedRevision?: number },
+    ): Promise<StoreResult<PageWriteResponse>> {
       const paths = await resolveDocPaths(documentId);
       if (!paths.ok) return paths;
       if (!isValidPageId(pageId)) return invalidPageId();
@@ -527,10 +564,19 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       }
       const pagePath = await resolvePagePath(paths.value, documentId, pageId);
       if (pagePath === null) return invalidPageId();
+      const expectedRevision = options?.expectedRevision;
       return lock.run(documentId, async () => {
         return commitManifest(documentId, paths.value, async (current) => {
           const page = current.pages.find((item) => item.id === pageId);
           if (page === undefined) return { ok: false, result: pageNotFound(documentId, pageId) };
+          // 条件保存（audit-d06 · D-05）：在提交锁内比对基线——比对与写入原子，
+          // 跨进程写者的重试路径也按最新 manifest 重判（不匹配即拒绝，不覆盖）
+          if (expectedRevision !== undefined && current.version !== expectedRevision) {
+            return {
+              ok: false,
+              result: revisionConflict(documentId, pageId, expectedRevision, current.version),
+            };
+          }
           const now = new Date().toISOString();
           const nextPage: DfgPageMeta = { ...page, updatedAt: now };
           // 提交顺序：正文先落盘、manifest 最后（崩溃时读者仍见一致状态）
@@ -541,7 +587,7 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
             updatedAt: now,
             pages: current.pages.map((item) => (item.id === pageId ? nextPage : item)),
           };
-          return { ok: true, next, value: nextPage };
+          return { ok: true, next, value: { page: nextPage, revision: next.version } };
         });
       });
     },
@@ -549,8 +595,8 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
     async createPage(
       documentId: string,
       name: string,
-      options?: { id?: string },
-    ): Promise<StoreResult<DfgPageMeta>> {
+      options?: { id?: string; expectedRevision?: number },
+    ): Promise<StoreResult<PageWriteResponse>> {
       if (!isValidDocumentName(name)) {
         return {
           ok: false,
@@ -561,12 +607,20 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
       }
       const requestedId = options?.id;
       if (requestedId !== undefined && !isValidPageId(requestedId)) return invalidPageId();
+      const expectedRevision = options?.expectedRevision;
       const paths = await resolveDocPaths(documentId);
       if (!paths.ok) return paths;
       return lock.run(documentId, async () => {
         return commitManifest(documentId, paths.value, async (current) => {
+          // 条件保存（audit-d06 · D-05）：基线过期先拒绝——不静默追加到他人已修改的文档上
+          if (expectedRevision !== undefined && current.version !== expectedRevision) {
+            return {
+              ok: false,
+              result: revisionConflict(documentId, requestedId ?? '', expectedRevision, current.version),
+            };
+          }
           // 「已占用」= manifest 页 id ∪ 目标目录内既有文件名，按大小写归一后比较
-          // （Security S1：大小写不敏感文件系统上 PAGE-1/page-1 是同一文件；残留页文件也不得覆盖）
+          // （Security S1：大小写不敏感文件系统上 PAGE-1/page-1 是同一页文件；残留页文件也不得覆盖）
           const taken = new Map<string, string>();
           for (const page of current.pages) taken.set(foldPageId(page.id), page.id);
           for (const id of await listPageIdsOnDisk(paths.value.pagesDir)) {
@@ -614,7 +668,7 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
             updatedAt: now,
             pages: [...current.pages, page],
           };
-          return { ok: true, next, value: page };
+          return { ok: true, next, value: { page, revision: next.version } };
         });
       });
     },
