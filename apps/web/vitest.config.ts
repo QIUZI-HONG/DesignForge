@@ -28,5 +28,22 @@ export default defineConfig({
     // tp2-05 重新落地：前置条件=F-3 五点卫生根治已入（test-setup.ts 全局兜底三件套 + 五点逐条），
     // 判定性验收=全 workspace `pnpm verify` ≥2 轮绿（上次翻车现场即 E1' 全链，见企业报告 v1.1 §isolate）。
     isolate: false,
+    // 覆盖率（audit-d08 · D-11）：v8 provider，只统计 `src/**` 源码（测试文件 /
+    // 类型声明 / 测试装配与夹具不计入）；json-summary 供 CI 与审计脚本按文件取数。
+    // 报数口径（audit-d08 · coverage:report）：web 与其余包同场全量报数（统一、可复核；
+    // 本包用例最多，coverage 步的时长代价已在 ci.yml 注释如实记录）。
+    coverage: {
+      provider: 'v8',
+      include: ['src/**'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/**/*.test.tsx',
+        'src/**/*.d.ts',
+        'src/test-setup.ts',
+        'src/**/__fixtures__/**',
+      ],
+      reporter: ['text', 'json-summary'],
+      reportsDirectory: 'coverage',
+    },
   },
 });

@@ -13,5 +13,21 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     testTimeout: 30_000,
+    // 覆盖率（audit-d08 · D-11）：v8 provider，只统计 `src/**` 源码（测试文件 /
+    // 类型声明 / 冻结样本与快照夹具不计入——coverage.all 会把未被 import 的样本数据
+    // 按 0 行记账，计入即与 TEST_REPORT §2 基线不可比）；json-summary 供 CI 与审计脚本按文件取数。
+    coverage: {
+      provider: 'v8',
+      include: ['src/**'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/**/*.test.tsx',
+        'src/**/*.d.ts',
+        'src/**/__fixtures__/**',
+        'src/**/__snapshots__/**',
+      ],
+      reporter: ['text', 'json-summary'],
+      reportsDirectory: 'coverage',
+    },
   },
 });
