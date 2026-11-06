@@ -164,9 +164,7 @@ function revisionDaemon(options?: { withRevisions?: boolean }): RevisionDaemon {
       }
       const requested = body.id;
       const pageId =
-        typeof requested === 'string'
-          ? requested
-          : `page-${String(document.pages.size + 1)}`;
+        typeof requested === 'string' ? requested : `page-${String(document.pages.size + 1)}`;
       if (document.pages.has(pageId)) return reply(409, apiFailure('doc_exists', '页面 id 已存在'));
       document.pages.set(pageId, {});
       document.pageNames.set(pageId, String(body.name ?? ''));
@@ -270,9 +268,14 @@ describe('documents-client · 条件保存（audit-d06 · D-05）', () => {
   it('savePage 带 ifMatchRevision → 发出 If-Match 头；响应 revision 回传', async () => {
     const daemon = revisionDaemon();
     daemon.seed('doc-1', [{ id: 'page-1', body: {} }]);
-    const saved = await daemon.client.savePage('doc-1', 'page-1', { v: 1 }, {
-      ifMatchRevision: 1,
-    });
+    const saved = await daemon.client.savePage(
+      'doc-1',
+      'page-1',
+      { v: 1 },
+      {
+        ifMatchRevision: 1,
+      },
+    );
     expect(saved.ok).toBe(true);
     if (!saved.ok) return;
     expect(saved.value.revision).toBe(2);
@@ -285,9 +288,14 @@ describe('documents-client · 条件保存（audit-d06 · D-05）', () => {
     // 他人先写：revision 前进到 2
     await daemon.client.savePage('doc-1', 'page-1', { v: '先写' }, { ifMatchRevision: 1 });
     // 本窗口持旧基线 1 保存
-    const stale = await daemon.client.savePage('doc-1', 'page-1', { v: '旧基线' }, {
-      ifMatchRevision: 1,
-    });
+    const stale = await daemon.client.savePage(
+      'doc-1',
+      'page-1',
+      { v: '旧基线' },
+      {
+        ifMatchRevision: 1,
+      },
+    );
     expect(stale.ok).toBe(false);
     if (stale.ok) return;
     expect(stale.code).toBe('doc_revision_conflict');
@@ -327,9 +335,14 @@ describe('documents-client · 条件保存（audit-d06 · D-05）', () => {
     expect(loadA.ok && loadB.ok).toBe(true);
 
     // 窗口 A 改第一页（矩形位移到 x=99）并保存 → 成功（revision 1 → 3）
-    const savedA = await saveDesignDocument(daemon.client, 'doc-1', fixtureDocument('冲突文档', 99), {
-      baselineRevision: 1,
-    });
+    const savedA = await saveDesignDocument(
+      daemon.client,
+      'doc-1',
+      fixtureDocument('冲突文档', 99),
+      {
+        baselineRevision: 1,
+      },
+    );
     expect(savedA.ok).toBe(true);
 
     // 窗口 B 仍持旧基线 1 保存（修复前：200 静默覆盖 A 的更新）

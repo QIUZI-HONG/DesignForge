@@ -13,10 +13,14 @@
  * 口径（两侧共用同一套 `features/canvas/persistence/documents-client.ts`，不新造第二套）：
  * - **载入**：`load(id)` 走 `loadDesignDocument`（逐页读回 → 引擎 `parseDocument` 结构校验），
  *   交给宿主 `adopt(...)` **以 `document.replace` 命令**替换进共享命令栈（写路径唯一性），
- *   并清空历史（载入不该能被撤销回内存空文档）；
+ *   并清空历史（载入不该能被撤销回内存空文档）；载入时刻的文档 revision 记为**保存基线**；
  * - **保存**：`save()` 走 `saveDesignDocument`（逐页 PUT，页面不存在时先建）；
  *   未落盘文档先按名**幂等**落盘——同名已存在则复用（两个宿主同一口径），不产生第二份；
- * - **本地替换**：`adoptLocal(document)` 供「导入 IR」这类**不落盘**的整文档替换（清掉落盘身份）；
+ *   已载入文档按基线发 `If-Match` 条件保存（audit-d06 · D-05）：另一窗口先保存过 →
+ *   daemon 409 `doc_revision_conflict` → 保存态给独立冲突文案 + 手动刷新（Q2=A，
+ *   不做自动合并）；冲突后基线不推进——不刷新就重存仍 409（确定性拒绝，不静默覆盖）；
+ * - **本地替换**：`adoptLocal(document)` 供「导入 IR」这类**不落盘**的整文档替换（清掉落盘
+ *   身份与保存基线——导入的是另一份内容，下次保存是首次落盘）；
  * - **保存态**：`dirty（未保存）/ saving（保存中…）/ saved（已保存）/ error（失败 + 原因）`；
  *   保存期间继续编辑不会谎报「已保存」（按保存起点与当前修订号比对，落后即回「未保存」）；
  * - **顶栏真名**：`name` 取文档真值（非内存占位名），壳层据此显示真实文件名。
@@ -183,11 +187,7 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
     }
   });
 
-  const fail = (
-    kind: DocumentErrorKind,
-    error: string,
-    code?: string,
-  ): DocumentBridgeResult => {
+  const fail = (kind: DocumentErrorKind, error: string, code?: string): DocumentBridgeResult => {
     store.setState({ status: 'error', error, errorKind: kind, errorCode: code ?? null });
     return { ok: false, error };
   };

@@ -37,9 +37,8 @@ async function createDocument(
     payload: { name },
   });
   expect(created.statusCode).toBe(201);
-  const document = (
-    created.payload as { result: { document: { id: string; revision: number } } }
-  ).result.document;
+  const document = (created.payload as { result: { document: { id: string; revision: number } } })
+    .result.document;
   return { id: document.id, revision: document.revision };
 }
 
@@ -106,7 +105,13 @@ describe('documents · 保存冲突检测（audit-d06 · D-05）', () => {
       // 两个窗口都基于 revision 载入（J8：双页同文档）
       const url = `/documents/${encodeURIComponent(id)}/pages/page-1`;
       // 「窗口 1」条件保存成功 → 200，revision 前进
-      const first = await savePageWithMatch(daemon, id, 'page-1', { v: '窗口1-位移' }, String(revision));
+      const first = await savePageWithMatch(
+        daemon,
+        id,
+        'page-1',
+        { v: '窗口1-位移' },
+        String(revision),
+      );
       expect(first.statusCode).toBe(200);
       const firstBody = first.payload as { result: { revision: number; page: { id: string } } };
       expect(firstBody.result.revision).toBe(revision + 1);
@@ -120,10 +125,14 @@ describe('documents · 保存冲突检测（audit-d06 · D-05）', () => {
         String(revision),
       );
       expect(second.statusCode).toBe(409);
-      const failure = (second.payload as { error: { code: string; details?: Record<string, unknown> } })
-        .error;
+      const failure = (
+        second.payload as { error: { code: string; details?: Record<string, unknown> } }
+      ).error;
       expect(failure.code).toBe('doc_revision_conflict');
-      expect(failure.details).toMatchObject({ expectedRevision: revision, currentRevision: revision + 1 });
+      expect(failure.details).toMatchObject({
+        expectedRevision: revision,
+        currentRevision: revision + 1,
+      });
       // 先写者的内容原样保留（静默覆盖不再发生）；manifest 版本未再前进
       const readBack = await injectJson(daemon.app, { method: 'GET', url });
       expect(readBack.statusCode).toBe(200);
@@ -137,9 +146,11 @@ describe('documents · 保存冲突检测（audit-d06 · D-05）', () => {
       );
       expect(manifest).toBe(true);
       expect(
-        (JSON.parse(
-          await readFile(join(daemon.workspaceDir, `${id}.dfg`, 'manifest.json'), 'utf8'),
-        ) as { version: number }).version,
+        (
+          JSON.parse(
+            await readFile(join(daemon.workspaceDir, `${id}.dfg`, 'manifest.json'), 'utf8'),
+          ) as { version: number }
+        ).version,
       ).toBe(revision + 1);
     } finally {
       await daemon.cleanup();
@@ -154,7 +165,13 @@ describe('documents · 保存冲突检测（audit-d06 · D-05）', () => {
       const first = await savePageWithMatch(daemon, id, 'page-1', { v: '先写' }, String(revision));
       expect(first.statusCode).toBe(200);
       // 本窗口旧基线 → 409
-      const stale = await savePageWithMatch(daemon, id, 'page-1', { v: '旧基线' }, String(revision));
+      const stale = await savePageWithMatch(
+        daemon,
+        id,
+        'page-1',
+        { v: '旧基线' },
+        String(revision),
+      );
       expect(stale.statusCode).toBe(409);
       // 手动刷新：读最新 revision，再保存 → 成功
       const latest = await readRevision(daemon, id);
@@ -212,9 +229,9 @@ describe('documents · 保存冲突检测（audit-d06 · D-05）', () => {
         headers: { 'if-match': String(revision) },
       });
       expect(staleCreate.statusCode).toBe(409);
-      expect(
-        (staleCreate.payload as { error: { code: string } }).error.code,
-      ).toBe('doc_revision_conflict');
+      expect((staleCreate.payload as { error: { code: string } }).error.code).toBe(
+        'doc_revision_conflict',
+      );
       // 新基线建页 → 201，响应带 revision
       const latest = await readRevision(daemon, id);
       const create = await injectJson(daemon.app, {

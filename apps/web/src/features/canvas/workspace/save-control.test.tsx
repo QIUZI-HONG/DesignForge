@@ -8,10 +8,11 @@
  * 原始技术串沉进可折叠技术详情（不再渲染「保存失败：Failed to fetch」）。
  * 命令接线（按钮 ↔ `file.save`）由 slots.test 覆盖，这里按同一装配登记命令。
  */
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+
 import { apiFailure, apiSuccess } from '@dforge/contracts';
 import { createDocument, createPage, createRect } from '@dforge/engine';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { resetCommandRegistry } from '@/features/editor-shell';
 import { t } from '@/i18n';
@@ -180,7 +181,10 @@ describe('顶栏保存态中文化（票 06 / spec P1-2）', () => {
           status,
           headers: { 'content-type': 'application/json' },
         });
-      const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const fetchImpl = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
         const method = (init?.method ?? 'GET').toUpperCase();
         const path = String(input).replace(/^https?:\/\/[^/]+/, '');
         if (method === 'GET' && path === '/documents/doc-1') {
@@ -214,10 +218,7 @@ describe('顶栏保存态中文化（票 06 / spec P1-2）', () => {
             );
           }
           revision += 1;
-          return respond(
-            200,
-            apiSuccess({ page: { id: 'page-1', name: '页面 1' }, revision }),
-          );
+          return respond(200, apiSuccess({ page: { id: 'page-1', name: '页面 1' }, revision }));
         }
         return respond(404, apiFailure('not_found', '路由不存在'));
       }) as typeof fetch;

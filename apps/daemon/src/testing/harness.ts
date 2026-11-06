@@ -202,9 +202,7 @@ export async function injectJson(
     ...(options.payload === undefined
       ? {
           headers: {
-            ...(testToken === undefined || testToken === null
-              ? {}
-              : { [TOKEN_HEADER]: testToken }),
+            ...(testToken === undefined || testToken === null ? {} : { [TOKEN_HEADER]: testToken }),
             ...(options.headers ?? {}),
           },
         }

@@ -29,9 +29,7 @@ import { createPage, emptyTokenSet } from '@dforge/engine';
  * `doc_revision_conflict` 靠它在界面层走独立冲突文案（不落网络族/通用失败形态）；
  * 传输层失败（fetch/超时）没有信封码 → 缺省该键。
  */
-export type ClientResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: string; code?: string };
+export type ClientResult<T> = { ok: true; value: T } | { ok: false; error: string; code?: string };
 
 /** 页面正文信封（daemon 侧是 opaque JSON）。 */
 export interface CanvasPageBody {
@@ -191,8 +189,7 @@ export async function loadPageSet(
       unresolvedPageIds,
       tokens: tokens ?? emptyTokenSet(),
       // 载入基线（audit-d06 · D-05）：上游缺 revision 字段（旧 daemon）→ null 降级
-      revision:
-        typeof summary.value.revision === 'number' ? summary.value.revision : null,
+      revision: typeof summary.value.revision === 'number' ? summary.value.revision : null,
     },
   };
 }

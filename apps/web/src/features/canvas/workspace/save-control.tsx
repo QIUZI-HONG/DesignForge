@@ -47,7 +47,12 @@ export function DocumentSaveControl() {
         {t('editor.action.save')}
       </Button>
       <span className="dfc-ws-save__state" role="status" data-df-save-state={status}>
-        <SaveStateContent status={status} errorKind={errorKind} error={error} errorCode={errorCode} />
+        <SaveStateContent
+          status={status}
+          errorKind={errorKind}
+          error={error}
+          errorCode={errorCode}
+        />
       </span>
     </span>
   );
@@ -113,12 +118,7 @@ function SaveConflictState({ raw }: { raw: string }) {
   return (
     <>
       {t('editor.save.conflict')}
-      <Button
-        size="sm"
-        variant="secondary"
-        data-df-save-conflict-refresh=""
-        onClick={refresh}
-      >
+      <Button size="sm" variant="secondary" data-df-save-conflict-refresh="" onClick={refresh}>
         {t('editor.save.conflict.refresh')}
       </Button>
       <TechnicalDetails

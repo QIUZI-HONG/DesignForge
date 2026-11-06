@@ -616,7 +616,12 @@ export function createDocumentStore(options: { config: ConfigStore }): DocumentS
           if (expectedRevision !== undefined && current.version !== expectedRevision) {
             return {
               ok: false,
-              result: revisionConflict(documentId, requestedId ?? '', expectedRevision, current.version),
+              result: revisionConflict(
+                documentId,
+                requestedId ?? '',
+                expectedRevision,
+                current.version,
+              ),
             };
           }
           // 「已占用」= manifest 页 id ∪ 目标目录内既有文件名，按大小写归一后比较
