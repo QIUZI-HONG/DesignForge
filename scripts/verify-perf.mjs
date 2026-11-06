@@ -92,6 +92,18 @@ const BENCH_SIZES = [
 ];
 
 /**
+ * 基准文档 id 种子偏移（审计 D-09 ③ · audit-d07 实测）。
+ *
+ * studio 会话的 id 工厂硬编码 seed 1000（apps/web canvas-studio.tsx
+ * `createStudioSession` → `createIdFactory(1000)`）——用户建矩形从 n_1000 起号。
+ * 基准文档若从 1 起号，@5k（n_1..n_5000）与 M4 撤销探针的 createRect 必撞：
+ * daemon 拒收「节点 id 已存在：n_1000」，@5k 档采集中断（round 1 实录）。
+ * 偏移到 1e6 段错开工作室的分配窗（M4 ×8 只占 n_1000..n_1007），**仍是确定性**
+ * ——固定种子 + 纯计数，同一参数跨机比特一致（生成器只要求注入 IdFactory）。
+ */
+const BENCH_ID_SEED_OFFSET = 1_000_000;
+
+/**
  * 每档采集计划（对标报告 §4.2 的规模档归属）：
  *   M1/M2 全档必采；M3（选中→面板）/M4（撤销）@5k；M5（保存往返）@5k/20k；
  *   M6（heap）/M7（剔除率）@20k 记录。
@@ -1175,10 +1187,13 @@ async function collectTier(browser, options) {
   steps.push({
     name: 'M2 · 交互帧率采样（拖拽×2 + 滚轮×10）',
     status: intervalSummary.count > 0 ? 'pass' : 'blocked',
-    detail: `间隔样本 ${String(intervalSummary.count)} 个，p95 ${String(intervalSummary.p95Ms)}ms / p99 ${String(intervalSummary.p99Ms)}ms`,
+    detail:
+      `间隔样本 ${String(intervalSummary.count)} 个，p95 ${String(intervalSummary.p95Ms)}ms / p99 ${String(intervalSummary.p99Ms)}ms；` +
+      `绘制耗时 p95 ${String(perfWindow?.duration?.p95Ms ?? 'n/a')}ms（perf() 环形窗口）`,
   });
   tierLog(
-    `M2 间隔 p95 ${String(intervalSummary.p95Ms)}ms / p99 ${String(intervalSummary.p99Ms)}ms（样本 ${String(intervalSummary.count)}）`,
+    `M2 间隔 p95 ${String(intervalSummary.p95Ms)}ms / p99 ${String(intervalSummary.p99Ms)}ms（样本 ${String(intervalSummary.count)}）` +
+      `；绘制耗时 p95 ${String(perfWindow?.duration?.p95Ms ?? 'n/a')}ms`,
   );
 
   // --- M3：选中→面板延迟（编辑器工作区；只有 /editor 挂 InspectorPanel） ---
@@ -1477,10 +1492,11 @@ async function mainRealChain(baselineInput, requestedSizes) {
     const nodeCount = tier.nodeCount;
     log(`开始采集 @${size}（${String(nodeCount)} 节点）`);
     try {
-      // 生成（确定性：注入 createIdFactory(1)，同一参数跨机比特一致）+ 落盘 daemon
+      // 生成（确定性：注入固定种子的 createIdFactory，同一参数跨机比特一致；
+      // 种子偏移避开 studio 的 n_1000 起号窗——见 BENCH_ID_SEED_OFFSET 注释）+ 落盘 daemon
       const document = fixtures.createBenchmarkDocument({
         nodeCount,
-        ids: fixtures.createIdFactory(1),
+        ids: fixtures.createIdFactory(BENCH_ID_SEED_OFFSET),
         pageId: 'page-1',
       });
       const pageBody = buildPageBody(document);
