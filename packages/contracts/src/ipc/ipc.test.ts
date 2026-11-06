@@ -39,6 +39,11 @@ describe('ipc · 错误码表', () => {
     expect(DF_ERROR_HTTP_STATUS.unauthorized).toBe(401);
   });
 
+  it('doc_revision_conflict 映射 409（保存冲突检测；audit-d06 · D-05 · Q2=A）', () => {
+    expect(DF_ERROR_CODES).toContain('doc_revision_conflict');
+    expect(DF_ERROR_HTTP_STATUS.doc_revision_conflict).toBe(409);
+  });
+
   it('未启动态与缺模型态映射为非 2xx（前端可分支）', () => {
     expect(DF_ERROR_HTTP_STATUS.comfy_unreachable).toBe(503);
     expect(DF_ERROR_HTTP_STATUS.comfy_model_missing).toBe(422);

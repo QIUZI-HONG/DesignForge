@@ -203,7 +203,7 @@ describe('参考线随文档保存/加载（票 12）', () => {
     const loaded = await loadDesignDocument(daemon.client, documentId);
     expect(loaded.ok, loaded.ok ? '' : loaded.error).toBe(true);
     if (!loaded.ok) return;
-    const guides = loaded.value.pages[0]?.guides ?? [];
+    const guides = loaded.value.document.pages[0]?.guides ?? [];
     expect(guides).toEqual([
       { id: 'guide_1', axis: 'y', position: 120 },
       { id: 'guide_2', axis: 'x', position: 80 },
@@ -256,8 +256,8 @@ describe('页集有洞（arch-01 · 页 id 是身份不是位置）', () => {
     const loaded = await loadDesignDocument(daemon.client, '有洞');
     expect(loaded.ok, loaded.ok ? '' : loaded.error).toBe(true);
     if (!loaded.ok) return;
-    expect(loaded.value.pages.map((page) => page.id)).toEqual(['page-1', 'page-3']);
-    expect(loaded.value.pages[1]?.nodes.n_3?.type).toBe('rect');
+    expect(loaded.value.document.pages.map((page) => page.id)).toEqual(['page-1', 'page-3']);
+    expect(loaded.value.document.pages[1]?.nodes.n_3?.type).toBe('rect');
   });
 
   it('save 有洞文档：按 id 写回 page-3（不新建 page-4、不把 page-3 变孤儿）', async () => {
@@ -272,7 +272,7 @@ describe('页集有洞（arch-01 · 页 id 是身份不是位置）', () => {
     expect(loaded.ok, loaded.ok ? '' : loaded.error).toBe(true);
     if (!loaded.ok) return;
 
-    const saved = await saveDesignDocument(daemon.client, '有洞', loaded.value);
+    const saved = await saveDesignDocument(daemon.client, '有洞', loaded.value.document);
     expect(saved.ok, saved.ok ? '' : saved.error).toBe(true);
     if (!saved.ok) return;
     expect(saved.value.pageIds).toEqual(['page-1', 'page-3']);
@@ -314,9 +314,9 @@ describe('页集有洞（arch-01 · 页 id 是身份不是位置）', () => {
     const loaded = await loadDesignDocument(daemon.client, '身份');
     expect(loaded.ok).toBe(true);
     if (!loaded.ok) return;
-    expect(loaded.value.pages[0]?.id).toBe('page-1');
+    expect(loaded.value.document.pages[0]?.id).toBe('page-1');
 
-    const saved = await saveDesignDocument(daemon.client, '身份', loaded.value);
+    const saved = await saveDesignDocument(daemon.client, '身份', loaded.value.document);
     expect(saved.ok).toBe(true);
     if (!saved.ok) return;
     expect(saved.value.pageIds).toEqual(['page-1']);
@@ -412,8 +412,8 @@ describe('页集有洞（arch-01 · 页 id 是身份不是位置）', () => {
     const reloaded = await loadDesignDocument(daemon.client, documentId);
     expect(reloaded.ok, reloaded.ok ? '' : reloaded.error).toBe(true);
     if (!reloaded.ok) return;
-    expect(reloaded.value.pages).toHaveLength(2);
-    expect(reloaded.value.pages[1]?.nodes.n_2?.type).toBe('rect');
+    expect(reloaded.value.document.pages).toHaveLength(2);
+    expect(reloaded.value.document.pages[1]?.nodes.n_2?.type).toBe('rect');
   });
 
   it('反例（Spec P1）：非法 id 页 + 后续页 preferred page-3——saveDesignDocument 连续两轮都成功、页文件数不增', async () => {
@@ -502,9 +502,9 @@ describe('页集有洞（arch-01 · 页 id 是身份不是位置）', () => {
     const loaded = await loadDesignDocument(daemon.client, created.value.id);
     expect(loaded.ok).toBe(true);
     if (!loaded.ok) return;
-    expect(loaded.value.pages).toHaveLength(1);
-    expect(loaded.value.pages[0]?.id).toBe('page-1');
-    expect(loaded.value.pages[0]?.nodes).toEqual({});
+    expect(loaded.value.document.pages).toHaveLength(1);
+    expect(loaded.value.document.pages[0]?.id).toBe('page-1');
+    expect(loaded.value.document.pages[0]?.nodes).toEqual({});
   });
 
   it('非本格式的非空正文 → 结构错误（不静默吞掉）', async () => {

@@ -181,10 +181,19 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
   };
 }
 
-/** 便捷：JSON 请求（夹具装饰了 `dfTestToken` 时自动携带令牌头；见模块头注释）。 */
+/** 便捷：JSON 请求（夹具装饰了 `dfTestToken` 时自动携带令牌头；见模块头注释）。
+ *
+ * `headers` 可追加自定义头（audit-d06 · D-05：`If-Match` 条件保存用例需要）——
+ * 与令牌头/content-type 合并，同名时自定义头优先（调用方显式给定即最高意图）。
+ */
 export async function injectJson(
   app: FastifyInstance,
-  options: { method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url: string; payload?: unknown },
+  options: {
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    url: string;
+    payload?: unknown;
+    headers?: Record<string, string>;
+  },
 ): Promise<{ statusCode: number; payload: unknown; raw: string }> {
   const testToken = app.dfTestToken;
   const response = await app.inject({
@@ -192,14 +201,16 @@ export async function injectJson(
     url: options.url,
     ...(options.payload === undefined
       ? {
-          ...(testToken === undefined || testToken === null
-            ? {}
-            : { headers: { [TOKEN_HEADER]: testToken } }),
+          headers: {
+            ...(testToken === undefined || testToken === null ? {} : { [TOKEN_HEADER]: testToken }),
+            ...(options.headers ?? {}),
+          },
         }
       : {
           headers: {
             'content-type': 'application/json',
             ...(testToken === undefined || testToken === null ? {} : { [TOKEN_HEADER]: testToken }),
+            ...(options.headers ?? {}),
           },
           payload: JSON.stringify(options.payload),
         }),

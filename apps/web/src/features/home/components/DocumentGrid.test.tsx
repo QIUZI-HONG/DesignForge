@@ -25,6 +25,7 @@ function summary(
     createdAt: '2026-10-01T10:00:00.000Z',
     updatedAt,
     pageCount: 1,
+    revision: 1,
     sizeBytes: 1024,
   };
 }

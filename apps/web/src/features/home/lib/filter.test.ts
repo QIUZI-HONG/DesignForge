@@ -26,6 +26,7 @@ function doc(id: string, name: string, updatedAt: string, createdAt = updatedAt)
     createdAt,
     updatedAt,
     pageCount: 1,
+    revision: 1,
     sizeBytes: 1024,
   };
 }

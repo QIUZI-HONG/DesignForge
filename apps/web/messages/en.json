@@ -1047,6 +1047,8 @@
   "editor.save.saving": "Saving…",
   "editor.save.failed": "Save failed: {message}",
   "editor.save.failed.network": "Save failed — cannot reach the local service. Make sure the daemon is running, then save again.",
+  "editor.save.conflict": "The document was modified in another window — this window's save was rejected. Refresh to load the latest version before continuing (refreshing discards unsaved changes in this window).",
+  "editor.save.conflict.refresh": "Refresh latest version",
   "editor.load.failed.network": "Failed to load — cannot reach the local service. Make sure the daemon is running, then retry.",
   "editor.load.noPages": "The document has no usable pages",
   "editor.import.imported": "IR imported ({nodes} nodes)",

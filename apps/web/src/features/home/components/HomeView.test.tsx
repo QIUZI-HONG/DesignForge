@@ -26,6 +26,7 @@ function summary(id: string, updatedAt = '2026-10-15T11:30:00.000Z'): DocumentSu
     createdAt: '2026-10-01T10:00:00.000Z',
     updatedAt,
     pageCount: 2,
+    revision: 1,
     sizeBytes: 2048,
   };
 }

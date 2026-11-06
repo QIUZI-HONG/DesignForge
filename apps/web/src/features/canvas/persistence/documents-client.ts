@@ -12,7 +12,7 @@
  */
 
 import type { DocumentDetail } from '@dforge/contracts';
-import { DAEMON_ROUTES } from '@dforge/contracts';
+import { DAEMON_ROUTES, DF_REVISION_HEADER, formatRevisionHeader } from '@dforge/contracts';
 import type { DesignDocument } from '@dforge/engine';
 import { parseDocument } from '@dforge/engine';
 
@@ -52,13 +52,26 @@ export interface DocumentsClient {
   /** 文档详情（摘要 + manifest 页清单——load 按页 id 读取的依据）。 */
   getDocument(documentId: string): Promise<ClientResult<DocumentDetail>>;
   readPage(documentId: string, pageId: string): Promise<ClientResult<unknown>>;
-  savePage(documentId: string, pageId: string, body: unknown): Promise<ClientResult<void>>;
-  /** 建页；`options.id` 给定时按该 id 建（保存映射靠它让页 id 成为稳定身份）。 */
+  /**
+   * 保存页面正文（audit-d06 · D-05 支持条件保存）：`options.ifMatchRevision` 给定时以
+   * `If-Match: <revision>` 发出（基线过期 → 409 `doc_revision_conflict`，结果的
+   * `code` 带码）；成功返回写入后的文档 revision（旧 daemon 缺字段 → null）。
+   */
+  savePage(
+    documentId: string,
+    pageId: string,
+    body: unknown,
+    options?: { ifMatchRevision?: number },
+  ): Promise<ClientResult<{ revision: number | null }>>;
+  /**
+   * 建页；`options.id` 给定时按该 id 建（保存映射靠它让页 id 成为稳定身份）。
+   * `options.ifMatchRevision` 同 savePage 的条件保存语义。
+   */
   createPage(
     documentId: string,
     name: string,
-    options?: { id?: string },
-  ): Promise<ClientResult<{ id: string; name: string }>>;
+    options?: { id?: string; ifMatchRevision?: number },
+  ): Promise<ClientResult<{ id: string; name: string; revision: number | null }>>;
 }
 
 /** 由路由模板与参数拼 URL。 */
@@ -110,6 +123,7 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
     method: string,
     url: string,
     body?: unknown,
+    extraHeaders?: Record<string, string>,
   ): Promise<ClientResult<unknown>> => {
     try {
       // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象。
@@ -122,9 +136,13 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
         {
           method,
           ...(body === undefined
-            ? { headers: daemonAuthHeaders() }
+            ? { headers: { ...daemonAuthHeaders(), ...extraHeaders } }
             : {
-                headers: { 'content-type': 'application/json', ...daemonAuthHeaders() },
+                headers: {
+                  'content-type': 'application/json',
+                  ...daemonAuthHeaders(),
+                  ...extraHeaders,
+                },
                 body: JSON.stringify(body),
               }),
         },
@@ -140,7 +158,14 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
       }
       const envelope = (parsed ?? {}) as DaemonEnvelope;
       if (!response.ok || envelope.ok === false) {
-        return { ok: false, error: failureText(envelope, response.status) };
+        // code（audit-d06 · D-05）：daemon 统一错误码随结果透出——保存链据此把
+        // doc_revision_conflict 走独立冲突文案（不与网络族/通用失败混同）
+        const code = envelope.error?.code ?? envelope.code;
+        return {
+          ok: false,
+          error: failureText(envelope, response.status),
+          ...(code === undefined ? {} : { code }),
+        };
       }
       return { ok: true, value: envelope.result ?? envelope.data ?? parsed };
     } catch (error) {
@@ -191,23 +216,45 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
       const value = result.value as { body: unknown };
       return { ok: true, value: value.body };
     },
-    async savePage(documentId, pageId, body) {
+    async savePage(documentId, pageId, body, saveOptions) {
+      // 条件保存（audit-d06 · D-05）：基线给定时发 If-Match（revision 头值单一判据在 contracts）
+      const ifMatchRevision = saveOptions?.ifMatchRevision;
       const result = await request(
         DAEMON_ROUTES.documentPageSave.method,
         routeUrl(base, DAEMON_ROUTES.documentPageSave.path, { documentId, pageId }),
         { body },
+        ifMatchRevision === undefined
+          ? undefined
+          : { [DF_REVISION_HEADER]: formatRevisionHeader(ifMatchRevision) },
       );
-      return result.ok ? { ok: true, value: undefined } : result;
+      if (!result.ok) return result;
+      const value = result.value as { revision?: unknown };
+      return {
+        ok: true,
+        // 旧 daemon 无 revision 字段 → null（冲突检测降级关闭，行为同旧客户端）
+        value: { revision: typeof value.revision === 'number' ? value.revision : null },
+      };
     },
     async createPage(documentId, name, options) {
+      const ifMatchRevision = options?.ifMatchRevision;
       const result = await request(
         DAEMON_ROUTES.documentPageCreate.method,
         routeUrl(base, DAEMON_ROUTES.documentPageCreate.path, { documentId }),
         { name, ...(options?.id === undefined ? {} : { id: options.id }) },
+        ifMatchRevision === undefined
+          ? undefined
+          : { [DF_REVISION_HEADER]: formatRevisionHeader(ifMatchRevision) },
       );
       if (!result.ok) return result;
-      const value = result.value as { page: { id: string; name: string } };
-      return { ok: true, value: value.page };
+      const value = result.value as { page: { id: string; name: string }; revision?: unknown };
+      return {
+        ok: true,
+        value: {
+          id: value.page.id,
+          name: value.page.name,
+          revision: typeof value.revision === 'number' ? value.revision : null,
+        },
+      };
     },
   };
 }
@@ -217,6 +264,22 @@ export interface SaveDesignDocumentResult {
   documentId: string;
   pageIds: string[];
   orphanPageIds: string[];
+  /**
+   * 保存完成后的文档 revision（下次保存的基线；audit-d06 · D-05）。
+   * 上游未提供 revision（旧 daemon）或本次零写入且无基线 → null：冲突检测降级关闭。
+   */
+  revision: number | null;
+}
+
+/** 保存选项（audit-d06 · D-05 条件保存）。 */
+export interface SaveDesignDocumentOptions {
+  /**
+   * 保存基线 revision：载入时刻的文档 revision（会话「基于哪一版改的」）。
+   * 给定数字 → 每个写请求带 `If-Match`（基线过期 → 409 `doc_revision_conflict`，整次
+   * 保存中止，不覆盖他人更新）；`null` / 未给 → 旧行为（last-write-wins）——
+   * 未落盘文档的首次落盘（会话从未载入过该文档）即走这一档。
+   */
+  baselineRevision?: number | null;
 }
 
 /**
@@ -225,6 +288,10 @@ export interface SaveDesignDocumentResult {
  * 委托 `./page-set` 的计划：页面 id 命中现有页 → update；未命中且 id 合法 → 按该 id
  * create（身份可往返）；非法/重复 → 分配空闲 `page-N`。manifest 里多出来的页只进
  * `orphanPageIds`，**不删除**（数据安全优先）。
+ *
+ * 条件保存的基线推进（audit-d06 · D-05）：保存是多写串行（逐页 PUT/POST），每次成功写
+ * 的响应 revision 成为下一写的 If-Match——同一次保存从第二写起不会误伤自己；任一写
+ * 收到冲突即中止（后续页不再发出），先写者的内容原样保留（J8 静默覆盖不再发生）。
  *
  * 为什么不再「把第一页塞进新建文档的空白占位页」：那会把正文写进 `page-1` 而内存页 id
  * 仍是调用方的 id（如 `page-editor`），下一次保存/导出就会错位（重复建页或 404）。
@@ -235,6 +302,7 @@ export async function saveDesignDocument(
   client: DocumentsClient,
   documentId: string,
   document: DesignDocument,
+  options?: SaveDesignDocumentOptions,
 ): Promise<ClientResult<SaveDesignDocumentResult>> {
   const detail = await client.getDocument(documentId);
   if (!detail.ok) return detail;
@@ -242,20 +310,58 @@ export async function saveDesignDocument(
   const plan = planPageSetSave(document, existingPageIds);
   const orphanPageIds = plan.orphanPageIds;
 
+  /** 当前 If-Match 基线：null = 旧行为（不带条件头）。每次成功写后推进到响应 revision。 */
+  let expectedRevision: number | null = options?.baselineRevision ?? null;
+  /** 是否已发生写入；最后一次成功写响应的 revision（旧上游缺字段 → null，不谎报基线）。 */
+  let performedWrite = false;
+  let lastWriteRevision: number | null = null;
+  const advance = (revision: unknown): void => {
+    performedWrite = true;
+    if (typeof revision === 'number') {
+      lastWriteRevision = revision;
+      expectedRevision = revision;
+    }
+  };
+
   const pageIds: string[] = new Array<string>(document.pages.length).fill('');
   for (const entry of plan.update) {
-    const saved = await client.savePage(documentId, entry.pageId, entry.body);
+    const saved = await client.savePage(
+      documentId,
+      entry.pageId,
+      entry.body,
+      expectedRevision === null ? undefined : { ifMatchRevision: expectedRevision },
+    );
     if (!saved.ok) return saved;
+    advance(saved.value.revision);
     pageIds[entry.index] = entry.pageId;
   }
   for (const entry of plan.create) {
-    const created = await client.createPage(documentId, entry.name, { id: entry.pageId });
+    const created = await client.createPage(
+      documentId,
+      entry.name,
+      expectedRevision === null
+        ? { id: entry.pageId }
+        : { id: entry.pageId, ifMatchRevision: expectedRevision },
+    );
     if (!created.ok) return created;
-    const saved = await client.savePage(documentId, created.value.id, entry.body);
+    advance(created.value.revision);
+    const saved = await client.savePage(
+      documentId,
+      created.value.id,
+      entry.body,
+      expectedRevision === null ? undefined : { ifMatchRevision: expectedRevision },
+    );
     if (!saved.ok) return saved;
+    advance(saved.value.revision);
     pageIds[entry.index] = created.value.id;
   }
-  return { ok: true, value: { documentId, pageIds, orphanPageIds } };
+  // 有写入：基线 = 最后一次成功写响应的 revision（旧上游缺字段 → null，诚实降级）；
+  // 零写入（无可写页）：基线不变（原基线优先，否则退回读详情时刻的 revision）
+  const finalRevision = performedWrite
+    ? lastWriteRevision
+    : (expectedRevision ??
+      (typeof detail.value.revision === 'number' ? detail.value.revision : null));
+  return { ok: true, value: { documentId, pageIds, orphanPageIds, revision: finalRevision } };
 }
 
 /**
@@ -266,11 +372,14 @@ export async function saveDesignDocument(
  * 尚无设计内容 → 给一份含一页空画布的文档（页 id 沿用 daemon 的 manifest），
  * 用户从首页点开新文件就是**空画布可画**，而不是「结构非法」错误态。
  * 反过来：正文是非空但非本格式的 JSON（外来/损坏内容）仍按结构错误上报——不静默吞掉别人的数据。
+ *
+ * 返回值带载入时刻的 `revision`（保存冲突检测的基线，audit-d06 · D-05）——
+ * 上游未提供（旧 daemon）→ null，条件保存降级关闭。
  */
 export async function loadDesignDocument(
   client: DocumentsClient,
   documentId: string,
-): Promise<ClientResult<DesignDocument>> {
+): Promise<ClientResult<{ document: DesignDocument; revision: number | null }>> {
   const loaded = await loadPageSet(client, documentId);
   if (!loaded.ok) return loaded;
   if (loaded.value.unresolvedPageIds.length > 0) {
@@ -286,7 +395,7 @@ export async function loadDesignDocument(
       pages: loaded.value.pages.map((entry) => entry.page),
       tokens: loaded.value.tokens,
     });
-    return { ok: true, value: parsed.document };
+    return { ok: true, value: { document: parsed.document, revision: loaded.value.revision } };
   } catch (error) {
     return {
       ok: false,
