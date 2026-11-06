@@ -20,6 +20,7 @@ import {
   isApiSuccess,
 } from '@dforge/contracts';
 
+import { t } from '@/i18n';
 import { daemonAuthHeaders } from '@/lib/daemon-endpoint';
 import { fetchWithinTimeout, GATEWAY_TIMEOUT_MS, GatewayTimeoutError } from './gateway-timeout';
 
@@ -72,19 +73,19 @@ function buildUrl(baseUrl: string, template: string, params: Record<string, stri
   return `${baseUrl.replace(/\/$/, '')}${path}`;
 }
 
-/** 解包信封：成功取 result，失败/脏响应抛统一错误。 */
+/** 解包信封：成功取 result，失败/脏响应抛统一错误（文案走 i18n——audit-d04 · D-10）。 */
 async function readEnvelope<T>(response: Response): Promise<T> {
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
-    throw new DocumentApiError('daemon_unreachable', '本地服务返回了无法解析的响应。');
+    throw new DocumentApiError('daemon_unreachable', t('home.error.unparseableResponse'));
   }
   if (isApiFailure(payload)) {
     throw new DocumentApiError(payload.error.code, payload.error.message);
   }
   if (!isApiSuccess<T>(payload)) {
-    throw new DocumentApiError('daemon_unreachable', '本地服务返回了未知形状的响应。');
+    throw new DocumentApiError('daemon_unreachable', t('home.error.unknownShapeResponse'));
   }
   return payload.result;
 }
@@ -109,7 +110,7 @@ async function request<T>(
     if (cause instanceof GatewayTimeoutError) {
       throw new DocumentApiError('daemon_timeout', cause.message);
     }
-    throw new DocumentApiError('daemon_unreachable', '无法连接本地服务（daemon 未启动？）。');
+    throw new DocumentApiError('daemon_unreachable', t('home.error.unreachable'));
   }
   return readEnvelope<T>(response);
 }

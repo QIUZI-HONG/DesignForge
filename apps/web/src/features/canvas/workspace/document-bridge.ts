@@ -27,6 +27,8 @@
 import type { DesignDocument } from '@dforge/engine';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
+import { t } from '@/i18n';
+
 import {
   type DocumentsClient,
   loadDesignDocument,
@@ -180,7 +182,8 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
       adopting = true;
       try {
         if (!host.adopt(loaded.value, documentId)) {
-          return fail('load', `文档无可用页面：${documentId}`);
+          // 文案与 import-ir 同键同源（audit-d04 · D-10：无可用页面一句话，不再各自拼 id 后缀）
+          return fail('load', t('editor.load.noPages'));
         }
       } finally {
         adopting = false;

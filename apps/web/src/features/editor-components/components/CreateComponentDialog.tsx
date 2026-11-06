@@ -18,7 +18,7 @@ export interface CreateComponentDialogProps {
   onOpenChange: (open: boolean) => void;
   /** 确认创建（名称已去首尾空白；空名回落默认名，宿主再兜一层）。 */
   onConfirm: (name: string) => void;
-  /** 默认名（文档数据默认值，非界面文案）。 */
+  /** 默认名（新组件的种子名，会成为文档数据——缺省经 i18n 目录取词，audit-d04 · D-10）。 */
   defaultName?: string;
 }
 
@@ -27,7 +27,7 @@ export function CreateComponentDialog({
   open,
   onOpenChange,
   onConfirm,
-  defaultName = '组件',
+  defaultName = t('editor.components.createDialog.defaultName'),
 }: CreateComponentDialogProps) {
   const [name, setName] = useState(defaultName);
 

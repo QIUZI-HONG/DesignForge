@@ -160,7 +160,10 @@ export function CanvasStage({
           fontMgr = fonts.fontMgr;
           if (fonts.registered === 0) {
             // 字体缺失是**错误态**（ADR-0003：不得静默回退到别的字体）
-            pushStatus({ fonts: 'error', error: `字体缺失 ${fonts.missing.length} 个` });
+            pushStatus({
+              fonts: 'error',
+              error: t('canvas.status.fontsMissing', { count: fonts.missing.length }),
+            });
           } else {
             pushStatus({ fonts: 'ready' });
           }

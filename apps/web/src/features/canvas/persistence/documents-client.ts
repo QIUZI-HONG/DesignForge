@@ -6,7 +6,9 @@
  *   `pages[]` 读、`page.id` 即 daemon 页 id，save 按 `page.id` 定位（mapping 归 `./page-set`）；
  * - 页面正文是 **opaque JSON**：本客户端在其中放 `{ $format, $version, page, tokens }`
  *   （daemon 只校验 JSON 可解析，不解析节点语义——归属裁决见 `_shared.md` §2）；
- * - 读回时用引擎的 `parseDocument` 做**结构校验**（悬空引用/多父/环都会在此被打回）。
+ * - 读回时用引擎的 `parseDocument` 做**结构校验**（悬空引用/多父/环都会在此被打回）；
+ * - 每个请求有超时上限（audit-d04 · D-04，`lib/request-timeout` 单点机制）——daemon
+ *   「活着但不响应」时保存链有界失败，不再永久「保存中…」。
  */
 
 import type { DocumentDetail } from '@dforge/contracts';
@@ -15,6 +17,11 @@ import type { DesignDocument } from '@dforge/engine';
 import { parseDocument } from '@dforge/engine';
 
 import { daemonAuthHeaders } from '@/lib/daemon-endpoint';
+import {
+  DAEMON_REQUEST_TIMEOUT_MS,
+  fetchWithinDeadline,
+  RequestTimeoutError,
+} from '@/lib/request-timeout';
 import { type ClientResult, loadPageSet, planPageSetSave } from './page-set';
 
 export type { CanvasPageBody, ClientResult } from './page-set';
@@ -32,6 +39,8 @@ export interface DocumentsClientOptions {
   baseUrl: string;
   /** fetch 实现（测试注入）。 */
   fetchImpl?: typeof fetch;
+  /** 单请求超时上限（毫秒；测试注入小值。缺省见 `DAEMON_REQUEST_TIMEOUT_MS`——audit-d04 · D-04）。 */
+  timeoutMs?: number;
 }
 
 /** 文档客户端。 */
@@ -95,6 +104,7 @@ function failureText(envelope: DaemonEnvelope, status: number): string {
 export function createDocumentsClient(options: DocumentsClientOptions): DocumentsClient {
   const fetchImpl = options.fetchImpl ?? fetch;
   const base = options.baseUrl.replace(/\/$/, '');
+  const timeoutMs = options.timeoutMs ?? DAEMON_REQUEST_TIMEOUT_MS;
 
   const request = async (
     method: string,
@@ -102,16 +112,25 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
     body?: unknown,
   ): Promise<ClientResult<unknown>> => {
     try {
-      // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象
-      const response = await fetchImpl(url, {
-        method,
-        ...(body === undefined
-          ? { headers: daemonAuthHeaders() }
-          : {
-              headers: { 'content-type': 'application/json', ...daemonAuthHeaders() },
-              body: JSON.stringify(body),
-            }),
-      });
+      // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象。
+      // 请求带超时上限（audit-d04 · D-04）：daemon「活着但不响应」时保存不得永久
+      // pending——到点 abort 在飞请求并以 {@link RequestTimeoutError} 落为有界失败
+      // （错误文案归网络族 → 保存态渲染统一人话 + 可重试，见 save-control）。
+      const response = await fetchWithinDeadline(
+        fetchImpl,
+        url,
+        {
+          method,
+          ...(body === undefined
+            ? { headers: daemonAuthHeaders() }
+            : {
+                headers: { 'content-type': 'application/json', ...daemonAuthHeaders() },
+                body: JSON.stringify(body),
+              }),
+        },
+        timeoutMs,
+        (ms) => new RequestTimeoutError(ms),
+      );
       const text = await response.text();
       let parsed: unknown = null;
       try {

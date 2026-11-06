@@ -39,7 +39,8 @@ describe('对抗 · 传输层异常归一', () => {
     await expect(gateway(fetchImpl).list()).rejects.toMatchObject({
       code: 'daemon_unreachable',
     });
-    await expect(gateway(fetchImpl).list()).rejects.toThrow(/daemon 未启动/);
+    // 文案统一走 i18n（audit-d04 · D-10：home.error.unreachable），仍给「确认已启动」引导
+    await expect(gateway(fetchImpl).list()).rejects.toThrow(/请确认 daemon 已启动/);
   });
 
   it('HTTP 500 + HTML 正文（坏 JSON）→ daemon_unreachable「无法解析」，不抛 SyntaxError', async () => {

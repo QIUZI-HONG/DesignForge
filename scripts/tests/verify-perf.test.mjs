@@ -266,6 +266,35 @@ test('evaluatePerfRun：M2 间隔 p95 超阈 → 1（交互帧率回退）', () 
   assert.match(result.violations.join('；'), /m2IntervalP95Ms/);
 });
 
+test('evaluatePerfRun：阈值粒度容差——浮点表示伪差（阈值 + 2e-13ms）不算超阈 → 0', () => {
+  // audit-d07 实录：interval p95 = 16.800000000000182 vs 阈值 16.8——双浮点累计噪声比
+  // 阈值入库粒度（0.1ms）低约 11 个数量级，粒度内伪差不构成性能回退（exceedsThreshold）。
+  const result = evaluatePerfRun(
+    makeRun({
+      m2: {
+        intervalP95Ms: 16.7 + 2e-13,
+        intervalP99Ms: 17,
+        durationP95Ms: 12,
+        intervalSamples: 120,
+      },
+    }),
+    baseline,
+  );
+  assert.equal(result.code, 0);
+  assert.equal(result.violations.length, 0);
+});
+
+test('evaluatePerfRun：容差不放过真实回退——阈值 + 0.1ms（一个粒度）仍判违规 → 1', () => {
+  const result = evaluatePerfRun(
+    makeRun({
+      m2: { intervalP95Ms: 16.7 + 0.1, intervalP99Ms: 17, durationP95Ms: 12, intervalSamples: 120 },
+    }),
+    baseline,
+  );
+  assert.equal(result.code, 1);
+  assert.match(result.violations.join('；'), /m2IntervalP95Ms/);
+});
+
 test('evaluatePerfRun：M2 绘制耗时 p95（来自 perf() 环形窗口）超阈 → 1', () => {
   const run = makeRun({
     m2Window: { ...snapshot, duration: { ...snapshot.duration, p95Ms: 90 } },

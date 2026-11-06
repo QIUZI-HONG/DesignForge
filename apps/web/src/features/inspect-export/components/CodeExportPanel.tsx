@@ -30,7 +30,8 @@ export interface CodeExportPanelProps {
 /** 缺省复制实现（不安全环境如非 HTTPS 且无 clipboard 时抛错，由面板转失败提示）。 */
 async function defaultCopyText(text: string): Promise<void> {
   const clipboard = globalThis.navigator?.clipboard;
-  if (clipboard === undefined) throw new Error('当前环境不支持剪贴板');
+  // 文案走 i18n（audit-d04 · D-10）：经 `editor.export.code.copyFailed` 的 {reason} 直出给用户
+  if (clipboard === undefined) throw new Error(t('editor.export.code.clipboardUnsupported'));
   await clipboard.writeText(text);
 }
 

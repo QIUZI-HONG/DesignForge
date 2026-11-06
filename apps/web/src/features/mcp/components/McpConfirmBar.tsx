@@ -48,11 +48,11 @@ export function formatRemaining(ms: number): string {
   return `${String(minutes)}:${String(seconds).padStart(2, '0')}`;
 }
 
-/** 异常 → {code, message}（daemon 失败信封或兜底）。 */
+/** 异常 → {code, message}（daemon 失败信封或兜底；兜底文案走 i18n——audit-d04 · D-10）。 */
 function errorInfo(error: unknown): { code: string; message: string } {
   if (error instanceof DaemonRequestError) return { code: error.code, message: error.message };
   if (error instanceof Error) return { code: 'internal', message: error.message };
-  return { code: 'internal', message: '确认请求失败' };
+  return { code: 'internal', message: t('mcp.error.confirmFailed') };
 }
 
 /** 写操作确认条。 */
