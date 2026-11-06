@@ -16,7 +16,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -61,7 +61,7 @@ test('D-13：feature 目录下不得复活 useDocumentSnapshot.ts 拷贝文件',
 });
 
 test('D-13：消费方导入全部落在单源模块符上', () => {
-  const imports = grepTracked("import { useDocumentSnapshot }", 'apps/web/src');
+  const imports = grepTracked('import { useDocumentSnapshot }', 'apps/web/src');
   assert.ok(imports.length >= 1, '应至少有一个消费方导入（否则单源成了死代码，需另查）');
   const offenders = imports.filter((line) => !line.includes('@/lib/use-document-snapshot'));
   assert.equal(
