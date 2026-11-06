@@ -1038,6 +1038,8 @@
   "editor.save.failed": "Save failed: {message}",
   "editor.save.failed.network": "Save failed — cannot reach the local service. Make sure the daemon is running, then save again.",
   "editor.load.failed.network": "Failed to load — cannot reach the local service. Make sure the daemon is running, then retry.",
+  "editor.import.imported": "IR imported ({nodes} nodes)",
+  "editor.import.failed": "Import failed: {message}",
   "editor.load.failed": "Failed to load document: {message}",
   "editor.export.needSave": "Save the document before exporting",
   "editor.group.tools": "Tools",

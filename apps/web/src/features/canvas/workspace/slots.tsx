@@ -24,7 +24,7 @@ import { useStore } from 'zustand';
 
 import { AiDrawer, createAiPort } from '@/features/ai';
 import { EditorPanels, PanelsProvider } from '@/features/editor-panels';
-import { executeCommand, useCanvasHud } from '@/features/editor-shell';
+import { canvasHud, executeCommand, useCanvasHud } from '@/features/editor-shell';
 import { ImagePanel } from '@/features/image';
 import { CodeExportPanel, ExportPanel, InspectPanel } from '@/features/inspect-export';
 import { InspectorPanel } from '@/features/inspector';
@@ -37,6 +37,7 @@ import { createFramePerfRecorder, type FramePerfRecorder } from '../render/frame
 import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
 import { AiEntryIcon } from './icons';
+import { importIrIntoBridge } from './import-ir';
 import { McpConfirmHost } from './mcp-host';
 import { RIGHT_PANEL_TABS, type RightPanelTab, useWorkspaceUi } from './ui-state';
 import { ensureWorkspaceBootstrapped, getWorkspace } from './workspace-session';
@@ -110,6 +111,21 @@ export function CanvasSlot() {
         perf: () => perfRef.current?.snapshot() ?? null,
         // 落盘的 daemon 文档 id（D-2）：门禁/e2e 据此断言「打开的是哪一份、保存到哪一份」
         documentId: () => workspace.documents.store.getState().documentId,
+        // 导入 IR（audit-d03 · D-03）：与 `/_canvas` 共用 `import-ir.ts` 的单点实现，
+        // 经文档桥本地替换进共享命令栈（清落盘身份）；人话提示走画布 HUD（瞬时反馈面），
+        // 失败原因原文（引擎领域错误）经 i18n 包「导入失败：{message}」。
+        extras: {
+          importIr: (text) => {
+            const result = importIrIntoBridge(text, workspace.documents);
+            canvasHud.show(
+              result.ok
+                ? t('editor.import.imported', { nodes: result.nodes })
+                : t('editor.import.failed', { message: result.error ?? '' }),
+              { autoHideMs: 4000 },
+            );
+            return result.ok ? { ok: true } : { ok: false, error: result.error };
+          },
+        },
       }),
     );
   }, [mounted, workspace]);

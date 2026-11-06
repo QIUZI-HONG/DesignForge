@@ -20,14 +20,12 @@
 import { DEFAULT_PAGE_ID } from '@dforge/contracts';
 import type { DesignDocument } from '@dforge/engine';
 import {
-  countNodes,
   createDocument,
   createIdFactory,
   createPage,
   createRect,
   createViewport,
   guidesOf,
-  parseDocument,
   resolveNode,
   serializeDocument,
 } from '@dforge/engine';
@@ -56,6 +54,7 @@ import type { SceneRenderStats } from '../render/renderer';
 import { type CanvasSession, type CanvasTool, createCanvasSession } from '../state/session';
 import { type CanvasRuntimeStatus, CanvasStage } from '../ui/canvas-stage';
 import { createDocumentBridge } from '../workspace/document-bridge';
+import { importIrIntoBridge } from '../workspace/import-ir';
 
 import './studio.css';
 
@@ -298,24 +297,17 @@ export function CanvasStudio({
     [sessionCell],
   );
 
-  /** 导入 IR（结构非法会被引擎打回）；导入走桥的**本地替换**（清落盘身份，不写回上一份文档）。 */
+  /**
+   * 导入 IR（结构非法会被引擎打回）；导入走桥的**本地替换**（清落盘身份，不写回上一份文档）。
+   * 编排在 `workspace/import-ir.ts` 单点（与 `/editor` 门禁句柄同一实现，audit-d03 · D-03），
+   * 本宿主只负责提示面（notice 文本）。
+   */
   const importIr = useCallback(
     (text: string): { ok: boolean; error?: string } => {
-      try {
-        const parsed = parseDocument(text);
-        if (!bridge.adoptLocal(parsed.document)) {
-          return { ok: false, error: '文档无可用页面' };
-        }
-        const firstPage = parsed.document.pages[0];
-        setNotice(
-          t('canvas.dev.imported', { nodes: firstPage === undefined ? 0 : countNodes(firstPage) }),
-        );
-        return { ok: true };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setNotice(message);
-        return { ok: false, error: message };
-      }
+      const result = importIrIntoBridge(text, bridge);
+      if (result.ok) setNotice(t('canvas.dev.imported', { nodes: result.nodes }));
+      else setNotice(result.error);
+      return result.ok ? { ok: true } : { ok: false, error: result.error };
     },
     [bridge],
   );
