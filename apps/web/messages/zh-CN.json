@@ -1038,6 +1038,8 @@
   "editor.save.failed": "保存失败：{message}",
   "editor.save.failed.network": "保存失败——无法连接本地服务，请确认 daemon 已启动后重新保存。",
   "editor.load.failed.network": "载入失败——无法连接本地服务，请确认 daemon 已启动后重试。",
+  "editor.import.imported": "已导入 IR（{nodes} 个节点）",
+  "editor.import.failed": "导入失败：{message}",
   "editor.load.failed": "文档载入失败：{message}",
   "editor.export.needSave": "请先保存文档，再导出",
   "editor.group.tools": "工具",
