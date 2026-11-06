@@ -1,0 +1,5 @@
+{
+  "schema": "df.perf.baseline/v1",
+  "provisional": true,
+  "note": "夹具：模板态基线（provisional:true）——门禁恒阻塞，CI exit 2 不得收（基线回退红）。"
+}

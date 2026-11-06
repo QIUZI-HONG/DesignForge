@@ -170,36 +170,23 @@ jobs:
       # （与 figma-baseline 阻塞语义断言同构且更收紧）：
       #   exit 0 = 正式判定通过（收）；
       #   exit 1 = 实测超阈值（红，真违规，禁以环境理由掩盖）；
-      #   exit 2 = 仅当阻塞原因属「CI 无真链路」族（Chromium 缺失 / web 构建 / daemon 起不来）
-      #            才按挂点语义收——阻塞不是通过；日志再出现 provisional / 模板态字样即红
-      #            （基线已转正，不得回退成模板态阻塞）。
+      #   exit 2 = 仅当基线 JSON `provisional === false`（已实采转正）才按挂点语义收
+      #            （「CI 无真链路」族阻塞——Chromium 缺失 / web 构建 / daemon 起不来；
+      #            阻塞不是通过）；基线回退（provisional:true）、字段缺失/基线不可读 → 红。
+      # 勘误（audit-d07b · run 42313746571 翻车修复）：原写法「日志含 provisional 字样即红」
+      # 误伤 exit 2 的合法阻塞文案（文案本身就含该字样）→ CI（无 Chromium 恒 exit 2）
+      # 永不可能绿；判据改为**查基线 JSON 状态字段**（共享裁决 scripts/lib/perf-ci-judgment.mjs，
+      # 单测 scripts/tests/perf-ci-judgment.test.mjs 随「脚本单测」步跑）——判定强度不降
+      # （provisional:true 回退依旧红），门禁输出文案不动（含 provisional 字样从此无害）。
       # 严格正式判定（仅 exit 0 绿）待 CI 具备真链路（Chromium + 阈值跨机校准——现阈值按
       # dev 机校准且贴地，跨机直判必红）后由浏览器门禁票收口。
-      - name: 渲染性能门禁（正式判定挂点：exit 0 收 / exit 1 红 / exit 2 仅真链路族阻塞）
+      - name: 渲染性能门禁（正式判定挂点：exit 0 收 / exit 1 红 / exit 2 仅基线转正态阻塞）
         run: |
           set +e
-          output=$(node scripts/verify-perf.mjs 2>&1)
+          node scripts/verify-perf.mjs
           code=$?
           set -e
-          echo "$output"
-          if [ "$code" -eq 0 ]; then
-            echo "OK：性能门禁正式判定通过（基线已转正，判定档全达标）。"
-            exit 0
-          fi
-          if [ "$code" -eq 1 ]; then
-            echo "违规：性能实测超阈值（exit 1，真违规）——禁以环境理由掩盖。"
-            exit 1
-          fi
-          if printf '%s' "$output" | grep -q 'provisional'; then
-            echo "违规：基线已实采转正（provisional:false），门禁不得再以 provisional/模板态阻塞（exit=$code）——查 docs/quality/perf-baseline-v1.json 是否被回退。"
-            exit 1
-          fi
-          if [ "$code" -eq 2 ] && printf '%s' "$output" | grep -q '阻塞'; then
-            echo "OK（挂点，非通过）：基线已转正但 CI 无真链路（Chromium 缺失/构建/daemon）→ exit 2 阻塞——门禁确已执行且未假绿；严格正式判定随浏览器门禁票接入 CI 真链路后收口。"
-            exit 0
-          fi
-          echo "违规：性能门禁的退出码/日志不符三态语义（exit=$code；期望 0 收 / 1 红违规 / 2+「阻塞」挂点）。"
-          exit 1
+          node scripts/lib/perf-ci-judgment.mjs docs/quality/perf-baseline-v1.json "$code" "渲染性能门禁"
 
       # ---------------------------------------------------------------------------------
       # 未接入本 CI 的门禁与原因（**不许注释说接了实际没接**）：
@@ -217,8 +204,9 @@ jobs:
       #   - verify:motion / verify:perf 的**正式判定**：未接入（motion：断言实现待阶段 1，
       #     挂点恒 exit 2；perf：基线已实采转正（audit-d07），dev 机正式判定 0/1，但 CI 无
       #     真链路（Chromium）恒 exit 2，且阈值按 dev 机校准贴地、跨机直判必红）——perf 的
-      #     **「正式判定挂点」**已接入（上方步骤：exit 0 收 / exit 1 红 / exit 2 仅真链路族
-      #     阻塞可收 + provisional 字样即红），严格正式判定随浏览器门禁票收口；motion 仍为
+      #     **「正式判定挂点」**已接入（上方步骤：exit 0 收 / exit 1 红 / exit 2 仅当基线
+      #     provisional:false 可收 + 基线回退红；判据查基线 JSON 字段不查日志文本，
+      #     audit-d07b 勘误），严格正式判定随浏览器门禁票收口；motion 仍为
       #     阻塞语义断言（上方步骤），各自前提齐备后改为正式接入。
       #   - pnpm verify:mk-01：判据来自 ~/df-evidence/mk-01 的采集产物（需真网 + GH_TOKEN
       #     采集，产物按纪律存仓库外）→ CI 内无产物，只会 exit 2（阻塞），故不接；
