@@ -215,6 +215,7 @@ export async function ensureWebSite(options = {}) {
  *
  * @param {{
  *   daemonUrl: string,
+ *   token?: string | null,
  *   check: (context: {
  *     page: import('playwright-core').Page,
  *     record: (id: string, ok: boolean, detail: string) => void,
@@ -225,6 +226,8 @@ export async function ensureWebSite(options = {}) {
  *   log?: (message: string) => void,
  *   screenshotName?: string,
  * }} options
+ *   `token` = daemon 本地令牌（audit-d02 · D-02）：注入 Node 侧转发器（页面未带头时兜底），
+ *   并经 `?dfToken=` 进编辑器 URL（web 单点模块持久化后页面请求自带令牌头）。
  * @returns {Promise<{
  *   status: 'passed' | 'failed' | 'blocked',
  *   reason: string | null,
@@ -235,6 +238,7 @@ export async function ensureWebSite(options = {}) {
  */
 export async function runUiMountCheck(options) {
   const { daemonUrl, check, evidenceDir, screenshotName } = options;
+  const token = options.token ?? null;
   const log = options.log ?? (() => {});
   const steps = [];
   const record = (id, ok, detail) => {
@@ -269,11 +273,13 @@ export async function runUiMountCheck(options) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     // daemon 请求经页面相对前缀 → Playwright 转发真 daemon（Node 侧 fetch；见模块头注释）
-    await forwardDaemonRequests(page, daemonUrl);
+    await forwardDaemonRequests(page, daemonUrl, DAEMON_ROUTE_PREFIX, { token });
     log(`daemon 请求代理就绪：${DAEMON_ROUTE_PREFIX}/** → ${daemonUrl}`);
 
     // 页面直接开站点本源（dev 形态有开发源限制，经网关打开会停在 SSR 空槽）；`?daemon=` 用相对前缀
-    editorUrl = `${web.url}/editor?daemon=${encodeURIComponent(DAEMON_ROUTE_PREFIX)}`;
+    editorUrl = `${web.url}/editor?daemon=${encodeURIComponent(DAEMON_ROUTE_PREFIX)}${
+      token === null ? '' : `&dfToken=${encodeURIComponent(token)}`
+    }`;
     const capture = async (fileName) => {
       await mkdir(evidenceDir, { recursive: true });
       screenshot = join(evidenceDir, fileName);

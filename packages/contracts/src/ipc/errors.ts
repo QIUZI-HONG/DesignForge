@@ -13,6 +13,9 @@ export const DF_ERROR_CODES = [
   'not_found',
   'conflict',
   'internal',
+  // 本地令牌鉴权（audit-d02 · D-02：daemon 本地特权面收敛——除 /health 与 CORS 预检外
+  // 一律要求令牌，缺失/错误 401；令牌文件 `<dataRoot>/daemon-token` 0600）
+  'unauthorized',
   // Host allowlist（DNS-rebinding 防线：daemon 仅接受本机回环 Host，伪造/缺失一律 403）
   'host_not_allowed',
   // 文档（.dfg 目录态）
@@ -62,6 +65,7 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   not_found: 404,
   conflict: 409,
   internal: 500,
+  unauthorized: 401,
   host_not_allowed: 403,
   doc_not_found: 404,
   doc_exists: 409,

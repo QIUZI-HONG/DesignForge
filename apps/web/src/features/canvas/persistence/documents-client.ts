@@ -14,6 +14,7 @@ import { DAEMON_ROUTES } from '@dforge/contracts';
 import type { DesignDocument } from '@dforge/engine';
 import { parseDocument } from '@dforge/engine';
 
+import { daemonAuthHeaders } from '@/lib/daemon-endpoint';
 import { type ClientResult, loadPageSet, planPageSetSave } from './page-set';
 
 export type { CanvasPageBody, ClientResult } from './page-set';
@@ -101,11 +102,15 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
     body?: unknown,
   ): Promise<ClientResult<unknown>> => {
     try {
+      // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象
       const response = await fetchImpl(url, {
         method,
         ...(body === undefined
-          ? {}
-          : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+          ? { headers: daemonAuthHeaders() }
+          : {
+              headers: { 'content-type': 'application/json', ...daemonAuthHeaders() },
+              body: JSON.stringify(body),
+            }),
       });
       const text = await response.text();
       let parsed: unknown = null;

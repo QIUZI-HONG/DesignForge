@@ -32,11 +32,23 @@
  * （首页卡片→编辑器、市场卡片→详情、各回跳）一旦丢了查询参数，下一页面就会回退到端口窗
  * 探测——在同源网关/非默认端口形态下整页「无法连接本地服务」（UX-01 第一手复现）。只做
  * **查询参数形态**的传递：当前页没有 `?daemon=`（env 注入的壳/部署形态）时不追加，
- * canonical URL 保持干净。
+ * canonical URL 保持干净。audit-d02 起**令牌参数 `dfToken` 同规则随行**（端点在传，令牌
+ * 不传则下一页面 401）；令牌另有本地存储兜底（见第四个入口），URL 传递是首跳形态的
+ * 一致性保证。
  *
  * 本模块**不得依赖 React**（也不得加 `'use client'`）：它经 `features/market` 的数据面被
  * Server Component（如 `app/market/layout.tsx`）间接导入——挂 React hook 在这里会让
  * `next build` 直接失败（RSC 边界）。React 绑定刻意放在 `daemon-href.ts`。
+ *
+ * 第四个入口（audit-d02 · D-02 · 令牌鉴权）：**本地令牌解析**——daemon 缺省开启令牌
+ * 鉴权后，每个请求都要携带 `x-df-token`；令牌与端点一样必须单点解析（各 client 各自
+ * 读查询串/存储必然漂移）。统一顺序（先到先用）：
+ *   1. 查询参数 `?dfToken=<token>`（宿主——桌面壳/门禁——经 URL 注入；读到即**持久化**
+ *      到本地存储 `dfg:daemon-token`，后续导航/刷新不依赖 URL）；
+ *   2. 构建期环境变量 `NEXT_PUBLIC_DF_DAEMON_TOKEN`（部署/壳注入）；
+ *   3. 本地存储（浏览器 localStorage；SSR/隐私模式无则跳过）。
+ * 消费方一律经 `daemonAuthHeaders()` 取鉴权头（无令牌 → 空对象，头不存在）——daemon 侧
+ * `DF_AUTH_DISABLED=1` 时无需任何改动。令牌值不做格式强校验（opaque 串；空白视为未给）。
  */
 
 import {
@@ -105,6 +117,12 @@ function envEndpoint(options: DaemonEndpointOptions): string | undefined {
 /** daemon 端点查询参数的键名（读取与站内传递共用同一处定义）。 */
 export const DAEMON_ENDPOINT_QUERY_KEY = 'daemon';
 
+/** daemon 本地令牌查询参数的键名（宿主注入形态；读取与站内传递共用同一处定义）。 */
+export const DAEMON_TOKEN_QUERY_KEY = 'dfToken';
+
+/** 令牌本地存储键（`dfg:*` 键空间纪律；版本化——结构变更时换键）。 */
+export const DAEMON_TOKEN_STORAGE_KEY = 'dfg:daemon-token';
+
 /** 从查询串取显式端点（`?daemon=`）。 */
 function searchEndpoint(options: DaemonEndpointOptions): string | undefined {
   const search =
@@ -112,6 +130,116 @@ function searchEndpoint(options: DaemonEndpointOptions): string | undefined {
   if (typeof search !== 'string' || search === '') return undefined;
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
   return normalizeCandidate(params.get(DAEMON_ENDPOINT_QUERY_KEY));
+}
+
+/** 本地存储的最小键值后端（localStorage 的形状子集；测试注入内存实现）。 */
+export interface TokenStorageBackend {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+/** 令牌解析选项（各字段显式给出时跳过对应环境读取，便于测试与宿主注入）。 */
+export interface DaemonTokenOptions {
+  /** 显式查询串（缺省读 `window.location.search`；服务端无 window 时视为无查询串）。 */
+  search?: string | undefined;
+  /**
+   * 存储后端覆盖：**给出属性**（含显式 `null`）即以它为准、不再摸 `localStorage`——
+   * 测试要「明确无存储」时靠这个区分「没给」（浏览器缺省）与「给了 null」（禁用存储）。
+   */
+  storage?: TokenStorageBackend | null | undefined;
+  /**
+   * 环境变量覆盖：**给出属性**（含显式 `undefined`）即以它为准、不再读 `process.env`——
+   * 测试/宿主要「明确不要 env」时靠这个区分「没给」与「给了空」（口径同端点的 `envUrl`）。
+   */
+  envToken?: string | undefined;
+}
+
+/** 令牌查询串参数值（空白/空串视为未给；令牌是 opaque 串，不做 URL 规范化）。 */
+function searchToken(options: DaemonTokenOptions): string | undefined {
+  const search =
+    options.search ?? (typeof window === 'undefined' ? undefined : window.location.search);
+  if (typeof search !== 'string' || search === '') return undefined;
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const raw = params.get(DAEMON_TOKEN_QUERY_KEY);
+  if (raw === null) return undefined;
+  const trimmed = raw.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+/**
+ * 环境变量取值。
+ *
+ * 与 `NEXT_PUBLIC_DF_DAEMON_URL` 同一纪律：只写**静态成员表达式**（Next 构建期内联），
+ * **全仓仅此一处**读取该变量；`'envToken' in options` 的覆盖口径与端点的 `envUrl` 一致。
+ */
+function envToken(options: DaemonTokenOptions): string | undefined {
+  if ('envToken' in options) return normalizeCandidate(options.envToken);
+  const raw = process.env.NEXT_PUBLIC_DF_DAEMON_TOKEN;
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+/** 取缺省存储后端（浏览器 localStorage；SSR/纯 node/隐私模式为 undefined——静默降级）。 */
+function defaultTokenStorage(): TokenStorageBackend | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    return window.localStorage;
+  } catch {
+    // 隐私模式等场景下访问 localStorage 本身会抛错：降级为不持久化（先例：onboarding-storage）
+    return undefined;
+  }
+}
+
+/** 把查询串里的令牌持久化到存储（宿主注入一次，后续不依赖 URL；失败静默——令牌仍在本会话生效）。 */
+function persistTokenFromSearch(options: DaemonTokenOptions): void {
+  if ('storage' in options && options.storage === null) return;
+  const backend = options.storage ?? defaultTokenStorage();
+  const token = searchToken(options);
+  if (backend === undefined || token === undefined) return;
+  try {
+    backend.setItem(DAEMON_TOKEN_STORAGE_KEY, token);
+  } catch {
+    // 写失败（配额/隐私模式）：不炸调用方，令牌仍随本次解析返回
+  }
+}
+
+/** 从存储读令牌（无后端/坏数据 → undefined；读到的空白串视为未给）。 */
+function storedToken(options: DaemonTokenOptions): string | undefined {
+  if ('storage' in options && options.storage === null) return undefined;
+  const backend = options.storage ?? defaultTokenStorage();
+  if (backend === undefined) return undefined;
+  try {
+    const raw = backend.getItem(DAEMON_TOKEN_STORAGE_KEY);
+    if (typeof raw !== 'string') return undefined;
+    const trimmed = raw.trim();
+    return trimmed === '' ? undefined : trimmed;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 解析 daemon 本地令牌（查询参数 → env → 本地存储；先到先用，不缓存）。
+ * 查询参数命中即持久化（副作用见 `persistTokenFromSearch`——宿主注入一次，后续导航/刷新
+ * 从存储取，URL 保持可清理）。
+ */
+export function resolveDaemonToken(options: DaemonTokenOptions = {}): string | undefined {
+  const fromSearch = searchToken(options);
+  if (fromSearch !== undefined) {
+    persistTokenFromSearch(options);
+    return fromSearch;
+  }
+  return envToken(options) ?? storedToken(options);
+}
+
+/**
+ * daemon 请求鉴权头（各 client 拼请求时展开进 headers；无令牌 → 空对象）。
+ * 单点纪律：与端点解析同源——任何 client 不得自行读查询串/存储拼令牌头。
+ */
+export function daemonAuthHeaders(options: DaemonTokenOptions = {}): Record<string, string> {
+  const token = resolveDaemonToken(options);
+  return token === undefined ? {} : { 'x-df-token': token };
 }
 
 /** 同步解析（查询参数 → env → 缺省起点；不探测、不缓存）。 */
@@ -142,21 +270,40 @@ function currentEndpointParam(options: DaemonEndpointOptions): string | null {
   return value;
 }
 
+/** 当前页面的令牌参数值（仅查询参数形态；无参/空白 → null——令牌是 opaque 串，无 URL 校验）。 */
+function currentTokenParam(options: DaemonTokenOptions): string | null {
+  const value = searchToken(options);
+  return value === undefined ? null : value;
+}
+
+/** 单参数就地赋值：已有同名参数则替换（幂等），否则按「已有查询串 → &，否则 ?」追加。
+ * 不用 URLSearchParams 重建整串——它会把 `%20` 规范化成 `+`，改变既有地址的字节形态。 */
+function assignQueryParam(base: string, key: string, value: string): string {
+  const assignment = `${key}=${encodeURIComponent(value)}`;
+  const existing = new RegExp(`(^|[?&])${key}=[^&#]*`);
+  if (existing.test(base)) {
+    return base.replace(existing, `$1${assignment}`);
+  }
+  const separator = base.includes('?') ? '&' : '?';
+  return `${base}${separator}${assignment}`;
+}
+
 /** 站内地址（应用内相对路径；`//host` 协议相对地址算站外）。 */
 function isInternalHref(href: string): boolean {
   return href.startsWith('/') && !href.startsWith('//');
 }
 
 /**
- * 站内跳转地址 + 当前页面的 daemon 端点参数（D-3 / UX-01）。
+ * 站内跳转地址 + 当前页面的 daemon 端点参数（D-3 / UX-01；audit-d02 起令牌随行）。
  *
  * 规则（外部可观测行为；`daemon-endpoint.test.ts` 是可执行规范）：
  * - 当前页带合法 `?daemon=` → 续写到站内地址（`?`/`&` 按需选分隔符；已有同名参数则覆盖，
  *   幂等——重复调用结果一致）；当前页没有（或值非法）→ **原样返回**（canonical URL 干净）；
- * - **只动 `daemon` 这一个参数**：其余查询串与转义逐字保留（不用 `URLSearchParams` 重建
- *   整串——它会把 `%20` 规范化成 `+`，改变既有地址的字节形态）；
+ * - **只动 `daemon` 与 `dfToken` 两个参数**（audit-d02：端点在传、令牌不传则下一页面 401）：
+ *   其余查询串与转义逐字保留（不用 `URLSearchParams` 重建整串——它会把 `%20` 规范化成
+ *   `+`，改变既有地址的字节形态）；
  * - 保留 `#hash`（参数插在 hash 之前）；站外地址（绝对 URL、`//host`、`#anchor`）一律不改
- *   ——不把本地端点泄到站外，也不给外部链接添参数。
+ *   ——不把本地端点/令牌泄到站外，也不给外部链接添参数。
  */
 export function withDaemonEndpoint(href: string, options: DaemonEndpointOptions = {}): string {
   const endpoint = currentEndpointParam(options);
@@ -164,16 +311,13 @@ export function withDaemonEndpoint(href: string, options: DaemonEndpointOptions 
 
   const hashAt = href.indexOf('#');
   const hash = hashAt === -1 ? '' : href.slice(hashAt);
-  const base = hashAt === -1 ? href : href.slice(0, hashAt);
-  const assignment = `${DAEMON_ENDPOINT_QUERY_KEY}=${encodeURIComponent(endpoint)}`;
-
-  // 同名参数已在地址里 → 就地替换（幂等）；否则按「已有查询串 → &，否则 ?」追加
-  const existing = new RegExp(`(^|[?&])${DAEMON_ENDPOINT_QUERY_KEY}=[^&#]*`);
-  if (existing.test(base)) {
-    return `${base.replace(existing, `$1${assignment}`)}${hash}`;
+  let base = hashAt === -1 ? href : href.slice(0, hashAt);
+  base = assignQueryParam(base, DAEMON_ENDPOINT_QUERY_KEY, endpoint);
+  const token = currentTokenParam(options);
+  if (token !== null) {
+    base = assignQueryParam(base, DAEMON_TOKEN_QUERY_KEY, token);
   }
-  const separator = base.includes('?') ? '&' : '?';
-  return `${base}${separator}${assignment}${hash}`;
+  return `${base}${hash}`;
 }
 
 /** 端口窗候选（顺序 = 探测顺序：起点 → 起点 + 上限偏移；端点串由契约包单点构造）。 */

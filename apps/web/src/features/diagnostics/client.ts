@@ -11,7 +11,7 @@ import type {
 } from '@dforge/contracts';
 import { DAEMON_ROUTES } from '@dforge/contracts';
 
-import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 /** daemon 请求失败（信封 error 的形状对齐）。 */
 export class DaemonRequestError extends Error {
@@ -78,7 +78,8 @@ export function createDiagnosticsPort(
   const doFetch = options.fetchImpl ?? fetch;
 
   const request = async <T>(path: string, method: string): Promise<T> => {
-    const response = await doFetch(`${baseUrl}${path}`, { method });
+    // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析（/health 豁免，带头无害）
+    const response = await doFetch(`${baseUrl}${path}`, { method, headers: daemonAuthHeaders() });
     return readEnvelope<T>(response);
   };
 

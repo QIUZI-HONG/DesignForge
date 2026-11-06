@@ -14,7 +14,16 @@
  * **安全纪律（本模块最要紧的约束）**：请求体携带明文 key，只在调用栈内流转——
  * 本模块不打印、不记录、不回显任何请求体；失败文案只来自 daemon 的结构化错误
  * （daemon 侧已保证不含明文）。
+ *
+ * **本地令牌（audit-d02 · D-02）**：daemon 缺省开启令牌鉴权，CLI 与 daemon 同机同用户
+ * ——读令牌文件（`<DF_DATA_ROOT ?? ~/.dforge>/daemon-token`，0600）即合法获取路径
+ * （本机文件权限即边界）；env `DF_DAEMON_TOKEN` 显式覆盖（测试/CI 注入）。文件缺失 →
+ * 不带头（daemon `DF_AUTH_DISABLED=1` 形态仍可用；开启态则 401 原样上抛给调用方）。
  */
+
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   type DaemonRouteSpec,
@@ -52,6 +61,28 @@ export type DaemonRequestResult<T> =
   | { ok: true; value: T }
   | { ok: false; failure: DaemonRequestFailure };
 
+/** daemon 令牌文件名（单源在 `apps/daemon/src/token.ts`；CLI 侧同名复制，跨包不引码）。 */
+export const DAEMON_TOKEN_FILE_BASENAME = 'daemon-token';
+
+/**
+ * 解析本地令牌：env `DF_DAEMON_TOKEN` 显式覆盖 → 数据根令牌文件 → null。
+ * 空白值视为未给；读失败（缺失/权限）→ null，不炸调用方。
+ */
+export async function resolveDaemonToken(
+  env: Record<string, string | undefined> = process.env,
+): Promise<string | null> {
+  const fromEnv = env.DF_DAEMON_TOKEN?.trim();
+  if (fromEnv !== undefined && fromEnv !== '') return fromEnv;
+  const dataRoot = env.DF_DATA_ROOT?.trim() || join(homedir(), '.dforge');
+  try {
+    const raw = await readFile(join(dataRoot, DAEMON_TOKEN_FILE_BASENAME), 'utf8');
+    const trimmed = raw.trim();
+    return trimmed === '' ? null : trimmed;
+  } catch {
+    return null;
+  }
+}
+
 /** 请求一个已登记路由并解包信封（可选 JSON 请求体）。 */
 export async function requestDaemon<T>(
   baseUrl: string,
@@ -59,6 +90,9 @@ export async function requestDaemon<T>(
   body?: unknown,
 ): Promise<DaemonRequestResult<T>> {
   const headers: Record<string, string> = { accept: 'application/json' };
+  // 本地令牌鉴权（audit-d02 · D-02）：有令牌则携带；无令牌不带头（开启态由 daemon 401 拒绝）
+  const token = await resolveDaemonToken();
+  if (token !== null) headers['x-df-token'] = token;
   const init: RequestInit = {
     method: route.method,
     headers,

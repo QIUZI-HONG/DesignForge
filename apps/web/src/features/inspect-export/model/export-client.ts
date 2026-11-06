@@ -14,7 +14,7 @@ import {
   isApiSuccess,
 } from '@dforge/contracts';
 
-import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 
 /** 客户端结果：成功给产物；失败给稳定错误码 + 文案（面板映射为文案）。 */
 export type ExportOutcome =
@@ -72,7 +72,7 @@ export function createExportClient(options: ExportClientOptions = {}): ExportCli
         response = await Promise.race([
           doFetch(`${baseUrl}${DAEMON_ROUTES.exportDocument.path}`, {
             method: DAEMON_ROUTES.exportDocument.method,
-            headers: { 'content-type': 'application/json' },
+            headers: { 'content-type': 'application/json', ...daemonAuthHeaders() },
             body: JSON.stringify(request),
             signal: controller.signal,
           }),

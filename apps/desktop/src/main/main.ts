@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, Menu, type NativeImage, shell } from 'electron';
 
+import { appendTokenParam, readDaemonToken } from './daemon-token.js';
 import { decideExternalOpen, decideInPageNavigation } from './external-links.js';
 import { formatLoadTargetMarker, resolveLoadPlanFromDisk } from './load-target.js';
 import { buildMenuTemplate } from './menu.js';
@@ -184,19 +185,25 @@ async function fitViewportToBaseline(
  * 装载目标页：dev URL 直装；静态产物起**内置静态服务**装载（Next 导出资源是绝对路径，
  * file:// 会 404）；两者都没有则装壳内诊断页。
  *
+ * 令牌注入（audit-d02 · D-02）：daemon 缺省令牌鉴权后，壳读数据根令牌文件并经
+ * `?dfToken=` 注入装载页（web 侧单点模块持久化）；文件缺失则不注入（页面请求 401
+ * 有引导，不静默吞鉴权失败）——fallback 诊断页不连 daemon，无需注入。
+ *
  * 装载完成后往 stdout 打一行 `DFORGE_LOAD_TARGET:` 标记：门禁存活段据此**如实**记录
  * `target.kind`（fallback 诊断页也如实记，不许猜）——见 `load-target.ts` 的同名导出。
  */
 async function loadTarget(window: BrowserWindow) {
   const plan = resolveLoadPlanFromDisk({ shellRoot: SHELL_ROOT, repoRoot: REPO_ROOT });
+  const token = await readDaemonToken(process.env);
+  const withToken = (url: string): string => (token === null ? url : appendTokenParam(url, token));
 
   let target: { kind: string; url: string; reason: string };
   if (plan.kind === 'dev-server') {
-    await window.loadURL(plan.url);
+    await window.loadURL(withToken(plan.url));
     target = { kind: plan.kind, url: window.webContents.getURL(), reason: plan.reason };
   } else if (plan.kind === 'static-export') {
     const { origin } = await startStaticServer(plan.rootDir);
-    await window.loadURL(`${origin}/`);
+    await window.loadURL(withToken(`${origin}/`));
     target = {
       kind: plan.kind,
       url: window.webContents.getURL(),

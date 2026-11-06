@@ -157,7 +157,16 @@ await runFigmaGate({
   referenceDir: REF_DIR,
   evidenceRoot: EVIDENCE_ROOT,
   url: () =>
-    `${pageOrigin}${PAGE}${gateway === null ? '' : `?daemon=${encodeURIComponent(`${gateway.url}/df`)}`}`,
+    `${pageOrigin}${PAGE}${
+      gateway === null
+        ? ''
+        : `?daemon=${encodeURIComponent(`${gateway.url}/df`)}` +
+          (
+            daemon === null || daemon === undefined
+              ? ''
+              : `&dfToken=${encodeURIComponent(daemon.token)}`
+          )
+    }`,
   only,
   onlyKey: 'state',
   units: STATES.map((state) => ({

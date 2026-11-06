@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CORS_ALLOWED_HEADERS,
   CORS_ORIGINS_ENV,
   CORS_ORIGINS_ENV_ALIAS,
   corsOriginsFromEnv,
@@ -10,6 +11,7 @@ import {
 } from '../cors.ts';
 import type { TestDaemon } from '../testing/harness.ts';
 import { createTestDaemon } from '../testing/harness.ts';
+import { TOKEN_HEADER } from '../token.ts';
 
 /** 取响应头（Fastify inject 头名小写）。 */
 function headerOf(response: { headers: Record<string, unknown> }, name: string): unknown {
@@ -52,13 +54,17 @@ describe('cors · 策略解析', () => {
     expect(corsOriginsFromEnv({})).toEqual([...DEFAULT_CORS_ORIGINS]);
   });
 
-  it('策略：精确匹配大小写不敏感，`null`（打包壳）恒放行，不通配', () => {
+  it('策略：精确匹配大小写不敏感，`null`（打包壳）放行，不通配', () => {
     const policy = createCorsPolicy(['http://localhost:3000']);
     expect(policy.isAllowed('http://localhost:3000')).toBe(true);
     expect(policy.isAllowed('http://LOCALHOST:3000')).toBe(true);
     expect(policy.isAllowed('null')).toBe(true);
     expect(policy.isAllowed('http://evil.example.com')).toBe(false);
     expect(policy.isAllowed('http://localhost:3000.evil.example.com')).toBe(false);
+  });
+
+  it('允许请求头登记了本地令牌头（audit-d02）：content-type + x-df-token', () => {
+    expect([...CORS_ALLOWED_HEADERS]).toEqual(['content-type', 'x-df-token']);
   });
 });
 
@@ -112,12 +118,16 @@ describe('cors · 响应头（白名单受控放行）', () => {
     });
   });
 
-  it('写方法同样带 CORS 头（PUT/DELETE）', async () => {
+  it('写方法同样带 CORS 头（PUT/DELETE）——令牌合法的请求行为不变', async () => {
     await withDaemon(async (daemon) => {
       const put = await daemon.app.inject({
         method: 'PUT',
         url: '/config',
-        headers: { origin: 'http://localhost:3000', 'content-type': 'application/json' },
+        headers: {
+          origin: 'http://localhost:3000',
+          'content-type': 'application/json',
+          [TOKEN_HEADER]: daemon.token ?? '',
+        },
         payload: JSON.stringify({ telemetry: { enabled: true } }),
       });
       expect(put.statusCode).toBe(200);
@@ -126,7 +136,7 @@ describe('cors · 响应头（白名单受控放行）', () => {
       const del = await daemon.app.inject({
         method: 'DELETE',
         url: '/config/credentials',
-        headers: { origin: 'http://127.0.0.1:3000' },
+        headers: { origin: 'http://127.0.0.1:3000', [TOKEN_HEADER]: daemon.token ?? '' },
       });
       expect(del.statusCode).toBe(200);
       expect(headerOf(del, 'access-control-allow-origin')).toBe('http://127.0.0.1:3000');
@@ -149,7 +159,9 @@ describe('cors · 预检（OPTIONS 短路）', () => {
       expect(response.statusCode).toBe(204);
       expect(headerOf(response, 'access-control-allow-origin')).toBe('http://localhost:3000');
       expect(headerOf(response, 'access-control-allow-methods')).toBe('GET,POST,PUT,PATCH,DELETE');
-      expect(headerOf(response, 'access-control-allow-headers')).toBe('content-type');
+      expect(headerOf(response, 'access-control-allow-headers')).toBe(
+        CORS_ALLOWED_HEADERS.join(','),
+      );
       expect(headerOf(response, 'access-control-max-age')).toBe('600');
       expect(String(headerOf(response, 'vary')).toLowerCase()).toContain('origin');
     });
@@ -167,11 +179,19 @@ describe('cors · 预检（OPTIONS 短路）', () => {
     });
   });
 
-  it('无 Origin 的裸 OPTIONS 不进预检短路（保持原路由语义：404）', async () => {
+  it('无 Origin 的裸 OPTIONS 不是预检：进令牌闸门（无令牌 401；合法令牌保持原路由语义 404）', async () => {
     await withDaemon(async (daemon) => {
-      const response = await daemon.app.inject({ method: 'OPTIONS', url: '/documents' });
-      expect(response.statusCode).toBe(404);
-      expect(headerOf(response, 'access-control-allow-origin')).toBeUndefined();
+      const noToken = await daemon.app.inject({ method: 'OPTIONS', url: '/documents' });
+      expect(noToken.statusCode).toBe(401);
+      expect(headerOf(noToken, 'access-control-allow-origin')).toBeUndefined();
+
+      const withToken = await daemon.app.inject({
+        method: 'OPTIONS',
+        url: '/documents',
+        headers: { [TOKEN_HEADER]: daemon.token ?? '' },
+      });
+      expect(withToken.statusCode).toBe(404);
+      expect(headerOf(withToken, 'access-control-allow-origin')).toBeUndefined();
     });
   });
 });
@@ -203,7 +223,7 @@ describe('cors · 注入覆盖（测试/部署可配）', () => {
       const response = await daemon.app.inject({
         method: 'GET',
         url: '/documents/不存在',
-        headers: { origin: 'http://localhost:3000' },
+        headers: { origin: 'http://localhost:3000', [TOKEN_HEADER]: daemon.token ?? '' },
       });
       expect(response.statusCode).toBe(404);
       expect((response.json() as { error: { code: string } }).error.code).toBe('doc_not_found');

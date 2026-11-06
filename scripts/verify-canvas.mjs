@@ -92,6 +92,8 @@ const notes = [];
 const cleanups = [];
 let daemonProcess;
 let workspaceDir;
+/** 夹具 daemon 的本地令牌（audit-d02 · D-02；外部 daemon 形态取 env DF_DAEMON_TOKEN）。 */
+let daemonToken = null;
 /** 交互用浏览器（`finish` 前统一关闭；截图段另起浏览器，自管生命周期）。 */
 let browser = null;
 
@@ -409,6 +411,8 @@ async function ensureDaemon(webPort) {
     return finish(2, `阻塞：daemon 未能启动（输出尾部：${started.output().slice(-400)}）`);
   }
   daemonUrl = url;
+  // 令牌文件由 daemon 启动落盘（listening 已打印 = 应用装配完成）
+  daemonToken = readFileSync(join(dataRoot, 'daemon-token'), 'utf8').trim();
 }
 
 /** 起 Web 站点（未外部指定时 `next dev`）。 */
@@ -469,9 +473,13 @@ async function ensureWeb(plannedPort) {
   }
 }
 
-/** 页面里的 daemon 请求 → Node 侧转发（绕开浏览器 CORS；实现见 `lib/browser-toolchain.mjs`）。 */
+/** 页面里的 daemon 请求 → Node 侧转发（绕开浏览器 CORS；实现见 `lib/browser-toolchain.mjs`）。
+ * 令牌（audit-d02 · D-02）：页面请求自带的 x-df-token 原样透传；没带则注入（外部 daemon
+ * 形态令牌只给了 Node 侧——env DF_DAEMON_TOKEN）。 */
 async function routeDaemon(page) {
-  await forwardDaemonRequests(page, daemonUrl, DAEMON_PREFIX);
+  await forwardDaemonRequests(page, daemonUrl, DAEMON_PREFIX, {
+    token: daemonToken ?? process.env.DF_DAEMON_TOKEN ?? null,
+  });
 }
 
 /** 主流程。 */
@@ -504,7 +512,9 @@ async function main() {
   if (useProxy) await routeDaemon(page);
 
   const daemonBase = useProxy ? DAEMON_PREFIX : daemonUrl;
-  const canvasUrl = `${webUrl}/_canvas?daemon=${encodeURIComponent(daemonBase)}`;
+  // 令牌经查询串注入页面（audit-d02 · D-02）：web 单点模块读到即持久化，请求自带 x-df-token
+  const dfTokenQuery = daemonToken === null ? '' : `&dfToken=${encodeURIComponent(daemonToken)}`;
+  const canvasUrl = `${webUrl}/_canvas?daemon=${encodeURIComponent(daemonBase)}${dfTokenQuery}`;
   // 首屏放宽到 120s：next dev 首次编译 + 7MB wasm 冷启动在 CI/本机都可能超过默认 30s
   await page.goto(canvasUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page.waitForSelector('canvas[data-df-canvas]', { timeout: 60_000 });

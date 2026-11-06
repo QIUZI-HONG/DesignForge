@@ -46,6 +46,7 @@ import {
   readlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -139,6 +140,8 @@ for (const [signal, code] of [
 
 let daemon = null;
 let dataRoot = null;
+/** 夹具 daemon 的本地令牌（audit-d02 · D-02；health 探测通过后从数据根读取）。 */
+let daemonToken = null;
 
 async function finish(code, message) {
   evidence.finishedAt = new Date().toISOString();
@@ -321,6 +324,8 @@ try {
   if (!(await waitForHttp(`${daemon.url}/health`, 15_000))) {
     await finish(2, '阻塞：夹具 daemon /health 不可达。');
   }
+  // 令牌文件由 daemon 启动落盘（/health 已 200 = 应用装配完成）
+  daemonToken = (await readFile(join(dataRoot, 'daemon-token'), 'utf8')).trim();
 
   // --- 站点：复用 DF_WEB_URL，或生产构建 + 起服务（禁 next dev） ---
   if (webUrl === null) {
@@ -372,7 +377,9 @@ try {
   const page = await context.newPage();
 
   // --- 打开编辑器（直连夹具 daemon），等画布就绪 ---
-  const editorUrl = `${webUrl}/editor?daemon=${encodeURIComponent(daemon.url)}`;
+  const editorUrl =
+    `${webUrl}/editor?daemon=${encodeURIComponent(daemon.url)}` +
+    `&dfToken=${encodeURIComponent(daemonToken)}`;
   await page.goto(editorUrl, { waitUntil: 'load', timeout: 60_000 });
   await page.waitForSelector('[data-df-canvas-shell]', { timeout: 30_000 });
   await waitFor(page, `() => globalThis.__dforgeCanvas?.runtime().canvasKit === 'ready'`, {

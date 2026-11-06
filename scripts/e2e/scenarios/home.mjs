@@ -81,7 +81,8 @@ export async function run(page, ctx) {
   }
 
   // 4) 持久化：daemon 列表 + 磁盘上的 .dfg/manifest.json（两条独立证据）
-  const listed = await fetch(`${ctx.daemonUrl}/documents`)
+  const listed = await ctx
+    .daemonFetch('/documents')
     .then((response) => response.json())
     .catch(() => null);
   const ids = (listed?.result?.documents ?? []).map((document) => document.id);

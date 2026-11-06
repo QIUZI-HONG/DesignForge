@@ -7,7 +7,8 @@
  * （arch-04 实施中已发生：一次未受控的 inspect 门禁在真实例上建/删了一份临时文档）。
  *
  * 纪律（本 module 的唯一职责）：
- *   1. `DF_DAEMON_URL` **显式给定** → 照用（保留调试能力，日志写明「使用外部 daemon」）；
+ *   1. `DF_DAEMON_URL` **显式给定** → 照用（保留调试能力，日志写明「使用外部 daemon」；
+ *      令牌走 env `DF_DAEMON_TOKEN` 显式给定——外部实例的数据根本脚本不摸）；
  *   2. **未给定** → **自起夹具 daemon**（临时数据根 + 空闲端口，复用
  *      `lib/gates.mjs` 的 `startFixtureDaemon`/`freePort`），用完必停（进程组精确回收 +
  *      核对端口释放 + 删临时目录）；
@@ -102,12 +103,15 @@ export const TEMP_ROOT_RM_OPTIONS = Object.freeze({
  * }} [options]
  * @returns {Promise<{
  *   url: string,
+ *   token: string | null,
  *   mode: 'external' | 'fixture',
  *   port: string | null,
  *   dataRoot: string | null,
  *   workspaceDir: string | null,
  *   close: () => Promise<{ released: boolean }>,
  * }>}
+ *   `token` = 夹具实例的本地令牌（audit-d02 · D-02；external 形态取 env DF_DAEMON_TOKEN，
+ *   未给则 null——调用方对非 /health 路由的直连请求需携带 `x-df-token: token`）。
  */
 export async function resolveDaemon({
   env = process.env,
@@ -123,8 +127,15 @@ export async function resolveDaemon({
   if (explicit !== '') {
     const url = explicit.replace(/\/+$/, '');
     log(`[daemon] 使用外部 daemon（DF_DAEMON_URL 显式给定）：${url}`);
+    const externalToken = typeof env.DF_DAEMON_TOKEN === 'string' ? env.DF_DAEMON_TOKEN.trim() : '';
+    if (externalToken === '') {
+      log(
+        '[daemon] ⚠ 外部 daemon 未给 DF_DAEMON_TOKEN：非 /health 直连请求将被 401（daemon 令牌鉴权，audit-d02）。',
+      );
+    }
     return {
       url,
+      token: externalToken === '' ? null : externalToken,
       mode: 'external',
       port: null,
       dataRoot: null,
@@ -202,6 +213,7 @@ export async function resolveDaemon({
   log(`[daemon] 夹具就绪：${daemon.url}（数据根 ${dataRoot}）`);
   return {
     url: daemon.url,
+    token: daemon.token,
     mode: 'fixture',
     port: String(port),
     dataRoot,

@@ -176,14 +176,19 @@ const STATE_COVERAGE = [
   },
 ];
 
-/** 极简 HTTP 客户端：返回 `{ status, json, text }`（与 verify-daemon 同口径）。 */
+/** 夹具 daemon 的本地令牌（audit-d02 · D-02；resolveDaemon 返回，非 /health 直连必带）。 */
+let daemonToken = null;
+
+/** 极简 HTTP 客户端：返回 `{ status, json, text }`（与 verify-daemon 同口径；有令牌自动携带）。 */
 async function call(baseUrl, method, path, body) {
   try {
     const response = await fetch(`${baseUrl}${path}`, {
       method,
-      ...(body === undefined
-        ? {}
-        : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      headers: {
+        ...(daemonToken === null ? {} : { 'x-df-token': daemonToken }),
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const text = await response.text();
     let json = null;
@@ -481,6 +486,7 @@ await runFigmaGate({
           label: 'verify-figma-inspect',
           log: (line) => ctx.log(line),
         });
+        daemonToken = activeDaemon.token;
       } catch (error) {
         ctx.evidence.daemon = { mode: 'fixture-failed', url: null };
         ctx.evidence.functional.status = 'blocked';

@@ -21,6 +21,7 @@ import {
 } from '@dforge/contracts';
 
 import { isSearchDegraded } from '@/features/market';
+import { daemonAuthHeaders } from '@/lib/daemon-endpoint';
 
 import { fetchWithinTimeout, GATEWAY_TIMEOUT_MS } from './gateway-timeout';
 
@@ -73,7 +74,7 @@ export async function searchMarketAssets(
     const response = await fetchWithinTimeout(
       fetchImpl,
       url.toString(),
-      {},
+      { headers: daemonAuthHeaders() }, // 本地令牌鉴权（audit-d02 · D-02）
       options.timeoutMs ?? GATEWAY_TIMEOUT_MS,
     );
     payload = await response.json();

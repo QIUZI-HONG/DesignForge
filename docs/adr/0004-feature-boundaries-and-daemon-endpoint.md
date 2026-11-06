@@ -326,3 +326,16 @@ canvas 装配层与 `/_canvas` 夹具的默认页名已改走引擎缺省 `creat
 - **shim 清理**：删除 `apps/web/src/features/inspector/model/draft.ts`（纯 re-export），
   inspector 控件与测试改为直接从 `@dforge/ui` 导入；`features/inspector/index.ts` 的既有
   re-export 改为指向包公开面（该 feature 公开面本身不变）。
+
+## 补记 · ③ 2026-11 审计后收敛：端点单点扩展出令牌解析入口（audit-d02 · D-02）
+
+日期：2026-11-06（上文 ① 的解析顺序与单点纪律不动，本条只补记新入口。）
+
+- daemon 缺省开启**本地令牌鉴权**（完整决策与取舍见 **ADR-0006**），web 侧令牌与端点
+  同属「连上一个 daemon 要知道什么」——解析收敛进同一单点模块
+  `apps/web/src/lib/daemon-endpoint.ts`：`resolveDaemonToken()`（`?dfToken=` 查询参数 →
+  `NEXT_PUBLIC_DF_DAEMON_TOKEN` → localStorage `dfg:daemon-token`；查询参数命中即持久化）
+  与 `daemonAuthHeaders()`；站内跳转 `withDaemonEndpoint` 让 `dfToken` 与 `daemon`
+  同规则随行。
+- 纪律沿用 ①：任何 feature 不得自行读令牌 env / 查询串 / 存储拼令牌头；令牌获取的
+  非 web 形态（壳读文件、CLI env → 文件、门禁夹具传参）见 ADR-0006。

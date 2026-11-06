@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-
 import type { TestDaemon, TestDaemonOptions } from '../testing/harness.ts';
 import { createTestDaemon, injectJson } from '../testing/harness.ts';
+import { TOKEN_HEADER } from '../token.ts';
 
 const FAKE_KEY = 'sk-fake-abcdefghijklmn';
 
@@ -332,7 +332,7 @@ describe('ai · 流式（SSE）', () => {
       const response = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(response.statusCode).toBe(200);
@@ -353,7 +353,11 @@ describe('ai · 流式（SSE）', () => {
       const response = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json', origin: 'http://localhost:3000' },
+        headers: {
+          'content-type': 'application/json',
+          origin: 'http://localhost:3000',
+          [TOKEN_HEADER]: daemon.token ?? '',
+        },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(response.statusCode).toBe(200);
@@ -371,7 +375,11 @@ describe('ai · 流式（SSE）', () => {
       const evil = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json', origin: 'http://evil.example.com' },
+        headers: {
+          'content-type': 'application/json',
+          origin: 'http://evil.example.com',
+          [TOKEN_HEADER]: daemon.token ?? '',
+        },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(evil.statusCode).toBe(200);
@@ -381,7 +389,11 @@ describe('ai · 流式（SSE）', () => {
       const nullOrigin = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json', origin: 'null' },
+        headers: {
+          'content-type': 'application/json',
+          origin: 'null',
+          [TOKEN_HEADER]: daemon.token ?? '',
+        },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(nullOrigin.headers['access-control-allow-origin']).toBe('null');
@@ -405,7 +417,7 @@ describe('ai · 流式（SSE）', () => {
       const response = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(response.statusCode).toBe(200);
@@ -435,7 +447,11 @@ describe('ai · 流式 CORS 守护回归（TC-AI-03 · 真 listen + fetch）', (
     const baseUrl = await daemon.app.listen({ port: 0, host: '127.0.0.1' });
     return fetch(`${baseUrl}/ai/chat`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin },
+      headers: {
+        'content-type': 'application/json',
+        origin,
+        [TOKEN_HEADER]: daemon.token ?? '',
+      },
       body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
     });
   }
@@ -525,7 +541,7 @@ describe('ai · 请求校验', () => {
       const response = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         // maxTokens=0 非法（须正整数）——但客户端已声明 stream:true，通道形状不换
         payload: JSON.stringify({
           messages: [{ role: 'user', content: 'x' }],
@@ -554,7 +570,7 @@ describe('ai · 流式健壮性（上游非 SSE / 客户端断开）', () => {
       const response = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(response.statusCode).toBe(200);
@@ -584,7 +600,7 @@ describe('ai · 流式健壮性（上游非 SSE / 客户端断开）', () => {
       const response = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(response.payload).toContain('"degradedReason":"invalid-response"');
@@ -634,7 +650,7 @@ describe('ai · 流式健壮性（上游非 SSE / 客户端断开）', () => {
       const controller = new AbortController();
       const response = await fetch(`${baseUrl}/ai/chat`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
         signal: controller.signal,
       });
@@ -734,7 +750,7 @@ describe('ai · 流式通道守护回归（TC-AI-02 · 半行拆帧/中途断流
       const response = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(response.statusCode).toBe(200);
@@ -762,7 +778,7 @@ describe('ai · 流式通道守护回归（TC-AI-02 · 半行拆帧/中途断流
       const response = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(response.statusCode).toBe(200);
@@ -791,7 +807,7 @@ describe('ai · 流式通道守护回归（TC-AI-02 · 半行拆帧/中途断流
       const response = await daemon.app.inject({
         method: 'POST',
         url: '/ai/chat',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', [TOKEN_HEADER]: daemon.token ?? '' },
         payload: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }),
       });
       expect(response.statusCode).toBe(200);

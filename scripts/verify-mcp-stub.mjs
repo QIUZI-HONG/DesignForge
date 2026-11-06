@@ -69,12 +69,16 @@ function waitForListening(child) {
   });
 }
 
+let daemonToken = null; // 夹具令牌（main 起处赋值；audit-d02 · D-02 起非 /health 路由必带）
+
 async function call(baseUrl, method, path, body) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    ...(body === undefined
-      ? {}
-      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    headers: {
+      ...(daemonToken === null ? {} : { 'x-df-token': daemonToken }),
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
   let json = null;
@@ -146,6 +150,8 @@ async function main() {
       },
     );
     const baseUrl = await waitForListening(child);
+    // 令牌文件由 daemon 启动落盘（listening 已打印 = 应用装配完成）
+    daemonToken = (await readFile(join(tempRoot, 'data') + '/daemon-token', 'utf8')).trim();
     console.log(`[verify-mcp-stub] daemon 监听于 ${baseUrl}`);
 
     const proposedAt = Date.now();

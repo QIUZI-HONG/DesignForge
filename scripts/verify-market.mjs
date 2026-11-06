@@ -50,6 +50,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TICKET = 'fe-11';
 /** daemon 基址：**无缺省值**。显式 env 优先；未设时由 `resolveDaemon` 自起夹具。 */
 let daemonUrl = null;
+/** 夹具 daemon 的本地令牌（audit-d02 · D-02；非 /health 直连请求必带 x-df-token）。 */
+let daemonToken = null;
 const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df-evidence'));
 const args = process.argv.slice(2);
 const skipDaemon = args.includes('--skip-daemon');
@@ -284,7 +286,10 @@ async function runDaemonCheck() {
     };
   }
   try {
-    const response = await fetch(`${daemonUrl}/market/query?limit=1`, { redirect: 'follow' });
+    const response = await fetch(`${daemonUrl}/market/query?limit=1`, {
+      redirect: 'follow',
+      headers: daemonToken === null ? {} : { 'x-df-token': daemonToken },
+    });
     const payload = await response.json();
     if (payload?.ok !== true) {
       return {
@@ -377,7 +382,7 @@ async function runBatch4MarketCheck() {
     // E1：中文检索走 BM25 倒排（无检索索引 → 阻塞，不假绿）
     const searchResponse = await fetch(
       `${daemonUrl}/market/query?q=${encodeURIComponent(E1_QUERY)}&limit=5`,
-      { redirect: 'follow' },
+      { redirect: 'follow', headers: daemonToken === null ? {} : { 'x-df-token': daemonToken } },
     );
     const searchPayload = await searchResponse.json();
     if (searchPayload?.ok !== true) {
@@ -441,7 +446,10 @@ async function runBatch4MarketCheck() {
     const missingAssetId = 'gh:df-verify#__batch4-e-not-found-probe__';
     const notFoundResponse = await fetch(
       `${daemonUrl}/market/assets/${encodeURIComponent(missingAssetId)}`,
-      { redirect: 'follow' },
+      {
+        redirect: 'follow',
+        headers: daemonToken === null ? {} : { 'x-df-token': daemonToken },
+      },
     );
     const notFoundPayload = await notFoundResponse.json();
     assertions.push({
@@ -456,6 +464,7 @@ async function runBatch4MarketCheck() {
     // E3：统计口径（全局 counts.total 与当前结果 total 同时给出，且当前 ≤ 全局）
     const summaryResponse = await fetch(`${daemonUrl}/market/query?limit=1`, {
       redirect: 'follow',
+      headers: daemonToken === null ? {} : { 'x-df-token': daemonToken },
     });
     const summaryPayload = await summaryResponse.json();
     const summary = summaryPayload?.ok === true ? summaryPayload.result : null;
@@ -511,6 +520,7 @@ if (skipDaemon) {
   try {
     activeDaemon = await resolveDaemon({ label: 'verify-market' });
     daemonUrl = activeDaemon.url;
+    daemonToken = activeDaemon.token;
     evidence.params.daemonUrl = daemonUrl;
     evidence.params.daemon = { mode: activeDaemon.mode, url: daemonUrl };
   } catch (error) {

@@ -20,6 +20,7 @@ import {
   isApiSuccess,
 } from '@dforge/contracts';
 
+import { daemonAuthHeaders } from '@/lib/daemon-endpoint';
 import { fetchWithinTimeout, GATEWAY_TIMEOUT_MS, GatewayTimeoutError } from './gateway-timeout';
 
 /** 前端侧错误码：daemon 错误码 ∪ 传输层归一码（超时/不可达是本机数据面的传输层事实，
@@ -97,7 +98,13 @@ async function request<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetchWithinTimeout(fetchImpl, url, init ?? {}, timeoutMs);
+    // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析；init.headers 有则在其上合并
+    const initHeaders = (init?.headers ?? {}) as Record<string, string>;
+    const initWithAuth: RequestInit = {
+      ...init,
+      headers: { ...daemonAuthHeaders(), ...initHeaders },
+    };
+    response = await fetchWithinTimeout(fetchImpl, url, initWithAuth, timeoutMs);
   } catch (cause) {
     if (cause instanceof GatewayTimeoutError) {
       throw new DocumentApiError('daemon_timeout', cause.message);

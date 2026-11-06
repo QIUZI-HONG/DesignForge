@@ -10,14 +10,14 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { runConfigCli } from './index.ts';
 
@@ -43,6 +43,8 @@ interface DaemonHandle {
   url: string;
   tempDir: string;
   child: ChildProcess;
+  /** 本地令牌（daemon 落在临时数据根 daemon-token；audit-d02 · D-02 起所有路由要求携带）。 */
+  token: string;
 }
 
 /** 轮询直到条件成立（启动行为事件，超时抛错）。 */
@@ -89,7 +91,9 @@ async function startDaemon(): Promise<DaemonHandle> {
     await rm(tempDir, { recursive: true, force: true });
     throw error;
   }
-  return { url, tempDir, child };
+  // 令牌文件由 daemon 启动时落盘（listening 已打印 = 应用装配完成，文件必已存在）
+  const token = (await readFile(join(tempDir, 'data', 'daemon-token'), 'utf8')).trim();
+  return { url, tempDir, child, token };
 }
 
 interface CliRun {
@@ -98,14 +102,18 @@ interface CliRun {
   stderr: string;
 }
 
-/** 跑 `df` 子进程（stdin 走真管道；`NEXT_PUBLIC_DF_DAEMON_URL` 缺省清空，防开发机串口）。 */
+/** 当前夹具 daemon 的令牌（beforeAll 起处赋值；CLI 子进程经 DF_DAEMON_TOKEN 注入）。 */
+let fixtureToken = '';
+
+/** 跑 `df` 子进程（stdin 走真管道；`NEXT_PUBLIC_DF_DAEMON_URL` 缺省清空，防开发机串口；
+ * 令牌经 DF_DAEMON_TOKEN 显式注入——CLI 的令牌文件路径缺省指向 ~/.dforge，测试必须覆写）。 */
 async function runDf(
   args: readonly string[],
   stdin: string | null = null,
   env: Record<string, string> = {},
 ): Promise<CliRun> {
   const child = spawn(process.execPath, [...nodeTsFlags, CLI_BIN, ...args], {
-    env: { ...process.env, NEXT_PUBLIC_DF_DAEMON_URL: '', ...env },
+    env: { ...process.env, NEXT_PUBLIC_DF_DAEMON_URL: '', DF_DAEMON_TOKEN: fixtureToken, ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   let stdout = '';
@@ -129,9 +137,9 @@ function lastJson(stdout: string): Record<string, unknown> {
   return JSON.parse(lines.at(-1) ?? '') as Record<string, unknown>;
 }
 
-/** 从测试侧直连 daemon 读数（断言「落库」是 daemon 真行为，不是 CLI 自说自话）。 */
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+/** 从测试侧直连 daemon 读数（断言「落库」是 daemon 真行为，不是 CLI 自说自话；带令牌）。 */
+async function getJson<T>(url: string, token: string): Promise<T> {
+  const response = await fetch(url, { headers: { 'x-df-token': token } });
   const payload = (await response.json()) as { ok: boolean; result: T };
   return payload.result;
 }
@@ -150,6 +158,7 @@ let daemon: DaemonHandle;
 
 beforeAll(async () => {
   daemon = await startDaemon();
+  fixtureToken = daemon.token;
 }, 40_000);
 
 afterAll(async () => {
@@ -197,6 +206,7 @@ describe('df config set-key --stdin：凭据 stdin 注入（工作包 F）', () 
     // daemon 真的收到了正确形状并落库（PUT /config/credentials → 摘要回读）
     const config = await getJson<{ credentials: { deepseek: Record<string, unknown> } }>(
       `${daemon.url}/config`,
+      daemon.token,
     );
     expect(config.credentials.deepseek).toMatchObject({
       hasKey: true,
@@ -209,11 +219,11 @@ describe('df config set-key --stdin：凭据 stdin 注入（工作包 F）', () 
     // 布景：先经 daemon 接口写入再清（不经 CLI 写，保证本用例自包含）
     const put = await fetch(`${daemon.url}/config/credentials`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-df-token': daemon.token },
       body: JSON.stringify({ apiKey: SENTINEL_KEY }),
     });
     expect(put.status).toBe(200);
-    const before = await getJson<{ configured: boolean }>(`${daemon.url}/ai/status`);
+    const before = await getJson<{ configured: boolean }>(`${daemon.url}/ai/status`, daemon.token);
     expect(before.configured).toBe(true);
 
     const run = await runDf(['config', 'set-key', '--clear', '--daemon', daemon.url]);
@@ -231,7 +241,7 @@ describe('df config set-key --stdin：凭据 stdin 注入（工作包 F）', () 
       maskedKey: null,
     });
 
-    const after = await getJson<{ configured: boolean }>(`${daemon.url}/ai/status`);
+    const after = await getJson<{ configured: boolean }>(`${daemon.url}/ai/status`, daemon.token);
     expect(after.configured).toBe(false);
   }, 60_000);
 });
@@ -305,6 +315,9 @@ describe('df config 错误路径与交互输入（工作包 F · 不回显纪律
   });
 
   it('TTY 交互输入：关回显读一行（setRawMode 开→关），输出仍只掩码', async () => {
+    // in-process 直跑 requestDaemon：令牌解析必须钉在夹具令牌上（env 优先路径；
+    // 不钉就会读开发机 ~/.dforge/daemon-token 的真令牌 → 401）
+    vi.stubEnv('DF_DAEMON_TOKEN', daemon.token);
     const stdin = new FakeTtyStdin();
     const logs: string[] = [];
     const errs: string[] = [];
