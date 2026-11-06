@@ -1,0 +1,5 @@
+{
+  "schema": "df.perf.baseline/v1",
+  "provisional": false,
+  "note": "夹具：实采转正态基线头部复刻（audit-d07b）。真实基线在 docs/quality/perf-baseline-v1.json，判定只读 provisional 字段，阈值族在此省略。"
+}

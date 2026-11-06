@@ -1,0 +1,4 @@
+{
+  "schema": "df.perf.baseline/v1",
+  "note": "夹具：provisional 字段缺失——无法证明转正态，exit 2 一律红。"
+}

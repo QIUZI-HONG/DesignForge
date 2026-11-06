@@ -72,3 +72,12 @@
 - A/B/C 复用口径若立为正式判定口径，须 ≥3 轮复用口径实采重定标。
 - m6 heap 读数通道待接真读数（当前恒 0，不得据此下结论）。
 - 后续轮次若刷出新最差：新最差 ×1.5 仍低于现阈值 → 阈值不动；高于 → 追加基准轮并按登记判据上调对应阈值。
+
+## CI 首跑勘误（2026-11-07 · audit-d07b）
+
+- **翻车实录**：CI run 42313746571（main `eb9ee1b`）**failure**，唯一红步=第 22 步「渲染性能门禁（正式判定挂点）」。
+- **根因**：本批接入的 CI 判据把 exit 2 收放写成 **grep 门禁日志文本**（「日志含 provisional 字样即红」），但门禁 exit 2 的**合法阻塞文案**本身就含 provisional 字样（verify-perf.mjs 阻塞聚合行「阻塞：N 档判不了（基线/provisional/采集不完整——禁假绿）」与待办行「…置 provisional:false…」）→ CI 无 Chromium 恒 exit 2 → 文案必然命中 → **该步在 CI 按原写法永不可能绿**。门禁脚本本身健康（`--self-test` 19/19、dev 机正式判定 exit 0），纯 CI 接线判定缺陷。
+- **修复**（分支 `fix/ci-perf-hookpoint`，工作树 `/home/QIU/df-wt/audit-d07b`）：判据从「grep 日志文本」改为「**查基线 JSON 状态字段**」——判定抽共享裁决 `scripts/lib/perf-ci-judgment.mjs`（与 tp2-03 two-state-verdict 同构），ci.yml perf 步 node 直跑之：exit 0 收 / exit 1 红 / exit 2 **仅当** `docs/quality/perf-baseline-v1.json` 的 `provisional === false`（真链路族阻塞）才收；基线回退（provisional:true）、字段缺失/非布尔、基线不可读、其余退出码一律红。**判定强度不降**（provisional:true 回退依旧红，只是判据落在字段而非自由文本）；门禁输出文案不动（含 provisional 字样从此无害）。
+- **回归钉**：新增 `scripts/tests/perf-ci-judgment.test.mjs`（16 例，随「脚本单测」步跑）：四主钉（exit 0 收 / exit 1 红 / exit 2+转正态收 / exit 2+回退态红）+ 非法退出码红 + 字段缺失/基线缺失/损坏 JSON/null 基线红 + 反例钉（合法收下文案含 provisional 字样仍收）+ CLI 接线。
+- **复验**（证据 `~/df-evidence/audit-d07b/REPLAY.md`）：新单测 16/16 · `pnpm test:scripts` 158/158 · `pnpm verify`=0；场景 A（门禁离线 exit 2，输出含 3 处 provisional 字样）→ 新判定收绿 exit 0（旧 grep 必误伤）；场景 B（provisional:true 基线副本）→ 新判定红 exit 1。
+- **重验 run**：推送后回填（run id / URL / head SHA）。
