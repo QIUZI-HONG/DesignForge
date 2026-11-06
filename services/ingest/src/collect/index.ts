@@ -26,6 +26,7 @@ export {
   createReplayFetch,
   decodeContentsText,
   MissingCachedBodyError,
+  type ParseRecordedOptions,
   parseRecordedResponses,
   parseRepoMeta,
   parseTree,

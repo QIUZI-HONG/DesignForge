@@ -14,7 +14,7 @@ export type { CliOutcome } from './cli.ts';
 export { runTransformCli } from './cli.ts';
 export type { DwdBuildInput, DwdBuildResult, DwdManifest } from './dwd/build.ts';
 export { buildDwd, detectLanguage, inferUpstream } from './dwd/build.ts';
-export type { TableArtifact } from './dwd/store.ts';
+export type { ReadWarningOptions, TableArtifact } from './dwd/store.ts';
 export { readDwd, readTable, readTableBytes, writeDwd, writeTable } from './dwd/store.ts';
 export type {
   AssetFileRow,

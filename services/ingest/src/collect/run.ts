@@ -657,7 +657,10 @@ export async function runCollect(opts: CollectOptions): Promise<CollectResult> {
   if (offline && opts.replayDir !== null) {
     try {
       const raw = await readFile(join(opts.replayDir, 'responses.jsonl'), 'utf8');
-      recordedResponses = parseRecordedResponses(raw);
+      recordedResponses = parseRecordedResponses(raw, {
+        // 坏行跳过告警进采集日志（D-07：不许静默吞——重放样本损坏在日志可见、可计数）
+        onWarning: (warning) => log(`重放样本告警：${warning}`),
+      });
       baseFetch = createReplayFetch(recordedResponses as Parameters<typeof createReplayFetch>[0]);
       log(
         `离线重放：样本 ${join(opts.replayDir, 'responses.jsonl')}（${recordedResponses.length} 条响应）`,

@@ -4,7 +4,7 @@
 
 export type { DwdBuildInput, DwdBuildResult, DwdManifest } from './build.ts';
 export { buildDwd, DWD_TABLE_NAMES, detectLanguage, inferUpstream, sha256Of } from './build.ts';
-export type { TableArtifact } from './store.ts';
+export type { ReadWarningOptions, TableArtifact } from './store.ts';
 export { readDwd, readTable, readTableBytes, writeDwd, writeTable } from './store.ts';
 export type {
   AssetFileRow,

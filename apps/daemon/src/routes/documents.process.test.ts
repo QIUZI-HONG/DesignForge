@@ -248,10 +248,10 @@ describe.skipIf(!IS_POSIX)('documents · 进程级崩溃恢复（TC-DOC-05 · �
         const docDir = join(workspaceDir, `${id}.dfg`);
 
         // ①② 大正文 PUT + 写入中途 SIGKILL（随机延迟 5–80ms，重复 10 轮）
-        // 注：真源要求「数 MB 正文扩大写入窗口」，但 daemon 基线沿用 Fastify 默认 bodyLimit=1MiB
-        // （超限 → 413 → 统一信封 400，写入根本不发生，故障注入落空）——守护票不改产品代码，
-        // 取限内最大正文 ≈1.02MB 达成同一目的；写入窗口毫秒级，10 轮 5–80ms 抖动覆盖
-        // 提交前/中/后三种相位（命中相位随机器而异，断言只认「任一相位下状态恒一致」）。
+        // 注：daemon bodyLimit 缺省 32 MB（audit-d05 · D-08，DF_BODY_LIMIT 可调），≈1.02MB
+        // 远在限内；本用例仍取 ≈1MB 正文是**刻意收窄写入窗口**（窗口毫秒级，正文越大窗口越宽
+        // 反而失真）——10 轮 5–80ms 抖动覆盖提交前/中/后三种相位（命中相位随机器而异，
+        // 断言只认「任一相位下状态恒一致」）。
         let prevVersion = 2; // v1 已提交 → manifest.version === 2
         const writtenBodies: unknown[] = [v1Body];
         for (let round = 1; round <= 10; round += 1) {

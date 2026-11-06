@@ -69,6 +69,8 @@ export interface TestDaemonOptions {
   daemonToken?: string | null;
   /** 显式关闭本地令牌鉴权（缺省开启，与生产同口径）。 */
   authDisabled?: boolean;
+  /** 请求体上限覆盖（audit-d05 · D-08；缺省走 app 生产口径：env DF_BODY_LIMIT → 32 MB）。 */
+  bodyLimit?: number;
 }
 
 /** 创建测试用 daemon（临时目录 + 假上游 + 日志捕获）。 */
@@ -133,6 +135,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     ...(options.allowedHosts === undefined ? {} : { allowedHosts: options.allowedHosts }),
     ...(token === null ? {} : { daemonToken: token }),
     authDisabled,
+    ...(options.bodyLimit === undefined ? {} : { bodyLimit: options.bodyLimit }),
   };
   const app = await createDaemonApp(appOptions);
 
