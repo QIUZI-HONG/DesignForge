@@ -17,6 +17,7 @@
  * 订阅迁移到新命令栈，桥的「未保存」判定不因换代失真）。
  */
 
+import { DEFAULT_PAGE_ID } from '@dforge/contracts';
 import type { DesignDocument } from '@dforge/engine';
 import {
   countNodes,
@@ -119,9 +120,11 @@ export function sampleDocument(): DesignDocument {
     height: 96,
     name: '矩形 1',
   });
-  // 页面名走引擎缺省（`createPage` 的 `'页面 1'`）：默认名单一真源，宿主不另抄一份
+  // 页 id/页名都走缺省真源（contracts 的 `DEFAULT_PAGE_ID` = daemon 占位页 `page-1`）：
+  // 夹具页与 daemon 页集同一身份，新保存命中占位页原地更新，不再凭空多出一页
+  // （audit-d01 · D-01 缺陷 A：硬编码 `page_1` 与 daemon 的 `page-1` 是两个身份）
   const page = createPage({
-    id: 'page_1',
+    id: DEFAULT_PAGE_ID,
     rootIds: [rect.id],
     nodes: { [rect.id]: rect },
   });
@@ -231,6 +234,12 @@ export function CanvasStudio({
   const tool = useStore(session.store, (state) => state.tool);
   /** 当前文档 id（桥的投影；notice 缺省显示用它）。 */
   const currentDocumentId = useStore(bridge.store, (state) => state.documentId);
+  /**
+   * 保存态（桥的投影）：挂在 notice 的 `data-df-save-state` 上——门禁/e2e 的确定性读点，
+   * 与编辑器顶栏（`save-control.tsx`）同一属性同一语义（audit-d01 · D-01 ③：门禁要等
+   * 「已保存」态而不是等 documentId 可见）。
+   */
+  const saveStatus = useStore(bridge.store, (state) => state.status);
 
   /** 载入指定文档（null → 提示先保存）；编排全在桥（loadDesignDocument + adopt + 落盘身份）。 */
   const reloadDocument = useCallback(
@@ -431,7 +440,11 @@ export function CanvasStudio({
             ))}
           </div>
           <div className="dfc-studio__actions">
-            <span className="dfc-studio__notice" data-df-studio-notice="">
+            <span
+              className="dfc-studio__notice"
+              data-df-studio-notice=""
+              data-df-save-state={saveStatus}
+            >
               {notice ?? (currentDocumentId === null ? t('canvas.dev.local') : currentDocumentId)}
             </span>
             <Tooltip content={t('canvas.dev.save')}>

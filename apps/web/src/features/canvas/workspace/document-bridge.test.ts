@@ -22,8 +22,12 @@ import {
 } from '@dforge/engine';
 import { describe, expect, it } from 'vitest';
 
-import { createDocumentsClient, encodePageBody } from '../persistence/documents-client';
-import { createDocumentBridge } from './document-bridge';
+import {
+  createDocumentsClient,
+  type DocumentsClient,
+  encodePageBody,
+} from '../persistence/documents-client';
+import { createDocumentBridge, type SaveStatus } from './document-bridge';
 import { createEditorWorkspace, EMPTY_PRESET } from './workspace-session';
 
 /** 内存假 daemon（只实现 documents-client 消费的路由；id = 文档名，与真 daemon 同规则）。 */
@@ -389,6 +393,92 @@ describe('地址栏同步的参数名（宿主契约：编辑器 `?documentId=` 
     expect(studioUrl.searchParams.get('doc')).toBe('本地稿');
     expect(studioUrl.searchParams.has('documentId')).toBe(false);
     studioBridge.dispose();
+  });
+});
+
+describe('documentId 投影时序（audit-d01 · D-01 缺陷 B：内容落盘前身份不可见）', () => {
+  /**
+   * 最小宿主桥 + 观测点：包一层 `savePage`，在**内容 PUT 到达 daemon 时**（保存尚未返回）
+   * 快照桥投影。用它锁定「保存身份不得先于内容可见」的时序。
+   */
+  function makeProbedBridge(daemon: FakeDaemon, options?: { failFirstPut?: boolean }) {
+    const probes: Array<{ documentId: string | null; status: SaveStatus }> = [];
+    const base = createDocumentsClient({
+      baseUrl: 'http://daemon.test',
+      fetchImpl: daemon.fetchImpl,
+    });
+    let failFirstPut = options?.failFirstPut ?? false;
+    const client: DocumentsClient = {
+      ...base,
+      async savePage(documentId, pageId, body) {
+        const state = bridge.store.getState();
+        probes.push({ documentId: state.documentId, status: state.status });
+        if (failFirstPut) {
+          failFirstPut = false;
+          return { ok: false, error: 'internal：磁盘写失败' };
+        }
+        return base.savePage(documentId, pageId, body);
+      },
+    };
+    let current = createDocument({
+      id: 'doc_local',
+      name: '本地稿',
+      pages: [createPage({ id: 'page_local' })],
+    });
+    const listeners = new Set<() => void>();
+    const bridge = createDocumentBridge({
+      host: {
+        document: () => current,
+        adopt: (next) => {
+          if (next.pages.length === 0) return false;
+          current = next;
+          return true;
+        },
+        subscribe: (listener) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+      },
+      client,
+      initial: { documentId: null, name: current.name },
+    });
+    return { bridge, probes };
+  }
+
+  it('内容 PUT 在途时 documentId 不可见；保存成功后与「已保存」态同帧可见', async () => {
+    const daemon = createFakeDaemon();
+    const { bridge, probes } = makeProbedBridge(daemon);
+    expect(bridge.store.getState().documentId).toBeNull();
+
+    const result = await bridge.save();
+    expect(result.ok).toBe(true);
+    // 内容已到 daemon（savePage 已执行）但保存还没返回：身份不得提前暴露（缺陷 B 现场）
+    expect(probes.length).toBeGreaterThan(0);
+    expect(probes[0]).toEqual({ documentId: null, status: 'saving' });
+    expect(bridge.store.getState()).toMatchObject({ documentId: '本地稿', status: 'saved' });
+    bridge.dispose();
+  });
+
+  it('保存失败路径不暴露 documentId；重试成功按名复用同一文档（不产生第二份）', async () => {
+    const daemon = createFakeDaemon();
+    const { bridge, probes } = makeProbedBridge(daemon, { failFirstPut: true });
+
+    const failed = await bridge.save();
+    expect(failed.ok).toBe(false);
+    // 档案可能已建（create 成功、内容 PUT 失败），但身份没有外泄
+    expect(bridge.store.getState()).toMatchObject({ documentId: null, status: 'error' });
+
+    const retried = await bridge.save();
+    expect(retried.ok).toBe(true);
+    expect(retried.documentId).toBe('本地稿');
+    expect(daemon.documents.size).toBe(1);
+    expect(bridge.store.getState()).toMatchObject({ documentId: '本地稿', status: 'saved' });
+    // 重试在途时身份同样不可见（首轮与重试各留一个观测点）
+    expect(probes).toHaveLength(2);
+    expect(probes[1]).toEqual({ documentId: null, status: 'saving' });
+    bridge.dispose();
   });
 });
 

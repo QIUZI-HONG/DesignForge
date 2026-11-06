@@ -95,11 +95,23 @@ export async function run(page, ctx) {
 
   // --- 2) 持久化往返：保存 → 带 doc 重载 → 断言恢复 ---
   await page.click('[data-df-studio-action="save"]');
-  const documentId = await page
-    .waitForFunction(() => globalThis.__dforgeCanvas.documentId(), null, { timeout: 30000 })
-    .then(() => api.documentId());
+  // 等保存**态**落定（`[data-df-save-state="saved"]`，与 editor 场景同一读点）再取
+  // documentId——保存身份在内容落盘完成前不可见（audit-d01 · D-01 缺陷 B），
+  // 等错信号会中止在途内容 PUT，把「没保存完」误判成「持久化断裂」。
+  let savedInTime = true;
+  try {
+    await page.waitForSelector('[data-df-save-state="saved"]', { timeout: 30_000 });
+  } catch {
+    savedInTime = false;
+    const state = await page
+      .locator('[data-df-save-state]')
+      .getAttribute('data-df-save-state')
+      .catch(() => null);
+    ctx.assert(false, '保存成功：保存态转「已保存」', `state=${state ?? '（无读点）'}`);
+  }
+  const documentId = await api.documentId();
   ctx.assert(
-    typeof documentId === 'string' && documentId.length > 0,
+    savedInTime && typeof documentId === 'string' && documentId.length > 0,
     '保存到本地 daemon 并拿到文档 id',
     documentId,
   );

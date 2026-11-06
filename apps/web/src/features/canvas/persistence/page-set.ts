@@ -102,6 +102,11 @@ export interface PageSetLoad {
  * 空文档口径不变：新建文档的页正文是 `{}`（daemon 只做 opaque JSON 存储）→ 给一页空画布，
  * 页 id 沿用 manifest 的页 id。非空但非本格式的正文 → 结构错误（不吞别人的数据）。
  * manifest 列出但正文读不出 → 记入 `unresolvedPageIds`，其余页照常返回。
+ *
+ * 旧文档兼容（audit-d01 · D-01）：历史构建把夹具页落成 `page_1`，daemon 占位页 `page-1`
+ * 成了空占位页且排在 manifest 前列——当前页（会话初始页 = `pages[0]`）会落到空页上，
+ * 用户看到「内容丢失」。这里把**空占位页沉到页集末尾**（有内容页在前，组内保持 manifest
+ * 顺序）：占位页没有数据可丢，不违反「不静默删数据」；页 id 校验逻辑不动。
  */
 export async function loadPageSet(
   client: PageSetClient,
@@ -117,7 +122,10 @@ export async function loadPageSet(
     };
   }
 
-  const pages: LoadedPage[] = [];
+  /** 有内容的页（正文可解码）——排在页集前部，当前页从这里选。 */
+  const contentPages: LoadedPage[] = [];
+  /** 空占位页（daemon 新建档的 `{}` 正文；无数据，沉到页集末尾）。 */
+  const placeholderPages: LoadedPage[] = [];
   const unresolvedPageIds: string[] = [];
   let tokens: TokenSet | null = null;
 
@@ -136,7 +144,7 @@ export async function loadPageSet(
         };
       }
       // 新建设计文件的空白页：页 id 用 manifest 的 id，名字沿用 daemon 的页名（数据默认值）
-      pages.push({
+      placeholderPages.push({
         pageId: meta.id,
         page: createPage({
           id: meta.id,
@@ -147,14 +155,15 @@ export async function loadPageSet(
     }
     tokens = tokens ?? decoded.tokens;
     // 不变量：页 id 来自页文件集合（正文里的旧 id 不冒充身份）
-    pages.push({ pageId: meta.id, page: { ...decoded.page, id: meta.id } });
+    contentPages.push({ pageId: meta.id, page: { ...decoded.page, id: meta.id } });
   }
 
   return {
     ok: true,
     value: {
       name: summary.value.name,
-      pages,
+      // 空占位页不排前（旧文档兼容）：当前页 = 有内容的页；全占位/全内容时顺序不变
+      pages: [...contentPages, ...placeholderPages],
       unresolvedPageIds,
       tokens: tokens ?? emptyTokenSet(),
     },

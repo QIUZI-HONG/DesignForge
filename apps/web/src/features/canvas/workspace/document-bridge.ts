@@ -200,8 +200,13 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
       store.setState({ status: 'saving', error: null, errorKind: null });
       const document = host.document();
 
-      // 幂等落盘：未落盘文档先按名找/建（同名复用，两个宿主同一口径）
+      // 幂等落盘：未落盘文档先按名找/建（同名复用，两个宿主同一口径）。
+      // 注意：这里只解析落盘身份（局部变量），**不投影**——documentId 在内容保存成功前
+      // 不得对界面/地址栏可见（audit-d01 · D-01 缺陷 B：提前投影会把「半落盘」身份
+      // 暴露出去，失败路径与刷新恢复都会被它误导）。
       let documentId = store.getState().documentId;
+      /** 是否由本次保存首次解析身份（URL 同步沿用既有口径：仅首存同步一次）。 */
+      const firstPersist = documentId === null;
       if (documentId === null) {
         const existing = await client.findDocumentByName(document.name);
         if (!existing.ok) return fail('save', existing.error);
@@ -212,13 +217,13 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
           if (!created.ok) return fail('save', created.error);
           documentId = created.value.id;
         }
-        store.setState({ documentId });
-        if (options.syncUrl !== false) syncUrl(syncUrlParam, documentId);
       }
 
       const saved = await saveDesignDocument(client, documentId, document);
       if (!saved.ok) return fail('save', saved.error);
 
+      // 内容已落盘：documentId 投影与「已保存」态同一时点可见；URL 同步随后
+      // （失败路径不会走到这里，身份不外泄）。
       store.setState({
         documentId,
         name: document.name,
@@ -226,6 +231,7 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
         error: null,
         errorKind: null,
       });
+      if (firstPersist && options.syncUrl !== false) syncUrl(syncUrlParam, documentId);
       return { ok: true, documentId };
     },
 
