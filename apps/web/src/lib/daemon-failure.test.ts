@@ -38,6 +38,20 @@ describe('classifyDaemonFailure · 网络层失败族（fetch/TypeError）', () 
     expect(view.isNetwork).toBe(true);
     expect(view.code).toBe(DAEMON_UNREACHABLE_CODE);
   });
+
+  it('写路径超时哨兵文案（daemon.requestTimeout）→ 网络失败（audit-d04 · D-04：超时与连不上同一恢复动作——重试）', () => {
+    const view = classifyDaemonFailure({
+      message: '本地服务请求超时：30000 毫秒内未响应——请稍后重试。',
+    });
+    expect(view.isNetwork).toBe(true);
+    expect(view.code).toBe(DAEMON_UNREACHABLE_CODE);
+  });
+
+  it('读路径超时哨兵（home.error.daemonTimeout，同含「请求超时」短语）→ 网络失败', () => {
+    const view = classifyDaemonFailure({ message: '本地服务 3000 毫秒内没有响应（请求超时）。' });
+    expect(view.isNetwork).toBe(true);
+    expect(view.code).toBe(DAEMON_UNREACHABLE_CODE);
+  });
 });
 
 describe('classifyDaemonFailure · 非网络失败（daemon 明确拒绝等）', () => {

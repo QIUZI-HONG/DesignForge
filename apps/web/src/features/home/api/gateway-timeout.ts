@@ -6,6 +6,10 @@
  * 界面停在骨架 / loading 上，用户既没有错误也没有重试入口。统一上限把这种情况
  * 变成**有界的失败**，由各客户端归一到自己的稳定错误码。
  *
+ * 机制单点（audit-d04 · D-04）：race + abort 的实现已下沉到 `lib/request-timeout`
+ * （保存链写路径 30s 同用一份机制），本模块只保留读路径的常量、哨兵错误与委托——
+ * 不得再另写第二份 abort+race。
+ *
  * 口径（首页数据面一致，勿各自另立）：
  * - 上限是**模块常量** {@link GATEWAY_TIMEOUT_MS}，可经各客户端的 `timeoutMs` 选项注入
  *   （测试用小值，不真等 3s；生产走缺省）；
@@ -21,6 +25,7 @@
  */
 
 import { t } from '@/i18n';
+import { fetchWithinDeadline } from '@/lib/request-timeout';
 
 /** 统一超时上限（毫秒）。
  *
@@ -55,9 +60,8 @@ export class GatewayTimeoutError extends Error {
  * {@link GatewayTimeoutError}；fetch 自身的异常（网络错/被拒）原样抛出，
  * 由调用方归一到各自的错误码。
  *
- * 为什么用 `Promise.race` 而不只依赖 signal：注入的 fetch 替身（或宿主实现）
- * 可能既不看 signal 也不落定——`abort()` 单靠自己是**喂给 fetch 的请求**，
- * 不是对调用方的承诺；race 才能保证本函数自己到点必然落定。
+ * 实现委托 `lib/request-timeout` 的 {@link fetchWithinDeadline}（机制单点，
+ * race 对 signal 的必要性论证见彼处）。
  */
 export async function fetchWithinTimeout(
   fetchImpl: typeof fetch,
@@ -65,17 +69,5 @@ export async function fetchWithinTimeout(
   init: RequestInit,
   timeoutMs: number = GATEWAY_TIMEOUT_MS,
 ): Promise<Response> {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      reject(new GatewayTimeoutError(timeoutMs));
-      controller.abort(); // 先 reject（race 立即落定），再取消在飞请求
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([fetchImpl(url, { ...init, signal: controller.signal }), timeout]);
-  } finally {
-    clearTimeout(timer); // 已落定就撤掉上限计时（别让 3s 计时器吊着事件循环）
-  }
+  return fetchWithinDeadline(fetchImpl, url, init, timeoutMs, (ms) => new GatewayTimeoutError(ms));
 }

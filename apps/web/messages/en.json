@@ -77,6 +77,7 @@
   "home.error.desc": "Make sure the DesignForge daemon is running, then retry.",
   "home.error.retry": "Retry",
   "home.error.daemonTimeout": "The local service did not respond within {ms} ms (request timed out).",
+  "daemon.requestTimeout": "Local service request timed out: no response within {ms} ms — please retry later.",
   "home.loading.list": "Loading documents",
   "home.warning.title": "{count} folder(s) could not be read",
   "home.warning.desc": "They were skipped; the rest of the list still works.",

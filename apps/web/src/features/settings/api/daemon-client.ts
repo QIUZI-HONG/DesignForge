@@ -13,6 +13,7 @@
  * baseUrl 解析已**全站收敛**到 `@/lib/daemon-endpoint`（ADR-0004 裁决 ①）：
  * `?daemon=` 查询参数 → `NEXT_PUBLIC_DF_DAEMON_URL`（端到端与门禁指向实例）→ 端口窗起点
  * `DAEMON_PORT_BASE`（daemon 铁律从该端口起探测，避免随机端口）。本模块不另立口径。
+ * 每个请求有超时上限（audit-d04 · D-04，`lib/request-timeout` 单点机制，写路径 30s）。
  *
  * 密钥纪律：写入 key 的请求体只存在于调用栈内，模块**不记录**任何请求体；
  * 返回结构一律沿用契约的掩码摘要（`CredentialSummary`，永不携带明文）。
@@ -27,6 +28,11 @@ import {
 } from '@dforge/contracts';
 
 import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import {
+  DAEMON_REQUEST_TIMEOUT_MS,
+  fetchWithinDeadline,
+  RequestTimeoutError,
+} from '@/lib/request-timeout';
 
 /** 失败类别（见模块头注释）。 */
 export type DaemonClientErrorKind = 'api' | 'network';
@@ -76,6 +82,8 @@ export interface DaemonClient {
 export interface DaemonClientOptions {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  /** 单请求超时上限（毫秒；测试注入小值。缺省见 `DAEMON_REQUEST_TIMEOUT_MS`——audit-d04 · D-04）。 */
+  timeoutMs?: number;
 }
 
 /** 解析 daemon baseUrl（顺序与常量见 `@/lib/daemon-endpoint`；尾部斜杠容忍）。 */
@@ -87,6 +95,7 @@ export function resolveDaemonBaseUrl(): string {
 export function createDaemonClient(options: DaemonClientOptions = {}): DaemonClient {
   const baseUrl = (options.baseUrl ?? resolveDaemonBaseUrl()).replace(/\/+$/, '');
   const fetchImpl: typeof fetch = options.fetchImpl ?? ((input, init) => fetch(input, init));
+  const timeoutMs = options.timeoutMs ?? DAEMON_REQUEST_TIMEOUT_MS;
 
   return {
     baseUrl,
@@ -109,8 +118,21 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
 
       let response: Response;
       try {
-        response = await fetchImpl(url, init);
-      } catch {
+        // 请求带超时上限（audit-d04 · D-04）：daemon「活着但不响应」时设置请求不得
+        // 永久 pending——到点 abort 并落为 network 类有界失败（同 J9 保存链口径）。
+        response = await fetchWithinDeadline(
+          fetchImpl,
+          url,
+          init,
+          timeoutMs,
+          (ms) => new RequestTimeoutError(ms),
+        );
+      } catch (error) {
+        if (error instanceof RequestTimeoutError) {
+          // 超时 ≠ 连不上：daemon 往往活着，只是没回应——文案用超时哨兵自己的
+          // 人话（含「请稍后重试」），不套「请确认 daemon 已启动」的不可达引导。
+          throw new DaemonClientError({ kind: 'network', message: error.message });
+        }
         throw new DaemonClientError({
           kind: 'network',
           message: `无法连接本地服务（${baseUrl}）——请确认 daemon 已启动后重试。`,
