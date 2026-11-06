@@ -29,10 +29,14 @@ afterEach(() => {
 });
 
 /** 装配一个用注入客户端（fetch 桩）的工作区，登记保存命令并渲染顶栏保存控件。 */
-function mountWithFetch(fetchImpl: typeof fetch): void {
+function mountWithFetch(fetchImpl: typeof fetch, options?: { timeoutMs?: number }): void {
   setWorkspace(
     createEditorWorkspace(EMPTY_PRESET, {
-      client: createDocumentsClient({ baseUrl: 'http://127.0.0.1:9', fetchImpl }),
+      client: createDocumentsClient({
+        baseUrl: 'http://127.0.0.1:9',
+        fetchImpl,
+        ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      }),
     }),
   );
   registerWorkspaceCommands();
@@ -97,5 +101,52 @@ describe('顶栏保存态中文化（票 06 / spec P1-2）', () => {
     expect(state.textContent).toContain('保存失败');
     expect(state.textContent).toContain('doc_exists');
     expect(document.querySelector('[data-df-technical-details]')).toBeNull();
+  });
+
+  it('J7 · 传输失败的两种形态收敛为同一文案：网关 502（非 JSON）也渲染统一人话（audit-d04 · D-10 单形态）', async () => {
+    const user = userEvent.setup();
+    // 同源网关在 daemon 失联时的形态：502 + 非 JSON 正文（修复前这里直出
+    // 「保存失败：响应不是合法 JSON（HTTP 502）」技术串，与 abort 的人话双形态并存）
+    const respondGateway502: typeof fetch = () =>
+      Promise.resolve(new Response('gateway: fetch failed', { status: 502 }));
+    mountWithFetch(respondGateway502);
+
+    await user.click(screen.getByRole('button', { name: t('editor.action.save') }));
+    const state = await waitForErrorState();
+    // 单形态断言：与 fetch abort 同一句人话（J7 旅程的文案步骤同款判据）
+    expect(state.textContent).toContain('无法连接本地服务');
+    expect(state.textContent).toContain('请确认 daemon 已启动');
+    expect(state.textContent).toContain('重新保存');
+    // 原文沉进技术详情（报障可引用），不再直出主文案
+    const details = document.querySelector<HTMLDetailsElement>('[data-df-technical-details]');
+    expect(details).not.toBeNull();
+    expect(details?.textContent).toContain('HTTP 502');
+    // 可重试：保存按钮仍在且未禁用
+    const saveButton = screen.getByRole('button', {
+      name: t('editor.action.save'),
+    }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(false);
+  });
+
+  it('J9 · 保存请求挂死：到注入上限落为失败态（统一人话 + 可重试），不再永久「保存中…」（audit-d04 · D-04）', async () => {
+    const user = userEvent.setup();
+    // 替身永不落定（daemon 活着但不响应 / 网线被拔）——只能靠超时上限脱身
+    const hanging: typeof fetch = (() => new Promise<Response>(() => undefined)) as typeof fetch;
+    mountWithFetch(hanging, { timeoutMs: 150 });
+
+    await user.click(screen.getByRole('button', { name: t('editor.action.save') }));
+    const state = await waitForErrorState();
+    // 统一失败文案（超时归网络族）+ 可执行的下一步
+    expect(state.textContent).toContain('无法连接本地服务');
+    expect(state.textContent).toContain('重新保存');
+    // 原文（超时人话）沉进技术详情
+    const details = document.querySelector<HTMLDetailsElement>('[data-df-technical-details]');
+    expect(details).not.toBeNull();
+    expect(details?.textContent).toContain('请求超时');
+    // 可重试：重按保存仍可用
+    const saveButton = screen.getByRole('button', {
+      name: t('editor.action.save'),
+    }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(false);
   });
 });

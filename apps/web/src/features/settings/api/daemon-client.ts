@@ -27,6 +27,7 @@ import {
   isApiSuccess,
 } from '@dforge/contracts';
 
+import { t } from '@/i18n';
 import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 import {
   DAEMON_REQUEST_TIMEOUT_MS,
@@ -135,7 +136,7 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
         }
         throw new DaemonClientError({
           kind: 'network',
-          message: `无法连接本地服务（${baseUrl}）——请确认 daemon 已启动后重试。`,
+          message: t('settings.error.network.unreachable', { url: baseUrl }),
         });
       }
 
@@ -145,7 +146,7 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
       } catch {
         throw new DaemonClientError({
           kind: 'network',
-          message: `本地服务响应不可解析（HTTP ${String(response.status)}）。`,
+          message: t('settings.error.network.unparseable', { status: response.status }),
           status: response.status,
         });
       }
@@ -164,7 +165,7 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
       }
       throw new DaemonClientError({
         kind: 'network',
-        message: `本地服务响应形状不合法（HTTP ${String(response.status)}）。`,
+        message: t('settings.error.network.malformed', { status: response.status }),
         status: response.status,
       });
     },

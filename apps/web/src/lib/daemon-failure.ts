@@ -40,7 +40,12 @@ export interface DaemonFailureView {
  * - `fetch failed`：Node（undici，SSR/门禁侧取数）；
  * - `请求超时`：本仓客户端超时哨兵（audit-d04 · D-04，`lib/request-timeout` 的
  *   `RequestTimeoutError` 文案族，gateway-timeout 的 `home.error.daemonTimeout` 同含
- *   此短语）——「等到了上限还没回应」与「连不上」的用户动作一致（重试），归同一族。
+ *   此短语）——「等到了上限还没回应」与「连不上」的用户动作一致（重试），归同一族；
+ * - `HTTP 502/503/504`：网关族 5xx（audit-d04 · D-10 单形态）——网关/代理活着但
+ *   **上游（daemon）不可达**的 HTTP 形态（同源网关把 daemon 失联代理成 502，浏览器
+ *   侧看不到 fetch TypeError），恢复动作与连不上一致（确认 daemon 已启动后重试）；
+ *   归一后失败文案单形态，原文进技术详情。4xx/5xx 里 daemon **有响应**的状态
+ *   （400/500 一族）不在此列——那是 daemon 明确拒绝，不是传输失败。
  */
 const NETWORK_MESSAGE_PATTERNS: readonly RegExp[] = [
   /failed to fetch/i,
@@ -48,6 +53,7 @@ const NETWORK_MESSAGE_PATTERNS: readonly RegExp[] = [
   /load failed/i,
   /fetch failed/i,
   /请求超时/,
+  /\bhttp 50[234]\b/i,
 ];
 
 /** 归类一次 daemon 交互失败（纯函数；`code` 为调用方已知的失败码，可省）。 */

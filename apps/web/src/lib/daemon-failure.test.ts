@@ -72,9 +72,23 @@ describe('classifyDaemonFailure · 非网络失败（daemon 明确拒绝等）',
     expect(view.raw).toBe('流式通道提前关闭');
   });
 
-  it('HTTP 层失败（请求失败（HTTP 502））不算网络失败（daemon 有响应）', () => {
-    const view = classifyDaemonFailure({ message: '请求失败（HTTP 502）' });
-    expect(view.isNetwork).toBe(false);
+  it('网关族 5xx（502/503/504）→ 网络失败（audit-d04 · D-10：网关活着但上游 daemon 不可达的 HTTP 形态，失败文案统一单形态）', () => {
+    // 同源网关在 daemon 失联时代理成 502（正文非 JSON）→ documents-client 两种原文形态：
+    for (const message of [
+      '响应不是合法 JSON（HTTP 502）',
+      'HTTP 502：请求失败',
+      'HTTP 503：请求失败',
+      'HTTP 504：请求失败',
+    ]) {
+      const view = classifyDaemonFailure({ message });
+      expect(view.isNetwork, message).toBe(true);
+      expect(view.code).toBe(DAEMON_UNREACHABLE_CODE);
+    }
+  });
+
+  it('daemon 有响应的非网关状态（400/500）不算网络失败（是明确拒绝/内部错误，不是传输失败）', () => {
+    expect(classifyDaemonFailure({ message: 'HTTP 400：请求失败' }).isNetwork).toBe(false);
+    expect(classifyDaemonFailure({ message: 'HTTP 500：请求失败' }).isNetwork).toBe(false);
   });
 
   it('文案里恰好提到 fetch 但语义是业务描述 → 不含英文特征串即不误判', () => {

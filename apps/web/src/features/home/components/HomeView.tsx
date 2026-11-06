@@ -176,7 +176,7 @@ export function HomeView({
         const apiError =
           cause instanceof DocumentApiError
             ? cause
-            : new DocumentApiError('daemon_unreachable', '本地服务不可达。');
+            : new DocumentApiError('daemon_unreachable', t('home.error.unreachable'));
         setErrorCode(describeApiErrorCode(apiError.code));
         setErrorMessage(apiError.message);
         setStatus('error');
