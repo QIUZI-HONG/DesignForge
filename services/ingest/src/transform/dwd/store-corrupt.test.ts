@@ -27,11 +27,11 @@ afterEach(async () => {
   await rm(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
+/** 写入器列定义类型（复用 parquetWriteBuffer 的真实签名，避免手写漂移）。 */
+type RawColumn = Parameters<typeof parquetWriteBuffer>[0]['columnData'][number];
+
 /** 写一张手工 parquet（绕过 writeTable 的序列化，模拟磁盘上的坏 JSON 文本）。 */
-async function writeRawParquet(
-  name: string,
-  columnData: { name: string; data: unknown[]; type: string }[],
-): Promise<void> {
+async function writeRawParquet(name: string, columnData: RawColumn[]): Promise<void> {
   const buffer = parquetWriteBuffer({ columnData });
   await writeFile(join(workDir, `${name}.parquet`), Buffer.from(new Uint8Array(buffer)));
 }

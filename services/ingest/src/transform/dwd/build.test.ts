@@ -287,7 +287,7 @@ describe('buildDwd · text 抽取组与仓级字段（MK-05 阶段 A 对接面�
         const ref = fetched ? await writeBlob(file.text) : null;
         entries.push({
           path: file.path,
-          gitSha: `${index}`.repeat(7).slice(0, 7) + `${index}${index}`,
+          gitSha: `${`${index}`.repeat(7).slice(0, 7)}${index}${index}`,
           size: fetched ? Buffer.byteLength(file.text, 'utf8') : 10,
           sha256: ref ?? `sha256:${'0'.repeat(64)}`,
           blobRef: ref ?? '',

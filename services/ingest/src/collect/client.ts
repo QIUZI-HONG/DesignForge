@@ -559,9 +559,7 @@ export function parseRecordedResponses(
       parsed === null ||
       typeof (parsed as { url?: unknown }).url !== 'string'
     ) {
-      warn(
-        `重放样本第 ${index + 1} 行不是录制响应形状（缺 url），已跳过：${trimmed.slice(0, 80)}`,
-      );
+      warn(`重放样本第 ${index + 1} 行不是录制响应形状（缺 url），已跳过：${trimmed.slice(0, 80)}`);
       continue;
     }
     out.push(parsed as RecordedResponse);
