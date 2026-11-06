@@ -14,7 +14,8 @@
     "copy:canvaskit": "node src/features/canvas/tools/copy-canvaskit-assets.mjs",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@dforge/contracts": "workspace:*",
@@ -36,6 +37,7 @@
     "@types/react-dom": "catalog:",
     "jsdom": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@vitest/coverage-v8": "catalog:"
   }
 }
