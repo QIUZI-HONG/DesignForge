@@ -12,6 +12,9 @@ catalog:
   # 工具链
   typescript: ~5.9.3
   vitest: 5.0.5
+  # 覆盖率 provider（audit-d08 · D-11）：与 vitest 同版本锁，逐包以 catalog: 引用；
+  # 版本必须随 vitest 一并升级（provider 与 vitest 内部接口强耦合）。
+  '@vitest/coverage-v8': 5.0.5
   '@biomejs/biome': 2.5.15
   '@types/node': ^22.20.5
   # Web 前端（apps/web）
