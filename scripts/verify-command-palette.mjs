@@ -55,6 +55,8 @@ const flagValue = (name) => {
   return at >= 0 ? args[at + 1] : undefined;
 };
 let webUrl = flagValue('--web-url') ?? process.env.DF_WEB_URL ?? null;
+/** 外部复用站点（DF_WEB_URL / --web-url 先于本脚本存在）→ 本脚本不 build/start，也**绝不回收**。 */
+const reuseSite = webUrl !== null;
 
 const startedAt = new Date();
 const stamp = startedAt.toISOString().replaceAll(':', '-').replace(/\..+$/, '');
@@ -141,16 +143,21 @@ async function finish(code, message) {
   // 第三段（Next 16 实测）：`next start` 会把 next-server fork 进**另一个进程组**再退出——
   // 组杀够不到它。按端口找监听者的精确 PID 再 SIGKILL：端口是本脚本选的空闲端口（4460+），
   // 谁在上面监听谁就是本脚本起的（绝不波及其它端口/进程，符合「只按精确 PID 回收自己起的进程」）。
-  if (webUrl !== null) {
+  // 回收边界（审计 D-09）：**只回收本脚本自起的站点**（reuseSite=false）。DF_WEB_URL
+  // 复用的外部站点只探测复用、绝不按端口杀——端口监听者不一定是本脚本起的（审计期
+  // 实测把外部共享站点误杀）；外部站点不可达在上方 waitForHttp 处按三态 exit 2 阻塞。
+  if (!reuseSite && webUrl !== null) {
     const port = Number(new URL(webUrl).port);
     if (Number.isFinite(port) && (await portBusy(port))) {
       const killed = killPortListener(port);
       console.log(
         killed
-          ? `回收残留监听进程（端口 ${port}）`
+          ? `回收残留监听进程（端口 ${port}，本脚本自起）`
           : `警告：端口 ${port} 仍有监听者，未能按 PID 回收`,
       );
     }
+  } else if (reuseSite) {
+    console.log(`外部站点复用（${webUrl}）：不回收该站点进程（回收只针对本脚本自起的子进程）。`);
   }
   process.exit(code);
 }

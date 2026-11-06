@@ -99,6 +99,17 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   真点击断言）CI 无浏览器恒阻塞，**仍为挂点**，随浏览器门禁票接入。三脚本直跑前端 `.ts` 适配层，
   CI 步骤设 `NODE_OPTIONS=--experimental-strip-types`（node 22.6–23.5 需要；22.18+ 缺省已开，
   显式设置无害）。
+- **守卫实况（2026-11-06 · audit-d07 D-09 后）**：`verify:perf`（渲染性能门禁 M1-M7 真链路）
+  **已实现且基线已实采转正**——`docs/quality/perf-baseline-v1.json` 置 `provisional:false`
+  （dev 机真链路实采多轮校准：阈值=同口径跨轮较差值向上取整到 0.1ms；含 minFrames/minSamples
+  样本地板校准、阈值 0.1ms 粒度的浮点容差比较（exceedsThreshold，伪差不判违规）；rounds/
+  calibration 字段存原始实测与证据路径）。**dev 机上是正式判定**：`pnpm verify:perf` 退出码
+  0=判定档全达标 / 1=实测超阈（真违规），不再恒阻塞（exit 2 仅剩基线缺失/采集不完整/真链路
+  起不来）。**CI 接入形态=「正式判定挂点」**（`ci.yml`，比 figma-baseline 阻塞语义断言收紧）：
+  exit 0 收；exit 1 红；exit 2 仅当阻塞原因属「CI 无真链路」族（Chromium/构建/daemon）才按
+  挂点语义收（阻塞不是通过），日志出现 provisional 字样即红。**本地是正式判定、CI 仍是挂点**
+  ——严格正式判定（仅 exit 0 绿）待 CI 具备真链路（Chromium + 阈值跨机校准：现阈值按 dev 机
+  校准且贴地，跨机直判必红）后随浏览器门禁票收口。
 - **守卫输出口径（批次 3 收口 · code-review）**：`guard-vocab` 与 `guard-feature-boundaries` 的
   退出码优先级为「**违规 exit 1 优先于未判定 exit 2**」，但两类问题必须**同屏列出**
   （`✗` 违规明细 + `?` 未判定明细，结论行点名未判定计数）——阻塞信息不得被违规结论吞掉；

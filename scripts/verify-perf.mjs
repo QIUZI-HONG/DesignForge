@@ -92,6 +92,18 @@ const BENCH_SIZES = [
 ];
 
 /**
+ * 基准文档 id 种子偏移（审计 D-09 ③ · audit-d07 实测）。
+ *
+ * studio 会话的 id 工厂硬编码 seed 1000（apps/web canvas-studio.tsx
+ * `createStudioSession` → `createIdFactory(1000)`）——用户建矩形从 n_1000 起号。
+ * 基准文档若从 1 起号，@5k（n_1..n_5000）与 M4 撤销探针的 createRect 必撞：
+ * daemon 拒收「节点 id 已存在：n_1000」，@5k 档采集中断（round 1 实录）。
+ * 偏移到 1e6 段错开工作室的分配窗（M4 ×8 只占 n_1000..n_1007），**仍是确定性**
+ * ——固定种子 + 纯计数，同一参数跨机比特一致（生成器只要求注入 IdFactory）。
+ */
+const BENCH_ID_SEED_OFFSET = 1_000_000;
+
+/**
  * 每档采集计划（对标报告 §4.2 的规模档归属）：
  *   M1/M2 全档必采；M3（选中→面板）/M4（撤销）@5k；M5（保存往返）@5k/20k；
  *   M6（heap）/M7（剔除率）@20k 记录。
@@ -111,6 +123,23 @@ const JUDGED_THRESHOLD_FIELDS = [
   'm4UndoMs',
   'm5SaveRoundTripMs',
 ];
+
+/**
+ * 阈值比较容差（毫秒）——阈值入库粒度为 0.1ms（基线校准规则「较差值向上取整到 0.1ms」），
+ * 实测值是 IEEE 双浮点的累计结果，表示噪声可比粒度低约 11 个数量级
+ * （audit-d07 实录：interval p95 = 16.800000000000182 vs 阈值 16.8，被无容差比较判成
+ * 「超阈 0.0000000000002ms」的假违规）。1e-6ms（1 纳秒）只吸收表示伪差，
+ * 比阈值粒度低 5 个数量级——不放过任何真实回退（真实回退 ≥ 粒度 0.1ms）。
+ */
+const THRESHOLD_EPSILON_MS = 1e-6;
+
+/**
+ * 阈值超限判定（唯一比较口径；evaluatePerf / evaluatePerfRun 共用）。
+ * 实测值严格大于「阈值 + 容差」才算超阈——粒度内的浮点伪差不算性能回退。
+ */
+function exceedsThreshold(value, threshold) {
+  return value > threshold + THRESHOLD_EPSILON_MS;
+}
 
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
@@ -311,7 +340,7 @@ export function evaluatePerf(snapshot, baseline, options) {
   }
   if (
     typeof thresholds.m2IntervalP95Ms === 'number' &&
-    snapshot.interval.p95Ms > thresholds.m2IntervalP95Ms
+    exceedsThreshold(snapshot.interval.p95Ms, thresholds.m2IntervalP95Ms)
   ) {
     violations.push(
       `interval.p95Ms ${snapshot.interval.p95Ms}ms > 阈值 ${thresholds.m2IntervalP95Ms}ms（M2 交互帧率回退）`,
@@ -319,7 +348,7 @@ export function evaluatePerf(snapshot, baseline, options) {
   }
   if (
     typeof thresholds.m2DurationP95Ms === 'number' &&
-    snapshot.duration.p95Ms > thresholds.m2DurationP95Ms
+    exceedsThreshold(snapshot.duration.p95Ms, thresholds.m2DurationP95Ms)
   ) {
     violations.push(
       `duration.p95Ms ${snapshot.duration.p95Ms}ms > 阈值 ${thresholds.m2DurationP95Ms}ms（绘制耗时回退）`,
@@ -500,7 +529,7 @@ export function evaluatePerfRun(run, baseline) {
   const violations = [];
   const judge = (label, value, threshold) => {
     if (typeof threshold !== 'number') return; // 记录性
-    if (value > threshold) {
+    if (exceedsThreshold(value, threshold)) {
       violations.push(`${label} ${value}ms > 阈值 ${threshold}ms（@${run.size}）`);
     }
   };
@@ -699,6 +728,22 @@ export function selfTest() {
     [
       'interval p95 超阈',
       evaluatePerf({ ...snapshot, interval: { ...snapshot.interval, p95Ms: 20 } }, baseline).code,
+      1,
+    ],
+    [
+      'interval p95 阈值粒度容差（浮点表示伪差 16.700000000000003 vs 16.7 不判违规）',
+      evaluatePerf(
+        { ...snapshot, interval: { ...snapshot.interval, p95Ms: 16.700000000000003 } },
+        baseline,
+      ).code,
+      0,
+    ],
+    [
+      '运行包 interval p95 粒度容差（真实回退 16.8 > 16.7 仍判违规）',
+      evaluatePerfRun(
+        { ...run, m2: { intervalP95Ms: 16.8, intervalP99Ms: 17, intervalSamples: 120 } },
+        baseline,
+      ).code,
       1,
     ],
     ['全达标（快照判定）', evaluatePerf(snapshot, baseline).code, 0],
@@ -1109,7 +1154,9 @@ async function collectTier(browser, options) {
   page.on('pageerror', (error) => pageErrors.push(String(error)));
 
   // FCP 辅助读数 + M6 采样要赶在文档装载之前就位（捕捉装载期分配）。
-  await page.evaluateOnNewDocument(INSTALL_FCP_OBSERVER);
+  // API 口径（审计 D-09）：playwright-core 的注入 API 是 addInitScript——
+  // evaluateOnNewDocument 是 puppeteer 的名字，误用会抛 TypeError（@1k 档实测）。
+  await page.addInitScript(INSTALL_FCP_OBSERVER);
   let cdp = null;
   if (wants.m6 === true) {
     try {
@@ -1173,10 +1220,13 @@ async function collectTier(browser, options) {
   steps.push({
     name: 'M2 · 交互帧率采样（拖拽×2 + 滚轮×10）',
     status: intervalSummary.count > 0 ? 'pass' : 'blocked',
-    detail: `间隔样本 ${String(intervalSummary.count)} 个，p95 ${String(intervalSummary.p95Ms)}ms / p99 ${String(intervalSummary.p99Ms)}ms`,
+    detail:
+      `间隔样本 ${String(intervalSummary.count)} 个，p95 ${String(intervalSummary.p95Ms)}ms / p99 ${String(intervalSummary.p99Ms)}ms；` +
+      `绘制耗时 p95 ${String(perfWindow?.duration?.p95Ms ?? 'n/a')}ms（perf() 环形窗口）`,
   });
   tierLog(
-    `M2 间隔 p95 ${String(intervalSummary.p95Ms)}ms / p99 ${String(intervalSummary.p99Ms)}ms（样本 ${String(intervalSummary.count)}）`,
+    `M2 间隔 p95 ${String(intervalSummary.p95Ms)}ms / p99 ${String(intervalSummary.p99Ms)}ms（样本 ${String(intervalSummary.count)}）` +
+      `；绘制耗时 p95 ${String(perfWindow?.duration?.p95Ms ?? 'n/a')}ms`,
   );
 
   // --- M3：选中→面板延迟（编辑器工作区；只有 /editor 挂 InspectorPanel） ---
@@ -1475,10 +1525,11 @@ async function mainRealChain(baselineInput, requestedSizes) {
     const nodeCount = tier.nodeCount;
     log(`开始采集 @${size}（${String(nodeCount)} 节点）`);
     try {
-      // 生成（确定性：注入 createIdFactory(1)，同一参数跨机比特一致）+ 落盘 daemon
+      // 生成（确定性：注入固定种子的 createIdFactory，同一参数跨机比特一致；
+      // 种子偏移避开 studio 的 n_1000 起号窗——见 BENCH_ID_SEED_OFFSET 注释）+ 落盘 daemon
       const document = fixtures.createBenchmarkDocument({
         nodeCount,
-        ids: fixtures.createIdFactory(1),
+        ids: fixtures.createIdFactory(BENCH_ID_SEED_OFFSET),
         pageId: 'page-1',
       });
       const pageBody = buildPageBody(document);
