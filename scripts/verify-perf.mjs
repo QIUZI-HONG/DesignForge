@@ -1109,7 +1109,9 @@ async function collectTier(browser, options) {
   page.on('pageerror', (error) => pageErrors.push(String(error)));
 
   // FCP 辅助读数 + M6 采样要赶在文档装载之前就位（捕捉装载期分配）。
-  await page.evaluateOnNewDocument(INSTALL_FCP_OBSERVER);
+  // API 口径（审计 D-09）：playwright-core 的注入 API 是 addInitScript——
+  // evaluateOnNewDocument 是 puppeteer 的名字，误用会抛 TypeError（@1k 档实测）。
+  await page.addInitScript(INSTALL_FCP_OBSERVER);
   let cdp = null;
   if (wants.m6 === true) {
     try {
