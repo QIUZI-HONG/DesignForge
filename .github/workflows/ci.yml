@@ -45,6 +45,20 @@ jobs:
       - name: 单元测试（逐包 vitest）
         run: pnpm test
 
+      # --- 覆盖率报数（audit-d08 · D-11：coverage 常设化）----------------------------
+      # 口径：逐包 `test:coverage`（vitest v8 provider，只统计各包 `src/**`，json-summary
+      # 落各包 coverage/coverage-summary.json）→ `coverage:report` 打印逐包行/分支摘要与
+      # 关键分支目标集（daemon routes 目标集 · cli 命令参数面目标集）聚合。
+      # **本步是「报数」不是「门禁」**：阈值（核心行 ≥80% · 关键分支 ≥90%）只在输出里
+      # 标 ⚠ 不改退出码；coverage:report 的非零退出只代表结构问题（产物全缺/不可解析，
+      # 即报数管线断了），不是覆盖率判定——阈值是否升格为门禁由后续票按三态语义决策。
+      # 代价如实记录：全量用例在本步跑第二遍（覆盖率桩点插装的开销换逐包可复核数字）；
+      # 既有 `pnpm test` 步骤原样保留（不放宽、不合并）。
+      - name: 覆盖率报数（逐包 test:coverage + 行/分支摘要；audit-d08 · D-11）
+        run: |
+          pnpm test:coverage
+          pnpm coverage:report
+
       # --- 非浏览器门禁（C5 接入：离线可判定的一律进 CI） -------------------------------
 
       - name: 脚本单测（差异包围盒 bbox + 守卫检出强度回归，node --test）

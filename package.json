@@ -14,6 +14,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:coverage": "pnpm -r test:coverage",
+    "coverage:report": "node scripts/coverage-report.mjs",
     "test:scripts": "node --test \"scripts/tests/**/*.test.mjs\"",
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run test",
     "verify:daemon": "node scripts/verify-daemon.mjs",
