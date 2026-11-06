@@ -8,17 +8,21 @@
  * 原始技术串沉进可折叠技术详情（不再渲染「保存失败：Failed to fetch」）。
  * 命令接线（按钮 ↔ `file.save`）由 slots.test 覆盖，这里按同一装配登记命令。
  */
+
+import { apiFailure, apiSuccess } from '@dforge/contracts';
+import { createDocument, createPage, createRect } from '@dforge/engine';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { resetCommandRegistry } from '@/features/editor-shell';
 import { t } from '@/i18n';
-import { createDocumentsClient } from '../persistence/documents-client';
+import { createDocumentsClient, encodePageBody } from '../persistence/documents-client';
 import { registerWorkspaceCommands } from '../register';
 import { DocumentSaveControl } from './save-control';
 import {
   createEditorWorkspace,
   EMPTY_PRESET,
+  getWorkspace,
   resetWorkspace,
   setWorkspace,
 } from './workspace-session';
@@ -148,5 +152,132 @@ describe('顶栏保存态中文化（票 06 / spec P1-2）', () => {
       name: t('editor.action.save'),
     }) as HTMLButtonElement;
     expect(saveButton.disabled).toBe(false);
+  });
+
+  describe('保存冲突（audit-d06 · D-05 · Q2=A：409 拒绝 + 手动刷新）', () => {
+    /**
+     * revision 感知桩：先以 revision=3 载入建立基线；首次保存（旧基线）回 409 冲突，
+     * 「放行」翻开后保存成功——复现 J8 双窗口先后的应用层时序（载入→他人写→本窗保存）。
+     */
+    function mountConflictWorkspace(): { allowSaves: () => void } {
+      const seeded = createDocument({
+        id: 'doc-1',
+        name: '冲突文档',
+        pages: [
+          createPage({
+            id: 'page-1',
+            name: '页面 1',
+            nodes: { n_1: createRect({ id: 'n_1', x: 0, y: 0, width: 40, height: 30 }) },
+            rootIds: ['n_1'],
+          }),
+        ],
+      });
+      const page = seeded.pages[0];
+      if (page === undefined) throw new Error('夹具缺页');
+      let revision = 3;
+      let rejectSaves = true;
+      const respond = (status: number, payload: unknown): Response =>
+        new Response(JSON.stringify(payload), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        });
+      const fetchImpl = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const method = (init?.method ?? 'GET').toUpperCase();
+        const path = String(input).replace(/^https?:\/\/[^/]+/, '');
+        if (method === 'GET' && path === '/documents/doc-1') {
+          return respond(
+            200,
+            apiSuccess({
+              document: {
+                id: 'doc-1',
+                name: seeded.name,
+                directory: '/data/doc-1.dfg',
+                createdAt: '2026-11-07T00:00:00.000Z',
+                updatedAt: '2026-11-07T00:00:00.000Z',
+                pageCount: 1,
+                sizeBytes: 0,
+                revision,
+                pages: [{ id: 'page-1', name: '页面 1', updatedAt: '2026-11-07T00:00:00.000Z' }],
+              },
+            }),
+          );
+        }
+        if (method === 'GET' && path === '/documents/doc-1/pages/page-1') {
+          return respond(200, apiSuccess({ body: encodePageBody(seeded, page), revision }));
+        }
+        if (method === 'PUT' && path === '/documents/doc-1/pages/page-1') {
+          if (rejectSaves) {
+            return respond(
+              409,
+              apiFailure('doc_revision_conflict', '文档已被另一窗口修改：保存基于旧版本，已拒绝', {
+                currentRevision: revision,
+              }),
+            );
+          }
+          revision += 1;
+          return respond(200, apiSuccess({ page: { id: 'page-1', name: '页面 1' }, revision }));
+        }
+        return respond(404, apiFailure('not_found', '路由不存在'));
+      }) as typeof fetch;
+
+      setWorkspace(
+        createEditorWorkspace(EMPTY_PRESET, {
+          client: createDocumentsClient({ baseUrl: 'http://127.0.0.1:9', fetchImpl }),
+        }),
+      );
+      registerWorkspaceCommands();
+      render(<DocumentSaveControl />);
+      return {
+        allowSaves() {
+          rejectSaves = false;
+        },
+      };
+    }
+
+    it('409 冲突 → 独立文案「文档已被另一窗口修改」+ 刷新按钮；不落网络族/通用失败形态', async () => {
+      const user = userEvent.setup();
+      mountConflictWorkspace();
+      // 先载入建立保存基线（冲突语义只保护「载入过」的会话）
+      await getWorkspace().documents.load('doc-1');
+
+      await user.click(screen.getByRole('button', { name: t('editor.action.save') }));
+      const state = await waitForErrorState();
+      // 独立冲突文案（不与网络族/通用失败混同）
+      expect(state.textContent).toContain('文档已被另一窗口修改');
+      expect(state.textContent).not.toContain('无法连接本地服务');
+      expect(state.textContent).not.toContain('保存失败：');
+      // 手动刷新路径：冲突态提供「刷新载入最新版本」入口
+      expect(document.querySelector('[data-df-save-conflict-refresh]')).not.toBeNull();
+      // 原文（daemon 信封的码与人话）沉进可折叠技术详情
+      const details = document.querySelector<HTMLDetailsElement>('[data-df-technical-details]');
+      expect(details).not.toBeNull();
+      expect(details?.textContent).toContain('doc_revision_conflict');
+    });
+
+    it('恢复路径：点刷新 → 载入最新版本回「已保存」；再保存 → 成功', async () => {
+      const user = userEvent.setup();
+      const stub = mountConflictWorkspace();
+      await getWorkspace().documents.load('doc-1');
+      await user.click(screen.getByRole('button', { name: t('editor.action.save') }));
+      await waitForErrorState();
+
+      // 手动刷新：重新载入 daemon 最新版本（放弃本窗口未保存修改——文案已言明）
+      const refresh = document.querySelector<HTMLElement>('[data-df-save-conflict-refresh]');
+      if (refresh === null) throw new Error('冲突态未提供刷新入口');
+      await user.click(refresh);
+      await waitFor(() => {
+        expect(document.querySelector('[data-df-save-state="saved"]')).not.toBeNull();
+      });
+
+      // 刷新后基线已更新：再保存成功（恢复路径闭环）
+      stub.allowSaves();
+      await user.click(screen.getByRole('button', { name: t('editor.action.save') }));
+      await waitFor(() => {
+        expect(document.querySelector('[data-df-save-state="saved"]')).not.toBeNull();
+      });
+    });
   });
 });

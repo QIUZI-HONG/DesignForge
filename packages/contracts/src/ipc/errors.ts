@@ -29,6 +29,9 @@ export const DF_ERROR_CODES = [
   'doc_invalid_body',
   'doc_invalid_manifest',
   'doc_last_page',
+  // 保存冲突检测（audit-d06 · D-05 · Q2=A）：条件保存（If-Match revision）基线过期 →
+  // 409 拒绝 + 前端引导手动刷新；不做自动合并（last-write-wins 静默丢更新是 J8 实证缺陷）
+  'doc_revision_conflict',
   // 导出
   'export_unsupported_format',
   'export_page_not_found',
@@ -77,6 +80,7 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   doc_invalid_body: 400,
   doc_invalid_manifest: 422,
   doc_last_page: 409,
+  doc_revision_conflict: 409,
   export_unsupported_format: 400,
   export_page_not_found: 404,
   export_render_failed: 500,

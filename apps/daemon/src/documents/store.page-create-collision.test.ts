@@ -122,8 +122,8 @@ describe('createPage 页 id 冲突防护（Security S1）', () => {
       const created = await store.createPage(documentId, '第九页', { id: 'page-9' });
       expect(created.ok).toBe(true);
       if (!created.ok) throw new Error('unreachable');
-      expect(created.value.id).toBe('page-9');
-      expect(created.value.name).toBe('第九页');
+      expect(created.value.page.id).toBe('page-9');
+      expect(created.value.page.name).toBe('第九页');
 
       const target = pagePathOf(docDir, 'page-9');
       expect(await readFile(target, 'utf8')).toBe('{}\n');
@@ -144,7 +144,7 @@ describe('createPage 页 id 冲突防护（Security S1）', () => {
       const created = await store.createPage(documentId, '第二页', { id: 'page-2' });
       expect(created.ok).toBe(true);
       if (!created.ok) throw new Error('unreachable');
-      expect(created.value.id).toBe('page-2');
+      expect(created.value.page.id).toBe('page-2');
       expect(await readFile(pagePathOf(docDir, 'page-2'), 'utf8')).toBe('{}\n');
 
       const detail = await store.get(documentId);

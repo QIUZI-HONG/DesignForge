@@ -27,6 +27,7 @@ export function DocumentSaveControl() {
   const status = useStore(workspace.documents.store, (state) => state.status);
   const error = useStore(workspace.documents.store, (state) => state.error);
   const errorKind = useStore(workspace.documents.store, (state) => state.errorKind);
+  const errorCode = useStore(workspace.documents.store, (state) => state.errorCode);
   const command = useCommand(SAVE_DOCUMENT_COMMAND_ID);
   const available = command !== undefined && command.enabled?.() !== false;
 
@@ -46,7 +47,12 @@ export function DocumentSaveControl() {
         {t('editor.action.save')}
       </Button>
       <span className="dfc-ws-save__state" role="status" data-df-save-state={status}>
-        <SaveStateContent status={status} errorKind={errorKind} error={error} />
+        <SaveStateContent
+          status={status}
+          errorKind={errorKind}
+          error={error}
+          errorCode={errorCode}
+        />
       </span>
     </span>
   );
@@ -57,17 +63,27 @@ export function DocumentSaveControl() {
  * 渲染中文人话（人话里带下一步：重新保存 / 重试），原始技术串与归一错误码沉进
  * **可折叠技术详情**（默认收起，报障可引用）；其余失败（daemon 明确拒绝等）维持
  * 既有「保存失败：{原因}」组合文案。dirty/saving/saved 三态不受影响。
+ *
+ * 保存冲突分支（audit-d06 · D-05 · Q2=A）：保存失败且错误码是 `doc_revision_conflict`
+ * （条件保存基线过期——另一窗口已先保存）→ 独立冲突文案 + **手动刷新**入口
+ * （重新载入 daemon 最新版本；不做自动合并）。判定走桥的结构化 `errorCode`，
+ * 不做失败原文的特征串猜测——409 明确拒绝不落网络族（批4 回归钉语义）。
  */
 function SaveStateContent({
   status,
   errorKind,
   error,
+  errorCode,
 }: {
   status: 'dirty' | 'saving' | 'saved' | 'error';
   errorKind: 'load' | 'save' | null;
   error: string | null;
+  errorCode: string | null;
 }) {
   if (status === 'error' && error !== null) {
+    if (errorKind === 'save' && errorCode === 'doc_revision_conflict') {
+      return <SaveConflictState raw={error} />;
+    }
     const view = classifyDaemonFailure({ message: error });
     if (view.isNetwork) {
       return (
@@ -84,6 +100,35 @@ function SaveStateContent({
     }
   }
   return saveStateLabel(status, errorKind, error);
+}
+
+/**
+ * 保存冲突态（audit-d06 · D-05）：独立文案 + 刷新按钮。
+ *
+ * 刷新 = 重新 `load(documentId)`：载入 daemon 最新版本并采纳（会话未保存的修改被放弃——
+ * 文案言明；Q2=A 不做自动合并）。刷新后基线更新，再保存即恢复（冲突后无脑重按保存
+ * 只会再次 409——确定性拒绝，不会静默覆盖他人更新）。
+ */
+function SaveConflictState({ raw }: { raw: string }) {
+  const workspace = getWorkspace();
+  const refresh = (): void => {
+    const documentId = workspace.documents.store.getState().documentId;
+    if (documentId !== null) void workspace.documents.load(documentId);
+  };
+  return (
+    <>
+      {t('editor.save.conflict')}
+      <Button size="sm" variant="secondary" data-df-save-conflict-refresh="" onClick={refresh}>
+        {t('editor.save.conflict.refresh')}
+      </Button>
+      <TechnicalDetails
+        className="dfc-ws-save__tech"
+        label={t('error.technicalDetails')}
+        code="doc_revision_conflict"
+        raw={raw}
+      />
+    </>
+  );
 }
 
 /** 保存态文案（失败按来源给「载入失败 / 保存失败」两种人话）。 */

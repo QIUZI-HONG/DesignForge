@@ -1047,6 +1047,8 @@
   "editor.save.saving": "保存中…",
   "editor.save.failed": "保存失败：{message}",
   "editor.save.failed.network": "保存失败——无法连接本地服务，请确认 daemon 已启动后重新保存。",
+  "editor.save.conflict": "文档已被另一窗口修改——本窗口的保存已被拒绝。请刷新载入最新版本后再继续（刷新会放弃本窗口未保存的修改）。",
+  "editor.save.conflict.refresh": "刷新载入最新版本",
   "editor.load.failed.network": "载入失败——无法连接本地服务，请确认 daemon 已启动后重试。",
   "editor.load.noPages": "文档无可用页面",
   "editor.import.imported": "已导入 IR（{nodes} 个节点）",

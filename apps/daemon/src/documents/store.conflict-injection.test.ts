@@ -121,7 +121,7 @@ it('TC-DOC-07 · store 层注入：写后重读比对持续失效 ×3 → confli
     const readBack = await store.readPage(id, 'page-1');
     expect(readBack.ok).toBe(true);
     if (!readBack.ok) throw new Error('unreachable');
-    expect(readBack.value.page.updatedAt).toBe(savedV1.value.updatedAt);
+    expect(readBack.value.page.updatedAt).toBe(savedV1.value.page.updatedAt);
     // 盘上正文 = 写前落盘的完整 v2（TC-DOC-05 合法中间态；绝无半截/混合）
     const diskBody = JSON.parse(await readFile(pagePath, 'utf8')) as unknown;
     expect([v1Body, v2Body]).toContainEqual(diskBody);

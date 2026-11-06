@@ -6,10 +6,12 @@ import {
   DFG_MANIFEST_SCHEMA,
   describeDocumentNameIssue,
   documentIdFromName,
+  formatRevisionHeader,
   isDfgManifest,
   isPageFileId,
   isValidDocumentName,
   pageFileId,
+  parseRevisionHeader,
 } from './index.ts';
 
 describe('documents · 名称规则', () => {
@@ -96,5 +98,35 @@ describe('documents · 页文件 id 与默认页（单一真源）', () => {
     expect(isPageFileId('页-1')).toBe(false);
     expect(isPageFileId('a'.repeat(65))).toBe(false);
     expect(isPageFileId(42)).toBe(false);
+  });
+});
+
+describe('documents · 保存冲突检测的条件头（audit-d06 · D-05）', () => {
+  it('formatRevisionHeader：非负整数 → 十进制串；其余拒绝', () => {
+    expect(formatRevisionHeader(0)).toBe('0');
+    expect(formatRevisionHeader(41)).toBe('41');
+    expect(() => formatRevisionHeader(-1)).toThrow();
+    expect(() => formatRevisionHeader(1.5)).toThrow();
+    expect(() => formatRevisionHeader(Number.NaN)).toThrow();
+  });
+
+  it('parseRevisionHeader：裸数字与带引号实体标签都接受；`*`/空串/小数/负数拒绝', () => {
+    expect(parseRevisionHeader('7')).toBe(7);
+    expect(parseRevisionHeader('"7"')).toBe(7);
+    expect(parseRevisionHeader(' 42 ')).toBe(42);
+    expect(parseRevisionHeader('0')).toBe(0);
+    expect(parseRevisionHeader('*')).toBeNull();
+    expect(parseRevisionHeader('')).toBeNull();
+    expect(parseRevisionHeader('""')).toBeNull();
+    expect(parseRevisionHeader('1.5')).toBeNull();
+    expect(parseRevisionHeader('-3')).toBeNull();
+    expect(parseRevisionHeader('abc')).toBeNull();
+    expect(parseRevisionHeader('W/"7"')).toBeNull(); // 弱实体标签不属于 revision 形态
+  });
+
+  it('format → parse 往返恒等（两端单一判据的往返钉）', () => {
+    for (const revision of [0, 1, 9, 41, 4096]) {
+      expect(parseRevisionHeader(formatRevisionHeader(revision))).toBe(revision);
+    }
   });
 });
