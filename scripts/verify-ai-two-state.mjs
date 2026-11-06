@@ -316,7 +316,10 @@ async function main() {
 
     const streamA = await fetch(`${baseUrl}/ai/chat`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(daemonToken === null ? {} : { 'x-df-token': daemonToken }),
+      },
       body: JSON.stringify({ messages: [{ role: 'user', content: '加一个主按钮' }], stream: true }),
     });
     const textA = await readStreamText(streamA);
@@ -414,7 +417,10 @@ async function main() {
 
     const streamB = await fetch(`${baseUrl}/ai/chat`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(daemonToken === null ? {} : { 'x-df-token': daemonToken }),
+      },
       body: JSON.stringify({ messages: [{ role: 'user', content: '加一个主按钮' }], stream: true }),
     });
     const textB = await readStreamText(streamB);
