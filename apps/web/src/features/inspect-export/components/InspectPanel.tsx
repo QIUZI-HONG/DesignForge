@@ -26,7 +26,7 @@ import { t } from '@/i18n';
 // 面板样式（令牌变量；禁裸值——样式集中在 inspect-export.css）
 import '../inspect-export.css';
 
-import { useDocumentSnapshot } from '../hooks/useDocumentSnapshot';
+import { useDocumentSnapshot } from '@/lib/use-document-snapshot';
 import type { ExportClient } from '../model/export-client';
 import { formatMeasureValue, readMeasurements } from '../model/measurements';
 import { readInspectSummary } from '../model/selection-reads';
