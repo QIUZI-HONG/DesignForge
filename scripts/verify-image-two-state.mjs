@@ -83,12 +83,16 @@ function waitForListening(child) {
   });
 }
 
+let daemonToken = null; // 夹具令牌（main 起处赋值；audit-d02 · D-02 起非 /health 路由必带）
+
 async function call(baseUrl, method, path, body) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    ...(body === undefined
-      ? {}
-      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    headers: {
+      ...(daemonToken === null ? {} : { 'x-df-token': daemonToken }),
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
   let json = null;
@@ -277,6 +281,7 @@ function trackViaFrontend(baseUrl, runId, options = {}) {
 async function probeUiMount({ daemonUrl }) {
   return runUiMountCheck({
     daemonUrl,
+    token: daemonToken,
     evidenceDir: join(EVIDENCE_ROOT, TICKET),
     screenshotName: 'ui-image-panel.png',
     log: (message) => {
@@ -370,6 +375,8 @@ async function main() {
       daemonLog += chunk.toString();
     });
     const baseUrl = await waitForListening(child);
+    // 令牌文件由 daemon 启动落盘（listening 已打印 = 应用装配完成）
+    daemonToken = (await readFile(dataRoot + '/daemon-token', 'utf8')).trim();
     console.log(`[verify-image-two-state] daemon 监听于 ${baseUrl}`);
     // —— 态 A：ComfyUI 未启动（真跑死端口）——
     await call(baseUrl, 'PUT', '/config', { comfy: { baseUrl: DEAD_COMFY_URL } });

@@ -64,9 +64,13 @@ function waitForListening(child) {
   });
 }
 
-/** 极简 HTTP 客户端：返回 { status, json, text, headers }。 */
+/** 夹具 daemon 的本地令牌（main() 起处赋值；audit-d02 · D-02 起非 /health 路由必带）。 */
+let daemonToken = null;
+
+/** 极简 HTTP 客户端：返回 { status, json, text, headers }（有令牌时自动携带 x-df-token）。 */
 async function call(baseUrl, method, path, body, extraHeaders) {
   const headers = {
+    ...(daemonToken === null ? {} : { 'x-df-token': daemonToken }),
     ...(body === undefined ? {} : { 'content-type': 'application/json' }),
     ...(extraHeaders ?? {}),
   };
@@ -99,6 +103,18 @@ async function runSmoke(baseUrl) {
       health.json?.result?.name === '@dforge/daemon',
     'health',
     `GET /health → ${health.status}`,
+  );
+
+  // ---- 本地令牌（audit-d02 · D-02：h1-probe 缺陷收敛取证）----
+  // 裸 fetch（不带 x-df-token）：call() 会自动携带令牌，这条探针要的就是「无令牌」形态
+  const noToken = await fetch(`${baseUrl}/documents`, { headers: { origin: 'null' } });
+  const noTokenJson = await noToken.json().catch(() => null);
+  expectOk(
+    noToken.status === 401 &&
+      noToken.headers.get('access-control-allow-origin') === null &&
+      noTokenJson?.error?.code === 'unauthorized',
+    'token.unauthorized',
+    `无令牌 GET /documents（Origin: null）→ ${String(noToken.status)}，无放行头（D-02：null+无令牌不再 200 全量）`,
   );
 
   // ---- CORS（受控白名单）----
@@ -137,7 +153,7 @@ async function runSmoke(baseUrl) {
   expectOk(
     preflight.status === 204 &&
       preflight.headers.get('access-control-allow-methods') === 'GET,POST,PUT,PATCH,DELETE' &&
-      preflight.headers.get('access-control-allow-headers') === 'content-type' &&
+      (preflight.headers.get('access-control-allow-headers') ?? '').includes('x-df-token') &&
       preflight.headers.get('access-control-max-age') === '600',
     'cors.preflight',
     `OPTIONS /documents → ${preflight.status}（methods/headers/max-age 齐备）`,
@@ -477,7 +493,9 @@ async function main() {
   let failureReason = null;
   try {
     baseUrl = await waitForListening(child);
-    console.log(`[verify-daemon] 监听于 ${baseUrl}；开始契约冒烟…`);
+    // 令牌文件由 daemon 启动落盘（listening 已打印 = 应用装配完成）
+    daemonToken = (await readFile(join(dataRoot, 'daemon-token'), 'utf8')).trim();
+    console.log(`[verify-daemon] 监听于 ${baseUrl}；本地令牌已读取（audit-d02）；开始契约冒烟…`);
     await runSmoke(baseUrl);
 
     // 端到端断言：哨兵 key 不出现在 daemon 日志（真实进程 logger 开启）

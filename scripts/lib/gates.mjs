@@ -14,11 +14,33 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
+import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/**
+ * 读夹具 daemon 的本地令牌（audit-d02 · D-02）：daemon 启动时在数据根落
+ * `daemon-token`（0600）。listening 行已打印 = 应用装配完成，文件必已存在；
+ * 有界重试仅为防文件系统抖动（读到空/缺失重试几次，超限抛错让调用方按夹具失败处理）。
+ */
+async function readFixtureToken(dataRoot, { retries = 10, intervalMs = 100 } = {}) {
+  const tokenPath = join(dataRoot, 'daemon-token');
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const token = (await readFile(tokenPath, 'utf8')).trim();
+      if (token !== '') return token;
+    } catch (error) {
+      if (attempt === retries) {
+        throw new Error(`夹具令牌文件读取失败（${tokenPath}）：${String(error)}`);
+      }
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, intervalMs));
+  }
+  throw new Error(`夹具令牌文件为空（${tokenPath}）`);
+}
 
 /** 取一个空闲端口（先 listen 0 再关，交给子进程用）。 */
 export function freePort() {
@@ -118,9 +140,12 @@ function daemonRuntimeArgs() {
  * `detached: true` 让子进程独占进程组，`close()` 用 `kill(-pid)` 精确回收整组
  * （arch-05：门禁夹具必须「起得来、停得干净」，残留 daemon 会占端口）。
  * `env` 用于追加 daemon 专属环境（如 CORS 白名单）。
+ * 返回的 `token` 是夹具 daemon 的本地令牌（audit-d02 · D-02）：daemon 缺省令牌鉴权，
+ * 门禁对非 /health 路由的直连请求必须携带 `x-df-token: token`；页面形态经 URL
+ * `?dfToken=` 注入（web 单点模块持久化）。
  *
  * @param {{ dataRoot: string, workspaceDir: string, timeoutMs?: number, env?: Record<string,string>, detached?: boolean }} options
- * @returns {Promise<{ url: string, pid?: number, port: number, output: string, close: () => Promise<void> }>}
+ * @returns {Promise<{ url: string, token: string, pid?: number, port: number, output: string, close: () => Promise<void> }>}
  */
 export async function startFixtureDaemon({
   dataRoot,
@@ -200,8 +225,11 @@ export async function startFixtureDaemon({
     throw new Error(`夹具 daemon 起不来（末 2000 字符输出）：${output.slice(-2000)}`);
   }
 
+  const token = await readFixtureToken(dataRoot);
+
   return {
     url,
+    token,
     pid: child.pid,
     port: Number(new URL(url).port),
     output,

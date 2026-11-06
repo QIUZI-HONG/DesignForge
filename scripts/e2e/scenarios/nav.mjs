@@ -138,11 +138,13 @@ export async function run(page, ctx) {
 
   // --- 1) 播种市场索引 + 建一份文档（数据面就位；UI 全链路已由 home 场景覆盖） ---
   seedMarketIndex(ctx.dataRoot);
-  const created = await fetch(`${ctx.daemonUrl}/documents`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name: DOCUMENT_NAME }),
-  })
+  // 直连 daemon 的数据面请求走 ctx.daemonFetch（自动携带本地令牌，audit-d02 · D-02）
+  const created = await ctx
+    .daemonFetch('/documents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: DOCUMENT_NAME }),
+    })
     .then((response) => response.json())
     .catch((error) => ({ ok: false, error: String(error) }));
   ctx.assert(

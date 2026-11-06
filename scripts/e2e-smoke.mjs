@@ -329,12 +329,19 @@ async function runScenario(file) {
   let steps = [];
   try {
     const result = await module.run(page, {
-      // 页面走同源网关；`?daemon=` 指向网关下的 `/df`（同源，与生产形态一致）
-      homeUrl: `${scenarioGatewayUrl}/?daemon=${encodeURIComponent(`${scenarioGatewayUrl}/df`)}`,
-      canvasUrl: `${scenarioGatewayUrl}/_canvas?daemon=${encodeURIComponent(`${scenarioGatewayUrl}/df`)}`,
+      // 页面走同源网关；`?daemon=` 指向网关下的 `/df`（同源，与生产形态一致）；
+      // `?dfToken=` 注入本地令牌（audit-d02 · D-02：web 单点模块读到即持久化并随请求携带）
+      homeUrl: `${scenarioGatewayUrl}/?daemon=${encodeURIComponent(`${scenarioGatewayUrl}/df`)}&dfToken=${encodeURIComponent(scenarioDaemon.token)}`,
+      canvasUrl: `${scenarioGatewayUrl}/_canvas?daemon=${encodeURIComponent(`${scenarioGatewayUrl}/df`)}&dfToken=${encodeURIComponent(scenarioDaemon.token)}`,
       pageUrl: scenarioGatewayUrl,
       webUrl,
       daemonUrl: scenarioDaemonUrl,
+      /** 直连夹具 daemon 的便捷请求（自动携带本地令牌头；init.headers 有则在其上合并）。 */
+      daemonFetch: (path, init) =>
+        fetch(`${scenarioDaemonUrl}${path}`, {
+          ...(init ?? {}),
+          headers: { 'x-df-token': scenarioDaemon.token, ...(init?.headers ?? {}) },
+        }),
       dataRoot: scenarioDataRoot,
       workspaceDir: scenarioWorkspace,
       log: (message) => log(`  ${scenarioId} · ${message}`),
@@ -403,7 +410,11 @@ async function runEditorGate(browser, urls) {
   });
 
   // ② 路由可达（缺失 = blocked，不是「通过」）
-  const editorUrl = `${urls.gatewayUrl}/editor?daemon=${encodeURIComponent(`${urls.gatewayUrl}/df`)}`;
+  const editorUrl =
+    `${urls.gatewayUrl}/editor?daemon=${encodeURIComponent(`${urls.gatewayUrl}/df`)}` +
+    (fixtureDaemon === null || fixtureDaemon === undefined
+      ? ''
+      : `&dfToken=${encodeURIComponent(fixtureDaemon.token)}`);
   let routeStatus = 0;
   try {
     const response = await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });

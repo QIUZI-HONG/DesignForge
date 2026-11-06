@@ -889,13 +889,16 @@ async function loadEngineFixtureModules() {
 // daemon HTTP 客户端（文档注入：create → 页面正文 PUT；信封 {ok, result|error}）
 // ---------------------------------------------------------------------------
 
-/** 统一请求：非 2xx 或 ok:false → { ok:false, error }（带上 daemon 的错误码与人话）。 */
-async function daemonRequest(daemonUrl, method, path, body) {
+/** 统一请求：非 2xx 或 ok:false → { ok:false, error }（带上 daemon 的错误码与人话）。
+ * 令牌（audit-d02 · D-02）：有则自动携带 x-df-token（夹具令牌经 options 传入）。 */
+async function daemonRequest(daemonUrl, method, path, body, token = null) {
   const response = await fetch(`${daemonUrl.replace(/\/$/, '')}${path}`, {
     method,
-    ...(body === undefined
-      ? {}
-      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    headers: {
+      ...(token === null ? {} : { 'x-df-token': token }),
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
   let envelope = null;
@@ -915,8 +918,8 @@ async function daemonRequest(daemonUrl, method, path, body) {
   return { ok: true, result: envelope?.result };
 }
 
-async function daemonCreateDocument(daemonUrl, name) {
-  const created = await daemonRequest(daemonUrl, 'POST', '/documents', { name });
+async function daemonCreateDocument(daemonUrl, name, token = null) {
+  const created = await daemonRequest(daemonUrl, 'POST', '/documents', { name }, token);
   if (!created.ok) return created;
   const document = created.result?.document;
   if (document === null || document === undefined || typeof document.id !== 'string') {
@@ -929,12 +932,13 @@ async function daemonCreateDocument(daemonUrl, name) {
  * 落盘页面正文：先 PUT `page-1`（daemon 的页面分配规则 page-{N}）；
  * 页面不存在时按客户端同款回退——POST 建页再 PUT（saveDesignDocument 的口径）。
  */
-async function daemonSavePage(daemonUrl, documentId, pageId, pageBody) {
+async function daemonSavePage(daemonUrl, documentId, pageId, pageBody, token = null) {
   const saved = await daemonRequest(
     daemonUrl,
     'PUT',
     `/documents/${encodeURIComponent(documentId)}/pages/${encodeURIComponent(pageId)}`,
     { body: pageBody },
+    token,
   );
   if (saved.ok) return saved;
   const created = await daemonRequest(
@@ -942,6 +946,7 @@ async function daemonSavePage(daemonUrl, documentId, pageId, pageBody) {
     'POST',
     `/documents/${encodeURIComponent(documentId)}/pages`,
     { name: '页面 1' },
+    token,
   );
   if (!created.ok) return created;
   const createdPageId = created.result?.page?.id;
@@ -952,6 +957,7 @@ async function daemonSavePage(daemonUrl, documentId, pageId, pageBody) {
     'PUT',
     `/documents/${encodeURIComponent(documentId)}/pages/${encodeURIComponent(createdPageId)}`,
     { body: pageBody },
+    token,
   );
 }
 
@@ -1086,14 +1092,16 @@ const READ_STATS_AT_ORIGIN = async () => {
  */
 async function collectTier(browser, options) {
   const { size, nodeCount, documentId, firstNodeId, gatewayUrl, log: tierLog } = options;
+  const daemonToken = options.daemonToken ?? null;
+  const dfTokenQuery = daemonToken === null ? '' : `&dfToken=${encodeURIComponent(daemonToken)}`;
   const wants = TIER_PLAN[size] ?? {};
   const steps = [];
   const studioUrl =
     `${gatewayUrl}/_canvas?daemon=${encodeURIComponent(`${gatewayUrl}/df`)}` +
-    `&doc=${encodeURIComponent(documentId)}`;
+    `&doc=${encodeURIComponent(documentId)}${dfTokenQuery}`;
   const editorUrl =
     `${gatewayUrl}/editor?daemon=${encodeURIComponent(`${gatewayUrl}/df`)}` +
-    `&documentId=${encodeURIComponent(documentId)}`;
+    `&documentId=${encodeURIComponent(documentId)}${dfTokenQuery}`;
 
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
@@ -1475,7 +1483,7 @@ async function mainRealChain(baselineInput, requestedSizes) {
       });
       const pageBody = buildPageBody(document);
       const firstNodeId = document.pages[0].rootIds[0];
-      const created = await daemonCreateDocument(daemonUrl, `perf-bench-${size}`);
+      const created = await daemonCreateDocument(daemonUrl, `perf-bench-${size}`, fixtureDaemon.token);
       if (!created.ok) {
         evidence.tiers.push({
           size,
@@ -1486,7 +1494,13 @@ async function mainRealChain(baselineInput, requestedSizes) {
         console.error(`阻塞 @${size}：daemon 创建文档失败（${created.error}）。`);
         continue;
       }
-      const saved = await daemonSavePage(daemonUrl, created.documentId, 'page-1', pageBody);
+      const saved = await daemonSavePage(
+        daemonUrl,
+        created.documentId,
+        'page-1',
+        pageBody,
+        fixtureDaemon.token,
+      );
       if (!saved.ok) {
         evidence.tiers.push({
           size,
@@ -1511,6 +1525,7 @@ async function mainRealChain(baselineInput, requestedSizes) {
         documentId: created.documentId,
         firstNodeId,
         gatewayUrl,
+        daemonToken: fixtureDaemon.token,
         log,
       });
       const result = evaluatePerfRun(run, baseline);

@@ -29,7 +29,7 @@
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -86,12 +86,16 @@ function waitForListening(child) {
 }
 
 /** 极简 HTTP 客户端：返回 { status, text, json }。 */
+let daemonToken = null; // 夹具令牌（main 起处赋值；audit-d02 · D-02 起非 /health 路由必带）
+
 async function call(baseUrl, method, path, body) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    ...(body === undefined
-      ? {}
-      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    headers: {
+      ...(daemonToken === null ? {} : { 'x-df-token': daemonToken }),
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
   let json = null;
@@ -203,6 +207,7 @@ function driveReader(sseText) {
 async function probeUiMount({ daemonUrl, degradedHint }) {
   return runUiMountCheck({
     daemonUrl,
+    token: daemonToken,
     evidenceDir: join(EVIDENCE_ROOT, TICKET),
     screenshotName: 'ui-ai-drawer.png',
     log: (message) => {
@@ -295,6 +300,8 @@ async function main() {
     child.stdout.on('data', (chunk) => logChunks.push(chunk.toString()));
     child.stderr.on('data', (chunk) => logChunks.push(chunk.toString()));
     const baseUrl = await waitForListening(child);
+    // 令牌文件由 daemon 启动落盘（listening 已打印 = 应用装配完成）
+    daemonToken = (await readFile(join(tempRoot, 'data') + '/daemon-token', 'utf8')).trim();
     console.log(`[verify-ai-two-state] daemon 监听于 ${baseUrl}`);
 
     // —— 态 A：无 key（真跑降级路径）——

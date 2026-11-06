@@ -80,9 +80,9 @@ export async function run(page, ctx) {
 
   /** 读 daemon 侧的文档摘要（`updatedAt`/`pageCount` 的独立证据源）。 */
   const daemonSummary = async () => {
-    const response = await fetch(
-      `${ctx.daemonUrl}/documents/${encodeURIComponent(DOCUMENT_NAME)}`,
-    ).catch(() => null);
+    const response = await ctx
+      .daemonFetch(`/documents/${encodeURIComponent(DOCUMENT_NAME)}`)
+      .catch(() => null);
     if (response === null || !response.ok) return null;
     const payload = await response.json().catch(() => null);
     return payload?.result?.document ?? null;
@@ -240,9 +240,8 @@ export async function run(page, ctx) {
   }
 
   // daemon 侧独立证据：页面正文里真的有这个节点（缺陷现场是 0 图层）
-  const stored = await fetch(
-    `${ctx.daemonUrl}/documents/${encodeURIComponent(DOCUMENT_NAME)}/pages/page-1`,
-  )
+  const stored = await ctx
+    .daemonFetch(`/documents/${encodeURIComponent(DOCUMENT_NAME)}/pages/page-1`)
     .then((response) => response.json())
     .catch(() => null);
   const storedNodes = stored?.result?.body?.page?.nodes ?? null;

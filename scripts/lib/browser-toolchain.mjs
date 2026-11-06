@@ -48,20 +48,32 @@ export function resolveChromeExecutable() {
  * 语义：路径前缀替换为目标 daemon 的同一路径 + 原查询串；带 body 的方法原样透传
  * （POST/PUT）；转发失败（daemon 掉线）→ 502 + 失败信封（页面按「连不上」处理，不静默）。
  *
+ * 令牌（audit-d02 · D-02）：daemon 缺省令牌鉴权。页面请求自带的 `x-df-token` 原样透传
+ * （真客户端链路：web 单点模块把 `?dfToken=` 变成请求头）；页面没带（外部 daemon 形态、
+ * 令牌只给了 Node 侧）→ 用 `options.token` 注入——注入只发生在测试转发器里，浏览器直连
+ * 生产 daemon 时令牌仍必须由页面自己携带。
+ *
  * @param {import('playwright-core').Page} page
  * @param {string} daemonUrl 真 daemon 基址（如 http://127.0.0.1:4318）
  * @param {string} [prefix] 页面里的相对前缀（默认 {@link DAEMON_ROUTE_PREFIX}）
+ * @param {{ token?: string | null }} [options] 令牌注入（页面未带头时用；测试转发器专用）
  */
-export async function forwardDaemonRequests(page, daemonUrl, prefix = DAEMON_ROUTE_PREFIX) {
+export async function forwardDaemonRequests(page, daemonUrl, prefix = DAEMON_ROUTE_PREFIX, options = {}) {
   await page.route(`**${prefix}/**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const target = `${daemonUrl}${url.pathname.slice(prefix.length)}${url.search}`;
     const hasBody = request.method() !== 'GET' && request.method() !== 'HEAD';
+    // 令牌：页面自带 → 透传；否则回退注入值（外部 daemon 形态）
+    const pageToken = request.headers()['x-df-token'];
+    const token = pageToken ?? (options.token ?? null);
     try {
       const response = await fetch(target, {
         method: request.method(),
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...(token === null ? {} : { 'x-df-token': token }),
+        },
         ...(hasBody ? { body: request.postData() ?? '{}' } : {}),
       });
       await route.fulfill({
