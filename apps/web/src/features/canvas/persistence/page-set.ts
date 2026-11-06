@@ -22,8 +22,16 @@ import { DEFAULT_PAGE_NAME, isPageFileId, pageFileId } from '@dforge/contracts';
 import type { DesignDocument, ScenePage, TokenSet } from '@dforge/engine';
 import { createPage, emptyTokenSet } from '@dforge/engine';
 
-/** 结果形状：调用方只需要「成功/失败 + 原因」（与 documents-client 的 ClientResult 同形）。 */
-export type ClientResult<T> = { ok: true; value: T } | { ok: false; error: string };
+/**
+ * 结果形状：调用方只需要「成功/失败 + 原因」（与 documents-client 的 ClientResult 同形）。
+ *
+ * `code`（audit-d06 · D-05）：daemon 统一错误码（信封 `error.code`）——条件保存的
+ * `doc_revision_conflict` 靠它在界面层走独立冲突文案（不落网络族/通用失败形态）；
+ * 传输层失败（fetch/超时）没有信封码 → 缺省该键。
+ */
+export type ClientResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string; code?: string };
 
 /** 页面正文信封（daemon 侧是 opaque JSON）。 */
 export interface CanvasPageBody {
@@ -37,16 +45,27 @@ export interface CanvasPageBody {
 export const CANVAS_PAGE_FORMAT = 'dforge.canvas.page' as const;
 export const CANVAS_PAGE_VERSION = 1;
 
-/** mapping module 需要的窄端口（DocumentsClient 结构性满足）。 */
+/**
+ * mapping module 需要的窄端口（DocumentsClient 结构性满足）。
+ *
+ * 条件保存（audit-d06 · D-05）：`ifMatchRevision` 给定时以 `If-Match: <revision>` 发出
+ * （daemon 提交锁内比对，基线过期 → 409 `doc_revision_conflict`）；成功返回写入后的
+ * 文档 revision——保存链据此把基线推进到最新（下一写不误伤自己）。
+ */
 export interface PageSetClient {
   getDocument(documentId: string): Promise<ClientResult<DocumentDetail>>;
   readPage(documentId: string, pageId: string): Promise<ClientResult<unknown>>;
   createPage(
     documentId: string,
     name: string,
-    options?: { id?: string },
-  ): Promise<ClientResult<{ id: string; name: string }>>;
-  savePage(documentId: string, pageId: string, body: unknown): Promise<ClientResult<void>>;
+    options?: { id?: string; ifMatchRevision?: number },
+  ): Promise<ClientResult<{ id: string; name: string; revision: number | null }>>;
+  savePage(
+    documentId: string,
+    pageId: string,
+    body: unknown,
+    options?: { ifMatchRevision?: number },
+  ): Promise<ClientResult<{ revision: number | null }>>;
 }
 
 /** 设计页正文编码。 */
@@ -94,6 +113,11 @@ export interface PageSetLoad {
   unresolvedPageIds: string[];
   /** 文档级令牌（取首个可解码页正文里的 tokens；全空文档 → 空令牌集）。 */
   tokens: TokenSet;
+  /**
+   * 载入时刻的文档 revision（保存冲突检测的基线；audit-d06 · D-05）。
+   * 上游未提供（旧 daemon）→ null：条件保存降级关闭，行为同旧客户端。
+   */
+  revision: number | null;
 }
 
 /**
@@ -166,6 +190,9 @@ export async function loadPageSet(
       pages: [...contentPages, ...placeholderPages],
       unresolvedPageIds,
       tokens: tokens ?? emptyTokenSet(),
+      // 载入基线（audit-d06 · D-05）：上游缺 revision 字段（旧 daemon）→ null 降级
+      revision:
+        typeof summary.value.revision === 'number' ? summary.value.revision : null,
     },
   };
 }

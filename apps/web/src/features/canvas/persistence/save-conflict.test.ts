@@ -309,8 +309,9 @@ describe('documents-client · 条件保存（audit-d06 · D-05）', () => {
     if (!saved.ok) return;
     expect(saved.value.revision).toBe(3); // 两页各 +1
     expect(daemon.conditionalLog).toEqual([
+      'GET /documents/doc-1 if-match=-', // 保存前的页清单读取（无条件头）
       'PUT /documents/doc-1/pages/page-1 if-match=1',
-      'PUT /documents/doc-1/pages/page-2 if-match=2',
+      'PUT /documents/doc-1/pages/page-2 if-match=2', // 基线已推进到第一页响应的 revision
     ]);
   });
 
@@ -342,9 +343,11 @@ describe('documents-client · 条件保存（audit-d06 · D-05）', () => {
     const putLines = daemon.conditionalLog.filter((line) => line.startsWith('PUT'));
     expect(putLines).toHaveLength(3); // A 两页 + B 第一页（被拒）
     expect(putLines[2]).toBe('PUT /documents/doc-1/pages/page-1 if-match=1');
-    // A 的第一页内容原样保留（静默覆盖不再发生）
-    const page1 = daemon.pagesOf('doc-1').get('page-1') as { n_1?: { x: number } };
-    expect(page1.n_1?.x).toBe(99);
+    // A 的第一页内容原样保留（正文是 CanvasPageBody 信封；静默覆盖不再发生）
+    const page1 = daemon.pagesOf('doc-1').get('page-1') as {
+      page?: { nodes?: { n_1?: { x: number } } };
+    };
+    expect(page1.page?.nodes?.n_1?.x).toBe(99);
   });
 
   it('恢复路径：冲突后重新载入（手动刷新）再保存 → 成功', async () => {
@@ -371,7 +374,7 @@ describe('documents-client · 条件保存（audit-d06 · D-05）', () => {
     expect(retry.value.revision).toBe(daemon.revisionOf('doc-1'));
   });
 
-  it('未给基线（旧行为调用）不发 If-Match；旧 daemon（响应缺 revision）保存仍成功且 revision 为 null', async () => {
+  it('旧 daemon（响应缺 revision）保存仍成功且 revision 为 null（降级不破）；未给基线不发 If-Match', async () => {
     const legacy = revisionDaemon({ withRevisions: false });
     legacy.seed('doc-1', [{ id: 'page-1', body: {} }]);
     const document = fixtureDocument('旧上游');
@@ -380,15 +383,25 @@ describe('documents-client · 条件保存（audit-d06 · D-05）', () => {
     });
     expect(saved.ok).toBe(true);
     if (!saved.ok) return;
-    expect(saved.value.revision).toBeNull(); // 旧上游无 revision 可回传，冲突检测降级关闭
-    expect(legacy.conditionalLog.every((line) => line.endsWith('if-match=-'))).toBe(true);
+    // 旧上游无 revision 可回传：保存成功（不破），冲突检测本会话降级关闭
+    expect(saved.value.revision).toBeNull();
+    // 客户端仍按给定基线发条件头（旧上游忽略它——兼容是上游的硬约束，daemon 用例已钉）
+    expect(legacy.conditionalLog.filter((line) => line.startsWith('PUT'))).toEqual([
+      'PUT /documents/doc-1/pages/page-1 if-match=1',
+      'PUT /documents/doc-1/pages/page-2 if-match=1',
+    ]);
 
-    // 完全不给 options（既有调用形态）同样不发条件头
+    // 完全不给 options（既有调用形态）：无外来基线——首写不带 If-Match（旧行为）；
+    // 首写成功后基线推进到本次保存自身的 revision，后续写据此发条件头（正确且更安全：
+    // 并发窗口若在两写之间插入保存，后一写会被 409 拒绝而非静默覆盖）
     const daemon = revisionDaemon();
     daemon.seed('doc-2', [{ id: 'page-1', body: {} }]);
     const legacyCall = await saveDesignDocument(daemon.client, 'doc-2', document);
     expect(legacyCall.ok).toBe(true);
-    expect(daemon.conditionalLog.every((line) => line.endsWith('if-match=-'))).toBe(true);
+    const puts = daemon.conditionalLog.filter((line) => line.startsWith('PUT'));
+    expect(puts[0]).toBe('PUT /documents/doc-2/pages/page-1 if-match=-');
+    // 首写（1→2）+ 建页（2→3）后，第二页正文写以自身产生的 revision 3 为基线
+    expect(puts[1]).toBe('PUT /documents/doc-2/pages/page-2 if-match=3');
   });
 
   it('loadPageSet 载入结果带 revision（保存基线的来源）；旧上游为 null', async () => {

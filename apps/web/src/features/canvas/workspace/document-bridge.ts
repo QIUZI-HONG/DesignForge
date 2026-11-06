@@ -58,6 +58,11 @@ export interface WorkspaceDocumentState {
   error: string | null;
   /** 失败来源。 */
   errorKind: DocumentErrorKind | null;
+  /**
+   * 失败的 daemon 统一错误码（audit-d06 · D-05）：界面据此走分支文案——
+   * `doc_revision_conflict` → 独立冲突文案 + 手动刷新；其余维持既有形态。无码 → null。
+   */
+  errorCode: string | null;
 }
 
 /** 载入/保存结果（调用方只需成功与否 + 原因）。 */
@@ -142,6 +147,7 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
     status: options.initial.documentId == null ? 'dirty' : 'saved',
     error: null,
     errorKind: null,
+    errorCode: null,
   }));
 
   /**
@@ -152,6 +158,15 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
   let revision = 0;
   /** 桥自身正在替换文档（载入）：这期间的变更不算用户编辑。 */
   let adopting = false;
+
+  /**
+   * 保存基线 revision（audit-d06 · D-05）：会话内容「基于哪一版 daemon 文档改的」——
+   * 载入成功时记下 daemon 的 manifest.version，成功保存后推进到响应 revision；
+   * null = 无基线（未落盘文档首次落盘 / 导入替换 / 旧 daemon 未报 revision）→
+   * 该次保存走旧行为（不带 If-Match）。冲突后**保持旧基线**：不刷新就重存 →
+   * 仍然 409（确定性拒绝），刷新载入后基线更新才放行（Q2=A 手动刷新语义）。
+   */
+  let daemonRevision: number | null = null;
 
   const unsubscribe = host.subscribe(() => {
     if (adopting) return;
@@ -164,12 +179,16 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
       return;
     }
     if (state.status !== 'dirty' || state.name !== name) {
-      store.setState({ status: 'dirty', name, error: null, errorKind: null });
+      store.setState({ status: 'dirty', name, error: null, errorKind: null, errorCode: null });
     }
   });
 
-  const fail = (kind: DocumentErrorKind, error: string): DocumentBridgeResult => {
-    store.setState({ status: 'error', error, errorKind: kind });
+  const fail = (
+    kind: DocumentErrorKind,
+    error: string,
+    code?: string,
+  ): DocumentBridgeResult => {
+    store.setState({ status: 'error', error, errorKind: kind, errorCode: code ?? null });
     return { ok: false, error };
   };
 
@@ -181,26 +200,30 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
 
       adopting = true;
       try {
-        if (!host.adopt(loaded.value, documentId)) {
+        if (!host.adopt(loaded.value.document, documentId)) {
           // 文案与 import-ir 同键同源（audit-d04 · D-10：无可用页面一句话，不再各自拼 id 后缀）
           return fail('load', t('editor.load.noPages'));
         }
       } finally {
         adopting = false;
       }
+      // 载入即记基线（audit-d06 · D-05）：之后保存据此发 If-Match；
+      // 上游未报 revision（旧 daemon）→ null 降级（行为同旧客户端）
+      daemonRevision = loaded.value.revision;
       store.setState({
         documentId,
-        name: loaded.value.name,
+        name: loaded.value.document.name,
         status: 'saved',
         error: null,
         errorKind: null,
+        errorCode: null,
       });
       return { ok: true, documentId };
     },
 
     async save() {
       const startRevision = revision;
-      store.setState({ status: 'saving', error: null, errorKind: null });
+      store.setState({ status: 'saving', error: null, errorKind: null, errorCode: null });
       const document = host.document();
 
       // 幂等落盘：未落盘文档先按名找/建（同名复用，两个宿主同一口径）。
@@ -220,11 +243,19 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
           if (!created.ok) return fail('save', created.error);
           documentId = created.value.id;
         }
+        // 首次落盘：会话内容从未基于磁盘版本（按名复用也不算「载入过」）→ 无基线，
+        // 走旧行为（若按复用文档的 revision 发条件头，同名复用会立即 409，幂等落盘即废）
+        daemonRevision = null;
       }
 
-      const saved = await saveDesignDocument(client, documentId, document);
-      if (!saved.ok) return fail('save', saved.error);
+      // 条件保存（audit-d06 · D-05）：基线给定时逐写带 If-Match；冲突 → 独立错误码
+      const saved = await saveDesignDocument(client, documentId, document, {
+        baselineRevision: daemonRevision,
+      });
+      if (!saved.ok) return fail('save', saved.error, saved.code);
 
+      // 成功即推进基线到响应 revision（下次保存据此发 If-Match）
+      daemonRevision = saved.value.revision;
       // 内容已落盘：documentId 投影与「已保存」态同一时点可见；URL 同步随后
       // （失败路径不会走到这里，身份不外泄）。
       store.setState({
@@ -233,6 +264,7 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
         status: revision === startRevision ? 'saved' : 'dirty',
         error: null,
         errorKind: null,
+        errorCode: null,
       });
       if (firstPersist && options.syncUrl !== false) syncUrl(syncUrlParam, documentId);
       return { ok: true, documentId };
@@ -247,12 +279,15 @@ export function createDocumentBridge(options: DocumentBridgeOptions): DocumentBr
         adopting = false;
       }
       if (!adopted) return false;
+      // 导入替换 = 另一份内容，落盘身份清零（基线同样作废：下次保存是首次落盘）
+      daemonRevision = null;
       store.setState({
         documentId: null,
         name: name ?? document.name,
         status: 'dirty',
         error: null,
         errorKind: null,
+        errorCode: null,
       });
       return true;
     },

@@ -20,6 +20,7 @@ function summary(id: string, name: string): DocumentSummary {
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-15T08:00:00.000Z',
     pageCount: 2,
+    revision: 1,
     sizeBytes: 2048,
   };
 }

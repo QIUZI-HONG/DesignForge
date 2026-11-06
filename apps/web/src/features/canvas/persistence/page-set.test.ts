@@ -47,6 +47,7 @@ function fakeClient(init: { name?: string; pages: FakePage[] }): {
     createdAt: '2026-11-04T00:00:00.000Z',
     updatedAt: '2026-11-04T00:00:00.000Z',
     pageCount: pages.size,
+    revision: 1,
     sizeBytes: 0,
     pages: [...pages.values()].map((page) => page.meta),
   });
@@ -75,14 +76,15 @@ function fakeClient(init: { name?: string; pages: FakePage[] }): {
         meta: { id: pageId, name: pageName, updatedAt: '2026-11-04T00:00:00.000Z' },
         body: {},
       });
-      return { ok: true, value: { id: pageId, name: pageName } };
+      return { ok: true, value: { id: pageId, name: pageName, revision: null } };
     },
     async savePage(_documentId, pageId, body) {
       writes.push({ pageId, body });
       const page = pages.get(pageId);
       if (page === undefined) return { ok: false, error: 'not_found' };
       page.body = body;
-      return { ok: true, value: undefined };
+      // 桩不模拟 daemon 的 revision 记账（本文件只测页集映射）；需要 revision 语义的用例见 save-conflict.test.ts
+      return { ok: true, value: { revision: null } };
     },
   };
 
@@ -225,6 +227,7 @@ describe('loadPageSet · 按 manifest 的 pages[] 读取', () => {
             createdAt: '2026-11-04T00:00:00.000Z',
             updatedAt: '2026-11-04T00:00:00.000Z',
             pageCount: 2,
+            revision: 1,
             sizeBytes: 0,
             pages: [meta('page-1'), meta('page-2')],
           },
