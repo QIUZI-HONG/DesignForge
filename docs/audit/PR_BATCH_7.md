@@ -80,4 +80,4 @@
 - **修复**（分支 `fix/ci-perf-hookpoint`，工作树 `/home/QIU/df-wt/audit-d07b`）：判据从「grep 日志文本」改为「**查基线 JSON 状态字段**」——判定抽共享裁决 `scripts/lib/perf-ci-judgment.mjs`（与 tp2-03 two-state-verdict 同构），ci.yml perf 步 node 直跑之：exit 0 收 / exit 1 红 / exit 2 **仅当** `docs/quality/perf-baseline-v1.json` 的 `provisional === false`（真链路族阻塞）才收；基线回退（provisional:true）、字段缺失/非布尔、基线不可读、其余退出码一律红。**判定强度不降**（provisional:true 回退依旧红，只是判据落在字段而非自由文本）；门禁输出文案不动（含 provisional 字样从此无害）。
 - **回归钉**：新增 `scripts/tests/perf-ci-judgment.test.mjs`（16 例，随「脚本单测」步跑）：四主钉（exit 0 收 / exit 1 红 / exit 2+转正态收 / exit 2+回退态红）+ 非法退出码红 + 字段缺失/基线缺失/损坏 JSON/null 基线红 + 反例钉（合法收下文案含 provisional 字样仍收）+ CLI 接线。
 - **复验**（证据 `~/df-evidence/audit-d07b/REPLAY.md`）：新单测 16/16 · `pnpm test:scripts` 158/158 · `pnpm verify`=0；场景 A（门禁离线 exit 2，输出含 3 处 provisional 字样）→ 新判定收绿 exit 0（旧 grep 必误伤）；场景 B（provisional:true 基线副本）→ 新判定红 exit 1。
-- **重验 run**：推送后回填（run id / URL / head SHA）。
+- **重验 run**：[42315452006](https://github.com/QIUZI-HONG/DesignForge/actions/runs/42315452006)（head `1d3014c` = 修复 merge `676c01f`）→ **success**（2026-11-07，全链绿——第 22 步 perf 挂点按基线 `provisional:false` 判定收下，翻车修复闭环）。
