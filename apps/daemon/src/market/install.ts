@@ -347,7 +347,22 @@ export function createMarketInstallService(options: {
     let treeJson: unknown;
     try {
       treeJson = (await treeResponse.json()) as unknown;
-    } catch {
+    } catch (error) {
+      // 超时中止的体读不是「清单不是合法 JSON」（评审 R3）：AbortSignal.timeout 同样作用于
+      // 响应体读取，超时抛 TimeoutError/AbortError——落进 invalid-json 会把网络故障说成
+      // 源数据损坏；区分后按网络失败（reason:'network'）走终态，其余仍按 invalid-json。
+      if (
+        error instanceof Error &&
+        (error.name === 'TimeoutError' || error.name === 'AbortError')
+      ) {
+        return {
+          ok: false,
+          result: sourceUnavailable('源仓库文件清单读取超时（网络中断/超时）', {
+            reason: 'network',
+            message: error.message,
+          }),
+        };
+      }
       return {
         ok: false,
         result: sourceUnavailable('源仓库文件清单不是合法 JSON', { reason: 'trees-invalid-json' }),

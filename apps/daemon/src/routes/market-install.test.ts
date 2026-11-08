@@ -983,7 +983,7 @@ describe('market install · 回读失败终态（F4：直连服务 + readFile �
   });
 });
 
-describe('market install · 网络中断/超时（R1：体读失败必须结构化收口）', () => {
+describe('market install · 网络中断/超时（R1/R3：体读失败必须结构化收口）', () => {
   const REF = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
   const EXPECTED_DIGEST = specDigest(ASSET_FILES);
   const CREDENTIALS = { env: { GH_TOKEN: 'test-token-123' } };
@@ -1054,6 +1054,80 @@ describe('market install · 网络中断/超时（R1：体读失败必须结构�
       const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
       expect(audit).toContain('网络中断/超时');
       expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('Trees 清单体读超时（R3）→ reason=network「读取超时」，不再误诊为 trees-invalid-json', async () => {
+    const daemon = await createInstallDaemon({
+      fetchImpl: (url) => {
+        const target = typeof url === 'string' ? url : String(url);
+        if (target.startsWith('https://api.github.com/repos/acme/skills/git/trees/')) {
+          return Promise.resolve(midBodyTimeoutResponse('application/json'));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ message: 'stub: unexpected url' }), { status: 404 }),
+        );
+      },
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: EXPECTED_DIGEST })]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(503);
+      const error = (
+        installed.payload as {
+          error: { code: string; message: string; details?: Record<string, unknown> };
+        }
+      ).error;
+      expect(error.code).toBe('market_install_source_unavailable');
+      expect(error.details?.reason).toBe('network');
+      expect(error.message).toContain('读取超时');
+      expect(error.message).not.toContain('不是合法 JSON');
+      // 审计终态留痕
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('Trees 清单体确实非法（对照分支）→ 仍按 trees-invalid-json 终态', async () => {
+    const daemon = await createInstallDaemon({
+      fetchImpl: (url) => {
+        const target = typeof url === 'string' ? url : String(url);
+        if (target.startsWith('https://api.github.com/repos/acme/skills/git/trees/')) {
+          // 体完整但内容不是 JSON（SyntaxError 形态）：不落超时分支
+          return Promise.resolve(
+            new Response('not-json{{{', {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            }),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ message: 'stub: unexpected url' }), { status: 404 }),
+        );
+      },
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: EXPECTED_DIGEST })]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(503);
+      const error = (installed.payload as { error: { details?: Record<string, unknown> } }).error;
+      expect(error.details?.reason).toBe('trees-invalid-json');
     } finally {
       await daemon.cleanup();
     }
