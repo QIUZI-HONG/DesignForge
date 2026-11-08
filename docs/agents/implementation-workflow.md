@@ -107,7 +107,8 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   0=判定档全达标 / 1=实测超阈（真违规），不再恒阻塞（exit 2 仅剩基线缺失/采集不完整/真链路
   起不来）。**CI 接入形态=「正式判定挂点」**（`ci.yml`，比 figma-baseline 阻塞语义断言收紧）：
   exit 0 收；exit 1 红；exit 2 仅当阻塞原因属「CI 无真链路」族（Chromium/构建/daemon）才按
-  挂点语义收（阻塞不是通过），日志出现 provisional 字样即红。**本地是正式判定、CI 仍是挂点**
+  挂点语义收（阻塞不是通过）——perf 挂点判定**查基线 JSON 的 provisional 字段，不 grep 日志
+  字样**（audit-d07b 勘误，修「provisional 字样 grep 误伤合法阻塞」）。**本地是正式判定、CI 仍是挂点**
   ——严格正式判定（仅 exit 0 绿）待 CI 具备真链路（Chromium + 阈值跨机校准：现阈值按 dev 机
   校准且贴地，跨机直判必红）后随浏览器门禁票收口。
 - **守卫输出口径（批次 3 收口 · code-review）**：`guard-vocab` 与 `guard-feature-boundaries` 的
