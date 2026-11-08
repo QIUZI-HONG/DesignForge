@@ -472,6 +472,11 @@ function checkAsset(collector: Collector, value: unknown, index: number): void {
     }
   }
 
+  // 使用示例（票②）：可选字段——存在则必须是字符串数组（缺失省略不校验）
+  if (value.usageExamples !== undefined && !isStringArray(value.usageExamples)) {
+    collector.error('invalid-type', p('usageExamples'), '应为字符串数组（缺省省略）');
+  }
+
   checkFacets(collector, value.facets, p('facets'));
   checkQuality(collector, value.quality, p('quality'));
   checkInstallGate(collector, value.installGate, p('installGate'));

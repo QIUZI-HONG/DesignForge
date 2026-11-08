@@ -153,6 +153,8 @@ export interface MarketAsset {
   description?: string;
   source: MarketSource;
   capabilities: string[];
+  /** 使用示例话术（票②；来自 SKILL.md frontmatter `examples:`，存在才填、缺失省略；中文为主）。 */
+  usageExamples?: string[];
   facets: MarketAssetFacets;
   quality: MarketQuality;
   installGate: MarketInstallGate;
@@ -327,6 +329,9 @@ function parseAsset(value: unknown): MarketAsset | null {
   };
   if (typeof raw.description === 'string') asset.description = raw.description;
   if (typeof raw.version === 'string') asset.version = raw.version;
+  // 使用示例（票②）：宽容读取——只收字符串项；有效项为空则省略键（缺失省略口径）
+  const usageExamples = asStringArray(raw.usageExamples);
+  if (usageExamples.length > 0) asset.usageExamples = usageExamples;
   if (metricsRecord !== null) {
     asset.metrics = {
       installs: asNumber(metricsRecord.installs),

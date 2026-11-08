@@ -25,6 +25,10 @@
         "en": "Read, fill and export PDF documents"
       },
       "description": "提供 PDF 表单填写、页面拆分合并与批量导出能力；适合在交付环节把设计稿导出为分页 PDF，并保留矢量文字。",
+      "usageExamples": [
+        "把当前画板导出为 A4 分页 PDF，保留矢量文字",
+        "这份扫描合同填好乙方与日期字段后另存一份"
+      ],
       "repo": "anthropics/skills",
       "repoId": 890123456,
       "path": "skills/pdf",
@@ -128,6 +132,7 @@
         "en": "Generate PowerPoint slides from templates"
       },
       "description": "创建与编辑 PPT 幻灯片：套用母版、批量替换文案、导出每页图片；支持把大纲直接排版成演示文稿。",
+      "usageExamples": ["把这份大纲排成 10 页演示文稿，套用暗色母版"],
       "repo": "anthropics/skills",
       "repoId": 890123456,
       "path": "skills/pptx",
@@ -1164,6 +1169,7 @@
         "en": "16:9 HTML deck with clean type and entrance motion"
       },
       "description": "12 页 HTML 幻灯片模板：封面、目录、数据页与结尾；洁净排版，含轻柔入场动效与打印样式。",
+      "usageExamples": ["用这份模板起一版季度复盘汇报，数据页给我留好占位"],
       "repo": "zarazhangrui/beautiful-html-templates",
       "repoId": 700123456,
       "path": "templates/deck-modern",
