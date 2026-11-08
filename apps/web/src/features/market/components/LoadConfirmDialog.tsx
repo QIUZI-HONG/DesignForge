@@ -17,6 +17,7 @@ import { Button, Modal } from '@dforge/ui';
 import { useEffect, useState } from 'react';
 
 import { t } from '@/i18n';
+import { emitTelemetryEvent } from '@/lib/telemetry';
 import { badgeClassName } from '../badge-classes';
 import { describeLicenseGate } from '../capabilities';
 import {
@@ -101,6 +102,13 @@ export function LoadConfirmDialog({
   const commit = (): void => {
     const consumed = consumeLoadSession(session, clock());
     setSession(consumed.session);
+    // 装载尝试事件（票② · 论文数据源预埋）：结果只有成功/显式失败两态——失败带原因码
+    // （拒绝不发：没走到「确认写入」就不算尝试）。fire-and-forget，失败静默。
+    emitTelemetryEvent('market.load-attempt', {
+      assetId: asset.id,
+      result: consumed.ok ? 'success' : 'failed',
+      ...(consumed.ok ? {} : { code: consumed.code }),
+    });
     if (consumed.ok && consumed.record !== undefined) {
       onLoaded(consumed.record);
     }

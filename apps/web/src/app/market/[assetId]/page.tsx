@@ -15,7 +15,7 @@
 import type { DF_ERROR_CODES } from '@dforge/contracts';
 import { Button, EmptyState, ErrorState } from '@dforge/ui';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AssetDetailView,
   isUpdateAvailable,
@@ -28,6 +28,7 @@ import {
 } from '@/features/market';
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
+import { emitTelemetryEvent } from '@/lib/telemetry';
 
 // 版式类复用 market.css（工单 06 · 样式单轨；本批补迁——06 首批只迁了首页/面板页，此处当时漏迁）
 import '@/features/market/market.css';
@@ -78,6 +79,16 @@ export default function MarketAssetPage() {
   };
 
   const record = records.find((item) => item.assetId === assetId) ?? null;
+
+  // 行为事件（票②）：详情就绪即一条 market.asset-detail（一次挂载只发一次；
+  // not-found/错误态不算「查看」——没有看到详情就没有事件）。fire-and-forget，失败静默。
+  const detailEmitted = useRef(false);
+  useEffect(() => {
+    if (status !== 'ready' || asset === null) return;
+    if (detailEmitted.current) return;
+    detailEmitted.current = true;
+    emitTelemetryEvent('market.asset-detail', { assetId: asset.id });
+  }, [status, asset]);
 
   if (status === 'loading') {
     return (

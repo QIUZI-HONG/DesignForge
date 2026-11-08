@@ -49,6 +49,30 @@ function respondWith(result: unknown): void {
   );
 }
 
+/** 每次请求新建 Response（body 只能消费一次；检索/埋点场景多次 fetch 必须用本变体）。 */
+function respondAlwaysWith(result: unknown): void {
+  fetchMock.mockImplementation(
+    async () =>
+      new Response(JSON.stringify({ ok: true, result }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+  );
+}
+
+/** 抽取假 fetch 里打到 /telemetry/events 的调用体（票② 埋点断言用）。 */
+function telemetryCalls(): Array<{ name: string; payload: Record<string, unknown> }> {
+  return fetchMock.mock.calls
+    .filter((call) => String(call[0]).includes('/telemetry/events'))
+    .map(
+      (call) =>
+        JSON.parse(String((call[1] as { body: string }).body)) as {
+          name: string;
+          payload: Record<string, unknown>;
+        },
+    );
+}
+
 describe('/market · 正常路径（D1）', () => {
   it('从 daemon 取数并渲染卡片网格（含双语卡片与安装按钮）', async () => {
     respondWith(makeQueryResponse());
@@ -534,5 +558,60 @@ describe('/market · 增量分页（DEF-R1）', () => {
     });
     expect(screen.getByText('已全部加载（4）')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull();
+  });
+});
+
+describe('/market · 行为事件（票② · 论文数据源预埋）', () => {
+  it('页面就绪 → 发 market.view；检索词响应落定 → 发 market.search（词 + 命中数）', async () => {
+    const user = userEvent.setup();
+    respondAlwaysWith(makeQueryResponse());
+    render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getAllByRole('heading', { name: 'PDF 导出' }).length).toBeGreaterThan(0);
+    });
+    await waitFor(() => {
+      expect(telemetryCalls().some((call) => call.name === 'market.view')).toBe(true);
+    });
+
+    // 键入检索词：发射窗（300ms）只落最后一次——分词中间态不刷事件
+    await user.type(screen.getByRole('searchbox', { name: '搜索市场资源' }), 'pdf');
+    await waitFor(
+      () => {
+        const search = telemetryCalls().find((call) => call.name === 'market.search');
+        expect(search).toBeDefined();
+        expect(search?.payload).toEqual({ query: 'pdf', hits: 2 });
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it('同一检索词与命中数不重复发（去重）；清空后不保留旧签名', async () => {
+    const user = userEvent.setup();
+    respondAlwaysWith(makeQueryResponse());
+    render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getAllByRole('heading', { name: 'PDF 导出' }).length).toBeGreaterThan(0);
+    });
+    await user.type(screen.getByRole('searchbox', { name: '搜索市场资源' }), 'pdf');
+    await waitFor(
+      () => {
+        expect(telemetryCalls().filter((call) => call.name === 'market.search')).toHaveLength(1);
+      },
+      { timeout: 3000 },
+    );
+    // 等待一个发射窗，确认不再重复
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(telemetryCalls().filter((call) => call.name === 'market.search')).toHaveLength(1);
+    expect(telemetryCalls().filter((call) => call.name === 'market.view')).toHaveLength(1);
+  });
+
+  it('无检索词的响应不发 market.search（只有 market.view）', async () => {
+    respondAlwaysWith(makeQueryResponse());
+    render(<MarketHomePage />);
+    await waitFor(() => {
+      expect(screen.getAllByRole('heading', { name: 'PDF 导出' }).length).toBeGreaterThan(0);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(telemetryCalls().some((call) => call.name === 'market.search')).toBe(false);
   });
 });

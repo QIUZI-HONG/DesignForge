@@ -44,6 +44,39 @@ describe('telemetry · 本地 JSONL（默认仅本地）', () => {
     }
   });
 
+  it('市场行为事件透传落盘（票②）：market.* 四类经同一写入路径进 JSONL', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const names = ['market.view', 'market.search', 'market.load-attempt', 'market.asset-detail'];
+      for (const [index, name] of names.entries()) {
+        const response = await injectJson(daemon.app, {
+          method: 'POST',
+          url: '/telemetry/events',
+          payload: {
+            name,
+            payload: { assetId: 'gh:acme/skills#skills/pdf', query: 'pdf', hits: index, result: 'success' },
+          },
+        });
+        expect(response.statusCode).toBe(200);
+        expect(
+          (response.payload as { result: { stored: boolean } }).result.stored,
+        ).toBe(true);
+      }
+      const query = await injectJson(daemon.app, { method: 'GET', url: '/telemetry/events' });
+      const result = (query.payload as { result: { events: { name: string }[]; total: number } })
+        .result;
+      expect(result.total).toBe(4);
+      // 最新在前：倒序即插入序的镜像
+      expect(result.events.map((event) => event.name).reverse()).toEqual(names);
+      // 落盘文件确实含新事件（JSONL 追加，不是只回执）
+      const raw = await readFile(join(daemon.dataRoot, EVENTS_PATH_SUFFIX), 'utf8');
+      expect(raw).toContain('"name":"market.view"');
+      expect(raw).toContain('"name":"market.load-attempt"');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('敏感键脱敏：payload 里的 apiKey 值不落盘（键名保留 + 占位符）', async () => {
     const daemon = await createTestDaemon();
     try {
