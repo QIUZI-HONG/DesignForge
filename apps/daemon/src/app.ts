@@ -26,6 +26,8 @@ import { createDocumentStore } from './documents/store.ts';
 import { allowedHostsFromEnv, createHostPolicy, registerHostGuard } from './host.ts';
 import type { ComfyClient } from './image/client.ts';
 import { createComfyClient } from './image/client.ts';
+import type { MarketInstallCredentials, MarketInstallService } from './market/install.ts';
+import { createMarketInstallService } from './market/install.ts';
 import type { MarketService } from './market/service.ts';
 import { createMarketService } from './market/service.ts';
 import type { McpStub } from './mcp/stub.ts';
@@ -75,6 +77,10 @@ export interface DaemonAppOptions {
   aiRetryDelaysMs?: number[];
   /** MCP ackToken 时效（缺省 2 分钟；测试注入短时值）。 */
   mcpAckTtlMs?: number;
+  /** 市场装载 ackToken 时效（票③；缺省与 MCP ack 同族 2 分钟；测试注入短时值）。 */
+  marketInstallAckTtlMs?: number;
+  /** 市场装载凭据解析覆盖（票③；测试注入占位/空凭据，缺省 GH_TOKEN/GITHUB_TOKEN → gh）。 */
+  marketInstallCredentials?: MarketInstallCredentials;
   /** CORS 白名单覆盖（缺省读 `DFORGE_CORS_ORIGINS`/`DF_CORS_ORIGINS`，再回退本机默认）。 */
   corsOrigins?: string[];
   /** Host allowlist 覆盖（缺省读 `DFORGE_ALLOWED_HOSTS`/`DF_ALLOWED_HOSTS`，再回退本机回环）。 */
@@ -101,6 +107,7 @@ export interface DaemonContext {
   documents: DocumentStore;
   telemetry: TelemetryStore;
   market: MarketService;
+  marketInstall: MarketInstallService;
   mcp: McpStub;
   comfy: ComfyClient;
   ai: AiClient;
@@ -142,16 +149,36 @@ export async function createDaemonApp(options: DaemonAppOptions = {}): Promise<F
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? ((): Date => new Date());
 
+  const market = createMarketService({
+    indexPath: options.marketIndexPath ?? null,
+    candidatePaths: paths.marketIndexCandidates,
+  });
+  const marketInstall = createMarketInstallService({
+    auditPath: paths.marketInstallAuditPath,
+    dataRoot,
+    fetchImpl,
+    now,
+    ...(options.marketInstallAckTtlMs === undefined
+      ? {}
+      : { ackTtlMs: options.marketInstallAckTtlMs }),
+    ...(options.marketInstallCredentials === undefined
+      ? {}
+      : { credentials: options.marketInstallCredentials }),
+    // token 校验通过后查索引卡片；未命中 = 提案后索引更新 → asset_not_found
+    loadAsset: async (assetId) => {
+      const detail = await market.detail(assetId);
+      return detail.found ? detail.asset : null;
+    },
+  });
+
   const context: DaemonContext = {
     paths,
     config,
     credentials,
     documents,
     telemetry,
-    market: createMarketService({
-      indexPath: options.marketIndexPath ?? null,
-      candidatePaths: paths.marketIndexCandidates,
-    }),
+    market,
+    marketInstall,
     mcp: createMcpStub({
       auditPath: paths.mcpAuditPath,
       ...(options.mcpAckTtlMs === undefined ? {} : { ackTtlMs: options.mcpAckTtlMs }),

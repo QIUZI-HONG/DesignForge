@@ -100,6 +100,39 @@ export function registerMarketRoutes(app: FastifyInstance, context: DaemonContex
         assetId: record.assetId,
       });
     }
+    // 可装载提案随响应签发一次性 ackToken（票③）：等价复刻 MCP 桩 propose 的
+    // 「提案 + 一次性短时效 token + 审计 pending」语义，POST /market/install 消费。
+    if (plan.loadable) {
+      const issued = await context.marketInstall.issue({ assetId: plan.assetId });
+      return sendOk(reply, {
+        ...plan,
+        ackToken: issued.ackToken,
+        ackExpiresAt: issued.expiresAt,
+      });
+    }
     return sendOk(reply, plan);
+  });
+
+  // 真实装载（票③）：消费一次性 ackToken → 拉取源内容 → digest 对齐 → 真写落盘 → 审计
+  app.post(DAEMON_ROUTES.marketInstall.path, async (request, reply) => {
+    const body = request.body;
+    if (typeof body !== 'object' || body === null) {
+      return sendFail(reply, 'bad_request', '请求体必须是 JSON 对象');
+    }
+    const record = body as Record<string, unknown>;
+    if (typeof record.assetId !== 'string' || record.assetId.length === 0) {
+      return sendFail(reply, 'bad_request', 'assetId 必须是非空字符串');
+    }
+    if (typeof record.ackToken !== 'string' || record.ackToken.length === 0) {
+      return sendFail(reply, 'bad_request', 'ackToken 必须是非空字符串');
+    }
+    const result = await context.marketInstall.install({
+      assetId: record.assetId,
+      ackToken: record.ackToken,
+    });
+    if (!result.ok) {
+      return sendFail(reply, result.code, result.message, result.details);
+    }
+    return sendOk(reply, result.response);
   });
 }

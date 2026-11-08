@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { DaemonAppOptions } from '../app.ts';
 import { createDaemonApp } from '../app.ts';
+import type { MarketInstallCredentials } from '../market/install.ts';
 import { TOKEN_FILE_BASENAME, TOKEN_HEADER } from '../token.ts';
 
 /** injectJson 自动携带令牌所读的 app 装饰键（仅测试脚手架装饰；生产 app 无此键）。 */
@@ -60,6 +61,10 @@ export interface TestDaemonOptions {
   aiRetryDelaysMs?: number[];
   comfyBaseUrl?: string;
   mcpAckTtlMs?: number;
+  /** 市场装载 ackToken 时效（票③；测试注入短时值验证过期分支）。 */
+  marketInstallAckTtlMs?: number;
+  /** 市场装载凭据解析覆盖（票③；注入占位/空凭据，避免依赖本机 gh 与真实 env）。 */
+  marketInstallCredentials?: MarketInstallCredentials;
   corsOrigins?: string[];
   allowedHosts?: string[];
   /**
@@ -131,6 +136,12 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
     ...(options.marketIndexPath === undefined ? {} : { marketIndexPath: options.marketIndexPath }),
     ...(options.aiRetryDelaysMs === undefined ? {} : { aiRetryDelaysMs: options.aiRetryDelaysMs }),
     ...(options.mcpAckTtlMs === undefined ? {} : { mcpAckTtlMs: options.mcpAckTtlMs }),
+    ...(options.marketInstallAckTtlMs === undefined
+      ? {}
+      : { marketInstallAckTtlMs: options.marketInstallAckTtlMs }),
+    ...(options.marketInstallCredentials === undefined
+      ? {}
+      : { marketInstallCredentials: options.marketInstallCredentials }),
     ...(options.corsOrigins === undefined ? {} : { corsOrigins: options.corsOrigins }),
     ...(options.allowedHosts === undefined ? {} : { allowedHosts: options.allowedHosts }),
     ...(token === null ? {} : { daemonToken: token }),
