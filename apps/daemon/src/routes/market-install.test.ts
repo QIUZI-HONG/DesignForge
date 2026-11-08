@@ -910,13 +910,20 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
       // 文案如实：写入中断 + 清理结果，不再声称「未写入任何文件」
       expect(error.message).toContain('写入中断');
       expect(error.message).not.toContain('未写入任何文件');
+      // 失败消息剥绝对路径（R2）：details.message 只留 errno 短语 + 相对路径，
+      // 原始 fs message 里的数据根绝对路径绝不进 HTTP details
+      const detailMessage = String(error.details?.message);
+      expect(detailMessage).toBe('文件系统错误（EEXIST）：docs/a.md');
+      expect(detailMessage).not.toContain(daemon.dataRoot);
       // 尽力清理：本次已写的 SKILL.md 与 docs 文件都已删除（零残留）
       const target = join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export');
       await expect(readFile(join(target, 'SKILL.md'), 'utf8')).rejects.toThrow();
       await expect(readFile(join(target, 'docs'), 'utf8')).rejects.toThrow();
-      // 审计：写入中断留痕（含清理结果）
+      // 审计：写入中断留痕（含清理结果）；审计 note 同样剥绝对路径（R2）
       const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
       expect(audit).toContain('写入中断');
+      expect(audit).toContain('文件系统错误（EEXIST）：docs/a.md');
+      expect(audit).not.toContain(daemon.dataRoot);
       expect(audit).toContain('"applied":false');
     } finally {
       await daemon.cleanup();

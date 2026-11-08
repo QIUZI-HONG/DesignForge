@@ -214,6 +214,31 @@ interface FetchedFile {
   content: Uint8Array;
 }
 
+/**
+ * fs 错误消息脱敏（评审 R2）：原始 `error.message` 携带数据根绝对路径（如
+ * `EEXIST: file already exists, mkdir '/<数据根>/.dfg/market/…'`），透传进 HTTP
+ * details 与审计 note 违反 path-safety.ts 自身的「消息与 details 不含绝对路径」纪律——
+ * 这里只做 errno→短语映射，调用方拼上相对路径；绝不透传原始 message。
+ */
+function sanitizeFsError(error: unknown): string {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  switch (code) {
+    case 'ENOTDIR':
+      return '路径中有组件不是目录（ENOTDIR）';
+    case 'EISDIR':
+      return '目标是目录（EISDIR）';
+    case 'ENOSPC':
+      return '磁盘空间不足（ENOSPC）';
+    case 'EACCES':
+      return '无写入权限（EACCES）';
+    default:
+      return `文件系统错误（${typeof code === 'string' ? code : '原因未知'}）`;
+  }
+}
+
 /** 创建市场装载安装服务（auditPath/dataRoot/fetchImpl/now/凭据/资产查找均为注入点）。 */
 export function createMarketInstallService(options: {
   auditPath: string;
@@ -705,6 +730,10 @@ export function createMarketInstallService(options: {
           writtenPaths.push(item.relativePath);
         }
       } catch (error) {
+        // 失败者是 planned[writtenPaths.length]（成功者才 push 进 writtenPaths）；
+        // 消息只留 errno 短语 + 相对路径（评审 R2），原始 message 的数据根绝对路径不出本函数
+        const failedPath = planned[writtenPaths.length]?.relativePath ?? '未知文件';
+        const fsReason = sanitizeFsError(error);
         for (const item of planned.slice(0, writtenPaths.length)) {
           try {
             await rm(item.destination, { force: true });
@@ -718,7 +747,7 @@ export function createMarketInstallService(options: {
             : `已清理 ${String(writtenPaths.length - leftoverPaths.length)} 个、残留 ${String(leftoverPaths.length)} 个（${leftoverPaths.join('、')}）`;
         await auditFailure(
           proposal,
-          `装载失败：写入中断（${error instanceof Error ? error.message : String(error)}）；${cleanupSummary}（终态 write-failed）`,
+          `装载失败：写入中断（${fsReason}：${failedPath}）；${cleanupSummary}（终态 write-failed）`,
         );
         return {
           ok: false,
@@ -728,7 +757,7 @@ export function createMarketInstallService(options: {
             reason: 'write-failed',
             written: writtenPaths.length,
             ...(leftoverPaths.length === 0 ? {} : { leftovers: leftoverPaths }),
-            message: error instanceof Error ? error.message : String(error),
+            message: `${fsReason}：${failedPath}`,
           },
         };
       }
