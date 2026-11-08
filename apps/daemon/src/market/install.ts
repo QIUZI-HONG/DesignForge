@@ -420,6 +420,7 @@ export function createMarketInstallService(options: {
     let totalBytes = 0;
     for (const blob of blobs) {
       let response: Response;
+      let content: Uint8Array;
       try {
         response = await fetchImpl(
           `https://raw.githubusercontent.com/${repo}/${ref}/${blob.fullPath}`,
@@ -428,26 +429,30 @@ export function createMarketInstallService(options: {
             signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
           },
         );
+        if (!response.ok) {
+          return {
+            ok: false,
+            result: sourceUnavailable(
+              `源文件获取失败：${blob.relativePath}（HTTP ${String(response.status)}）`,
+              { reason: 'raw', status: response.status, path: blob.relativePath },
+            ),
+          };
+        }
+        // 体读必须与 fetch 同 try（评审 R1）：AbortSignal.timeout 同样作用于响应体读取——
+        // mid-body 挂起会让 arrayBuffer() 抛 TimeoutError，原先体读在 try 之外，错误逸出
+        // fetchAssetFiles/install() 即成非结构化 500 且跳过失败审计；在此与 fetch 失败
+        // 同形态收口为 source_unavailable（reason:'network'）。
+        content = new Uint8Array(await response.arrayBuffer());
       } catch (error) {
         return {
           ok: false,
-          result: sourceUnavailable(`无法获取源文件 ${blob.relativePath}`, {
+          result: sourceUnavailable(`无法获取源文件 ${blob.relativePath}（网络中断/超时）`, {
             reason: 'network',
             path: blob.relativePath,
             message: error instanceof Error ? error.message : String(error),
           }),
         };
       }
-      if (!response.ok) {
-        return {
-          ok: false,
-          result: sourceUnavailable(
-            `源文件获取失败：${blob.relativePath}（HTTP ${String(response.status)}）`,
-            { reason: 'raw', status: response.status, path: blob.relativePath },
-          ),
-        };
-      }
-      const content = new Uint8Array(await response.arrayBuffer());
       if (content.byteLength > MAX_FILE_BYTES) {
         return {
           ok: false,

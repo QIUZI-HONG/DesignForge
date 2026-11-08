@@ -975,3 +975,80 @@ describe('market install · 回读失败终态（F4：直连服务 + readFile �
     }
   });
 });
+
+describe('market install · 网络中断/超时（R1：体读失败必须结构化收口）', () => {
+  const REF = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+  const EXPECTED_DIGEST = specDigest(ASSET_FILES);
+  const CREDENTIALS = { env: { GH_TOKEN: 'test-token-123' } };
+
+  /** TimeoutError 形态错误（与 AbortSignal.timeout 的中止原因同 name；等价真超时到点）。 */
+  function timeoutError(): Error {
+    const error = new Error('The operation was aborted due to timeout');
+    error.name = 'TimeoutError';
+    return error;
+  }
+
+  /** 200 + 先给半截内容再 TimeoutError 的响应体（模拟 AbortSignal.timeout 在体读阶段到点）。 */
+  function midBodyTimeoutResponse(contentType: string): Response {
+    const encoder = new TextEncoder();
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('{"sha":"半截'));
+          controller.error(timeoutError());
+        },
+      }),
+      { status: 200, headers: { 'content-type': contentType } },
+    );
+  }
+
+  async function planToken(daemon: TestDaemon, assetId: string): Promise<string> {
+    const plan = await injectJson(daemon.app, {
+      method: 'POST',
+      url: '/market/load-plan',
+      payload: { assetId },
+    });
+    return (plan.payload as { result: { ackToken: string } }).result.ackToken;
+  }
+
+  it('raw 体读超时（R1）→ 503 source_unavailable（reason=network）+ 审计留痕，绝不变非结构化 500', async () => {
+    const daemon = await createInstallDaemon({
+      fetchImpl: (url) => {
+        const target = typeof url === 'string' ? url : String(url);
+        if (target.startsWith(`https://raw.githubusercontent.com/acme/skills/${REF}/`)) {
+          return Promise.resolve(midBodyTimeoutResponse('text/plain; charset=utf-8'));
+        }
+        return githubStub({ repo: 'acme/skills', ref: REF, files: ASSET_FILES })(url);
+      },
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: EXPECTED_DIGEST })]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(503);
+      const error = (
+        installed.payload as { error: { code: string; details?: Record<string, unknown> } }
+      ).error;
+      expect(error.code).toBe('market_install_source_unavailable');
+      expect(error.details?.reason).toBe('network');
+      expect(error.details?.path).toBe('SKILL.md');
+      // 零写入 + 审计终态留痕（旧码 TimeoutError 逸出 → 全局非结构化 500 且跳过审计，必红）
+      await expect(
+        readFile(
+          join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export', 'SKILL.md'),
+          'utf8',
+        ),
+      ).rejects.toThrow();
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('网络中断/超时');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
