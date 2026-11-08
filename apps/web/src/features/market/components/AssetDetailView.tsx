@@ -5,8 +5,8 @@
  *
  * 版式：**左预览 / 右信息栏**。左栏 = 预览产物占位（索引不含图，占位即如实说明）+ 来源链接；
  * 右栏 = 基本信息（来源 repo/commit/路径、License、版本、ID、作者、星标、归档）→ 概述（原文 +
- * 语言声明 §6.3）→ 五维雷达与扣分原因 → 能力与安全 → 试试这样用（标签/场景）→ 更多（版本/ID/digest）→
- * 装载按钮三态（可装载 / 仅看 / 已装载）。
+ * 语言声明 §6.3）→ 五维雷达与扣分原因 → 能力与安全 → 试试这样用（使用示例话术可复制 +
+ * 标签/场景）→ 更多（版本/ID/digest）→ 装载按钮三态（可装载 / 仅看 / 已装载）。
  *
  * 装载点击不在这里落库：交给页面打开 D4 确认框（`onLoadClick`），本组件只负责如实展示状态。
  */
@@ -23,6 +23,7 @@ import { containsCjk } from '../filters';
 import { KindBadge, kindIcon, LicenseBadge, ScoreBadge, SourceBadge } from './Badges';
 import { CapabilityList } from './CapabilityList';
 import { QualityPanel } from './QualityPanel';
+import { UsageExamples } from './UsageExamples';
 
 import '../market.css';
 
@@ -195,6 +196,9 @@ export function AssetDetailView({
           <section className="dfg-market__section" data-df-market="detail-usage">
             <h2 className="dfg-market__section-title">{t('market.detail.usage')}</h2>
             <p className="dfg-market__hint">{t('market.detail.usageNote')}</p>
+            {asset.usageExamples === undefined || asset.usageExamples.length === 0 ? null : (
+              <UsageExamples examples={asset.usageExamples} />
+            )}
             <div className="dfg-market__badge-row">
               <span className="dfg-market__hint">{t('market.detail.tags')}</span>
               {asset.facets.tags.length === 0 ? (
