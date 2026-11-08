@@ -43,7 +43,7 @@ function asLoadRecord(value: unknown): LoadRecord | null {
   const raw = value as Record<string, unknown>;
   if (typeof raw.assetId !== 'string' || raw.assetId.length === 0) return null;
   if (typeof raw.digest !== 'string' || raw.digest.length === 0) return null;
-  return {
+  const record: LoadRecord = {
     assetId: raw.assetId,
     name: typeof raw.name === 'string' ? raw.name : '',
     kind: typeof raw.kind === 'string' ? raw.kind : '',
@@ -56,6 +56,11 @@ function asLoadRecord(value: unknown): LoadRecord | null {
     approvedAt: typeof raw.approvedAt === 'string' ? raw.approvedAt : '',
     caller: 'user',
   };
+  // daemon 真写完成时刻（票③）：存在才回填，缺失省略（不补造假时刻）
+  if (typeof raw.loadedAt === 'string' && raw.loadedAt.length > 0) {
+    record.loadedAt = raw.loadedAt;
+  }
+  return record;
 }
 
 /** 写入记录（同 assetId 覆盖——同一资产只留最近一次装载；返回新册便于断言）。 */

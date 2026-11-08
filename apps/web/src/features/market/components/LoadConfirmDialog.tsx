@@ -6,44 +6,83 @@
  * 三段式（状态机在有测试的 `load-token.ts`，本组件只发事件）：
  * 1. **dryRun 预览**：装载位置、license 档位与署名要求、能力清单逐项、需授权清单；
  * 2. **批准**：用户点「批准并签发一次性 token」→ token 摘要与倒计时可见（超时失效）；
- * 3. **写入**：点「确认写入」消费 token（一次性；重复点击与超时都是显式错误提示）；
- *    成功后产出审计记录交给页面写本地记录册。
+ * 3. **写入**：点「确认写入」→ `stageLoadForInstall`（本地闸）→ daemon
+ *    `POST /market/install` 真写（票③接线，`install` 注入的装载客户端）→
+ *    `completeLoadInstall` 收敛：成功回填 daemon 真值（digest/loadedAt）并交页面记本地账；
+ *    失败进入显式错误态（错误码可诊断），daemon 侧 token 已一次性消费——重装须重新出提案。
  *
  * 不可装载（仅看/禁）在按钮层已挡住，本组件仍会走 `openLoadSession` 的第二道闸。
  */
 
 import type { MarketAsset, MarketLoadPlan } from '@dforge/contracts';
 import { Button, Modal } from '@dforge/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
 import { badgeClassName } from '../badge-classes';
 import { describeLicenseGate } from '../capabilities';
 import {
   approveLoadSession,
-  consumeLoadSession,
+  completeLoadInstall,
   EMPTY_LOAD_SESSION,
+  type LoadErrorCode,
   type LoadRecord,
   type LoadSession,
+  type MarketInstallClient,
   openLoadSession,
   rejectLoadSession,
   remainingTokenMs,
+  stageLoadForInstall,
 } from '../load-token';
 import { CapabilityList } from './CapabilityList';
 
 import '../market.css';
 
-/** 对话框 props（`now` 可注入：测试模拟超时，不依赖真实时钟）。 */
+/** 装载错误码 → i18n 键（票③：daemon 真写失败族 + 原有会话错误）。 */
+function loadErrorCopyKey(code: LoadErrorCode): string {
+  switch (code) {
+    case 'load_token_expired':
+      return 'market.load.tokenExpired';
+    case 'load_token_used':
+      return 'market.load.tokenUsed';
+    case 'load_already_approved':
+      return 'market.load.alreadyApproved';
+    case 'load_not_loadable':
+      return 'market.load.notLoadable';
+    case 'load_install_asset_not_found':
+      return 'market.load.installAssetNotFound';
+    case 'load_install_ack_invalid':
+      return 'market.load.installAckInvalid';
+    case 'load_install_ack_expired':
+      return 'market.load.installAckExpired';
+    case 'load_install_digest_mismatch':
+      return 'market.load.installDigestMismatch';
+    case 'load_install_source_unavailable':
+      return 'market.load.installSourceUnavailable';
+    case 'load_install_target_invalid':
+      return 'market.load.installTargetInvalid';
+    case 'load_install_unreachable':
+      return 'market.load.installUnreachable';
+    case 'load_install_bad_response':
+      return 'market.load.installBadResponse';
+    default:
+      return 'market.load.installFailed';
+  }
+}
+
+/** 对话框 props（`now` 可注入：测试模拟超时，不依赖真实时钟；`install` 为 daemon 真写客户端）。 */
 export interface LoadConfirmDialogProps {
   open: boolean;
   asset: MarketAsset;
-  /** daemon 出的装载提案（dryRun 结果）。 */
+  /** daemon 出的装载提案（dryRun 结果；可装载提案随响应携带一次性 ackToken）。 */
   plan: MarketLoadPlan;
   /** 本地已有该资产的装载记录（同名覆盖/更新提示）。 */
   ownedBefore: boolean;
   onOpenChange: (open: boolean) => void;
   /** 写入完成（页面据此写本地记录册并给 Toast）。 */
   onLoaded: (record: LoadRecord) => void;
+  /** daemon 真写客户端（票③接线；生产用 `api.makeMarketInstallClient()`，测试注入桩）。 */
+  install: MarketInstallClient;
   now?: () => number;
   tokenTtlMs?: number;
 }
@@ -56,12 +95,21 @@ export function LoadConfirmDialog({
   ownedBefore,
   onOpenChange,
   onLoaded,
+  install,
   now,
   tokenTtlMs,
 }: LoadConfirmDialogProps) {
   const clock = now ?? ((): number => Date.now());
   const [session, setSession] = useState<LoadSession>(EMPTY_LOAD_SESSION);
   const [tick, setTick] = useState(0);
+  // 卸载后不再回写状态（真写在途时用户可能已关闭对话框）
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // 打开时重建会话：提案 → 预览（第二次打开不复用旧 token）
   useEffect(() => {
@@ -98,18 +146,32 @@ export function LoadConfirmDialog({
     setSession(approved.session);
   };
 
+  // 写入（票③）：本地闸（一次性/时效）→ daemon 真写 → 收敛（成功回填真值 / 失败显式错误态）
   const commit = (): void => {
-    const consumed = consumeLoadSession(session, clock());
-    setSession(consumed.session);
-    if (consumed.ok && consumed.record !== undefined) {
-      onLoaded(consumed.record);
-    }
+    const staged = stageLoadForInstall(session, clock());
+    setSession(staged.session);
+    if (!staged.ok) return;
+    const stagedPlan = staged.session.plan;
+    if (stagedPlan === null) return;
+    void install({
+      assetId: stagedPlan.assetId,
+      ackToken: stagedPlan.ackToken ?? '',
+    }).then((outcome) => {
+      if (!mountedRef.current) return;
+      const done = completeLoadInstall(staged.session, outcome);
+      setSession(done.session);
+      if (done.ok && done.record !== undefined) {
+        onLoaded(done.record);
+      }
+    });
   };
 
   const cancel = (): void => {
     setSession(rejectLoadSession(session));
     onOpenChange(false);
   };
+
+  const terminal = session.status === 'consumed' || session.status === 'failed';
 
   return (
     <Modal
@@ -122,16 +184,16 @@ export function LoadConfirmDialog({
       footer={
         <>
           <Button
-            variant={session.status === 'consumed' ? 'primary' : 'secondary'}
+            variant={terminal ? 'primary' : 'secondary'}
             onClick={
-              session.status === 'consumed'
+              terminal
                 ? () => {
                     onOpenChange(false);
                   }
                 : cancel
             }
           >
-            {session.status === 'consumed' ? t('market.load.done') : t('market.load.cancel')}
+            {terminal ? t('market.load.done') : t('market.load.cancel')}
           </Button>
           {session.status === 'preview' ? (
             <Button variant="primary" onClick={approve} data-df-market="approve-load">
@@ -157,18 +219,30 @@ export function LoadConfirmDialog({
         data-df-status={session.status}
       >
         {session.errorCode === null ? null : (
-          <p className={badgeClassName('danger')} role="alert" data-df-market="load-error">
-            {t(
-              session.errorCode === 'load_token_expired'
-                ? 'market.load.tokenExpired'
-                : session.errorCode === 'load_token_used'
-                  ? 'market.load.tokenUsed'
-                  : session.errorCode === 'load_already_approved'
-                    ? 'market.load.alreadyApproved'
-                    : 'market.load.notLoadable',
-            )}
+          <p
+            className={badgeClassName('danger')}
+            role="alert"
+            data-df-market="load-error"
+            data-df-error-code={session.installErrorCode ?? session.errorCode}
+          >
+            {session.installErrorCode === null
+              ? t(loadErrorCopyKey(session.errorCode))
+              : t(loadErrorCopyKey(session.errorCode), {
+                  code: session.installErrorCode,
+                })}
           </p>
         )}
+
+        {session.status === 'loading' ? (
+          <p
+            className={badgeClassName('neutral')}
+            role="status"
+            data-df-market="load-installing"
+            data-df-loading="load-install"
+          >
+            {t('market.load.installing')}
+          </p>
+        ) : null}
 
         <dl className="dfg-market__kv-table">
           <dt className="dfg-market__kv-key">{t('market.load.targetPath')}</dt>

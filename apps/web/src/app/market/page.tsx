@@ -33,6 +33,7 @@ import {
   type MarketFilters,
   MarketSkeletonGrid,
   MarketWarningBanner,
+  makeMarketInstallClient,
   marketFailureText,
   resolveMarketEmptyKind,
   selectFeatured,
@@ -45,6 +46,9 @@ import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 import '@/features/market/market.css';
+
+/** 装载真写客户端（票③：构造一次，注入装载确认对话框；endpoint 每次调用时解析）。 */
+const marketInstallClient = makeMarketInstallClient();
 
 /** 市场首页。 */
 export default function MarketHomePage() {
@@ -275,6 +279,7 @@ export default function MarketHomePage() {
             save(record);
             setPendingAsset(null);
           }}
+          install={marketInstallClient}
         />
       ) : null}
 

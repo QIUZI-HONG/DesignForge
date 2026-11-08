@@ -6,18 +6,41 @@
  * ② license 档位与署名要求如实展示；③ **一次性 token**：批准后才可写入，重复写入/超时写入都被拒。
  */
 
-import { cleanup, render, screen } from '@testing-library/react';
+import type { MarketLoadPlan } from '@dforge/contracts';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { makeAsset, makeLoadPlan } from '../__fixtures__/market';
-import type { LoadRecord } from '../load-token';
+import type { LoadRecord, MarketInstallClient, MarketInstallOutcome } from '../load-token';
 import { CapabilityList } from './CapabilityList';
 import { LoadConfirmDialog } from './LoadConfirmDialog';
 
 afterEach(() => {
   cleanup();
 });
+
+/** 装载客户端桩：缺省成功（真值形态与 daemon 安装响应一致），可注入失败/记录调用。 */
+function makeInstallStub(options: { fail?: { code: string; message: string } } = {}): {
+  install: MarketInstallClient;
+  calls: { assetId: string; ackToken: string }[];
+} {
+  const calls: { assetId: string; ackToken: string }[] = [];
+  const install: MarketInstallClient = async (input) => {
+    calls.push(input);
+    if (options.fail !== undefined) {
+      return { ok: false as const, code: options.fail.code, message: options.fail.message };
+    }
+    return {
+      ok: true as const,
+      digest: makeAsset().digest,
+      loadedAt: '2026-11-08T00:00:00.000Z',
+      targetPath: '.dfg/market/skill/pdf-export/',
+      files: ['SKILL.md'],
+    };
+  };
+  return { install, calls };
+}
 
 describe('CapabilityList · 能力清单（D4 门禁输入）', () => {
   it('逐项列标签与授予口径；subprocess 红标「默认拒绝 + 需显式授权」', () => {
@@ -41,10 +64,21 @@ describe('CapabilityList · 能力清单（D4 门禁输入）', () => {
 });
 
 describe('LoadConfirmDialog · 三段式装载（D4）', () => {
-  function setup(options: { ttlMs?: number; ownedBefore?: boolean; clock?: { now: number } } = {}) {
+  function setup(
+    options: {
+      ttlMs?: number;
+      ownedBefore?: boolean;
+      clock?: { now: number };
+      install?: MarketInstallClient;
+      installFail?: { code: string; message: string };
+    } = {},
+  ) {
     const clock = options.clock ?? { now: 1_000_000 };
     const onLoaded = vi.fn<(record: LoadRecord) => void>();
     const onOpenChange = vi.fn();
+    const stub = makeInstallStub(
+      options.installFail === undefined ? {} : { fail: options.installFail },
+    );
     const view = render(
       <LoadConfirmDialog
         open
@@ -54,10 +88,11 @@ describe('LoadConfirmDialog · 三段式装载（D4）', () => {
         onOpenChange={onOpenChange}
         onLoaded={onLoaded}
         now={() => clock.now}
+        install={options.install ?? stub.install}
         {...(options.ttlMs === undefined ? {} : { tokenTtlMs: options.ttlMs })}
       />,
     );
-    return { onLoaded, onOpenChange, clock, container: view.container };
+    return { onLoaded, onOpenChange, clock, container: view.container, stub };
   }
 
   it('第一步（dryRun 预览）：位置 / 许可档 + 署名 / 能力清单 / 需授权清单全部可见，且尚无 token', () => {
@@ -136,6 +171,104 @@ describe('LoadConfirmDialog · 三段式装载（D4）', () => {
     const { onOpenChange, onLoaded } = setup();
     await user.click(screen.getByRole('button', { name: '取消' }));
     expect(onLoaded).not.toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('LoadConfirmDialog · daemon 真写接线（装载中/失败；票③）', () => {
+  function setupWithPlan(
+    planOverride: Partial<MarketLoadPlan>,
+    options: { install: MarketInstallClient },
+  ) {
+    const onLoaded = vi.fn<(record: LoadRecord) => void>();
+    const onOpenChange = vi.fn();
+    const view = render(
+      <LoadConfirmDialog
+        open
+        asset={makeAsset()}
+        plan={makeLoadPlan(planOverride)}
+        ownedBefore={false}
+        onOpenChange={onOpenChange}
+        onLoaded={onLoaded}
+        now={() => 1_000_000}
+        install={options.install}
+      />,
+    );
+    return { onLoaded, onOpenChange, container: view.container };
+  }
+
+  it('提交装载时把提案的 ackToken 透传给装载客户端（服务端一次性闸的钥匙）', async () => {
+    const user = userEvent.setup();
+    const calls: { assetId: string; ackToken: string }[] = [];
+    const install: MarketInstallClient = async (input) => {
+      calls.push(input);
+      return {
+        ok: true,
+        digest: makeAsset().digest,
+        loadedAt: '2026-11-08T00:00:00.000Z',
+        targetPath: '.dfg/market/skill/pdf-export/',
+        files: ['SKILL.md'],
+      };
+    };
+    const { onLoaded } = setupWithPlan(
+      { ackToken: 'daemon-token-1', ackExpiresAt: '2026-11-08T00:02:00.000Z' },
+      { install },
+    );
+    await user.click(screen.getByRole('button', { name: '批准并签发一次性 token' }));
+    await user.click(screen.getByRole('button', { name: '确认写入' }));
+    expect(calls).toEqual([
+      { assetId: 'gh:acme/skills#skills/pdf-export', ackToken: 'daemon-token-1' },
+    ]);
+    expect(onLoaded).toHaveBeenCalledTimes(1);
+    expect(onLoaded.mock.calls[0]?.[0].loadedAt).toBe('2026-11-08T00:00:00.000Z');
+  });
+
+  it('装载中呈现：写入期间显示「装载中」提示，完成后回到完成态', async () => {
+    const user = userEvent.setup();
+    let resolveInstall: ((value: MarketInstallOutcome) => void) | null = null;
+    const deferred = new Promise<MarketInstallOutcome>((resolve) => {
+      resolveInstall = resolve;
+    });
+    setupWithPlan({}, { install: () => deferred });
+    await user.click(screen.getByRole('button', { name: '批准并签发一次性 token' }));
+    await user.click(screen.getByRole('button', { name: '确认写入' }));
+    // 装载中：提示可见，写入按钮消失（防二次点击）；Modal 走 portal，查询用 document
+    const installing = document.querySelector('[data-df-market="load-installing"]');
+    expect(installing).not.toBeNull();
+    expect(installing?.getAttribute('data-df-loading')).toBe('load-install');
+    expect(installing?.textContent).toContain('装载中');
+    expect(screen.queryByRole('button', { name: '确认写入' })).toBeNull();
+    await act(async () => {
+      resolveInstall?.({
+        ok: true,
+        digest: makeAsset().digest,
+        loadedAt: '2026-11-08T00:00:00.000Z',
+        targetPath: '.dfg/market/skill/pdf-export/',
+        files: ['SKILL.md'],
+      });
+      await deferred;
+    });
+    expect(document.querySelector('[data-df-market="load-installing"]')).toBeNull();
+    expect(screen.getByText(/已装载：写入记录与审计已生成/)).toBeTruthy();
+  });
+
+  it('装载失败呈现：显式 alert + 错误码可引用（诊断）+ 关闭出口，不再有写入按钮', async () => {
+    const user = userEvent.setup();
+    const failInstall: MarketInstallClient = async () => ({
+      ok: false,
+      code: 'market_install_source_unavailable',
+      message: '缺少 GitHub 凭据',
+    });
+    const { onLoaded, onOpenChange } = setupWithPlan({}, { install: failInstall });
+    await user.click(screen.getByRole('button', { name: '批准并签发一次性 token' }));
+    await user.click(screen.getByRole('button', { name: '确认写入' }));
+    expect(onLoaded).not.toHaveBeenCalled();
+    // Modal 走 portal：错误面与错误码挂点用 document 查询
+    const alert = document.querySelector('[data-df-market="load-error"]');
+    expect(alert?.getAttribute('data-df-error-code')).toBe('market_install_source_unavailable');
+    expect(alert?.textContent).toContain('源不可用');
+    expect(screen.queryByRole('button', { name: '确认写入' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: '关闭' }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

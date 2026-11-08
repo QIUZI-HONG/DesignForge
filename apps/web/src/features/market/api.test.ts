@@ -12,6 +12,7 @@ import { makeAsset, makeMissingIndexResponse, makeQueryResponse } from './__fixt
 import {
   assetFromDetail,
   buildMarketAssetUrl,
+  buildMarketInstallUrl,
   buildMarketLoadPlanUrl,
   buildMarketQueryUrl,
   buildSourceUrl,
@@ -19,11 +20,14 @@ import {
   classifyWarnings,
   DEFAULT_DAEMON_URL,
   daemonBaseUrl,
+  fetchMarketInstall,
   fetchMarketLoadPlan,
   fetchMarketQuery,
   MARKET_COLLECT_COMMAND,
+  makeMarketInstallClient,
   readEnvelope,
   validateMarketAssetDetail,
+  validateMarketInstallResponse,
   validateMarketQueryResponse,
 } from './api';
 
@@ -372,5 +376,128 @@ describe('api · 信封与内层形状校验（脏数据不静默）', () => {
       typeof classifyMarketOutcome
     >[0];
     expect(classifyMarketOutcome(dirty)).toBe('no-result');
+  });
+});
+
+describe('api · 装载安装客户端（票③ market-load-loop）', () => {
+  const INSTALL_RESPONSE = {
+    schema: MARKETPLACE_INDEX_SCHEMA,
+    assetId: 'gh:acme/skills#skills/pdf-export',
+    kind: 'skill',
+    slug: 'pdf-export',
+    targetPath: '.dfg/market/skill/pdf-export/',
+    digest: 'sha256:9f2c',
+    files: ['SKILL.md', 'references/notes.md'],
+    loadedAt: '2026-11-08T00:00:00.000Z',
+    auditId: 'audit_1',
+  };
+
+  it('装载安装路径取契约路由表（POST /market/install）', () => {
+    expect(buildMarketInstallUrl('http://127.0.0.1:4318')).toBe(
+      'http://127.0.0.1:4318/market/install',
+    );
+  });
+
+  it('响应形状校验：缺 digest/files/loadedAt 等任一字段即 null（不给渲染路径脏数据）', () => {
+    expect(validateMarketInstallResponse(INSTALL_RESPONSE)).not.toBeNull();
+    for (const key of ['digest', 'files', 'loadedAt', 'targetPath', 'assetId', 'schema']) {
+      const broken: Record<string, unknown> = { ...INSTALL_RESPONSE };
+      delete broken[key];
+      expect(validateMarketInstallResponse(broken)).toBeNull();
+    }
+    expect(validateMarketInstallResponse(null)).toBeNull();
+    expect(validateMarketInstallResponse('nope')).toBeNull();
+  });
+
+  it('fetchMarketInstall 以 POST 提交 assetId+ackToken，并经形状校验解包', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: true, result: INSTALL_RESPONSE }), { status: 200 }),
+    );
+    const result = await fetchMarketInstall(
+      { assetId: 'gh:acme/skills#skills/pdf-export', ackToken: 'tok-1' },
+      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.result.digest).toBe('sha256:9f2c');
+    expect(result.result.loadedAt).toBe('2026-11-08T00:00:00.000Z');
+    const call = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(call[0]).toBe('http://127.0.0.1:4318/market/install');
+    expect(call[1].method).toBe('POST');
+    expect(JSON.parse(String(call[1].body))).toEqual({
+      assetId: 'gh:acme/skills#skills/pdf-export',
+      ackToken: 'tok-1',
+    });
+  });
+
+  it('daemon 拒绝（market_install_*）原样透传错误码；形状坏响应归一 daemon_bad_response', async () => {
+    const rejected = await fetchMarketInstall(
+      { assetId: 'a', ackToken: 't' },
+      {
+        baseUrl: 'http://127.0.0.1:4318',
+        fetchImpl: (async () =>
+          new Response(
+            JSON.stringify({
+              ok: false,
+              error: { code: 'market_install_digest_mismatch', message: '不符' },
+            }),
+            { status: 422 },
+          )) as unknown as typeof fetch,
+      },
+    );
+    expect(rejected.ok).toBe(false);
+    if (rejected.ok) return;
+    expect(rejected.error.code).toBe('market_install_digest_mismatch');
+
+    const malformed = await fetchMarketInstall(
+      { assetId: 'a', ackToken: 't' },
+      {
+        baseUrl: 'http://127.0.0.1:4318',
+        fetchImpl: (async () =>
+          new Response(JSON.stringify({ ok: true, result: { assetId: 'a' } }), {
+            status: 200,
+          })) as unknown as typeof fetch,
+      },
+    );
+    expect(malformed.ok).toBe(false);
+    if (malformed.ok) return;
+    expect(malformed.error.code).toBe('daemon_bad_response');
+  });
+
+  it('makeMarketInstallClient：信封 → 装载会话 outcome（成功取真值，失败取码）', async () => {
+    const okClient = makeMarketInstallClient({
+      baseUrl: 'http://127.0.0.1:4318',
+      fetchImpl: (async () =>
+        new Response(JSON.stringify({ ok: true, result: INSTALL_RESPONSE }), {
+          status: 200,
+        })) as unknown as typeof fetch,
+    });
+    const ok = await okClient({ assetId: 'a', ackToken: 't' });
+    expect(ok).toEqual({
+      ok: true,
+      digest: 'sha256:9f2c',
+      loadedAt: '2026-11-08T00:00:00.000Z',
+      targetPath: '.dfg/market/skill/pdf-export/',
+      files: ['SKILL.md', 'references/notes.md'],
+    });
+
+    const failClient = makeMarketInstallClient({
+      baseUrl: 'http://127.0.0.1:4318',
+      fetchImpl: (async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error: { code: 'market_install_source_unavailable', message: '缺凭据' },
+          }),
+          { status: 503 },
+        )) as unknown as typeof fetch,
+    });
+    const fail = await failClient({ assetId: 'a', ackToken: 't' });
+    expect(fail).toEqual({
+      ok: false,
+      code: 'market_install_source_unavailable',
+      message: '缺凭据',
+    });
   });
 });

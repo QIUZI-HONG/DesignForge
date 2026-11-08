@@ -108,3 +108,17 @@ describe('load-store · 卸载', () => {
     expect(removeLoadRecord(storage, 'zzz').map((record) => record.assetId)).toEqual(['a']);
   });
 });
+
+describe('load-store · daemon 真值字段（票③）', () => {
+  it('loadedAt（daemon 真写完成时刻）随记录往返存储；缺失时省略不补造', () => {
+    const storage = makeMemoryStorage();
+    writeLoadRecord(storage, makeRecord({ loadedAt: '2026-11-08T00:00:00.000Z' }));
+    const withLoadedAt = readLoadRecords(storage);
+    expect(withLoadedAt[0]?.loadedAt).toBe('2026-11-08T00:00:00.000Z');
+
+    const plain = makeMemoryStorage();
+    writeLoadRecord(plain, makeRecord());
+    const withoutLoadedAt = readLoadRecords(plain);
+    expect(withoutLoadedAt[0]?.loadedAt).toBeUndefined();
+  });
+});

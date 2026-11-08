@@ -21,6 +21,7 @@ import {
   isUpdateAvailable,
   LoadConfirmDialog,
   MarketErrorState,
+  makeMarketInstallClient,
   marketFailureText,
   useLoadPlan,
   useLoadRecords,
@@ -31,6 +32,9 @@ import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
 // 版式类复用 market.css（工单 06 · 样式单轨；本批补迁——06 首批只迁了首页/面板页，此处当时漏迁）
 import '@/features/market/market.css';
+
+/** 装载真写客户端（票③：构造一次，注入装载确认对话框；endpoint 每次调用时解析）。 */
+const marketInstallClient = makeMarketInstallClient();
 
 /** 解码路由参数（防御式：已解码的字符串不含 `%` 时原样返回）。 */
 export function decodeAssetId(raw: string): string {
@@ -133,6 +137,7 @@ export default function MarketAssetPage() {
             save(loadedRecord);
             setConfirming(false);
           }}
+          install={marketInstallClient}
         />
       )}
 

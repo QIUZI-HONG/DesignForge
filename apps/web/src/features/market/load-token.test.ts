@@ -11,12 +11,15 @@ import { makeLoadPlan } from './__fixtures__/market';
 import {
   approveLoadSession,
   awaitingApproval,
+  completeLoadInstall,
   consumeLoadSession,
   EMPTY_LOAD_SESSION,
   LOAD_TOKEN_TTL_MS,
+  mapInstallErrorCode,
   openLoadSession,
   rejectLoadSession,
   remainingTokenMs,
+  stageLoadForInstall,
 } from './load-token';
 
 const META = {
@@ -152,5 +155,121 @@ describe('load-token · 消费（单事务写入点）', () => {
     expect(remainingTokenMs(session, 1_000 + LOAD_TOKEN_TTL_MS / 2)).toBe(LOAD_TOKEN_TTL_MS / 2);
     expect(remainingTokenMs(session, 1_000 + LOAD_TOKEN_TTL_MS + 10)).toBe(0);
     expect(remainingTokenMs(EMPTY_LOAD_SESSION, 0)).toBe(0);
+  });
+});
+
+describe('load-token · daemon 真写接线（装载中/失败；票③）', () => {
+  function approvedSession(nowMs = 1_000) {
+    const opened = openLoadSession(makeLoadPlan(), META);
+    if (!opened.ok) throw new Error('提案应可装载');
+    const approved = approveLoadSession(opened.session, nowMs, { tokenId: 'tok-1' });
+    if (!approved.ok) throw new Error('批准应成功');
+    return approved.session;
+  }
+
+  it('装载发起：approved → loading（真写进行中；重复发起=一次性显式拒绝）', () => {
+    const staged = stageLoadForInstall(approvedSession(), 1_500);
+    expect(staged.ok).toBe(true);
+    if (!staged.ok) return;
+    expect(staged.session.status).toBe('loading');
+    expect(staged.session.errorCode).toBeNull();
+    // 装载中再点：token 已在途（服务端一次性），显式拒绝
+    const again = stageLoadForInstall(staged.session, 1_600);
+    expect(again.ok).toBe(false);
+    if (again.ok) return;
+    expect(again.code).toBe('load_token_used');
+  });
+
+  it('装载发起的时效闸与消费闸同款（超时/未批准都是显式错误态）', () => {
+    const expired = stageLoadForInstall(approvedSession(1_000), 1_000 + LOAD_TOKEN_TTL_MS + 1);
+    expect(expired.ok).toBe(false);
+    if (expired.ok) return;
+    expect(expired.code).toBe('load_token_expired');
+    expect(expired.session.status).toBe('expired');
+
+    const empty = stageLoadForInstall(EMPTY_LOAD_SESSION, 0);
+    expect(empty.ok).toBe(false);
+    if (empty.ok) return;
+    expect(empty.code).toBe('load_not_approved');
+  });
+
+  it('装载完成（成功）：consumed + LoadRecord 记 daemon 真值（digest/loadedAt/targetPath）', () => {
+    const staged = stageLoadForInstall(approvedSession(), 1_500);
+    if (!staged.ok) throw new Error('装载发起应成功');
+    const done = completeLoadInstall(staged.session, {
+      ok: true,
+      digest: 'sha256:real',
+      loadedAt: '2026-11-08T00:00:00.000Z',
+      targetPath: '.dfg/market/skill/pdf-export/',
+      files: ['SKILL.md'],
+    });
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    expect(done.session.status).toBe('consumed');
+    expect(done.session.token).toBeNull();
+    expect(done.record).toMatchObject({
+      assetId: 'gh:acme/skills#skills/pdf-export',
+      name: 'pdf-export',
+      kind: 'skill',
+      digest: 'sha256:real',
+      ref: 'a1b2c3d4',
+      targetPath: '.dfg/market/skill/pdf-export/',
+      loadedAt: '2026-11-08T00:00:00.000Z',
+      caller: 'user',
+    });
+  });
+
+  it('装载完成（失败）：failed + daemon 错误码映射进装载词表 + 原码留诊断', () => {
+    const staged = stageLoadForInstall(approvedSession(), 1_500);
+    if (!staged.ok) throw new Error('装载发起应成功');
+    const done = completeLoadInstall(staged.session, {
+      ok: false,
+      code: 'market_install_digest_mismatch',
+      message: '源内容 digest 与索引不符',
+    });
+    expect(done.ok).toBe(false);
+    if (done.ok) return;
+    expect(done.session.status).toBe('failed');
+    expect(done.session.errorCode).toBe('load_install_digest_mismatch');
+    expect(done.session.installErrorCode).toBe('market_install_digest_mismatch');
+    expect(done.session.token).toBeNull();
+    // 失败态不可再发起（服务端 token 已一次性消费；重装须重新出提案）
+    const retry = stageLoadForInstall(done.session, 2_000);
+    expect(retry.ok).toBe(false);
+    if (retry.ok) return;
+    expect(retry.code).toBe('load_token_used');
+  });
+
+  it('装载完成仅接受 loading 态（其他状态一律 load_not_approved）', () => {
+    const done = completeLoadInstall(approvedSession(), {
+      ok: true,
+      digest: 'd',
+      loadedAt: 'x',
+      targetPath: 't',
+      files: [],
+    });
+    expect(done.ok).toBe(false);
+    if (done.ok) return;
+    expect(done.code).toBe('load_not_approved');
+  });
+
+  it('daemon 错误码映射表（market_install_* → load_install_*；未知码归 load_install_failed）', () => {
+    expect(mapInstallErrorCode('market_install_asset_not_found')).toBe(
+      'load_install_asset_not_found',
+    );
+    expect(mapInstallErrorCode('market_install_ack_invalid')).toBe('load_install_ack_invalid');
+    expect(mapInstallErrorCode('market_install_ack_expired')).toBe('load_install_ack_expired');
+    expect(mapInstallErrorCode('market_install_digest_mismatch')).toBe(
+      'load_install_digest_mismatch',
+    );
+    expect(mapInstallErrorCode('market_install_source_unavailable')).toBe(
+      'load_install_source_unavailable',
+    );
+    expect(mapInstallErrorCode('market_install_target_invalid')).toBe(
+      'load_install_target_invalid',
+    );
+    expect(mapInstallErrorCode('daemon_unreachable')).toBe('load_install_unreachable');
+    expect(mapInstallErrorCode('daemon_bad_response')).toBe('load_install_bad_response');
+    expect(mapInstallErrorCode('weird_unknown')).toBe('load_install_failed');
   });
 });

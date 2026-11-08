@@ -15,6 +15,7 @@
 import type {
   MarketAsset,
   MarketAssetDetailResponse,
+  MarketInstallResponse,
   MarketLoadPlan,
   MarketQueryParams,
   MarketQueryResponse,
@@ -27,6 +28,8 @@ import {
   daemonAuthHeaders,
   resolveDaemonEndpointSync,
 } from '@/lib/daemon-endpoint';
+
+import type { MarketInstallClient } from './load-token';
 
 /**
  * daemon 缺省地址（端口窗起点）。解析顺序**全站收敛**在 `@/lib/daemon-endpoint`
@@ -205,6 +208,11 @@ export function buildMarketLoadPlanUrl(baseUrl: string): string {
   return `${baseUrl}${DAEMON_ROUTES.marketLoadPlan.path}`;
 }
 
+/** 装载安装 URL（票③：daemon 真写端点，路径单一真源）。 */
+export function buildMarketInstallUrl(baseUrl: string): string {
+  return `${baseUrl}${DAEMON_ROUTES.marketInstall.path}`;
+}
+
 async function requestJson<T>(
   url: string,
   options: MarketClientOptions & {
@@ -266,7 +274,7 @@ export function fetchMarketAsset(
   });
 }
 
-/** 取装载提案（dryRun 前置；真实写入归 MCP 确认桩）。 */
+/** 取装载提案（dryRun 前置；可装载提案随响应携带一次性 ackToken——票③ install 消费）。 */
 export function fetchMarketLoadPlan(
   assetId: string,
   options: MarketClientOptions & { documentId?: string | null } = {},
@@ -277,6 +285,57 @@ export function fetchMarketLoadPlan(
     validate: validateMarketLoadPlan,
     body: { assetId, documentId: options.documentId ?? null },
   });
+}
+
+/** 装载安装响应形状校验（缺任一关键 Returns null → 归一 daemon_bad_response）。 */
+export function validateMarketInstallResponse(value: unknown): MarketInstallResponse | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.schema !== 'string' || value.schema.length === 0) return null;
+  if (typeof value.assetId !== 'string' || value.assetId.length === 0) return null;
+  if (typeof value.kind !== 'string' || value.kind.length === 0) return null;
+  if (typeof value.slug !== 'string' || value.slug.length === 0) return null;
+  if (typeof value.targetPath !== 'string' || value.targetPath.length === 0) return null;
+  if (typeof value.digest !== 'string' || value.digest.length === 0) return null;
+  if (!Array.isArray(value.files) || !value.files.every((file) => typeof file === 'string')) {
+    return null;
+  }
+  if (typeof value.loadedAt !== 'string' || value.loadedAt.length === 0) return null;
+  if (typeof value.auditId !== 'string' || value.auditId.length === 0) return null;
+  return value as unknown as MarketInstallResponse;
+}
+
+/** 发起真实装载（POST /market/install；一次性 ackToken 来自装载提案）。 */
+export function fetchMarketInstall(
+  input: { assetId: string; ackToken: string },
+  options: MarketClientOptions = {},
+): Promise<MarketEnvelope<MarketInstallResponse>> {
+  const base = options.baseUrl ?? daemonBaseUrl();
+  return requestJson<MarketInstallResponse>(buildMarketInstallUrl(base), {
+    ...options,
+    validate: validateMarketInstallResponse,
+    body: { assetId: input.assetId, ackToken: input.ackToken },
+  });
+}
+
+/**
+ * 组装装载客户端（`LoadConfirmDialog` 的 `install` 注入点；页面侧构造一次传入）。
+ * 信封 → 装载会话 outcome：成功只取记账/渲染所需真值字段，失败透传 daemon 原始错误码
+ * （装载状态机据此映射前端词表并保留原码做诊断）。
+ */
+export function makeMarketInstallClient(options: MarketClientOptions = {}): MarketInstallClient {
+  return async (input) => {
+    const envelope = await fetchMarketInstall(input, options);
+    if (envelope.ok) {
+      return {
+        ok: true,
+        digest: envelope.result.digest,
+        loadedAt: envelope.result.loadedAt,
+        targetPath: envelope.result.targetPath,
+        files: [...envelope.result.files],
+      };
+    }
+    return { ok: false, code: envelope.error.code, message: envelope.error.message };
+  };
 }
 
 /**

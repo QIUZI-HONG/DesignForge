@@ -18,13 +18,20 @@
  *
  * 不导出（刻意的）：`api.ts` 的取数客户端与 URL 构造（只服务本 feature 的 hooks 与门禁脚本）、
  * `capabilities` / `quality` 内部口径、`state-coverage*`（门禁用统计）。
+ * 例外（票③）：`makeMarketInstallClient` 是装载真写的**页面接线面**（`LoadConfirmDialog`
+ * 的 `install` 注入点由页面构造传入），故单独放行——其余 api 面仍不导出。
  */
 
 import './market.css';
 
 /** 测试夹具命名空间（**仅供 `*.test.*`**；理由见文件头）。 */
 export * as marketFixtures from './__fixtures__/market';
-export { classifyMarketOutcome, isSearchDegraded, type MarketOutcome } from './api';
+export {
+  classifyMarketOutcome,
+  isSearchDegraded,
+  type MarketOutcome,
+  makeMarketInstallClient,
+} from './api';
 export { type BadgeTone, badgeClassName, meterFillClassName } from './badge-classes';
 export * from './components';
 export { type MarketEmptyKindInput, resolveMarketEmptyKind } from './empty-kind';
