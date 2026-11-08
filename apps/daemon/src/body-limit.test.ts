@@ -17,7 +17,6 @@ import {
 } from './body-limit.ts';
 import type { TestDaemon } from './testing/harness.ts';
 import { createTestDaemon, injectJson } from './testing/harness.ts';
-import { TOKEN_HEADER } from './token.ts';
 
 /** 环境隔离：DF_BODY_LIMIT 不泄入/泄出用例（进程 env 是全局态）。 */
 let savedEnv: string | undefined;
