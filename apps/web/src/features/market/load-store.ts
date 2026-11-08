@@ -90,6 +90,24 @@ export function isUpdateAvailable(record: LoadRecord | null, current: { digest: 
   return record.digest !== current.digest;
 }
 
+/**
+ * 可更新计数（票②）：记录册逐条复用 {@link isUpdateAvailable} 对照「当前索引 digest」计数。
+ * 索引里查不到当前 digest 的记录（未采集/已下架）**不判定也不计数**——不虚报可更新数。
+ */
+export function countUpdateAvailable(
+  records: readonly LoadRecord[],
+  current: readonly { id: string; digest: string }[],
+): number {
+  const digestById = new Map(current.map((asset) => [asset.id, asset.digest]));
+  let count = 0;
+  for (const record of records) {
+    const digest = digestById.get(record.assetId);
+    if (digest === undefined) continue;
+    if (isUpdateAvailable(record, { digest })) count += 1;
+  }
+  return count;
+}
+
 /** 删除某资产的装载记录（卸载）；返回新册。 */
 export function removeLoadRecord(storage: LoadStoreLike, assetId: string): LoadRecord[] {
   const next = readLoadRecords(storage).filter((record) => record.assetId !== assetId);

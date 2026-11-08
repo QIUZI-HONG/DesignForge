@@ -19,6 +19,7 @@ import { Button, Modal } from '@dforge/ui';
 import { useEffect, useRef, useState } from 'react';
 
 import { t } from '@/i18n';
+import { emitTelemetryEvent } from '@/lib/telemetry';
 import { badgeClassName } from '../badge-classes';
 import { describeLicenseGate } from '../capabilities';
 import {
@@ -150,7 +151,16 @@ export function LoadConfirmDialog({
   const commit = (): void => {
     const staged = stageLoadForInstall(session, clock());
     setSession(staged.session);
-    if (!staged.ok) return;
+    if (!staged.ok) {
+      // 装载尝试事件（票②）：闸门即失败（超时/重复/未授权）也如实记一次尝试——
+      // 「确认写入」被点了就是尝试，结果只有成功/显式失败两态。fire-and-forget。
+      emitTelemetryEvent('market.load-attempt', {
+        assetId: asset.id,
+        result: 'failed',
+        code: staged.code,
+      });
+      return;
+    }
     const stagedPlan = staged.session.plan;
     if (stagedPlan === null) return;
     void install({
@@ -160,6 +170,13 @@ export function LoadConfirmDialog({
       if (!mountedRef.current) return;
       const done = completeLoadInstall(staged.session, outcome);
       setSession(done.session);
+      // 装载尝试事件（票② · 论文数据源预埋；票③合入后以 daemon 真写结果为准）：
+      // 结果只有成功/显式失败两态——失败带原因码。fire-and-forget，失败静默。
+      emitTelemetryEvent('market.load-attempt', {
+        assetId: asset.id,
+        result: done.ok ? 'success' : 'failed',
+        ...(done.ok ? {} : { code: done.code }),
+      });
       if (done.ok && done.record !== undefined) {
         onLoaded(done.record);
       }

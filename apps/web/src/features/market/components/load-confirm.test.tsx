@@ -11,6 +11,8 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const fetchMock = vi.fn();
+
 import { makeAsset, makeLoadPlan } from '../__fixtures__/market';
 import type { LoadRecord, MarketInstallClient, MarketInstallOutcome } from '../load-token';
 import { CapabilityList } from './CapabilityList';
@@ -18,6 +20,7 @@ import { LoadConfirmDialog } from './LoadConfirmDialog';
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 /** 装载客户端桩：缺省成功（真值形态与 daemon 安装响应一致），可注入失败/记录调用。 */
@@ -172,6 +175,82 @@ describe('LoadConfirmDialog · 三段式装载（D4）', () => {
     await user.click(screen.getByRole('button', { name: '取消' }));
     expect(onLoaded).not.toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  /** 抽取打到 /telemetry/events 的调用体。 */
+  function telemetryCalls(): Array<{ name: string; payload: Record<string, unknown> }> {
+    return fetchMock.mock.calls
+      .filter((call) => String(call[0]).includes('/telemetry/events'))
+      .map(
+        (call) =>
+          JSON.parse(String((call[1] as { body: string }).body)) as {
+            name: string;
+            payload: Record<string, unknown>;
+          },
+      );
+  }
+
+  it('确认写入成功 → 发 market.load-attempt（result=success，含 assetId）', async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ ok: true, result: { stored: true, id: 'evt_1', reason: null } }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+    const user = userEvent.setup();
+    setup({ ttlMs: 120_000 });
+    await user.click(screen.getByRole('button', { name: '批准并签发一次性 token' }));
+    await user.click(screen.getByRole('button', { name: '确认写入' }));
+    expect(screen.getByText('已装载：写入记录与审计已生成。')).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const attempts = telemetryCalls().filter((call) => call.name === 'market.load-attempt');
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]?.payload).toMatchObject({
+      assetId: 'gh:acme/skills#skills/pdf-export',
+      result: 'success',
+    });
+  });
+
+  it('超时写入被拒 → 发 market.load-attempt（result=failed，code=load_token_expired）', async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ ok: true, result: { stored: true, id: 'evt_2', reason: null } }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+    const user = userEvent.setup();
+    const clock = { now: 1_000_000 };
+    setup({ ttlMs: 5_000, clock });
+    await user.click(screen.getByRole('button', { name: '批准并签发一次性 token' }));
+    clock.now += 5_001;
+    await user.click(screen.getByRole('button', { name: '确认写入' }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const attempts = telemetryCalls().filter((call) => call.name === 'market.load-attempt');
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]?.payload).toMatchObject({
+      assetId: 'gh:acme/skills#skills/pdf-export',
+      result: 'failed',
+      code: 'load_token_expired',
+    });
+  });
+
+  it('取消（拒绝）不发装载尝试事件', async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    setup();
+    await user.click(screen.getByRole('button', { name: '取消' }));
+    expect(telemetryCalls().some((call) => call.name === 'market.load-attempt')).toBe(false);
   });
 });
 

@@ -85,6 +85,43 @@ describe('AssetDetailView · 左预览右信息（D2）', () => {
     expect(screen.getByText('ppt-design')).toBeTruthy();
   });
 
+  it('使用示例：有 usageExamples 时给可复制话术列表（票② · D2）', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => undefined);
+    // userEvent.setup 会装自己的剪贴板桩，故先 setup 再覆盖（后写者生效，同设置页先例）
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    renderDetail({
+      asset: makeAsset({
+        usageExamples: ['把当前画板导出为 A4 分页 PDF', '把这三页合并成一份交付文档'],
+      }),
+    });
+    expect(screen.getByText('使用示例')).toBeTruthy();
+    expect(screen.getByText('把当前画板导出为 A4 分页 PDF')).toBeTruthy();
+    expect(screen.getByText('把这三页合并成一份交付文档')).toBeTruthy();
+
+    const copyButtons = screen.getAllByRole('button', { name: '复制话术' });
+    expect(copyButtons).toHaveLength(2);
+    await user.click(copyButtons[1] as HTMLElement);
+    expect(writeText).toHaveBeenCalledWith('把这三页合并成一份交付文档');
+    expect(await screen.findByText('已复制')).toBeTruthy();
+  });
+
+  it('使用示例：无 usageExamples 时键省略（缺失省略，不出空区块）', () => {
+    renderDetail();
+    expect(screen.queryByText('使用示例')).toBeNull();
+  });
+
+  it('使用示例：剪贴板不可用时给「手动复制」出口（失败有说法，不静默）', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    });
+    renderDetail({ asset: makeAsset({ usageExamples: ['导出为 PDF'] }) });
+    await user.click(screen.getByRole('button', { name: '复制话术' }));
+    expect(await screen.findByText(/复制失败/)).toBeTruthy();
+  });
+
   it('更多区展示 digest 与溯源时刻', () => {
     renderDetail();
     expect(

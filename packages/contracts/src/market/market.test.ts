@@ -126,6 +126,36 @@ describe('market · df.marketplace.index/v1 解析', () => {
     expect(result.index.assets[0]?.facets.mode).toBe('other');
   });
 
+  it('usageExamples：字符串数组保真；缺失省略；非字符串项过滤（票② · 契约扩容）', () => {
+    const withExamples = parseMarketplaceIndex(
+      makeIndex([
+        makeAsset({
+          usageExamples: ['帮我把当前画板导出为 A4 分页 PDF', '把这 3 页设计稿合并成一份交付文档'],
+        }),
+      ]),
+    );
+    expect(withExamples.ok).toBe(true);
+    if (!withExamples.ok) return;
+    expect(withExamples.index.assets[0]?.usageExamples).toEqual([
+      '帮我把当前画板导出为 A4 分页 PDF',
+      '把这 3 页设计稿合并成一份交付文档',
+    ]);
+
+    // 缺失省略：键不存在（不是空数组）——「存在才填，缺失省略」的消费侧口径
+    const withoutExamples = parseMarketplaceIndex(makeIndex([makeAsset()]));
+    expect(withoutExamples.ok).toBe(true);
+    if (!withoutExamples.ok) return;
+    expect('usageExamples' in (withoutExamples.index.assets[0] ?? {})).toBe(false);
+
+    // 宽容读取：混入非字符串项只丢坏项，不拖垮整条资产
+    const mixed = parseMarketplaceIndex(
+      makeIndex([makeAsset({ usageExamples: ['合法话术', 42, null, '另一条'] })]),
+    );
+    expect(mixed.ok).toBe(true);
+    if (!mixed.ok) return;
+    expect(mixed.index.assets[0]?.usageExamples).toEqual(['合法话术', '另一条']);
+  });
+
   it('缺关键字段的资产被跳过并计数，不拖垮整批', () => {
     const result = parseMarketplaceIndex(
       makeIndex([makeAsset(), { kind: 'skill' }, makeAsset({ id: '' })]),

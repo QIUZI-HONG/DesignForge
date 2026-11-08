@@ -21,7 +21,7 @@ import type { DocumentListWarning, DocumentSummary } from '@dforge/contracts';
 import { useToast } from '@dforge/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type StoreApi, type UseBoundStore, useStore } from 'zustand';
-
+import { useUpdatableCount } from '@/features/market';
 import { t } from '@/i18n';
 import { resolveDaemonBaseUrl } from '../api/daemon-url';
 import {
@@ -68,6 +68,10 @@ export interface HomeViewProps {
   /** 打开市场资产（页面注入：跳市场详情）。 */
   onOpenMarket: (assetId: string) => void;
   /**
+   * 打开技能市场首页（页面注入：跳 /market；票② 顶栏平级切换与侧栏入口共用）。
+   */
+  onOpenMarketHome: () => void;
+  /**
    * 打开 AI 助手（页面注入：跳编辑器并带 `?ai=1` 落地即开抽屉）。
    * D3 文案口径同步：修复前这里是「暂未接入」Toast，与已交付的 AI 抽屉互相矛盾。
    */
@@ -108,6 +112,7 @@ export function HomeView({
   now = () => new Date(),
   onOpenDocument,
   onOpenMarket,
+  onOpenMarketHome,
   onOpenAi,
   autoOpenCreate = false,
   store,
@@ -134,6 +139,9 @@ export function HomeView({
     items: [],
     degraded: false,
   });
+  // 侧栏「可更新 N」徽标计数（票②）：市场 feature 公开面 hook——无装载记录不发请求，
+  // 市场侧不可达降级为 0（不虚报；本地记录册真值在 localStorage）
+  const marketUpdateCount = useUpdatableCount();
 
   const gatewayRef = useRef<DocumentsGateway | null>(injectedDocuments ?? null);
   /**
@@ -334,6 +342,8 @@ export function HomeView({
         collapsed={home.sidebarCollapsed}
         onToggleCollapse={() => activeStore.getState().toggleSidebar()}
         trashCount={home.trashRecords.length}
+        onOpenMarketHome={onOpenMarketHome}
+        marketUpdateCount={marketUpdateCount}
       />
 
       <div className="dfg-home__main">
@@ -344,6 +354,7 @@ export function HomeView({
           onOpenDocument={onOpenDocument}
           market={{ loading: market.loading, available: market.available, items: market.items }}
           onOpenMarket={onOpenMarket}
+          onOpenMarketHome={onOpenMarketHome}
           onCreateDesignFile={() => setCreateOpen(true)}
         />
 

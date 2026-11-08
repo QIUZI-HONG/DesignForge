@@ -25,6 +25,12 @@ export const TELEMETRY_EVENT_NAMES = [
   'market.adopt',
   'market.abandon',
   'market.time-saved',
+  // 市场行为事件（票② · 论文数据源预埋；命名跟随本词表既有点号族）：
+  // 浏览市场页 / 检索（词与命中数）/ 装载尝试（含结果与错误码）/ 查看资产详情
+  'market.view',
+  'market.search',
+  'market.load-attempt',
+  'market.asset-detail',
   'config.updated',
   'mcp.proposal',
   'mcp.ack',

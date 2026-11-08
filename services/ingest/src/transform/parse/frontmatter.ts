@@ -14,6 +14,8 @@ export interface SkillFrontmatter {
   tags: string[];
   triggers: string[];
   allowedTools: string[];
+  /** 使用示例话术（票②；frontmatter `examples:` 列表原样提取——存在才填，缺失为空数组）。 */
+  examples: string[];
   /** 出现但未被本解析器展开的顶层键（保持可审计）。 */
   extraKeys: string[];
 }
@@ -51,6 +53,7 @@ const EMPTY: SkillFrontmatter = {
   tags: [],
   triggers: [],
   allowedTools: [],
+  examples: [],
   extraKeys: [],
 };
 
@@ -257,6 +260,8 @@ export function parseFrontmatter(rawText: string): FrontmatterParseResult {
   data.tags = lists.get('tags') ?? [];
   data.triggers = lists.get('triggers') ?? [];
   data.allowedTools = lists.get('allowed-tools') ?? lists.get('allowedTools') ?? [];
+  // 使用示例（票②）：`examples:` 列表原样提取（存在才填，缺失空数组）；已展开故不入 extraKeys
+  data.examples = lists.get('examples') ?? [];
   const consumed = new Set([
     'name',
     'description',
@@ -266,6 +271,7 @@ export function parseFrontmatter(rawText: string): FrontmatterParseResult {
     'triggers',
     'allowed-tools',
     'allowedTools',
+    'examples',
   ]);
   data.extraKeys = [...new Set([...scalars.keys(), ...lists.keys(), ...nested])]
     .filter((key) => !consumed.has(key))

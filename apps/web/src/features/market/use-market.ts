@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { assetFromDetail, fetchMarketAsset, fetchMarketLoadPlan, fetchMarketQuery } from './api';
 import {
+  countUpdateAvailable,
   LOADED_RECORDS_KEY,
   type LoadStoreLike,
   loadedAssetIds,
@@ -339,3 +340,23 @@ export function useMarketPagination(
 
 /** 存储键透出（测试与调试用；写入形状见 `load-store`）。 */
 export { LOADED_RECORDS_KEY };
+
+/** 索引快照上限（daemon 单页上限 200；本地首版索引量级远小于此，一页取全）。 */
+const UPDATABLE_SNAPSHOT_LIMIT = 200;
+
+/**
+ * 可更新计数 hook（票②）：侧栏「技能市场」入口的「可更新 N」徽标数据源。
+ *
+ * 口径：本地记录册（`useLoadRecords`）× 市场索引快照（一次 `limit=200` 查询取当前 digest）
+ * 经 `countUpdateAvailable` 计数。**无记录不发请求**（enabled 闸——首页不为空册花流量）；
+ * 市场侧不可达/索引缺失降级为 0（拒绝不逃逸，不虚报可更新数）。
+ */
+export function useUpdatableCount(options: { baseUrl?: string } = {}): number {
+  const { records } = useLoadRecords();
+  const enabled = records.length > 0;
+  const { response } = useMarketQuery(
+    { limit: UPDATABLE_SNAPSHOT_LIMIT },
+    { enabled, ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }) },
+  );
+  return useMemo(() => countUpdateAvailable(records, response?.items ?? []), [records, response]);
+}

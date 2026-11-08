@@ -85,6 +85,8 @@ export interface DwsAssetRecord {
   source: DwsSource;
   /** 未声明时缺省 `["prompt:inject"]`（§1.2，由 build 补缺）。 */
   capabilities?: string[];
+  /** 使用示例话术（票②；SKILL.md frontmatter `examples:` 的透传，存在才填、缺失省略）。 */
+  usageExamples?: string[];
   facets: DwsFacets;
   quality: DwsQuality;
   /** 静态安全审计结论（§1.2 installGate.security 的来源；词表真源在契约包）。 */
@@ -213,6 +215,11 @@ export function readDwsAsset(value: unknown): DwsAssetRecord | null {
   if (typeof value.description === 'string') record.description = value.description;
   if (typeof value.version === 'string') record.version = value.version;
   if (Array.isArray(value.capabilities)) record.capabilities = asStringArray(value.capabilities);
+  // 使用示例（票②）：宽容读取——只收字符串项；有效项非空才填（缺失省略）
+  if (Array.isArray(value.usageExamples)) {
+    const usageExamples = asStringArray(value.usageExamples);
+    if (usageExamples.length > 0) record.usageExamples = usageExamples;
+  }
   if (isRecord(quality.explain)) {
     record.quality.explain = quality.explain as Record<string, DwsQualityExplain>;
   }
