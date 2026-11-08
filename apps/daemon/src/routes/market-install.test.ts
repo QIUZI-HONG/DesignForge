@@ -554,6 +554,41 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
     }
   });
 
+  it('gh 探测失控（挂起超时形态，F3）→ 结构化失败不挂死：runner 抛错按无凭据口径', async () => {
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: ASSET_FILES }),
+      marketInstallCredentials: {
+        env: {},
+        // 模拟 gh auth token 挂起后被 spawnSync timeout 击杀的失控形态（探测本身抛错）：
+        // 装载请求必须得到结构化终态（source_unavailable），绝不无限等待或 500
+        ghRunner: () => {
+          throw new Error('gh auth token timed out（模拟挂起超时）');
+        },
+      },
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: EXPECTED_DIGEST })]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(503);
+      const error = (
+        installed.payload as { error: { code: string; details?: Record<string, unknown> } }
+      ).error;
+      expect(error.code).toBe('market_install_source_unavailable');
+      expect(error.details?.reason).toBe('credentials-missing');
+      // 凭据探测失败即终态：不发起任何源请求，审计留痕
+      expect(daemon.fetchCalls).toEqual([]);
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('digest 不符（索引 digest 与源内容不一致）→ 422 digest_mismatch，未写任何文件', async () => {
     const daemon = await createInstallDaemon({
       fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: ASSET_FILES }),

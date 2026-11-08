@@ -20,7 +20,8 @@
  * 两处漂移会立刻红）。
  *
  * 凭据口径：与 `services/ingest/src/collect/client.ts:67-85` 同式——`GH_TOKEN`/`GITHUB_TOKEN`
- * 环境变量优先，其次 `gh auth token`；**无凭据 = 结构化 `market_install_source_unavailable`
+ * 环境变量优先，其次 `gh auth token`（子进程带超时与错误容错，gh 挂起按无凭据处理）；
+ * **无凭据 = 结构化 `market_install_source_unavailable`
  * 错误，不静默、不匿名降级**（匿名限速 60 req/h 不可靠，与采集线同一纪律）。
  */
 
@@ -84,9 +85,24 @@ export interface MarketInstallCredentials {
   ghRunner?: (cmd: string, args: string[]) => { status: number; stdout: string };
 }
 
+/**
+ * `gh auth token` 子进程超时（毫秒；评审 F3）：gh 挂起（凭证助手假死/网络盘凭证）不得把
+ * 装载请求无限吊死——超时后 spawnSync 杀掉子进程并在 result.error 报告，按无凭据口径走
+ * source_unavailable 终态。
+ */
+const GH_TOKEN_TIMEOUT_MS = 5_000;
+
 /** 生产用 `gh auth token` 执行器（与 services/ingest/src/collect/client.ts:86-89 同式）。 */
 function defaultGhRunner(): { status: number; stdout: string } {
-  const result = spawnSync('gh', ['auth', 'token'], { encoding: 'utf8' });
+  const result = spawnSync('gh', ['auth', 'token'], {
+    encoding: 'utf8',
+    timeout: GH_TOKEN_TIMEOUT_MS,
+  });
+  // 子进程级失败（超时 ETIMEDOUT / ENOENT 等）：spawnSync 不抛异常而是 result.error——
+  // 一律按无凭据口径（status=1、stdout 空）交上层结构化报错，不静默、不重试。
+  if (result.error !== undefined) {
+    return { status: 1, stdout: '' };
+  }
   return { status: result.status ?? 1, stdout: result.stdout ?? '' };
 }
 
@@ -102,7 +118,13 @@ function resolveCredentials(credentials: MarketInstallCredentials | undefined): 
   }
   const run =
     credentials?.ghRunner ?? ((): { status: number; stdout: string } => defaultGhRunner());
-  const result = run('gh', ['auth', 'token']);
+  let result: { status: number; stdout: string };
+  try {
+    result = run('gh', ['auth', 'token']);
+  } catch {
+    // 执行器自身抛错（等价子进程失控形态）：同按无凭据口径，不让凭据探测炸掉装载请求
+    return null;
+  }
   if (result.status === 0 && result.stdout.trim() !== '') {
     return result.stdout.trim();
   }
