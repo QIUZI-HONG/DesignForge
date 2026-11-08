@@ -9,7 +9,8 @@
  * 状态（E2 分流，修复批次 4）：加载 → 详情视图；**资产不存在**（daemon `market_asset_not_found`
  * 或信封 `found=false`）→ 独立「未找到该资产」空态 + 去市场出口；**连接/服务错误** → 错误态
  * （带 daemon 错误码与重试）——两类彻底分流，不再把 not-found 挂到「无法连接本地服务」外壳。
- * 装载确认（D4）由本页持有：先取提案（`/market/load-plan`），再打开确认框。
+ * 装载确认（D4）由本页持有：每次点「装载」都重取提案（`/market/load-plan`，daemon 侧
+ * ackToken 一次性——重开不复用旧 plan），提案就绪再开确认框。
  */
 
 import type { DF_ERROR_CODES } from '@dforge/contracts';
@@ -128,6 +129,9 @@ export default function MarketAssetPage() {
         loadedAt={record?.approvedAt ?? null}
         onBack={back}
         onLoadClick={() => {
+          // 每次打开都重取提案：daemon 的 ackToken 一次性且短时效，重开确认框
+          // 绝不复用旧 plan 对象（旧 token 可能已被消费/过期——F1 评审修复）。
+          loadPlan.reload();
           setConfirming(true);
         }}
         onUninstall={() => {

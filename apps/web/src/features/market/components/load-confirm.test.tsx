@@ -350,4 +350,32 @@ describe('LoadConfirmDialog · daemon 真写接线（装载中/失败；票③�
     await user.click(screen.getByRole('button', { name: '关闭' }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it('批准前 ackExpiresAt 已过（F1）：批准即显式失效态，不发起装载——重开由页面重取新提案', async () => {
+    const user = userEvent.setup();
+    const install = vi.fn<MarketInstallClient>();
+    const view = render(
+      <LoadConfirmDialog
+        open
+        asset={makeAsset()}
+        plan={makeLoadPlan({ ackToken: 'daemon-token-stale', ackExpiresAt: '2026-11-08T00:02:00.000Z' })}
+        ownedBefore={false}
+        onOpenChange={() => {}}
+        onLoaded={() => {}}
+        // 注入时钟停在 ackExpiresAt（2026-11-08T00:02:00Z）之后 1s：提案的 daemon token 已失效
+        now={() => Date.parse('2026-11-08T00:02:01.000Z')}
+        install={install}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: '批准并签发一次性 token' }));
+    // 批准即失效：alert 显式（load_token_expired），且绝不向 daemon 发必被拒的装载请求
+    const alert = document.querySelector('[data-df-market="load-error"]');
+    expect(alert?.getAttribute('data-df-error-code')).toBe('load_token_expired');
+    expect(alert?.textContent).toContain('已失效');
+    expect(install).not.toHaveBeenCalled();
+    // 再点写入同样被状态机闸拒绝（expired 态显式失效提示），装载客户端零调用
+    await user.click(screen.getByRole('button', { name: '确认写入' }));
+    expect(install).not.toHaveBeenCalled();
+    view.unmount();
+  });
 });

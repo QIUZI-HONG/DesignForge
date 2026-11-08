@@ -112,7 +112,9 @@ export function LoadConfirmDialog({
     };
   }, []);
 
-  // 打开时重建会话：提案 → 预览（第二次打开不复用旧 token）
+  // 打开时重建会话：提案 → 预览。plan 由页面在每次打开时重新拉取（见 page.tsx 的
+  // onLoadClick——daemon ackToken 一次性，重开不复用旧 plan/旧 token），本组件收到
+  // 新 plan 对象即重建新会话。
   useEffect(() => {
     if (!open) return;
     const opened = openLoadSession(plan, {
@@ -125,7 +127,8 @@ export function LoadConfirmDialog({
     setTick((value) => value + 1);
   }, [open, plan, asset.name, asset.kind, asset.digest, asset.source.ref]);
 
-  // 已批准态：秒级刷新剩余有效期（超时后按钮点击即得显式失效提示）
+  // 已批准态：秒级刷新剩余有效期（到期时刻锚定 daemon 的 plan.ackExpiresAt——批准不续期；
+  // 超时后按钮点击即得显式失效提示）
   useEffect(() => {
     if (!open || session.status !== 'approved') return;
     const timer = setInterval(() => {
@@ -242,11 +245,11 @@ export function LoadConfirmDialog({
             data-df-market="load-error"
             data-df-error-code={session.installErrorCode ?? session.errorCode}
           >
-            {session.installErrorCode === null
-              ? t(loadErrorCopyKey(session.errorCode))
-              : t(loadErrorCopyKey(session.errorCode), {
-                  code: session.installErrorCode,
-                })}
+            {/* code 占位恒有值：daemon 原码优先，本地码兜底——installFailed 族文案
+                缺 {code} 变量会直接抛 intl 异常（渲染期白屏），本地码也如实可引用 */}
+            {t(loadErrorCopyKey(session.errorCode), {
+              code: session.installErrorCode ?? session.errorCode,
+            })}
           </p>
         )}
 

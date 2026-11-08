@@ -7,7 +7,9 @@
  *    收敛（票③：consume 阶段从「只记本地账」升级为「真调 daemon 装载端点」）；
  * 2. **一次性**：本地 token 与 daemon ackToken（提案随响应签发）都是一次性的——
  *    重复发起/重复消费/装载失败后的重放都是显式错误态，重装须重新出提案；
- * 3. **短时效**：超时未批准/未消费 → `expired`（与 MCP ack TTL 同族，取 `MCP_ACK_TTL_MS`）；
+ * 3. **短时效**：超时未批准/未消费 → `expired`（到期时刻优先锚定 daemon 提案的
+ *    `ackExpiresAt`——与 daemon ackToken 同源同命；提案未带时回退与 MCP ack 同族的
+ *    `MCP_ACK_TTL_MS`）；
  * 4. 审计字段（规格 §7.3.3）：资产 id、`source.ref`、`digest`、能力授权清单、批准时刻与调用方；
  *    daemon 真写成功后 LoadRecord 回填**真值**（`digest`/`loadedAt`/`targetPath` 来自安装响应）。
  */
@@ -166,6 +168,19 @@ export type LoadEventResult =
 /** token 时效（与 MCP ack 同族：2 分钟）。 */
 export const LOAD_TOKEN_TTL_MS = MCP_ACK_TTL_MS;
 
+/**
+ * 批准后的到期时刻：**优先锚定 daemon 提案随带的 `ackExpiresAt`**（契约已有此字段——
+ * daemon 侧 ackToken 与前端 token 同源同命，倒计时以 daemon 签发时刻为准，而不是
+ * 前端批准时刻再续一轮 TTL）；提案未带该字段（旧索引/测试夹具）才回退本地 TTL。
+ */
+function approvalExpiryMs(plan: MarketLoadPlan, nowMs: number, ttlMs: number): number {
+  if (plan.ackExpiresAt !== undefined) {
+    const daemonExpiry = Date.parse(plan.ackExpiresAt);
+    if (Number.isFinite(daemonExpiry)) return daemonExpiry;
+  }
+  return nowMs + ttlMs;
+}
+
 /** 空会话。 */
 export const EMPTY_LOAD_SESSION: LoadSession = {
   status: 'idle',
@@ -242,6 +257,22 @@ export function approveLoadSession(
     };
   }
   const ttlMs = options.ttlMs ?? LOAD_TOKEN_TTL_MS;
+  const expiresAtMs = approvalExpiryMs(session.plan, nowMs, ttlMs);
+  // daemon 的 ackToken 与前端 token 同源同命：提案的 ackExpiresAt 已过 = daemon 侧 token
+  // 已失效，批准只会拿到一个必被消费闸拒绝的 token——批准时就给出显式失效态（重开对话框
+  // 自动重取新提案，不复用旧 token）。
+  if (nowMs > expiresAtMs) {
+    return {
+      ok: false,
+      session: {
+        ...session,
+        status: 'expired',
+        errorCode: 'load_token_expired',
+        installErrorCode: null,
+      },
+      code: 'load_token_expired',
+    };
+  }
   const token: LoadToken = {
     tokenId: options.tokenId ?? createTokenId(),
     assetId: session.plan.assetId,
@@ -249,7 +280,7 @@ export function approveLoadSession(
     ref: session.meta.ref,
     capabilities: [...session.plan.ackRequired],
     issuedAtMs: nowMs,
-    expiresAtMs: nowMs + ttlMs,
+    expiresAtMs,
   };
   return {
     ok: true,
@@ -361,6 +392,15 @@ export function stageLoadForInstall(session: LoadSession, nowMs: number): LoadEv
       ok: false,
       session: { ...session, errorCode: 'load_token_used', installErrorCode: null },
       code: 'load_token_used',
+    };
+  }
+  if (session.status === 'expired') {
+    // 批准前 ackExpiresAt 已过 → 会话已显式失效（无 token）：再点写入仍归失效族，
+    // 不误报「未批准」（批准动作发生过了，是 token 没能签发）。
+    return {
+      ok: false,
+      session: { ...session, errorCode: 'load_token_expired', installErrorCode: null },
+      code: 'load_token_expired',
     };
   }
   if (session.token === null || session.plan === null || session.meta === null) {

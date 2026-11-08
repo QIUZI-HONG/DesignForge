@@ -88,6 +88,54 @@ describe('load-token · 提案与批准', () => {
     expect(rejected.status).toBe('rejected');
     expect(approveLoadSession(rejected, 3_000).ok).toBe(false);
   });
+
+  it('提案带 ackExpiresAt 时：批准的到期时刻锚定 daemon 签发值（批准不续期）', () => {
+    // daemon 在 T0 签发、T0+120s 到期；批准发生在 T0+30s——剩余有效期只剩 90s，
+    // 而不是批准时刻再续一整轮 TTL（倒计时与 daemon ackToken 同源同命）。
+    const issuedAtMs = Date.parse('2026-11-08T00:00:00.000Z');
+    const daemonExpiryMs = Date.parse('2026-11-08T00:02:00.000Z');
+    const opened = openLoadSession(
+      makeLoadPlan({ ackToken: 'daemon-token-1', ackExpiresAt: '2026-11-08T00:02:00.000Z' }),
+      META,
+    );
+    if (!opened.ok) throw new Error('提案应可装载');
+    const approved = approveLoadSession(opened.session, issuedAtMs + 30_000, { tokenId: 'tok-1' });
+    expect(approved.ok).toBe(true);
+    if (!approved.ok) return;
+    expect(approved.session.token?.issuedAtMs).toBe(issuedAtMs + 30_000);
+    expect(approved.session.token?.expiresAtMs).toBe(daemonExpiryMs);
+    expect(remainingTokenMs(approved.session, issuedAtMs + 30_000)).toBe(90_000);
+  });
+
+  it('批准前 ackExpiresAt 已过 → 批准即显式失效态（ack_expired 族），不签发必死的 token', () => {
+    const opened = openLoadSession(
+      makeLoadPlan({ ackToken: 'daemon-token-1', ackExpiresAt: '2026-11-08T00:02:00.000Z' }),
+      META,
+    );
+    if (!opened.ok) throw new Error('提案应可装载');
+    // 批准动作晚于 daemon 到期时刻 1ms：token 在 daemon 侧已失效
+    const late = approveLoadSession(
+      opened.session,
+      Date.parse('2026-11-08T00:02:00.001Z'),
+      { tokenId: 'tok-late' },
+    );
+    expect(late.ok).toBe(false);
+    if (late.ok) return;
+    expect(late.code).toBe('load_token_expired');
+    expect(late.session.status).toBe('expired');
+    expect(late.session.token).toBeNull();
+    // 失效态不能靠再次批准补救：须重开对话框重取新提案
+    expect(approveLoadSession(late.session, Date.parse('2026-11-08T00:03:00.000Z')).ok).toBe(false);
+  });
+
+  it('提案未带 ackExpiresAt（旧索引/夹具形态）→ 回退本地 TTL（向后兼容）', () => {
+    const opened = openLoadSession(makeLoadPlan(), META);
+    if (!opened.ok) throw new Error('提案应可装载');
+    const approved = approveLoadSession(opened.session, 5_000, { tokenId: 'tok-1' });
+    expect(approved.ok).toBe(true);
+    if (!approved.ok) return;
+    expect(approved.session.token?.expiresAtMs).toBe(5_000 + LOAD_TOKEN_TTL_MS);
+  });
 });
 
 describe('load-token · 消费（单事务写入点）', () => {

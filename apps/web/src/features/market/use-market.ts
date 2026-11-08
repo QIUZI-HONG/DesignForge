@@ -148,7 +148,8 @@ export function useMarketAsset(
   return { ...state, reload };
 }
 
-/** 装载提案 hook（`assetId=null` 表示未选资产：不请求）。 */
+/** 装载提案 hook（`assetId=null` 表示未选资产：不请求；`reload` 手动重取——每次打开
+ * 确认框都应重取，daemon 的 ackToken 是一次性的，重开绝不复用旧 plan 对象）。 */
 export function useLoadPlan(
   assetId: string | null,
   options: { baseUrl?: string } = {},
@@ -156,12 +157,14 @@ export function useLoadPlan(
   status: 'idle' | 'loading' | 'ready' | 'error';
   plan: MarketLoadPlan | null;
   error: string | null;
+  reload: () => void;
 } {
   const [state, setState] = useState<{
     status: 'idle' | 'loading' | 'ready' | 'error';
     plan: MarketLoadPlan | null;
     error: string | null;
   }>({ status: 'idle', plan: null, error: null });
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     if (assetId === null) {
@@ -184,9 +187,13 @@ export function useLoadPlan(
     return () => {
       controller.abort();
     };
-  }, [assetId, options.baseUrl]);
+  }, [assetId, options.baseUrl, nonce]);
 
-  return state;
+  const reload = useCallback(() => {
+    setNonce((value) => value + 1);
+  }, []);
+
+  return { ...state, reload };
 }
 
 /** 本地装载记录册 hook（写入即持久化到 `localStorage`）。 */
