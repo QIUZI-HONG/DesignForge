@@ -9,7 +9,7 @@
 | P0 | 0 | — |
 | P1 | 3 | D-01 canvas 持久化往返断裂 · D-02 daemon 本地特权面 · D-03 /editor 导入未接线 |
 | P2 | 9 | D-04~D-12 |
-| P3 | 5 | D-13~D-17 |
+| P3 | 6 | D-13~D-18 |
 
 ## 1. P1 缺陷（含 5 Whys）
 
@@ -61,13 +61,30 @@
 | D-16 | 半截 `'use client'` 修复未提交（use-draft-commit.ts，同目录 use-overlay.ts 未同步） | git diff |
 | D-17 | 10 条 biome-ignore 例外待单人复核登记；用户 daemon 内 3 个 `ux-audit-*` 旧测试文档残留（2026-10-30，建议清理） | 质量审计 + contamination-4318.txt |
 
+### D-18 市场线总案 v2 评审 Nit 汇总（低影响代码卫生 · 状态：开放 · 处置=后续批次）
+
+- **来源**：市场线总案 v2 集成分支评审轮（2026-11-09，`integration/market-program`）——两名独立
+  verifier 确认的 7 项 Important（F1~F7）当批已修（见 `docs/audit/` 外的修复轮提交记录）；
+  以下 Nit 类别评审已登记、当批**不修**，留待后续批次收口。
+- **Nit 清单**：
+
+| # | Nit | 位置 | 处置建议 |
+|---|---|---|---|
+| 1 | raw 下载 URL 直接拼 Trees 清单 `fullPath`，未做 URL 编码（含空格/`#`/非 ASCII 的仓库路径会 404） | `apps/daemon/src/market/install.ts` fetchAssetFiles | 后续批次：`encodeURI` 段级编码或逐段 `encodeURIComponent` |
+| 2 | `UPDATABLE_SNAPSHOT_LIMIT=200` 单页快照：索引超 200 条时「可更新 N」少算（取舍已注释、未文档化） | `apps/web/src/features/market/use-market.ts` useUpdatableCount | 后续批次：按 `total` 驱动补页或在文档登记取舍 |
+| 3 | 两把 switch 需人工同步漂移：`loadErrorCopyKey`（LoadConfirmDialog）与 `mapInstallErrorCode`（load-token）是双真源 | `apps/web/src/features/market/` | 后续批次：合并为单一映射表（F7 已一次做全 6 处同步，结构收敛另批） |
+| 4 | `telemetryCalls` 测试辅助多处复制 | `load-confirm.test.tsx` 等测试文件 | 后续批次：提取共享测试工具 |
+| 5 | 装载侧不校验 `source.ref` 40-hex 形态（ingest schema `COMMIT_RE` 有此口径），畸形 ref 直接进 Trees/raw URL | `apps/daemon/src/market/install.ts` | 后续批次：装载前对齐 COMMIT_RE 校验 |
+| 6 | 装载文件名未显式拒绝控制字符（`resolveWithin` 拒 NUL/非 NFC，0x01–0x1F 其余控制字符不在段级词法内） | `apps/daemon/src/path-safety.ts` isSafeSegment | 后续批次：isSafeSegment 扩控制字符拒绝（影响面广，需回归文档链路） |
+| 7 | 注释失实（如 LoadConfirmDialog「第二次打开不复用旧 token」与实现不符） | `apps/web/src/features/market/` | **本批 F1 已修此一处**；其余同类注释后续批次顺带核对 |
+
 ## 4. 修复优先级矩阵（影响 × 紧迫）
 
 | | 高紧迫 | 中紧迫 | 低紧迫 |
 |---|---|---|---|
 | **高影响** | D-01（主工作页数据丢失风险）· D-02（本地数据可被任意网页读取） | D-03（导入不可用）· D-05（并发丢更新） | D-08（大文档上限） |
 | **中影响** | D-04（保存挂死观感） | D-06/D-07（数据面健壮）· D-09（门禁可信度）· D-10（文案一致性） | D-11（覆盖率）· D-12（依赖） |
-| **低影响** | — | D-17（卫生） | D-13~D-16 |
+| **低影响** | — | D-17（卫生） | D-13~D-16 · D-18（评审 Nit 汇总） |
 
 ## 5. 阻塞与规避
 
