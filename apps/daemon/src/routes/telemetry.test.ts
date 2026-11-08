@@ -54,13 +54,16 @@ describe('telemetry · 本地 JSONL（默认仅本地）', () => {
           url: '/telemetry/events',
           payload: {
             name,
-            payload: { assetId: 'gh:acme/skills#skills/pdf', query: 'pdf', hits: index, result: 'success' },
+            payload: {
+              assetId: 'gh:acme/skills#skills/pdf',
+              query: 'pdf',
+              hits: index,
+              result: 'success',
+            },
           },
         });
         expect(response.statusCode).toBe(200);
-        expect(
-          (response.payload as { result: { stored: boolean } }).result.stored,
-        ).toBe(true);
+        expect((response.payload as { result: { stored: boolean } }).result.stored).toBe(true);
       }
       const query = await injectJson(daemon.app, { method: 'GET', url: '/telemetry/events' });
       const result = (query.payload as { result: { events: { name: string }[]; total: number } })
