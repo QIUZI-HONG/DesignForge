@@ -233,7 +233,10 @@ function runStateCoverageCheck() {
         continue;
       }
       // marker 与 alsoMarkers（同一态的附加登记，评审硬纪律：追加不删改）逐字断言同口径
-      const markers = [entry.marker, ...(Array.isArray(entry.alsoMarkers) ? entry.alsoMarkers : [])];
+      const markers = [
+        entry.marker,
+        ...(Array.isArray(entry.alsoMarkers) ? entry.alsoMarkers : []),
+      ];
       declared += markers.length;
       const missed = markers.filter(
         (marker) =>

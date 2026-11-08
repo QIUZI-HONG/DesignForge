@@ -137,9 +137,7 @@
         },
         "loading": {
           "marker": "data-df-loading=\"load-plan\"",
-          "alsoMarkers": [
-            "data-df-loading=\"load-install\""
-          ],
+          "alsoMarkers": ["data-df-loading=\"load-install\""],
           "how": "提案拉取中提示（确认框只在提案就绪后打开）；追加登记装载中提示（市场线总案 v2 评审 F1/F6：daemon 真写在途，data-df-loading=\"load-install\"——装载中禁关）"
         },
         "empty": {
