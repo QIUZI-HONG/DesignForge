@@ -496,7 +496,7 @@
   "market.load.installAssetNotFound": "Asset not found: the index may have been updated — start the install again.",
   "market.load.installAckInvalid": "Install authorization invalid: the token was already used or does not match — start the install again.",
   "market.load.installAckExpired": "Install authorization expired: the daemon one-time token timed out — start the install again.",
-  "market.load.installDigestMismatch": "Content verification failed: the source content does not match the index digest — nothing was written.",
+  "market.load.installDigestMismatch": "Content verification failed: the source content does not match the index digest — the install did not take effect (pre-write failures write nothing; post-write failures were cleaned up best-effort and may leave residue — see diagnostics).",
   "market.load.installSourceUnavailable": "Source unavailable: could not fetch asset content from the source repository (missing credentials or removed source) — nothing was written.",
   "market.load.installTargetInvalid": "Unsafe install target: the asset name or path is not compliant — the write was rejected.",
   "market.load.installUnreachable": "Could not reach the local service — make sure the daemon is running, then retry.",

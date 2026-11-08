@@ -7,12 +7,15 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { MarketAsset } from '@dforge/contracts';
 import { MARKETPLACE_INDEX_SCHEMA } from '@dforge/contracts';
 import { transform } from '@dforge/ingest';
 import { describe, expect, it } from 'vitest';
 
+import { createMarketInstallService } from '../market/install.ts';
 import { createTestDaemon, injectJson, type TestDaemon } from '../testing/harness.ts';
 
 /** 资产夹具（与 routes/market.test.ts 同族；可覆盖关键字段）。 */
@@ -520,7 +523,10 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
       expect(daemon.fetchCalls.length).toBeGreaterThan(0);
       // 落点零写入 + 审计终态留痕
       await expect(
-        readFile(join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export', 'SKILL.md'), 'utf8'),
+        readFile(
+          join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export', 'SKILL.md'),
+          'utf8',
+        ),
       ).rejects.toThrow();
       const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
       expect(audit).toContain('"applied":false');
@@ -650,6 +656,10 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
       expect((installed.payload as { error: { code: string } }).error.code).toBe(
         'market_install_asset_not_found',
       );
+      // 失败终态全审计（F4）：提案后资产消失也要留痕（approved + applied=false）
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('asset_not_found');
+      expect(audit).toContain('"applied":false');
     } finally {
       await daemon.cleanup();
     }
@@ -677,6 +687,10 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
       expect((installed.payload as { error: { code: string } }).error.code).toBe(
         'market_install_target_invalid',
       );
+      // 失败终态全审计（F4）：落点不安全同样留痕
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('target_invalid');
+      expect(audit).toContain('"applied":false');
       // 数据根外不存在 evil 目录
       await expect(readFile(join(daemon.dataRoot, 'evil', 'SKILL.md'), 'utf8')).rejects.toThrow();
       await expect(
@@ -684,6 +698,142 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
       ).rejects.toThrow();
     } finally {
       await daemon.cleanup();
+    }
+  });
+
+  it('NFD 文件名资产（F4）→ 预写校验拒绝：装不上 + 零残留 + 审计留痕', async () => {
+    // é 的 NFD 分解（e + U+0301 组合附加符）：路径安全层按非 NFC 拒绝
+    const nfdRelative = 'cafe\u0301.md';
+    const nfdFiles = { ...ASSET_FILES, [`skills/pdf-export/${nfdRelative}`]: 'NFD 文件名\n' };
+    const nfdDigest = specDigest(nfdFiles);
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: nfdFiles }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: nfdDigest })]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(400);
+      const error = (
+        installed.payload as {
+          error: { code: string; message: string; details?: Record<string, unknown> };
+        }
+      ).error;
+      expect(error.code).toBe('market_install_target_invalid');
+      expect(error.details?.phase).toBe('prewrite');
+      expect(error.details?.path).toBe(nfdRelative);
+      expect(error.message).toContain('未写入任何文件');
+      // 单事务两阶段（先验证后写入）：连合法的 SKILL.md 也零写入（无半批落盘中间态）
+      const target = join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export');
+      await expect(readFile(join(target, 'SKILL.md'), 'utf8')).rejects.toThrow();
+      // 审计：预写拒绝留痕（零写入）
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('零写入');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('写入中断（F4）→ 尽力清理已写文件 + 终态 internal + 审计如实（不谎称未写入）', async () => {
+    // 树里同时有同名「文件 docs」与「目录内文件 docs/a.md」：写完 docs 文件后再建
+    // docs 目录必 EEXIST——制造写循环中途失败的真实形态
+    const collisionFiles = {
+      'skills/pdf-export/SKILL.md': '# PDF Export\n\n把设计稿导出为分页 PDF。\n',
+      'skills/pdf-export/docs': '同名文件占位\n',
+      'skills/pdf-export/docs/a.md': '子文件\n',
+    };
+    const collisionDigest = specDigest(collisionFiles);
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: collisionFiles }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: collisionDigest })]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(500);
+      const error = (
+        installed.payload as {
+          error: { code: string; message: string; details?: Record<string, unknown> };
+        }
+      ).error;
+      expect(error.code).toBe('internal');
+      expect(error.details?.reason).toBe('write-failed');
+      // 文案如实：写入中断 + 清理结果，不再声称「未写入任何文件」
+      expect(error.message).toContain('写入中断');
+      expect(error.message).not.toContain('未写入任何文件');
+      // 尽力清理：本次已写的 SKILL.md 与 docs 文件都已删除（零残留）
+      const target = join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export');
+      await expect(readFile(join(target, 'SKILL.md'), 'utf8')).rejects.toThrow();
+      await expect(readFile(join(target, 'docs'), 'utf8')).rejects.toThrow();
+      // 审计：写入中断留痕（含清理结果）
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('写入中断');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
+describe('market install · 回读失败终态（F4：直连服务 + readFile 注入，不经 HTTP）', () => {
+  const REF = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+  const EXPECTED_DIGEST = specDigest(ASSET_FILES);
+
+  it('回读失败 → 审计 failed + 文案如实（已写入、可能有残留，不再声称未写入）', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'df-install-readback-'));
+    const service = createMarketInstallService({
+      auditPath: join(tempRoot, 'audit', 'market-install.jsonl'),
+      dataRoot: tempRoot,
+      fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: ASSET_FILES }),
+      credentials: { env: { GH_TOKEN: 'test-token-123' } },
+      loadAsset: async () => makeAsset({ digest: EXPECTED_DIGEST }) as unknown as MarketAsset,
+      // 模拟写入后磁盘读失败（EIO 形态）：文件在盘上但校验无法完成
+      readFileImpl: async () => {
+        throw new Error('EIO：模拟回读失败');
+      },
+    });
+    try {
+      const assetId = 'gh:acme/skills#skills/pdf-export';
+      const issued = await service.issue({ assetId });
+      const result = await service.install({ assetId, ackToken: issued.ackToken });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe('market_install_digest_mismatch');
+      expect(result.details?.phase).toBe('readback');
+      // 文案如实：文件已落盘（残留），绝不谎称「未写入任何文件」
+      expect(result.message).toContain('已写入');
+      expect(result.message).not.toContain('未写入任何文件');
+      // 残留如实：写入的文件确实在盘上（回读失败 ≠ 未写入）
+      const onDisk = await readFile(
+        join(tempRoot, '.dfg', 'market', 'skill', 'pdf-export', 'SKILL.md'),
+        'utf8',
+      );
+      expect(onDisk).toBe(ASSET_FILES['skills/pdf-export/SKILL.md']);
+      // 审计：pending + 失败终态（applied=false，note 带原因与「已落盘」事实）
+      const audit = await readFile(join(tempRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      const records = audit
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { decision: string; applied: boolean; note: string });
+      expect(records.map((record) => record.decision)).toEqual(['pending', 'approved']);
+      const failed = records[1];
+      expect(failed?.applied).toBe(false);
+      expect(failed?.note).toContain('回读失败');
+      expect(failed?.note).toContain('已落盘');
+      expect(audit).not.toContain(issued.ackToken);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   });
 });

@@ -27,7 +27,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 
 import type {
   DfErrorCode,
@@ -225,10 +225,13 @@ export function createMarketInstallService(options: {
   credentials?: MarketInstallCredentials;
   /** 资产查找（token 校验通过后取索引卡片；未命中返回 null → asset_not_found）。 */
   loadAsset: (assetId: string) => Promise<MarketAsset | null>;
+  /** 回读读取注入点（测试模拟磁盘读失败；缺省 node readFile）。 */
+  readFileImpl?: typeof readFile;
 }): MarketInstallService {
   const ackTtlMs = options.ackTtlMs ?? MCP_ACK_TTL_MS;
   const now = options.now ?? ((): Date => new Date());
   const fetchImpl = options.fetchImpl;
+  const readFileImpl = options.readFileImpl ?? readFile;
   const pending = new Map<string, PendingInstall>();
 
   const appendAudit = async (record: McpAuditRecord): Promise<void> => {
@@ -245,6 +248,24 @@ export function createMarketInstallService(options: {
     message,
     details,
   });
+
+  /**
+   * 失败终态审计（评审 F4）：**所有**失败终态都留痕——用户已批准（decision 沿用既有
+   * 失败形态 'approved'），applied=false + note 带原因码；token/参数只存哈希（既有形态）。
+   */
+  const auditFailure = async (proposal: PendingInstall, note: string): Promise<void> => {
+    await appendAudit(
+      auditRecord({
+        auditId: proposal.auditId,
+        at: now().toISOString(),
+        proposalId: proposal.proposalId,
+        argsDigest: proposal.argsDigest,
+        decision: 'approved',
+        applied: false,
+        note,
+      }),
+    );
+  };
 
   /**
    * 拉取资产全部文件：Trees API（pinned ref 清单）→ raw（逐文件内容）。
@@ -518,6 +539,10 @@ export function createMarketInstallService(options: {
       // 资产仍须存在（索引可能在提案后更新/被采集线重建）
       const asset = await options.loadAsset(input.assetId);
       if (asset === null) {
+        await auditFailure(
+          proposal,
+          `装载失败：资产不存在（索引可能已更新；终态 asset_not_found assetId=${input.assetId}）`,
+        );
         return {
           ok: false,
           code: 'market_install_asset_not_found',
@@ -591,6 +616,7 @@ export function createMarketInstallService(options: {
       // 落点解析：`<数据根>/.dfg/market/<kind>/<slug>/`；slug（资产名）过白名单，
       // 任何越界/不安全形态都拒绝（防索引投毒写穿数据根）
       if (!(MARKET_ASSET_KINDS as readonly string[]).includes(asset.kind)) {
+        await auditFailure(proposal, `装载失败：未知资产类型 ${asset.kind}（终态 target_invalid）`);
         return {
           ok: false,
           code: 'market_install_target_invalid',
@@ -606,6 +632,7 @@ export function createMarketInstallService(options: {
         asset.name,
       );
       if (target === null) {
+        await auditFailure(proposal, '装载失败：装载落点不安全（终态 target_invalid，零写入）');
         return {
           ok: false,
           code: 'market_install_target_invalid',
@@ -614,19 +641,67 @@ export function createMarketInstallService(options: {
         };
       }
 
-      // 单事务写入：逐文件原子写（临时文件 + rename），相对路径逐段过 resolveWithin
+      // 两阶段单事务（评审 F4）：**先验证后写入**——阶段一对全部文件做路径解析，
+      // 任一不安全即终态失败且零写入（写循环中途不再有「半批通过半批被拒」的中间态）；
+      // 阶段二拿到全部写点后逐文件原子写。
+      const planned: { relativePath: string; destination: string; content: Uint8Array }[] = [];
       for (const file of fetched.files) {
-        const segments = file.relativePath.split('/');
-        const destination = await resolveWithin(target, ...segments);
+        const destination = await resolveWithin(target, ...file.relativePath.split('/'));
         if (destination === null) {
+          await auditFailure(
+            proposal,
+            `装载失败：源文件路径不安全 ${file.relativePath}（终态 target_invalid，零写入）`,
+          );
           return {
             ok: false,
             code: 'market_install_target_invalid',
-            message: `源文件路径不安全：${file.relativePath}`,
-            details: { path: file.relativePath },
+            message: `源文件路径不安全：${file.relativePath}（预写校验未通过，未写入任何文件）`,
+            details: { path: file.relativePath, phase: 'prewrite' },
           };
         }
-        await writeFileAtomic(destination, file.content, 0o644);
+        planned.push({
+          relativePath: file.relativePath,
+          destination,
+          content: file.content,
+        });
+      }
+
+      // 阶段二：逐文件原子写（临时文件 + rename）。中途失败 = 写入中断：尽力清理本次
+      // 已写文件（删不掉的残留如实记审计），终态失败——残留不由响应谎称「未写入」。
+      const writtenPaths: string[] = [];
+      const leftoverPaths: string[] = [];
+      try {
+        for (const item of planned) {
+          await writeFileAtomic(item.destination, item.content, 0o644);
+          writtenPaths.push(item.relativePath);
+        }
+      } catch (error) {
+        for (const item of planned.slice(0, writtenPaths.length)) {
+          try {
+            await rm(item.destination, { force: true });
+          } catch {
+            leftoverPaths.push(item.relativePath);
+          }
+        }
+        const cleanupSummary =
+          leftoverPaths.length === 0
+            ? `已清理本次全部写入（${String(writtenPaths.length)} 个文件）`
+            : `已清理 ${String(writtenPaths.length - leftoverPaths.length)} 个、残留 ${String(leftoverPaths.length)} 个（${leftoverPaths.join('、')}）`;
+        await auditFailure(
+          proposal,
+          `装载失败：写入中断（${error instanceof Error ? error.message : String(error)}）；${cleanupSummary}（终态 write-failed）`,
+        );
+        return {
+          ok: false,
+          code: 'internal',
+          message: `写入中断：${cleanupSummary}——详见诊断`,
+          details: {
+            reason: 'write-failed',
+            written: writtenPaths.length,
+            ...(leftoverPaths.length === 0 ? {} : { leftovers: leftoverPaths }),
+            message: error instanceof Error ? error.message : String(error),
+          },
+        };
       }
 
       // 写后回读校验：从磁盘重算 digest，必须与索引一致（防半截写/磁盘损坏）
@@ -634,23 +709,32 @@ export function createMarketInstallService(options: {
       for (const file of fetched.files) {
         const destination = await resolveWithin(target, ...file.relativePath.split('/'));
         if (destination === null) {
+          // 阶段一已验过同一路径：这里失败属异常形态，但文件已在盘上——文案必须如实
+          await auditFailure(
+            proposal,
+            `装载失败：回读路径不安全 ${file.relativePath}（终态 target_invalid；文件已落盘）`,
+          );
           return {
             ok: false,
             code: 'market_install_target_invalid',
-            message: `回读路径不安全：${file.relativePath}`,
-            details: { path: file.relativePath },
+            message: `回读路径不安全：${file.relativePath}（文件已写入但校验未完成，可能有残留——详见诊断）`,
+            details: { path: file.relativePath, phase: 'readback' },
           };
         }
         try {
           readBack.push({
             relativePath: file.relativePath,
-            content: new Uint8Array(await readFile(destination)),
+            content: new Uint8Array(await readFileImpl(destination)),
           });
         } catch {
+          await auditFailure(
+            proposal,
+            `装载失败：回读失败 ${file.relativePath}（终态 digest_mismatch/readback；文件已落盘）`,
+          );
           return {
             ok: false,
             code: 'market_install_digest_mismatch',
-            message: `回读失败：${file.relativePath}（写入后文件不可读）`,
+            message: `回读失败：${file.relativePath}（文件已写入但校验未通过，可能有残留——详见诊断）`,
             details: { path: file.relativePath, phase: 'readback' },
           };
         }
