@@ -105,6 +105,8 @@ export type LoadErrorCode =
   | 'load_install_digest_mismatch'
   | 'load_install_source_unavailable'
   | 'load_install_target_invalid'
+  // 消费时复查闸门被拒（评审 F7：提案后资产被 yank/闸门改为不可装载）
+  | 'load_install_gate_blocked'
   | 'load_install_unreachable'
   | 'load_install_bad_response'
   | 'load_install_failed';
@@ -151,6 +153,8 @@ export function mapInstallErrorCode(code: string): LoadErrorCode {
       return 'load_install_source_unavailable';
     case 'market_install_target_invalid':
       return 'load_install_target_invalid';
+    case 'market_install_gate_blocked':
+      return 'load_install_gate_blocked';
     case 'daemon_unreachable':
       return 'load_install_unreachable';
     case 'daemon_bad_response':

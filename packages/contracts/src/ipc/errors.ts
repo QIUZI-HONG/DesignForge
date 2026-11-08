@@ -60,6 +60,9 @@ export const DF_ERROR_CODES = [
   'market_install_digest_mismatch',
   'market_install_source_unavailable',
   'market_install_target_invalid',
+  // 消费时复查装载闸门（市场线总案 v2 评审 · F7）：提案签发后索引重建，资产被 yank 或
+  // 闸门改为不可装载 → 拒绝消费旧 ackToken（策略性拒绝，对齐 invalid=403 档）
+  'market_install_gate_blocked',
   // MCP 确认桩（dryRun → 一次性 ackToken → 审计）
   'mcp_ack_invalid',
   'mcp_ack_expired',
@@ -110,6 +113,7 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   market_install_digest_mismatch: 422,
   market_install_source_unavailable: 503,
   market_install_target_invalid: 400,
+  market_install_gate_blocked: 403,
   mcp_ack_invalid: 403,
   mcp_ack_expired: 410,
   mcp_proposal_not_found: 404,

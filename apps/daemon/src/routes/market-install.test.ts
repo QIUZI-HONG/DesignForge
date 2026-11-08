@@ -716,6 +716,93 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
     }
   });
 
+  it('提案后资产被 yank（F7 消费时复查闸门）→ 403 gate_blocked：旧 token 被拒 + 零写入 + 审计', async () => {
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: ASSET_FILES }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: EXPECTED_DIGEST })]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      // 提案后索引重建：同 digest 的资产被标记下架（yank）
+      await seedIndex(
+        daemon,
+        makeIndex([
+          makeAsset({
+            digest: EXPECTED_DIGEST,
+            yanked: { reason: '权利人要求', at: '2026-11-08T00:00:00Z', source: 'rights-holder' },
+          }),
+        ]),
+      );
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(403);
+      const error = (
+        installed.payload as {
+          error: { code: string; message: string; details?: Record<string, unknown> };
+        }
+      ).error;
+      expect(error.code).toBe('market_install_gate_blocked');
+      expect(error.details?.yanked).toBe(true);
+      expect(error.message).toContain('下架或不再可装载');
+      // 拒绝即终态：零写入 + 审计留痕（gate_blocked）
+      await expect(
+        readFile(
+          join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export', 'SKILL.md'),
+          'utf8',
+        ),
+      ).rejects.toThrow();
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('gate_blocked');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('提案后闸门改为不可装载（F7）→ 403 gate_blocked（mode 复查）', async () => {
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: ASSET_FILES }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: EXPECTED_DIGEST })]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      // 提案后索引重建：许可档降为 view-only（闸门改判）
+      await seedIndex(
+        daemon,
+        makeIndex([
+          makeAsset({
+            digest: EXPECTED_DIGEST,
+            installGate: {
+              mode: 'view-only',
+              licenseGate: 'view-only',
+              security: 'pass',
+              reasons: ['NOASSERTION'],
+              ackRequired: [],
+            },
+          }),
+        ]),
+      );
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(403);
+      const error = (
+        installed.payload as { error: { code: string; details?: Record<string, unknown> } }
+      ).error;
+      expect(error.code).toBe('market_install_gate_blocked');
+      expect(error.details?.mode).toBe('view-only');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('不安全落点（资产名含路径穿越）→ 400 target_invalid，绝不写穿数据根', async () => {
     const daemon = await createInstallDaemon({
       fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: ASSET_FILES }),

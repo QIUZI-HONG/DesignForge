@@ -499,6 +499,7 @@
   "market.load.installDigestMismatch": "内容校验失败：源内容与索引 digest 不符——装载未生效（预写阶段失败零写入；写入后失败已尽力清理、可能残留——详见诊断）。",
   "market.load.installSourceUnavailable": "源不可用：无法从源仓库获取资产内容（缺凭据或源已移除）——未写入任何文件。",
   "market.load.installTargetInvalid": "装载落点不安全：资产名或路径不合规——已拒绝写入。",
+  "market.load.installGateBlocked": "装载闸门已变化：资产已被下架或不再可装载——请重新发起装载。",
   "market.load.installUnreachable": "无法连接本地服务：请确认 daemon 已启动后重试。",
   "market.load.installBadResponse": "本地服务返回了不可识别的装载结果——请重试或查看 daemon 日志。",
   "market.load.installFailed": "装载失败（{code}）——未完成的装载请重新发起。",

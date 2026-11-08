@@ -499,6 +499,7 @@
   "market.load.installDigestMismatch": "Content verification failed: the source content does not match the index digest — the install did not take effect (pre-write failures write nothing; post-write failures were cleaned up best-effort and may leave residue — see diagnostics).",
   "market.load.installSourceUnavailable": "Source unavailable: could not fetch asset content from the source repository (missing credentials or removed source) — nothing was written.",
   "market.load.installTargetInvalid": "Unsafe install target: the asset name or path is not compliant — the write was rejected.",
+  "market.load.installGateBlocked": "Install gate changed: the asset was yanked or is no longer loadable — start the install again.",
   "market.load.installUnreachable": "Could not reach the local service — make sure the daemon is running, then retry.",
   "market.load.installBadResponse": "The local service returned an unrecognizable install result — retry or check the daemon logs.",
   "market.load.installFailed": "Install failed ({code}) — start the unfinished install again.",

@@ -114,11 +114,9 @@ describe('load-token · 提案与批准', () => {
     );
     if (!opened.ok) throw new Error('提案应可装载');
     // 批准动作晚于 daemon 到期时刻 1ms：token 在 daemon 侧已失效
-    const late = approveLoadSession(
-      opened.session,
-      Date.parse('2026-11-08T00:02:00.001Z'),
-      { tokenId: 'tok-late' },
-    );
+    const late = approveLoadSession(opened.session, Date.parse('2026-11-08T00:02:00.001Z'), {
+      tokenId: 'tok-late',
+    });
     expect(late.ok).toBe(false);
     if (late.ok) return;
     expect(late.code).toBe('load_token_expired');
@@ -316,6 +314,7 @@ describe('load-token · daemon 真写接线（装载中/失败；票③）', () 
     expect(mapInstallErrorCode('market_install_target_invalid')).toBe(
       'load_install_target_invalid',
     );
+    expect(mapInstallErrorCode('market_install_gate_blocked')).toBe('load_install_gate_blocked');
     expect(mapInstallErrorCode('daemon_unreachable')).toBe('load_install_unreachable');
     expect(mapInstallErrorCode('daemon_bad_response')).toBe('load_install_bad_response');
     expect(mapInstallErrorCode('weird_unknown')).toBe('load_install_failed');

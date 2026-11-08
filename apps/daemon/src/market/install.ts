@@ -554,6 +554,27 @@ export function createMarketInstallService(options: {
         };
       }
 
+      // 消费时复查装载闸门（评审 F7）：提案签发后索引可能重建——资产被 yank 或闸门改为
+      // 不可装载时，旧 ackToken 不得再消费（写路径前的最后一道策略闸）。
+      if (asset.installGate.mode !== 'loadable' || asset.yanked !== null) {
+        await auditFailure(
+          proposal,
+          `装载失败：装载闸门已变化（终态 gate_blocked；mode=${asset.installGate.mode}${
+            asset.yanked === null ? '' : '，资产已下架'
+          }；assetId=${input.assetId}）`,
+        );
+        return {
+          ok: false,
+          code: 'market_install_gate_blocked',
+          message: '装载闸门已变化：资产已被下架或不再可装载（请重新发起装载提案）',
+          details: {
+            assetId: input.assetId,
+            mode: asset.installGate.mode,
+            ...(asset.yanked === null ? {} : { yanked: true }),
+          },
+        };
+      }
+
       // 凭据解析（env → gh；无凭据 = 结构化 source_unavailable，不静默、不匿名降级）
       const token = resolveCredentials(options.credentials);
       if (token === null) {

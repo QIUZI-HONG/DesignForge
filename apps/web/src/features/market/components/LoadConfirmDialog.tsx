@@ -62,6 +62,8 @@ function loadErrorCopyKey(code: LoadErrorCode): string {
       return 'market.load.installSourceUnavailable';
     case 'load_install_target_invalid':
       return 'market.load.installTargetInvalid';
+    case 'load_install_gate_blocked':
+      return 'market.load.installGateBlocked';
     case 'load_install_unreachable':
       return 'market.load.installUnreachable';
     case 'load_install_bad_response':
