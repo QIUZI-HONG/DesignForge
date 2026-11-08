@@ -10,7 +10,7 @@
  *   端点参数，指到已交付的设置页 / 编辑器快捷键说明）。
  */
 import type { DocumentSummary } from '@dforge/contracts';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -36,6 +36,7 @@ function renderTopbar(overrides: Partial<Parameters<typeof HomeTopbar>[0]> = {})
     market: { loading: false, available: true, items: [] },
     onOpenMarket: vi.fn(),
     onCreateDesignFile: vi.fn(),
+    onOpenMarketHome: vi.fn(),
     ...overrides,
   };
   render(<HomeTopbar {...props} />);
@@ -80,7 +81,9 @@ describe('HomeTopbar · 全局搜索（B9）', () => {
     });
     await userEvent.click(screen.getByRole('searchbox', { name: '搜索文件与技能资产' }));
     expect(screen.getByText('本地文档')).toBeDefined();
-    expect(screen.getByText('技能市场')).toBeDefined();
+    // 票②后顶栏另有「工作台 | 技能市场」切换控件，同名文案不再唯一——断言收敛到下拉面板内
+    const panel = screen.getByRole('menu', { name: '搜索文件与技能资产' });
+    expect(within(panel).getByText('技能市场')).toBeDefined();
     expect(screen.getByRole('menuitem', { name: '海报 A' })).toBeDefined();
     expect(screen.getByRole('menuitem', { name: '海报技能' })).toBeDefined();
   });
@@ -194,5 +197,23 @@ describe('HomeTopbar · 设置入口（B10 无账号简化版 / D2）', () => {
     });
 
     window.history.replaceState(null, '', '/');
+  });
+});
+
+describe('HomeTopbar · 工作台 | 技能市场切换（票②）', () => {
+  it('顶栏给平级切换控件，当前在工作台（radiogroup 语义）', () => {
+    renderTopbar();
+    const group = screen.getByRole('radiogroup', { name: '页面切换' });
+    expect(group).toBeDefined();
+    const workspace = screen.getByRole('radio', { name: '工作台' });
+    const market = screen.getByRole('radio', { name: '技能市场' });
+    expect((workspace as HTMLInputElement).checked).toBe(true);
+    expect((market as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('点「技能市场」→ onOpenMarketHome（导航 /market 归页面；工作台不被误选）', async () => {
+    const props = renderTopbar();
+    await userEvent.click(screen.getByRole('radio', { name: '技能市场' }));
+    expect(props.onOpenMarketHome).toHaveBeenCalledTimes(1);
   });
 });

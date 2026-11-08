@@ -104,3 +104,12 @@ export const TemplateIcon = createHomeIcon(
     <path d="M2 6.4h12M6.4 6.4v7.2" />
   </>,
 );
+
+/** 技能市场（侧栏「技能市场」入口；购物袋几何——市场/商店的通用素形）。 */
+export const MarketIcon = createHomeIcon(
+  'MarketIcon',
+  <>
+    <path d="M3.2 6h9.6l-.7 6.4a1 1 0 0 1-1 .9H4.9a1 1 0 0 1-1-.9z" />
+    <path d="M5.6 6V4.8a2.4 2.4 0 0 1 4.8 0V6" />
+  </>,
+);

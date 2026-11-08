@@ -19,6 +19,8 @@ function renderSidebar(overrides: Partial<Parameters<typeof HomeSidebar>[0]> = {
     collapsed: false,
     onToggleCollapse: vi.fn(),
     trashCount: 0,
+    onOpenMarketHome: vi.fn(),
+    marketUpdateCount: 0,
     ...overrides,
   };
   render(<HomeSidebar {...props} />);
@@ -64,5 +66,26 @@ describe('HomeSidebar', () => {
     renderSidebar({ collapsed: true });
     expect(screen.getByRole('button', { name: '最近' })).toBeDefined();
     expect(screen.getByRole('button', { name: '展开侧栏' })).toBeDefined();
+  });
+});
+
+describe('HomeSidebar · 技能市场入口（票②）', () => {
+  it('「技能市场」条目存在且点击回调（导航 /market 归页面）', async () => {
+    const props = renderSidebar();
+    await userEvent.click(screen.getByRole('button', { name: '技能市场' }));
+    expect(props.onOpenMarketHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('可更新计数 >0 时显示徽标并并入无障碍名', () => {
+    renderSidebar({ marketUpdateCount: 3 });
+    const entry = screen.getByRole('button', { name: /技能市场/ });
+    expect(entry.textContent).toContain('3');
+    expect(entry.getAttribute('aria-label')).toContain('3');
+  });
+
+  it('计数为 0 时不显示徽标（不虚报）', () => {
+    renderSidebar({ marketUpdateCount: 0 });
+    const entry = screen.getByRole('button', { name: '技能市场' });
+    expect(entry.getAttribute('aria-label')).toBe('技能市场');
   });
 });
