@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import { DF_ERROR_CODES, DF_ERROR_HTTP_STATUS } from '../ipc/errors.ts';
+import { DAEMON_ROUTES } from '../ipc/routes.ts';
 import {
   displayText,
   type InstallGateMode,
   MARKETPLACE_INDEX_SCHEMA,
+  type MarketLoadPlan,
   type MarketSecurityLevel,
   parseMarketplaceIndex,
 } from './index.ts';
@@ -159,5 +162,60 @@ describe('market · 词表派生（登记面补漏：层内不得再写字面量
       fail: true,
     };
     expect(Object.keys(securityCoverage).sort()).toEqual([...MARKET_SECURITY_LEVELS].sort());
+  });
+});
+
+describe('market · 装载安装契约（票③ market-load-loop · 简报 §6.1）', () => {
+  it('DAEMON_ROUTES 登记真实装载端点（POST /market/install，命名跟随现有习惯）', () => {
+    expect(DAEMON_ROUTES.marketInstall).toEqual({ method: 'POST', path: '/market/install' });
+  });
+
+  it('market_install_* 错误码族进 DF_ERROR_CODES 且 HTTP 映射齐全（对齐 mcp_ack 家族档位）', () => {
+    for (const code of [
+      'market_install_asset_not_found',
+      'market_install_ack_invalid',
+      'market_install_ack_expired',
+      'market_install_digest_mismatch',
+      'market_install_source_unavailable',
+      'market_install_target_invalid',
+    ]) {
+      expect(DF_ERROR_CODES).toContain(code);
+    }
+    expect(DF_ERROR_HTTP_STATUS.market_install_asset_not_found).toBe(404);
+    // 与 mcp_ack_invalid / mcp_ack_expired 同档：一次性 token 无效=403、过期=410
+    expect(DF_ERROR_HTTP_STATUS.market_install_ack_invalid).toBe(403);
+    expect(DF_ERROR_HTTP_STATUS.market_install_ack_expired).toBe(410);
+    expect(DF_ERROR_HTTP_STATUS.market_install_digest_mismatch).toBe(422);
+    expect(DF_ERROR_HTTP_STATUS.market_install_source_unavailable).toBe(503);
+    expect(DF_ERROR_HTTP_STATUS.market_install_target_invalid).toBe(400);
+  });
+
+  it('装载提案可携带一次性 ackToken 与到期时刻（loadable 提案签发；可选字段不破坏旧形状）', () => {
+    const plan: MarketLoadPlan = {
+      assetId: 'gh:acme/skills#skills/pdf-export',
+      mode: 'loadable',
+      loadable: true,
+      ackRequired: [],
+      license: { spdx: 'MIT', gate: 'loadable', evidencePath: 'LICENSE', evidenceSha256: 'x' },
+      targetPathHint: '.dfg/market/skill/pdf-export/',
+      reasons: [],
+      notice: '可装载',
+      ackToken: 'tok-123',
+      ackExpiresAt: '2026-11-08T00:02:00.000Z',
+    };
+    expect(plan.ackToken).toBe('tok-123');
+    expect(plan.ackExpiresAt).toBe('2026-11-08T00:02:00.000Z');
+    // 不可装载提案：不带 token（可选字段缺省即旧形状）
+    const viewOnly: MarketLoadPlan = {
+      assetId: 'gh:acme/skills#skills/view-only',
+      mode: 'view-only',
+      loadable: false,
+      ackRequired: [],
+      license: { spdx: null, gate: 'view-only', evidencePath: '', evidenceSha256: '' },
+      targetPathHint: null,
+      reasons: [],
+      notice: '仅可查看',
+    };
+    expect(viewOnly.ackToken).toBeUndefined();
   });
 });

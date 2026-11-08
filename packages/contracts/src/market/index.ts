@@ -490,6 +490,40 @@ export interface MarketLoadPlan {
   reasons: string[];
   /** 中文说明（三态各自的解释文案）。 */
   notice: string;
+  /**
+   * 一次性装载 ackToken（票③ market-load-loop）：仅 loadable 提案由 daemon 签发，
+   * `POST /market/install` 消费（一次性、短 TTL——`MCP_ACK_TTL_MS` 同族、审计只存哈希）。
+   * 与 MCP 桩同构（`McpProposalResponse.ackToken`）：随提案下发、短时效、不可重放。
+   */
+  ackToken?: string;
+  /** ackToken 到期时刻（ISO 8601；与 `ackToken` 同现）。 */
+  ackExpiresAt?: string;
+}
+
+/** 装载安装请求（`POST /market/install`；ackToken 来自装载提案）。 */
+export interface MarketInstallRequest {
+  assetId: string;
+  ackToken: string;
+}
+
+/** 装载安装响应（真写完成且回读校验通过；形态对齐市场查询响应——带 schema 标识）。 */
+export interface MarketInstallResponse {
+  schema: typeof MARKETPLACE_INDEX_SCHEMA;
+  assetId: string;
+  /** 资产类型（决定落点目录第一段）。 */
+  kind: MarketAssetKind;
+  /** 落点目录名（经白名单校验的资产 slug）。 */
+  slug: string;
+  /** 落点标记（`.dfg/market/<kind>/<slug>/`，与装载提案 targetPathHint 同口径的相对标记）。 */
+  targetPath: string;
+  /** 回读校验后的内容 digest（规格 §1.6 全文件清单流哈希；= 索引 digest）。 */
+  digest: string;
+  /** 已写入的相对路径清单（字典序，含 SKILL.md）。 */
+  files: string[];
+  /** 实际装载完成时刻（ISO 8601；前端 LoadRecord.loadedAt 真值来源）。 */
+  loadedAt: string;
+  /** 审计记录 id（`<数据根>/audit/market-install.jsonl`）。 */
+  auditId: string;
 }
 
 /** 校验索引摘要（供市场路由做轻量自检；完整解析用 parseMarketplaceIndex）。 */
