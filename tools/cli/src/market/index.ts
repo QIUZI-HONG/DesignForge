@@ -1,5 +1,6 @@
 /**
- * `df market` 子命令分发（CLI 形态见《市场首实现》§2.2：四条子命令独立可跑，不依赖编辑器/桌面壳）。
+ * `df market` 子命令分发（CLI 形态见《市场首实现》§2.2：四条子命令独立可跑，不依赖编辑器/桌面壳；
+ * `deploy` 为市场线总案 v2 票①新增——ADS → daemon 数据根部署，见 deploy-cmd.ts 头注）。
  *
  * 用法与退出码（规格 §6.1）：
  * ```
@@ -10,6 +11,7 @@
  * df market score   [--data <dir>] [--as-of ISO] [--run-id id]
  * df market index   [--data <dir>] [--generated-at ISO] [--collector-name name] [--run-id id]
  * df market search  [--data <dir>] (--q <串> | --query-set) [--limit n]
+ * df market deploy  [--data <dir>] [--data-root <dir>] [--from-index] [--collect] [collect 选项…]
  * ```
  * 退出码：`0` 通过 / `1` 断言失败（有数据但不达标）/ `2` 阻塞（缺依赖产物、无凭据、参数错误）。
  */
@@ -18,6 +20,8 @@ import { collect } from '@dforge/ingest';
 import type { CliOutcome } from '../outcome.ts';
 import { CliUsageError, intOption, listOption, parseArgv } from './args.ts';
 import { runCollectCommand } from './collect-cmd.ts';
+import type { DeployChainOptions } from './deploy-cmd.ts';
+import { runDeployCommand } from './deploy-cmd.ts';
 import { runIndexCommand } from './index-cmd.ts';
 import { runScoreCommand } from './score-cmd.ts';
 import { runSearchCommand } from './search-cmd.ts';
@@ -29,6 +33,7 @@ export const MARKET_USAGE = `df market —— 市场采集线（首批 40 仓判
   df market score   [选项]    DWD → 五维评分（DWS，第 3 环）
   df market index   [选项]    DWS → 市场索引 + 检索索引（ADS，第 4 环）
   df market search  [选项]    检索 ADS 产物（第 5 环）
+  df market deploy  [选项]    ADS → daemon 数据根部署（写 <data-root>/market/，幂等）
 
 collect 选项：
   --data <dir>          数据面根目录（默认 data；内含 ods/ dwd/ dws/ ads/ evidence/）
@@ -62,6 +67,16 @@ search 选项：
   --q <串>              单查询
   --query-set           跑内置示例查询集（≥10 条，逐条断言 + P95 基线）
   --limit <n>           单查询返回条数（默认 10）
+
+deploy 选项：
+  --data <dir>          管线数据面根目录（源；默认 data）
+  --data-root <dir>     daemon 数据根（目标；默认 ~/.dforge）
+  --from-index          跳过重建，直接部署 <data>/ads/ 现有产物（仍过 schema 校验）
+  --collect             全链模式：collect → score → index → deploy 一条命令跑完
+                        （collect 选项照传：--limit/--seeds/--topics/--replay 等）
+  --generated-at <ISO>  重建索引的批次时刻（缺省取 DWD 清单 asOf）
+  --collector-name <s>  重建索引的 collector.name（默认 df-market）
+  --run-id <id>         deploy 证据批次 id（默认 deploy-<日期>）
 
 退出码：0 通过 / 1 断言失败 / 2 阻塞（缺依赖产物、无凭据、参数错误；禁止假绿）。`;
 
@@ -195,5 +210,73 @@ export async function runMarketCli(
     return { command: 'market search', ...result };
   }
 
-  throw new CliUsageError(`未知子命令：market ${sub}（支持 collect|score|index|search）`);
+  if (sub === 'deploy') {
+    const parsed = parseArgv(rest, {
+      value: [
+        'data',
+        'data-root',
+        'limit',
+        'seeds',
+        'topics',
+        'sorts',
+        'per-topic',
+        'max-pages',
+        'since',
+        'max-content',
+        'as-of',
+        'run-id',
+        'replay',
+        'generated-at',
+        'collector-name',
+      ],
+      flags: ['stars-history', 'from-index', 'collect'],
+    });
+    if (parsed.help) {
+      log(MARKET_USAGE);
+      return { command: 'market deploy', exitCode: 0, summary: {}, blockedReason: null };
+    }
+    const topicsRaw = parsed.value('topics');
+    const sortsRaw = listOption(parsed, 'sorts') ?? ['stars', 'updated'];
+    const sorts = sortsRaw.filter(
+      (s): s is 'stars' | 'updated' => s === 'stars' || s === 'updated',
+    );
+    if (sorts.length !== sortsRaw.length) throw new CliUsageError('--sorts 仅支持 stars,updated');
+    const runCollect = parsed.flag('collect');
+    const chain: DeployChainOptions | null = runCollect
+      ? {
+          limit: intOption(parsed, 'limit', null),
+          seeds: listOption(parsed, 'seeds') ?? [],
+          topics:
+            topicsRaw === null
+              ? [...collect.DEFAULT_TOPICS]
+              : topicsRaw.trim() === 'none' || topicsRaw.trim() === ''
+                ? []
+                : topicsRaw.split(',').map((t) => t.trim()),
+          sorts,
+          perTopic: intOption(parsed, 'per-topic', 20) ?? 20,
+          maxPagesPerQuery: intOption(parsed, 'max-pages', 1) ?? 1,
+          since: parsed.value('since'),
+          maxContent: intOption(parsed, 'max-content', 32) ?? 32,
+          starsHistory: parsed.flag('stars-history'),
+          asOf: parsed.value('as-of'),
+          runId: parsed.value('run-id'),
+          replayDir: parsed.value('replay'),
+        }
+      : null;
+    const result = await runDeployCommand(
+      {
+        dataRoot: parsed.value('data') ?? 'data',
+        deployRoot: parsed.value('data-root'),
+        fromIndex: parsed.flag('from-index'),
+        chain,
+        generatedAt: parsed.value('generated-at'),
+        collectorName: parsed.value('collector-name') ?? 'df-market',
+        runId: parsed.value('run-id'),
+      },
+      log,
+    );
+    return { command: 'market deploy', ...result };
+  }
+
+  throw new CliUsageError(`未知子命令：market ${sub}（支持 collect|score|index|search|deploy）`);
 }

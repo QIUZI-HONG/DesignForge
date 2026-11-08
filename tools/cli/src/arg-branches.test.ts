@@ -297,7 +297,7 @@ describe('df market 子命令分发与参数分支（runMarketCli；执行体已
 
   it('未知子命令 → 用法错误（点出支持集）', async () => {
     await expect(runMarketCli(['nope'], log)).rejects.toThrow(
-      '未知子命令：market nope（支持 collect|score|index|search）',
+      '未知子命令：market nope（支持 collect|score|index|search|deploy）',
     );
   });
 });
