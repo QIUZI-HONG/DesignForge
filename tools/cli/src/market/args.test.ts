@@ -28,6 +28,12 @@ describe('parseArgv', () => {
     expect(() => parseArgv(['stray'], {})).toThrow(/位置参数/);
   });
 
+  it('裸 `--` 选项终止符按忽略处理（pnpm run 会把调用方的 -- 原样透传）', () => {
+    const parsed = parseArgv(['--', '--data', 'data-x'], { value: ['data'] });
+    expect(parsed.value('data')).toBe('data-x');
+    expect(parseArgv(['--'], {}).help).toBe(false);
+  });
+
   it('intOption：非法值抛错、缺省回退、正整数字符串解析', () => {
     const parsed = parseArgv(['--limit', '40'], { value: ['limit'] });
     expect(intOption(parsed, 'limit', null)).toBe(40);
