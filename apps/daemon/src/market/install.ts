@@ -49,6 +49,11 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_COUNT = 2000;
 /** 单次装载总字节上限。 */
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+/**
+ * 单次上游 fetch 超时（毫秒；评审 F2）：源仓库挂起（墙/假死连接）不得把装载请求无限吊住——
+ * Trees API 与逐文件 raw 下载各自计时，超时按网络失败走 source_unavailable 终态。
+ */
+const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 
 /** 装载安装结果（路由层映射为统一失败信封）。 */
 export type MarketInstallResult =
@@ -174,6 +179,13 @@ interface TreeEntry {
   size?: unknown;
 }
 
+/** 待下载文件（Trees API 清单条目；size 缺省 null 表示清单未提供，退回下载后复检）。 */
+interface PendingBlob {
+  relativePath: string;
+  fullPath: string;
+  size: number | null;
+}
+
 /** 源仓库文件（相对资产根的路径 + 内容字节）。 */
 interface FetchedFile {
   relativePath: string;
@@ -242,7 +254,7 @@ export function createMarketInstallService(options: {
     try {
       treeResponse = await fetchImpl(
         `https://api.github.com/repos/${repo}/git/trees/${ref}?recursive=1`,
-        { headers },
+        { headers, signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS) },
       );
     } catch (error) {
       return {
@@ -288,13 +300,17 @@ export function createMarketInstallService(options: {
       };
     }
     const prefix = `${assetPath}/`;
-    const blobs: { relativePath: string; fullPath: string }[] = [];
+    const blobs: PendingBlob[] = [];
     for (const entry of entries as TreeEntry[]) {
       if (entry.type !== 'blob' || typeof entry.path !== 'string') continue;
       if (!entry.path.startsWith(prefix)) continue;
       const relativePath = entry.path.slice(prefix.length);
       if (relativePath.length === 0) continue;
-      blobs.push({ relativePath, fullPath: entry.path });
+      blobs.push({
+        relativePath,
+        fullPath: entry.path,
+        size: typeof entry.size === 'number' ? entry.size : null,
+      });
     }
     if (blobs.length === 0) {
       return {
@@ -324,6 +340,36 @@ export function createMarketInstallService(options: {
       };
     }
 
+    // 大小预检（评审 F2）：Trees API 清单条目自带 size——超限资产在下载前即终态失败，
+    // 不发起任何 raw 请求（防恶意索引把 daemon 拖进大文件下载）。清单未给 size 的条目
+    // 退回下载后复检（下方逐文件校验仍是第二道闸）。
+    let precheckedTotal = 0;
+    for (const blob of blobs) {
+      if (blob.size === null) continue;
+      if (blob.size > MAX_FILE_BYTES) {
+        return {
+          ok: false,
+          result: sourceUnavailable(`源文件超过单文件上限：${blob.relativePath}`, {
+            reason: 'file-too-large',
+            path: blob.relativePath,
+            bytes: blob.size,
+            phase: 'precheck',
+          }),
+        };
+      }
+      precheckedTotal += blob.size;
+    }
+    if (precheckedTotal > MAX_TOTAL_BYTES) {
+      return {
+        ok: false,
+        result: sourceUnavailable('资产总大小超过装载上限', {
+          reason: 'total-too-large',
+          bytes: precheckedTotal,
+          phase: 'precheck',
+        }),
+      };
+    }
+
     const files: FetchedFile[] = [];
     let totalBytes = 0;
     for (const blob of blobs) {
@@ -331,7 +377,10 @@ export function createMarketInstallService(options: {
       try {
         response = await fetchImpl(
           `https://raw.githubusercontent.com/${repo}/${ref}/${blob.fullPath}`,
-          { headers: { authorization: `Bearer ${token}` } },
+          {
+            headers: { authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
+          },
         );
       } catch (error) {
         return {

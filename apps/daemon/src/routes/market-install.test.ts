@@ -94,6 +94,11 @@ export interface GithubStubOptions {
   missingPaths?: string[];
   /** Trees API 状态码（默认 200）。 */
   treeStatus?: number;
+  /**
+   * 清单里虚报超大 size 的路径（评审 F2）：内容照常给（小文本），但 Trees 条目 size
+   * 报成超过 MAX_FILE_BYTES 的值——断言预检在 raw 下载前即终态失败。
+   */
+  oversizedPaths?: string[];
 }
 
 function githubStub(options: GithubStubOptions): typeof fetch {
@@ -109,7 +114,10 @@ function githubStub(options: GithubStubOptions): typeof fetch {
         path,
         mode: '100644',
         type: 'blob',
-        size: options.files[path]?.length ?? 0,
+        size:
+          options.oversizedPaths?.includes(path) === true
+            ? 11 * 1024 * 1024
+            : (options.files[path]?.length ?? 0),
         sha: 'f'.repeat(40),
       }));
       return new Response(JSON.stringify({ sha: options.ref, tree: entries, truncated: false }), {
@@ -473,6 +481,49 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
       expect(installed.statusCode).toBe(503);
       const error = (installed.payload as { error: { details?: Record<string, unknown> } }).error;
       expect(error.details?.reason).toBe('skill-manifest-missing');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('清单 size 超单文件上限（F2）→ 预检即 503，不发起任何 raw 下载', async () => {
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({
+        repo: 'acme/skills',
+        ref: REF,
+        files: ASSET_FILES,
+        oversizedPaths: ['skills/pdf-export/SKILL.md'],
+      }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: EXPECTED_DIGEST })]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(503);
+      const error = (
+        installed.payload as { error: { code: string; details?: Record<string, unknown> } }
+      ).error;
+      expect(error.code).toBe('market_install_source_unavailable');
+      expect(error.details?.reason).toBe('file-too-large');
+      expect(error.details?.phase).toBe('precheck');
+      expect(error.details?.path).toBe('SKILL.md');
+      // 预检失败 = 只发过 Trees 清单请求，raw 内容下载一次都没发生
+      const rawCalls = daemon.fetchCalls.filter((call) =>
+        call.url.startsWith('https://raw.githubusercontent.com/'),
+      );
+      expect(rawCalls).toEqual([]);
+      expect(daemon.fetchCalls.length).toBeGreaterThan(0);
+      // 落点零写入 + 审计终态留痕
+      await expect(
+        readFile(join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export', 'SKILL.md'), 'utf8'),
+      ).rejects.toThrow();
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('"applied":false');
     } finally {
       await daemon.cleanup();
     }
