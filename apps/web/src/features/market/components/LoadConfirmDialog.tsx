@@ -192,6 +192,9 @@ export function LoadConfirmDialog({
   };
 
   const terminal = session.status === 'consumed' || session.status === 'failed';
+  // 装载中禁关（评审 F6）：daemon 真写在途，中途关闭会造成「token 已消费、本地无账」的
+  // 悬空态——遮罩/Esc/关闭按钮全部失效，取消按钮一并隐藏（完成或失败后恢复出口）。
+  const loading = session.status === 'loading';
 
   return (
     <Modal
@@ -201,20 +204,23 @@ export function LoadConfirmDialog({
       description={t('market.load.desc')}
       size="lg"
       closeLabel={t('market.load.close')}
+      disableClose={loading}
       footer={
         <>
-          <Button
-            variant={terminal ? 'primary' : 'secondary'}
-            onClick={
-              terminal
-                ? () => {
-                    onOpenChange(false);
-                  }
-                : cancel
-            }
-          >
-            {terminal ? t('market.load.done') : t('market.load.cancel')}
-          </Button>
+          {loading ? null : (
+            <Button
+              variant={terminal ? 'primary' : 'secondary'}
+              onClick={
+                terminal
+                  ? () => {
+                      onOpenChange(false);
+                    }
+                  : cancel
+              }
+            >
+              {terminal ? t('market.load.done') : t('market.load.cancel')}
+            </Button>
+          )}
           {session.status === 'preview' ? (
             <Button variant="primary" onClick={approve} data-df-market="approve-load">
               {t('market.load.approve')}

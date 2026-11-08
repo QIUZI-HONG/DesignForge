@@ -331,6 +331,42 @@ describe('LoadConfirmDialog · daemon 真写接线（装载中/失败；票③�
     expect(screen.getByText(/已装载：写入记录与审计已生成/)).toBeTruthy();
   });
 
+  it('装载中禁关（F6）：Esc/点遮罩都不关闭，取消按钮隐藏；完成后出口恢复', async () => {
+    const user = userEvent.setup();
+    let resolveInstall: ((value: MarketInstallOutcome) => void) | null = null;
+    const deferred = new Promise<MarketInstallOutcome>((resolve) => {
+      resolveInstall = resolve;
+    });
+    const { onOpenChange } = setupWithPlan({}, { install: () => deferred });
+    await user.click(screen.getByRole('button', { name: '批准并签发一次性 token' }));
+    await user.click(screen.getByRole('button', { name: '确认写入' }));
+    // 装载中：取消按钮隐藏，关闭（X）按钮不存在
+    expect(screen.queryByRole('button', { name: '取消' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /关闭装载确认/ })).toBeNull();
+    // Esc 不关
+    await user.keyboard('{Escape}');
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-df-market="load-installing"]')).not.toBeNull();
+    // 点遮罩不关
+    const dialog = document.querySelector('[role="dialog"]');
+    await user.click(dialog?.parentElement as HTMLElement);
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-df-market="load-installing"]')).not.toBeNull();
+    // 真写完成 → 出口恢复（关闭按钮可点，onOpenChange(false)）
+    await act(async () => {
+      resolveInstall?.({
+        ok: true,
+        digest: makeAsset().digest,
+        loadedAt: '2026-11-08T00:00:00.000Z',
+        targetPath: '.dfg/market/skill/pdf-export/',
+        files: ['SKILL.md'],
+      });
+      await deferred;
+    });
+    await user.click(screen.getByRole('button', { name: '关闭' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it('装载失败呈现：显式 alert + 错误码可引用（诊断）+ 关闭出口，不再有写入按钮', async () => {
     const user = userEvent.setup();
     const failInstall: MarketInstallClient = async () => ({
@@ -358,7 +394,10 @@ describe('LoadConfirmDialog · daemon 真写接线（装载中/失败；票③�
       <LoadConfirmDialog
         open
         asset={makeAsset()}
-        plan={makeLoadPlan({ ackToken: 'daemon-token-stale', ackExpiresAt: '2026-11-08T00:02:00.000Z' })}
+        plan={makeLoadPlan({
+          ackToken: 'daemon-token-stale',
+          ackExpiresAt: '2026-11-08T00:02:00.000Z',
+        })}
         ownedBefore={false}
         onOpenChange={() => {}}
         onLoaded={() => {}}
