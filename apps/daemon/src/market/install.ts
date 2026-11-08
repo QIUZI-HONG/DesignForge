@@ -277,11 +277,13 @@ export function createMarketInstallService(options: {
   ): Promise<{ ok: true; files: FetchedFile[] } | { ok: false; result: MarketInstallFailure }> => {
     const repo = asset.source.repo;
     const ref = asset.source.ref;
+    // path 允许空串（评审 F5）：与 services/ingest 索引 schema 的 allowEmpty 语义对齐——
+    // path='' 表示**仓根资产**（整仓即资产），仅 repo/ref 必填。
     const assetPath = asset.source.path.replace(/\/+$/, '');
-    if (repo.length === 0 || ref.length === 0 || assetPath.length === 0) {
+    if (repo.length === 0 || ref.length === 0) {
       return {
         ok: false,
-        result: sourceUnavailable('资产源信息不完整（repo/ref/path 缺失），无法拉取内容', {
+        result: sourceUnavailable('资产源信息不完整（repo/ref 缺失），无法拉取内容', {
           reason: 'source-incomplete',
         }),
       };
@@ -342,7 +344,8 @@ export function createMarketInstallService(options: {
         result: sourceUnavailable('源仓库文件清单缺少 tree 数组', { reason: 'tree-invalid' }),
       };
     }
-    const prefix = `${assetPath}/`;
+    // 资产根前缀：path=''（仓根资产）取全仓文件；非空则限定在该前缀之下
+    const prefix = assetPath.length === 0 ? '' : `${assetPath}/`;
     const blobs: PendingBlob[] = [];
     for (const entry of entries as TreeEntry[]) {
       if (entry.type !== 'blob' || typeof entry.path !== 'string') continue;

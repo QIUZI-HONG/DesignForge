@@ -143,15 +143,14 @@ function githubStub(options: GithubStubOptions): typeof fetch {
   };
 }
 
-/** 规格 §1.6 digest 的独立推导（测试内直接转写规格，不调用被测实现）。 */
-function specDigest(files: Record<string, string>): string {
+/** 规格 §1.6 digest 的独立推导（测试内直接转写规格，不调用被测实现）。
+ * `assetPath` 为资产根（缺省夹具前缀；仓根资产传 ''——相对路径即仓库内完整路径）。 */
+function specDigest(files: Record<string, string>, assetPath = 'skills/pdf-export'): string {
+  const cut = assetPath.length === 0 ? 0 : assetPath.length + 1;
   const lines = Object.entries(files)
     .map(([path, content]) => {
       const hash = createHash('sha256').update(content, 'utf8').digest('hex');
-      return `${path.slice('skills/pdf-export/'.length)}\0sha256:${hash}\0${Buffer.byteLength(
-        content,
-        'utf8',
-      )}\n`;
+      return `${path.slice(cut)}\0sha256:${hash}\0${Buffer.byteLength(content, 'utf8')}\n`;
     })
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     .join('');
@@ -407,6 +406,58 @@ describe('market install · 真写成功（拉取 → digest 对齐 → 落盘 �
       expect(second.statusCode).toBe(403);
       expect((second.payload as { error: { code: string } }).error.code).toBe(
         'market_install_ack_invalid',
+      );
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('仓根资产（path=""，F5）→ 装载全仓文件成功（对齐 ingest schema 的 allowEmpty 语义）', async () => {
+    const rootFiles = {
+      'SKILL.md': '# Root Skill\n\n整仓即资产。\n',
+      'references/notes.md': '根级参考。\n',
+    };
+    const rootDigest = specDigest(rootFiles, '');
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: rootFiles }),
+      marketInstallCredentials: { env: { GH_TOKEN: 'test-token-123' } },
+    });
+    try {
+      const base = makeAsset();
+      await seedIndex(
+        daemon,
+        makeIndex([
+          makeAsset({
+            id: 'gh:acme/skills#',
+            name: 'root-skill',
+            digest: rootDigest,
+            source: { ...(base.source as Record<string, unknown>), path: '' },
+          }),
+        ]),
+      );
+      const plan = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/load-plan',
+        payload: { assetId: 'gh:acme/skills#' },
+      });
+      expect(plan.statusCode).toBe(200);
+      const ackToken = (plan.payload as { result: { ackToken: string } }).result.ackToken;
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#', ackToken },
+      });
+      expect(installed.statusCode).toBe(200);
+      const result = (installed.payload as { result: Record<string, unknown> }).result;
+      // 全仓文件都进清单（相对路径 = 仓库内完整路径）
+      expect(result.files).toEqual(['SKILL.md', 'references/notes.md']);
+      expect(result.digest).toBe(rootDigest);
+      expect(result.targetPath).toBe('.dfg/market/skill/root-skill/');
+      // 落点真写：根级与子目录文件都在
+      const target = join(daemon.dataRoot, '.dfg', 'market', 'skill', 'root-skill');
+      expect(await readFile(join(target, 'SKILL.md'), 'utf8')).toBe(rootFiles['SKILL.md']);
+      expect(await readFile(join(target, 'references', 'notes.md'), 'utf8')).toBe(
+        rootFiles['references/notes.md'],
       );
     } finally {
       await daemon.cleanup();
