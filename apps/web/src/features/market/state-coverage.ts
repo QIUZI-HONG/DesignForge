@@ -18,6 +18,12 @@ export interface StateCoverageEntry {
   state: CoverageState;
   /** 可在源码中逐字断言的字面量（缺省表示由基础件承担/不适用）。 */
   marker?: string;
+  /**
+   * 同一态的**附加** marker（市场线总案 v2 评审硬纪律：D4 装载中提示
+   * `data-df-loading="load-install"` 追加登记、不删改既有登记）；
+   * 断言口径与 `marker` 同——逐字命中声明的源文件。
+   */
+  alsoMarkers?: string[];
   /** 由谁承担（基础件）或不适用原因。 */
   delegatedTo?: string;
   /** 复现方式（截图门禁与人工复核用）。 */
@@ -50,13 +56,17 @@ export const MARKET_STATE_COVERAGE: PageCoverage[] = coverage.pages.map((page) =
     COVERAGE_STATES.map((state) => {
       // 表由 JSON 提供，逐态宽松读取：缺条目时给「未登记」的保守默认（结构校验在测试与门禁里做）
       const entry = (
-        page.states as Record<string, { marker?: string; delegatedTo?: string; how: string }>
+        page.states as Record<
+          string,
+          { marker?: string; alsoMarkers?: string[]; delegatedTo?: string; how: string }
+        >
       )[state] ?? { how: '未登记' };
       return [
         state,
         {
           state,
           ...(entry.marker === undefined ? {} : { marker: entry.marker }),
+          ...(entry.alsoMarkers === undefined ? {} : { alsoMarkers: entry.alsoMarkers }),
           ...(entry.delegatedTo === undefined ? {} : { delegatedTo: entry.delegatedTo }),
           how: entry.how,
         },
@@ -70,7 +80,7 @@ export function coverageOf(page: string): PageCoverage | null {
   return MARKET_STATE_COVERAGE.find((entry) => entry.page === page) ?? null;
 }
 
-/** 未被基础件承担、需要源码字面量断言的态（门禁断言清单）。 */
+/** 未被基础件承担、需要源码字面量断言的态（门禁断言清单；alsoMarkers 一并展开断言）。 */
 export function declaredMarkers(): {
   page: string;
   state: CoverageState;
@@ -82,7 +92,9 @@ export function declaredMarkers(): {
     for (const state of COVERAGE_STATES) {
       const entry = page.states[state];
       if (entry.marker === undefined) continue;
-      out.push({ page: page.page, state, marker: entry.marker, sourceFiles: page.sourceFiles });
+      for (const marker of [entry.marker, ...(entry.alsoMarkers ?? [])]) {
+        out.push({ page: page.page, state, marker, sourceFiles: page.sourceFiles });
+      }
     }
   }
   return out;

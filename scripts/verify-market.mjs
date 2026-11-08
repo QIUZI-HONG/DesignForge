@@ -232,15 +232,20 @@ function runStateCoverageCheck() {
         pageStates.push(`${state}（delegated）`);
         continue;
       }
-      declared += 1;
-      const hit = page.sourceFiles.some((file) => {
-        const abs = join(repoRoot, file);
-        return existsSync(abs) && readFileSync(abs, 'utf8').includes(entry.marker);
-      });
-      if (hit) pageStates.push(`${state}（marker 命中）`);
+      // marker 与 alsoMarkers（同一态的附加登记，评审硬纪律：追加不删改）逐字断言同口径
+      const markers = [entry.marker, ...(Array.isArray(entry.alsoMarkers) ? entry.alsoMarkers : [])];
+      declared += markers.length;
+      const missed = markers.filter(
+        (marker) =>
+          !page.sourceFiles.some((file) => {
+            const abs = join(repoRoot, file);
+            return existsSync(abs) && readFileSync(abs, 'utf8').includes(marker);
+          }),
+      );
+      if (missed.length === 0) pageStates.push(`${state}（marker 命中）`);
       else
         missing.push(
-          `${page.page}/${state}：marker 未在 ${page.sourceFiles.join(', ')} 命中 → ${entry.marker}`,
+          `${page.page}/${state}：marker 未在 ${page.sourceFiles.join(', ')} 命中 → ${missed.join(' ; ')}`,
         );
     }
     pages.push({ page: page.page, route: page.route, theme: page.theme, states: pageStates });
