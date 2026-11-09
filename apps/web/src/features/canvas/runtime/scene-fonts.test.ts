@@ -91,4 +91,54 @@ describe('loadSceneFonts', () => {
     });
     expect(urls[0]).toBe('/canvaskit/fonts/noto-sans-sc-chinese-simplified-400-normal.woff2');
   });
+
+  it('六个字体文件并行拉取（B9：串行实现是装载期 ×RTT 的启动延迟）', async () => {
+    const { canvasKit } = fakeCanvasKit();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fonts = await loadSceneFonts(canvasKit, {
+      fetchBytes: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inFlight -= 1;
+        return new ArrayBuffer(8);
+      },
+    });
+    expect(fonts.registered).toBe(6);
+    // Promise.all 一次性发起全部请求：并发在飞 = 6（串行实现恒为 1 → 红）
+    expect(maxInFlight).toBe(6);
+  });
+
+  it('单个文件悬挂 → 到点有界失败走 missing 降级路径（不悬挂启动，B9）', async () => {
+    const { canvasKit } = fakeCanvasKit();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const startedAt = Date.now();
+    const fonts = await loadSceneFonts(canvasKit, {
+      fetchBytes: async (url) => {
+        if (url.includes('latin-500')) {
+          return new Promise<ArrayBuffer>(() => undefined); // 悬挂（注入实现不理会 signal）
+        }
+        return new ArrayBuffer(8);
+      },
+      fetchTimeoutMs: 40,
+    });
+    expect(fonts.registered).toBe(5);
+    expect(fonts.missing).toEqual(['/canvaskit/fonts/noto-sans-sc-latin-500-normal.woff2']);
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('全部悬挂 → registered=0（错误态）且到点落定（不悬挂启动，B9）', async () => {
+    const { canvasKit } = fakeCanvasKit();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fonts = await loadSceneFonts(canvasKit, {
+      fetchBytes: async () => new Promise<ArrayBuffer>(() => undefined),
+      fetchTimeoutMs: 30,
+    });
+    expect(fonts.registered).toBe(0);
+    expect(fonts.missing).toHaveLength(6);
+    consoleError.mockRestore();
+  });
 });
