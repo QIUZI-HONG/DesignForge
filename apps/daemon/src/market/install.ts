@@ -56,6 +56,15 @@ const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
  */
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 
+/**
+ * 源 ref 必须是 40 位 commit hex（D-18 #5 · 票 A · A2）：装载侧此前不校验 `source.ref`
+ * 形态，畸形 ref（分支名/短 SHA/带路径）直接进 Trees/raw URL。口径与采集索引 schema
+ * `services/ingest/src/index/schema.ts` 的 `COMMIT_RE` 同源（`/^[0-9a-f]{40}$/i`，大小写
+ * 兼容）——该正则未从包内导出，这里对齐字面量并注释同源出处。不符走既有
+ * `market_install_source_unavailable` 终态族（reason: 'ref-invalid'），不新造公开错误码。
+ */
+const COMMIT_SHA_RE = /^[0-9a-f]{40}$/i;
+
 /** 装载安装结果（路由层映射为统一失败信封）。 */
 export type MarketInstallResult =
   | { ok: true; response: MarketInstallResponse }
@@ -310,6 +319,16 @@ export function createMarketInstallService(options: {
         ok: false,
         result: sourceUnavailable('资产源信息不完整（repo/ref 缺失），无法拉取内容', {
           reason: 'source-incomplete',
+        }),
+      };
+    }
+    // ref 形态校验（D-18 #5 · 票 A · A2）：非 40-hex commit 在发起任何源请求前即终态失败
+    // （与 source-incomplete 同族同档：源信息本身不可信，不进 URL 拼接）。
+    if (!COMMIT_SHA_RE.test(ref)) {
+      return {
+        ok: false,
+        result: sourceUnavailable('资产源 ref 不是合法的 40 位 commit SHA，拒绝装载', {
+          reason: 'ref-invalid',
         }),
       };
     }

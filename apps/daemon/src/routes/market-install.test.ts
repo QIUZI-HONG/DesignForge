@@ -536,6 +536,60 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
     return (plan.payload as { result: { ackToken: string } }).result.ackToken;
   }
 
+  it('畸形 ref（非 40-hex commit）→ 503 source_unavailable（ref-invalid），不发起任何源请求（D-18 #5 · 票 A · A2）', async () => {
+    const requested: string[] = [];
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({
+        repo: 'acme/skills',
+        ref: 'main', // 资产索引里登记的畸形 ref（分支名，不是 commit SHA）
+        files: ASSET_FILES,
+        recordUrls: requested,
+      }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(
+        daemon,
+        makeIndex([
+          makeAsset({ source: { ...makeAsset().source, ref: 'main' } }),
+          makeAsset({
+            id: 'gh:acme/skills#skills/short-ref',
+            name: 'short-ref',
+            source: { ...makeAsset().source, ref: 'a1b2c3d' },
+          }),
+        ]),
+      );
+      for (const assetId of [
+        'gh:acme/skills#skills/pdf-export',
+        'gh:acme/skills#skills/short-ref',
+      ]) {
+        const ackToken = await planToken(daemon, assetId);
+        const installed = await injectJson(daemon.app, {
+          method: 'POST',
+          url: '/market/install',
+          payload: { assetId, ackToken },
+        });
+        expect(installed.statusCode).toBe(503);
+        const error = (
+          installed.payload as { error: { code: string; details?: Record<string, unknown> } }
+        ).error;
+        expect(error.code).toBe('market_install_source_unavailable');
+        expect(error.details?.reason).toBe('ref-invalid');
+      }
+      // 零源请求：Trees/raw 都不发（畸形 ref 在装载前即终态）
+      expect(requested).toEqual([]);
+      // 未写入任何文件
+      await expect(
+        readFile(join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export'), 'utf8'),
+      ).rejects.toThrow();
+      // 审计如实留痕
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('raw 404（源文件已移除）→ 503 source_unavailable，且不写任何文件', async () => {
     const daemon = await createInstallDaemon({
       fetchImpl: githubStub({
