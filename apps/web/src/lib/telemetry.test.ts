@@ -54,6 +54,29 @@ describe('emitTelemetryEvent（票② · 本地埋点发射）', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it('连接卫生：请求带 30s 超时信号（B5）——signal 注入 fetch，超时拒绝同样就地吞', async () => {
+    let receivedSignal: AbortSignal | undefined;
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      receivedSignal = init?.signal;
+      // 模拟 daemon 挂死：永不结算，直到 signal abort 传导
+      return new Promise<Response>((_resolve, reject) => {
+        receivedSignal?.addEventListener('abort', () => reject(receivedSignal?.reason), {
+          once: true,
+        });
+      });
+    });
+    expect(() =>
+      emitTelemetryEvent('market.view', undefined, { baseUrl: 'http://daemon.test', fetchImpl }),
+    ).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // signal 已注入（AbortSignal.timeout 的平台原语；超时拒绝走同一 .catch 吞掉）
+    expect(receivedSignal).toBeInstanceOf(AbortSignal);
+    expect(receivedSignal?.aborted).toBe(false);
+    // 驱动到超时点（30s 太长不真等）：直接 abort 该信号模拟到点，拒绝仍被吞、无 unhandled rejection
+    receivedSignal?.dispatchEvent(new Event('abort'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 });
 
 /** 取 fetch 桩首次调用的 (url, init)（类型收窄，断言用）。 */
