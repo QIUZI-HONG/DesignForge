@@ -234,18 +234,22 @@ function abortFailure(signal: AbortSignal): TransportFailure {
 }
 
 /**
- * 读全响应体文本，**到点必然落定**：真实 Response 的 body 走自有 reader
- * （{@link readBodyText}，abort 时 cancel 上游并释放连接），读取整体与
- * `deadline.timeout` race——即使上游流无视 `cancel()`，到上限也不会无界悬挂（评审 F6）。
+ * 读全响应体文本，**到点必然落定**。
+ *
+ * - 真实 Response 的 body 走自有 reader（{@link readBodyText}）：abort 时 `reader.cancel()`
+ *   取消上游、释放连接；
+ * - 204/HEAD 的 null body 与宿主替身的 `text()` 回退没有 reader 可取消：同样与
+ *   `deadline.timeout` race（评审 R2-N2），到上限必然落定；
+ * - 两条路径都 race `deadline.timeout`：即使上游流无视 `cancel()`，读取也不会无界悬挂。
  */
 async function readTextWithinDeadline(deadline: TotalDeadlineResponse): Promise<string> {
   const { response, signal, timeout } = deadline;
   const body = response.body as ReadableStream<Uint8Array> | null | undefined;
-  if (body === null || body === undefined || typeof body.getReader !== 'function') {
-    // 204/HEAD 的 null body 与宿主替身的 text() 回退（无 reader 可取消）
-    return await response.text();
-  }
-  return await Promise.race([readBodyText(body, signal), timeout]);
+  const reading =
+    body === null || body === undefined || typeof body.getReader !== 'function'
+      ? response.text()
+      : readBodyText(body, signal);
+  return await Promise.race([reading, timeout]);
 }
 
 /**

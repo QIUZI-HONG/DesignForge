@@ -147,6 +147,28 @@ describe('request · 信封与传输失败归一', () => {
     expect(cancelled).toBe(true);
   });
 
+  it('宿主替身只有 text() 且正文永不落定 → 总超时 daemon_timeout（回退分支同样必然落定，评审 R2-N2）', async () => {
+    // 回退分支（无 body 流、只有 text()）没有 reader 可 cancel：旧实现直接 await 会永久
+    // 挂住；正文读取现与 deadline.timeout race，到点照样落定（不能只在有 reader 时有界）。
+    const stub = {
+      ok: true,
+      status: 200,
+      body: null,
+      text: () => new Promise<string>(() => undefined),
+    } as unknown as Response;
+    const fetchImpl = vi.fn(async () => stub);
+    const startedAt = Date.now();
+    const result = await request(
+      { method: 'GET', path: '/health' },
+      { baseUrl: BASE, fetchImpl, timeoutMs: 30 },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('daemon_timeout');
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
   it('validate 判定形状不符 → daemon_bad_response（不让脏 result 过关）', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ ok: true, result: { nope: true } }));
     const result = await request<{ n: number }>(
