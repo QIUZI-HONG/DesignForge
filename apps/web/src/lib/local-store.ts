@@ -9,7 +9,8 @@
  *
  * 健壮性契约：存储是**可丢的缓存**——坏 JSON、形状不符、读取失败一律当空/过滤，
  * 永不抛错；写入失败经 `onWriteError` 回调（配额满 / 隐私模式），缺省吞掉不炸界面；
- * 需要写失败上抛语义的册（market 两册、home 回收站的既有口径）自行在 onWriteError 里 rethrow。
+ * 需要写失败上抛语义的册（market 两册、home 回收站的既有口径）在 onWriteError 里
+ * 挂共用的 {@link rethrowWriteError}（单份实现，评审 #5 收编）。
  */
 
 /** 最小键值后端（`localStorage` 的形状子集；便于测试注入与 SSR 判空）。 */
@@ -36,8 +37,12 @@ export interface LocalStoreOptions<T> {
   key: string;
   /** 后端；省略时用 `localStorage`（不存在则退化为空操作）。 */
   backend?: KeyValueReadWriter | undefined;
-  /** 形状校验（逐条过滤，挡住旧版本数据与手改坏数据）。 */
-  validate?: (value: unknown) => value is T;
+  /**
+   * 形状校验（逐条过滤，挡住旧版本数据与手改坏数据）。**类型层必填**（quality-p1
+   * 评审 #6）：无谓词放行分支（`parsed as T[]`）是未来陷阱——新册漏写形状校验会把
+   * 任意脏数据直送界面，这里堵死该逃生口（现网全部调用方都传 validate）。
+   */
+  validate: (value: unknown) => value is T;
   /** 写入失败回调（配额满 / 隐私模式），供上层提示「本地保存失败」。 */
   onWriteError?: (error: unknown) => void;
 }
@@ -49,11 +54,11 @@ export function browserBackend(): KeyValueBackend | undefined {
   return storage ?? undefined;
 }
 
-/** 解析后端里的 JSON 列表：坏数据不进界面。 */
+/** 解析后端里的 JSON 列表：坏数据不进界面（validate 必填，无谓词放行分支已删除）。 */
 function readList<T>(
   backend: KeyValueReadWriter | undefined,
   key: string,
-  validate: ((value: unknown) => value is T) | undefined,
+  validate: (value: unknown) => value is T,
 ): T[] {
   if (backend === undefined) return [];
   let raw: string | null;
@@ -70,8 +75,17 @@ function readList<T>(
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  if (validate === undefined) return parsed as T[];
   return parsed.filter((item) => validate(item));
+}
+
+/**
+ * 写失败上抛（quality-p1 评审 #5 提升为单份导出）：需要「写失败必须可见」语义的册
+ * （market 装载册/回流册、home 回收站的既有口径）共用这一份——createLocalStore 缺省吞
+ * 写错是「静默降级」册的语义，这些册的调用方依赖异常可见（use-market 的 save 回调、
+ * recordDeletion/purgeTrashRecord 的调用栈）。
+ */
+export function rethrowWriteError(error: unknown): void {
+  throw error;
 }
 
 /** 建本地列表存储。 */

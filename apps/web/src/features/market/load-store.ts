@@ -12,7 +12,12 @@
  * 读写全部经本模块的纯函数（storage 作为参数注入——测试不需要浏览器）。
  */
 
-import { createLocalStore, type KeyValueReadWriter, type LocalStore } from '@/lib/local-store';
+import {
+  createLocalStore,
+  type KeyValueReadWriter,
+  type LocalStore,
+  rethrowWriteError,
+} from '@/lib/local-store';
 
 import type { LoadRecord } from './load-token';
 
@@ -22,13 +27,8 @@ export const LOADED_RECORDS_KEY = 'dfg.market.loaded.v1';
 /** 最小存储接口（lib 册引擎读写子集的单一真源；既有注入替身不变）。 */
 export type LoadStoreLike = KeyValueReadWriter;
 
-/** 写失败上抛（与旧实现同口径：createLocalStore 缺省吞写错是「静默降级」册的语义，
- * 本册写入失败按现状暴露给调用栈——use-market 的 save 回调依赖异常可见）。 */
-function rethrowWriteError(error: unknown): void {
-  throw error;
-}
-
-/** 装载记录册引擎（lib 收编；键与后端由本册固定）。 */
+/** 装载记录册引擎（lib 收编；键与后端由本册固定；写失败上抛挂 lib 单份
+ * rethrowWriteError——use-market 的 save 回调依赖异常可见，不静默吞）。 */
 function recordStore(storage: LoadStoreLike): LocalStore<LoadRecord> {
   return createLocalStore<LoadRecord>({
     key: LOADED_RECORDS_KEY,

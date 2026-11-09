@@ -13,7 +13,12 @@
  * 坏数据容忍口径与 lib 一致（读失败/坏项当空，不炸界面）。
  */
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
-import { createLocalStore, type KeyValueReadWriter, type LocalStore } from '@/lib/local-store';
+import {
+  createLocalStore,
+  type KeyValueReadWriter,
+  type LocalStore,
+  rethrowWriteError,
+} from '@/lib/local-store';
 import type { DocumentRange, DocumentSort } from '../lib/filter';
 import {
   appendTrashRecord,
@@ -77,15 +82,14 @@ function defaultStorage(): HomeStorage | null {
 }
 
 /** 回收站册引擎（lib createLocalStore 收编，票 D：validate=isTrashRecord 逐条过滤；
- * 写失败上抛与旧实现同口径——recordDeletion/purgeTrashRecord 的调用方依赖异常可见）。 */
+ * 写失败上抛挂 lib 单份 rethrowWriteError——recordDeletion/purgeTrashRecord 的调用方
+ * 依赖异常可见，与旧实现同口径）。 */
 function trashStore(storage: HomeStorage | null): LocalStore<TrashRecord> {
   return createLocalStore<TrashRecord>({
     key: TRASH_STORAGE_KEY,
     backend: storage ?? undefined,
     validate: isTrashRecord,
-    onWriteError: (error) => {
-      throw error;
-    },
+    onWriteError: rethrowWriteError,
   });
 }
 

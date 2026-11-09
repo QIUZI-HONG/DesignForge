@@ -18,8 +18,8 @@
  *
  * **仍自建访问 / 读入的点（未收编；继续收敛是后续批次）**：
  * - `lib/telemetry.ts`：fire-and-forget 直连 `POST /telemetry/events`（不拆信封、只吞错）；
- * - `features/inspect-export/model/export-client.ts`：自建 fetch + 信封拆包 + 独立超时
- *   口径（D-19 #4）；
+ * - `features/inspect-export/model/export-client.ts`：自建 fetch + 信封拆包；超时已接
+ *   lib 总预算单点（B8）；
  * - `tools/cli` 的 market 命令（deploy / search）：直接读 ADS 产物文件（读入路径，非 HTTP）。
  *
  * 失败一律归一为 {@link TransportFailure}（不抛异常）：`code` = daemon 线上码 ∪

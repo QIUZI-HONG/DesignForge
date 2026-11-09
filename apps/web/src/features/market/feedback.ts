@@ -7,7 +7,12 @@
  * **不冒充**云端聚合数据：界面展示一律标「本地计数」。
  */
 
-import { createLocalStore, type KeyValueReadWriter, type LocalStore } from '@/lib/local-store';
+import {
+  createLocalStore,
+  type KeyValueReadWriter,
+  type LocalStore,
+  rethrowWriteError,
+} from '@/lib/local-store';
 
 /** 单资产回流行。 */
 export interface FeedbackEntry {
@@ -26,12 +31,7 @@ export const FEEDBACK_KEY = 'dfg.market.feedback.v1';
 /** 最小存储接口（lib 册引擎读写子集的单一真源；既有注入替身不变）。 */
 export type FeedbackStoreLike = KeyValueReadWriter;
 
-/** 写失败上抛（与旧实现同口径：本册写入失败按现状暴露给调用栈，不静默吞）。 */
-function rethrowWriteError(error: unknown): void {
-  throw error;
-}
-
-/** 回流计数册引擎（lib 收编；键与后端由本册固定）。 */
+/** 回流计数册引擎（lib 收编；键与后端由本册固定；写失败上抛挂 lib 单份 rethrowWriteError）。 */
 function feedbackStore(storage: FeedbackStoreLike): LocalStore<FeedbackEntry> {
   return createLocalStore<FeedbackEntry>({
     key: FEEDBACK_KEY,

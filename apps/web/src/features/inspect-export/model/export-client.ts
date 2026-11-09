@@ -8,7 +8,7 @@
  * 超时机制（quality-p1 · B8）：接 `@/lib/request-timeout` 的总预算单点
  * `fetchWithinTotalDeadline`——建连、响应头与正文读取共用同一条上限（race + abort；
  * 不理会 signal 的测试替身/宿主实现同样被 race 界住），不再手写第二份 deadline 实现。
- * 失败文案经 i18n 目录（键 `export.client.*`，zh-CN/en 同键），公开错误形状不变。
+ * 失败文案经 i18n 目录（键 `editor.export.client.*`，zh-CN/en 同键），公开错误形状不变。
  */
 
 import {
@@ -90,7 +90,7 @@ export function createExportClient(options: ExportClientOptions = {}): ExportCli
           return {
             ok: false,
             code: 'daemon_invalid_response',
-            message: t('export.client.invalidJson', { status: deadline.response.status }),
+            message: t('editor.export.client.invalidJson', { status: deadline.response.status }),
           };
         }
         if (isApiSuccess<{ artifact: ExportArtifact }>(payload)) {
@@ -102,7 +102,7 @@ export function createExportClient(options: ExportClientOptions = {}): ExportCli
         return {
           ok: false,
           code: 'daemon_invalid_response',
-          message: t('export.client.invalidEnvelope', { status: deadline.response.status }),
+          message: t('editor.export.client.invalidEnvelope', { status: deadline.response.status }),
         };
       } catch (error) {
         // 超时与连接层失败（daemon 未启动/被挡）要分开：面板文案与重试语义都不同
