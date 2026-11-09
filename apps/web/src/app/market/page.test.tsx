@@ -10,7 +10,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { marketFixtures } from '@/features/market';
+import { marketFixtures, marketTestUtils } from '@/features/market';
 import { t } from '@/i18n';
 
 // 夹具经 market 公开面取（`marketFixtures` 命名空间），不引 `__fixtures__` 深路径
@@ -60,18 +60,9 @@ function respondAlwaysWith(result: unknown): void {
   );
 }
 
-/** 抽取假 fetch 里打到 /telemetry/events 的调用体（票② 埋点断言用）。 */
-function telemetryCalls(): Array<{ name: string; payload: Record<string, unknown> }> {
-  return fetchMock.mock.calls
-    .filter((call) => String(call[0]).includes('/telemetry/events'))
-    .map(
-      (call) =>
-        JSON.parse(String((call[1] as { body: string }).body)) as {
-          name: string;
-          payload: Record<string, unknown>;
-        },
-    );
-}
+/** 抽取假 fetch 里打到 /telemetry/events 的调用体（票② 埋点断言用；共享工具 D-18 #4）。 */
+const telemetryCalls = (): ReturnType<typeof marketTestUtils.telemetryCalls> =>
+  marketTestUtils.telemetryCalls(fetchMock);
 
 describe('/market · 正常路径（D1）', () => {
   it('从 daemon 取数并渲染卡片网格（含双语卡片与安装按钮）', async () => {

@@ -5,6 +5,10 @@
  * 名称 + 删除时间，供回收站分区如实展示与手工清理；**不承诺正文恢复**。
  * 存储形态是 localStorage 里的 JSON 串——读写必须容忍坏数据（用户可手改），
  * 坏项丢弃而不是整块清空。
+ *
+ * 票 D 收编口径：记录的 localStorage 读写机制在 `home/state/home-store.ts`
+ * 收编 lib `createLocalStore`（validate 谓词 = {@link isTrashRecord}）；
+ * 本模块保留纯函数 seam（parse/serialize/增删），不直接摸存储。
  */
 
 /** 一条删除记录。 */
@@ -23,8 +27,8 @@ export const TRASH_STORAGE_KEY = 'dfg-home-trash-v1';
 /** 记录条数上限（超出截断最老的，避免无限增长）。 */
 export const TRASH_RECORD_LIMIT = 50;
 
-/** 校验任意值是否为合法记录。 */
-function isTrashRecord(value: unknown): value is TrashRecord {
+/** 校验任意值是否为合法记录（导出：home-store 册引擎以此作 createLocalStore 的 validate）。 */
+export function isTrashRecord(value: unknown): value is TrashRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   return (

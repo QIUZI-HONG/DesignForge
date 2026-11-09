@@ -38,11 +38,20 @@ export interface LoadSceneFontsOptions {
   assetDir?: string;
   /** fetcher（测试注入）。 */
   fetchBytes?: (url: string) => Promise<ArrayBuffer>;
+  /** 单文件取字节超时上限（毫秒；测试注入小值——生产走缺省，不真等）。 */
+  fetchTimeoutMs?: number;
 }
 
-/** 默认取字节：fetch → arrayBuffer。 */
-async function defaultFetchBytes(url: string): Promise<ArrayBuffer> {
-  const response = await fetch(url);
+/**
+ * 单文件取字节的缺省超时上限（毫秒）。字体是**同源静态资产**（`/canvaskit` 产物），
+ * 本机毫秒级可达；10s 只防资产服务器/代理挂死时的无界悬挂（quality-p1 · B9：
+ * 有界失败——超时走既有 missing 降级路径，不悬挂画布启动）。
+ */
+export const SCENE_FONT_FETCH_TIMEOUT_MS = 10_000;
+
+/** 默认取字节：fetch（带超时 signal）→ arrayBuffer。 */
+async function defaultFetchBytes(url: string, timeoutMs: number): Promise<ArrayBuffer> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`HTTP ${String(response.status)}`);
   return response.arrayBuffer();
 }
@@ -58,7 +67,8 @@ export async function loadSceneFonts(
   options: LoadSceneFontsOptions = {},
 ): Promise<SceneFonts> {
   const assetDir = (options.assetDir ?? '/canvaskit').replace(/\/$/, '');
-  const fetchBytes = options.fetchBytes ?? defaultFetchBytes;
+  const timeoutMs = options.fetchTimeoutMs ?? SCENE_FONT_FETCH_TIMEOUT_MS;
+  const fetchBytes = options.fetchBytes ?? ((url: string) => defaultFetchBytes(url, timeoutMs));
   const buffers: ArrayBuffer[] = [];
   const missing: string[] = [];
   for (const weight of SCENE_FONT_WEIGHTS) {

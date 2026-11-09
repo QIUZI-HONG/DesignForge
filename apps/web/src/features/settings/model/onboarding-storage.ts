@@ -2,23 +2,26 @@
  * 引导进度的本地持久化（票 17 · spec P2「引导：四步进度本地持久化」）。
  *
  * **为什么是本地而不是 daemon**：引导进度是纯界面态（哪些步完成/跳过、停在第几步），
- * 不属于任何文档或凭据数据；按本地优先纪律只存本机（localStorage 键空间 `dfg:*`，
- * 与评审域 storage 先例同族写法），不联网、不上云。
+ * 不属于任何文档或凭据数据；按本地优先纪律只存本机（localStorage 键空间 `dfg:*`），
+ * 不联网、不上云。
  *
- * 健壮性契约（同评审域 `editor-review/storage.ts`）：存储是**可丢的缓存**——
+ * 健壮性契约（同 lib `local-store.ts`）：存储是**可丢的缓存**——
  * 坏 JSON、形状不符、越界下标、写入配额失败一律不炸界面：读回 null（从头开始），
  * 写失败静默降级（本次会话内存态不受影响）。
+ *
+ * 票 D 收编口径：键值后端接口 re-export lib 单一真源（原逐字重复副本删除）；
+ * 缺省后端解析经 lib `browserBackend`。**不走 createLocalStore 列表册**——
+ * 进度是单对象形状（`{index, outcomes, finished}`），存储格式冻结（旧数据原样兼容），
+ * 解析是领域逻辑（outcomes 逐步校验），留在本模块。
  */
+import { browserBackend, type KeyValueBackend } from '@/lib/local-store';
+
 import type { OnboardingOutcome, OnboardingState } from './onboarding';
 import { ONBOARDING_STEP_IDS } from './onboarding';
 import type { SettingsSectionId } from './sections';
 
-/** 最小键值后端（`localStorage` 的形状子集；便于测试注入与 SSR 判空）。 */
-export interface KeyValueBackend {
-  getItem: (key: string) => string | null;
-  setItem: (key: string, value: string) => void;
-  removeItem: (key: string) => void;
-}
+/** 最小键值后端（lib 单一真源；re-export 保持既有导入路径不变）。 */
+export type { KeyValueBackend };
 
 /** 引导进度持久化。 */
 export interface OnboardingPersistence {
@@ -33,9 +36,8 @@ export const ONBOARDING_STORAGE_KEY = 'dfg:onboarding:progress';
 
 /** 取缺省后端（浏览器 localStorage；SSR / 纯 node / 隐私模式下为 undefined）。 */
 function defaultBackend(): KeyValueBackend | undefined {
-  if (typeof window === 'undefined') return undefined;
   try {
-    return window.localStorage;
+    return browserBackend();
   } catch {
     // 隐私模式等场景下访问 localStorage 本身会抛错：降级为不持久化
     return undefined;

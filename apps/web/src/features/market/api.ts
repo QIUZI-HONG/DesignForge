@@ -314,7 +314,7 @@ export function fetchMarketLoadPlan(
   });
 }
 
-/** 装载安装响应形状校验（缺任一关键 Returns null → 归一 daemon_bad_response）。 */
+/** 装载安装响应形状校验（缺任一必需键返回 null → 归一 daemon_bad_response）。 */
 export function validateMarketInstallResponse(value: unknown): MarketInstallResponse | null {
   if (!isRecord(value)) return null;
   if (typeof value.schema !== 'string' || value.schema.length === 0) return null;

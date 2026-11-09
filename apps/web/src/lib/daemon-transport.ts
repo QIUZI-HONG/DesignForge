@@ -1,10 +1,13 @@
 /**
- * daemon 传输层（arch-v1 · 票① · 候选 1）——web 侧对 daemon HTTP 协议的**单一访问 module**。
+ * daemon 传输层（arch-v1 · 票① · 候选 1）——web 侧对 daemon HTTP 协议的**收敛访问
+ * module**（D-19 #4 注释如实：不是「单一访问」，仍有自建访问点，见下）。
  *
- * 为什么必须单点：收编前 8 个访问点（ai/image/mcp/diagnostics/home/settings/canvas/market）
- * 各自重推演同四件事——端点解析、令牌头、超时、`{ok,result|error}` 信封拆包，其中四家
- * 连超时都没有（daemon「活着但不响应」时界面永久停在骨架）。本 module 把四条带子藏进
- * implementation，interface 只透出两个方法 + 结构化结果：
+ * 收编范围（经本 module 的消费方，2026-11 实况）：ai / mcp / image / diagnostics /
+ * home（documents）/ settings（daemon-client）/ canvas 持久化（documents-client）/
+ * market（api.ts）。收编前这些访问点各自重推演同四件事——端点解析、令牌头、超时、
+ * `{ok,result|error}` 信封拆包，其中四家连超时都没有（daemon「活着但不响应」时界面
+ * 永久停在骨架）。本 module 把四条带子藏进 implementation，interface 只透出两个方法 +
+ * 结构化结果：
  *
  * - `request<T>(route, init?)`：一元请求。缺省 30s **总超时**（`timeoutMs` 可覆盖），
  *   到点 abort 在飞请求并返回 `daemon_timeout`；
@@ -12,6 +15,12 @@
  *   到达后不再被 abort（流本体无总超时，由消费方按需取消）；**非 2xx 的错误正文仍在同一
  *   预算内读取**（超时/取消即取消上游，按 `http_<status>` 失败）；调用方 `signal` 在流
  *   阶段继续生效（包装层在 abort 时取消上游 reader，消费方收到终止）。
+ *
+ * **仍自建访问 / 读入的点（未收编；继续收敛是后续批次）**：
+ * - `lib/telemetry.ts`：fire-and-forget 直连 `POST /telemetry/events`（不拆信封、只吞错）；
+ * - `features/inspect-export/model/export-client.ts`：自建 fetch + 信封拆包；超时已接
+ *   lib 总预算单点（B8）；
+ * - `tools/cli` 的 market 命令（deploy / search）：直接读 ADS 产物文件（读入路径，非 HTTP）。
  *
  * 失败一律归一为 {@link TransportFailure}（不抛异常）：`code` = daemon 线上码 ∪
  * `daemon_unreachable`（端点不可达 / 网络异常）∪ `daemon_timeout` ∪ `daemon_bad_response`
@@ -67,8 +76,9 @@ export type TransportStreamResult =
   | { ok: true; stream: ReadableStream<Uint8Array>; response: Response }
   | TransportFailure;
 
-/** 请求选项（`baseUrl`/`fetchImpl` 是测试与宿主注入口，见模块头）。 */
-export interface TransportInit {
+/** 请求选项（`baseUrl`/`fetchImpl` 是测试与宿主注入口，见模块头；D-19 #6：泛型参数
+ * 承载 `validate` 谓词收窄的 result 类型——传守卫函数即让调用方拿到收窄后的 `value`）。 */
+export interface TransportInit<T = unknown> {
   /** 覆盖方法（缺省取路由表登记的方法）。 */
   method?: DaemonRouteSpec['method'];
   /** 请求体（JSON 序列化；给出即带 `content-type: application/json`）。 */
@@ -77,8 +87,11 @@ export interface TransportInit {
   headers?: Record<string, string>;
   /** 超时上限（毫秒；缺省 {@link DAEMON_REQUEST_TIMEOUT_MS}）。 */
   timeoutMs?: number;
-  /** 形状校验（返回 false → `daemon_bad_response`，不让脏 result 过关）。 */
-  validate?: (value: unknown) => boolean;
+  /**
+   * 形状校验（**类型谓词**，D-19 #6）：返回 false → `daemon_bad_response`，不让脏 result
+   * 过关；谓词签名让守卫函数在 `request<T>` 的成功分支里把 result 收窄为 `T`。
+   */
+  validate?: (value: unknown) => value is T;
   /** 调用方取消信号（合并进超时控制器）。 */
   signal?: AbortSignal;
   /** 显式基址（缺省走 `resolveDaemonEndpoint()` 的完整解析顺序）。 */
@@ -108,6 +121,28 @@ function trimTrailingSlash(url: string): string {
 }
 
 /**
+ * 端口窗探测的**在飞合并表**（评审 F3）：键 = 注入的 fetch（undefined = 全局 fetch）。
+ *
+ * 现场缺陷：daemon 停机时市场页 N 个并发请求各自跑完整端口窗（33 个 `/health`），
+ * 每波 ~2.4s——`resolveDaemonEndpoint()` 的进程内缓存只在**落定后**生效，并发窗口内
+ * 全部未命中。这里让并发调用共享同一次在飞探测；**落定即摘除**（成功后续请求命中
+ * daemon-endpoint 的缓存，失败不缓存、下次重新探测——只合并并发窗口，不改变失败语义）。
+ */
+const endpointProbesInFlight = new Map<typeof fetch | undefined, Promise<string>>();
+
+/** 取（必要时发起）本次注入对应的在飞端口窗探测。 */
+function shareEndpointProbe(fetchImpl: typeof fetch | undefined): Promise<string> {
+  const existing = endpointProbesInFlight.get(fetchImpl);
+  if (existing !== undefined) return existing;
+  const probe = resolveDaemonEndpoint(fetchImpl === undefined ? {} : { fetchImpl }).finally(() => {
+    // 落定即摘除：成功走 daemon-endpoint 的进程内缓存；失败不缓存（下次重新探测）
+    endpointProbesInFlight.delete(fetchImpl);
+  });
+  endpointProbesInFlight.set(fetchImpl, probe);
+  return probe;
+}
+
+/**
  * 解析本次请求的基址：显式值优先；否则走 `resolveDaemonEndpoint()` 的完整解析顺序
  * （查询参数 → env → 端口窗探测，失败映射 `daemon_unreachable`）。
  *
@@ -116,6 +151,7 @@ function trimTrailingSlash(url: string): string {
  * 一个微任务只会推迟 fetch 的发出（「同帧先后发出的请求谁先到」的既有顺序会变）。
  * **并非所有消费方都预解析**：市场取数无注入 `baseUrl` 时把解析交给本函数的异步端口窗
  * 探测（评审 F3）——所以本函数必须保留异步路径，显式基址只省掉那一次 await。
+ * 探测本身经 {@link shareEndpointProbe} 做并发窗口合并（冷缓存 N 个并发调用只跑一波）。
  */
 async function resolveBaseUrl(init: TransportInit): Promise<string | TransportFailure> {
   if (init.baseUrl !== undefined && init.baseUrl.length > 0) {
@@ -123,9 +159,7 @@ async function resolveBaseUrl(init: TransportInit): Promise<string | TransportFa
   }
   try {
     // 注入的 fetch 一并用于端口窗探测（测试替身不真连网络；生产为全局 fetch）。
-    const endpoint = await resolveDaemonEndpoint(
-      init.fetchImpl === undefined ? {} : { fetchImpl: init.fetchImpl },
-    );
+    const endpoint = await shareEndpointProbe(init.fetchImpl);
     return trimTrailingSlash(endpoint);
   } catch (cause) {
     if (cause instanceof DaemonEndpointError) {
@@ -287,7 +321,7 @@ function isTransportFailure(value: unknown): value is TransportFailure {
 /** 解包信封：成功取 result（可选形状校验），失败透传 daemon 码，脏形状归一 bad-response。 */
 function unwrapEnvelope<T>(
   payload: unknown,
-  init: TransportInit,
+  init: TransportInit<T>,
   status: number,
 ): TransportResult<T> {
   if (isApiSuccess<T>(payload)) {
@@ -321,10 +355,11 @@ function unwrapEnvelope<T>(
   });
 }
 
-/** 一元请求：缺省 30s 总超时（头 + 正文同一预算）；失败一律结构化返回（不抛）。 */
+/** 一元请求：缺省 30s 总超时（头 + 正文同一预算）；失败一律结构化返回（不抛）。
+ * `T` 由调用方显式给出，或经 `validate` 谓词守卫函数推断（D-19 #6）。 */
 export async function request<T>(
   route: DaemonRoute,
-  init: TransportInit = {},
+  init: TransportInit<T> = {},
 ): Promise<TransportResult<T>> {
   const explicit = explicitBaseUrl(init);
   const baseUrl = explicit ?? (await resolveBaseUrl(init));

@@ -107,7 +107,9 @@ describe('encodeMarketQuery（与 web 原查询串表逐参数一致）', () => 
     expect(params.get('lane')).toBe('create');
     expect(params.get('mode')).toBe('template');
     expect(params.get('scene')).toBe('ppt-design');
-    expect(params.get('tags')).toBe('pdf,导出');
+    // 票 A · A5（D-19 #3）：tags 逐项转义后，URLSearchParams 一层解码看到的是
+    // 「逐项 encodeURIComponent 后 join(',')」形态（旧 wire 为裸 'pdf,导出'）
+    expect(params.get('tags')).toBe('pdf,%E5%AF%BC%E5%87%BA');
     expect(params.get('loadable')).toBe('1');
     expect(params.get('sort')).toBe('name');
     expect(params.get('limit')).toBe('60');
@@ -118,6 +120,13 @@ describe('encodeMarketQuery（与 web 原查询串表逐参数一致）', () => 
     expect(encodeMarketQuery({})).toBe('');
     expect(encodeMarketQuery({ q: '', kinds: [], tags: [], offset: 0 })).toBe('');
     expect(encodeMarketQuery({ loadableOnly: false })).toBe('');
+  });
+
+  it('tags 逐项转义：含逗号/百分号/中文的单个 tag 编码后不与分隔符混淆（D-19 #3 · 票 A · A5）', () => {
+    const search = encodeMarketQuery({ tags: ['a,b', '100%', '导出'] });
+    // URLSearchParams 一层解码后应看到「逐项 encodeURIComponent 后 join(',')」的形态：
+    // 单 tag 内的逗号 → %2C（与项分隔符裸逗号区分），百分号 → %25，中文 → UTF-8 百分号
+    expect(new URLSearchParams(search).get('tags')).toBe('a%2Cb,100%25,%E5%AF%BC%E5%87%BA');
   });
 
   it('与 decode 往返：合法参数不丢不增', () => {
@@ -135,6 +144,32 @@ describe('encodeMarketQuery（与 web 原查询串表逐参数一致）', () => 
       offset: 2,
     };
     expect(decodeMarketQuery(encodeMarketQuery(params))).toEqual(params);
+  });
+
+  it('含逗号/百分号/中文 tag 的 encode→decode 往返恒等（D-19 #3 · 票 A · A5）', () => {
+    const tags = ['a,b', '100%', '导出'];
+    const roundTripped = decodeMarketQuery(encodeMarketQuery({ tags }));
+    expect(roundTripped.tags).toEqual(tags);
+  });
+
+  it('decode 逐项转义：非法转义序列回退保留原项、其余正常解码（评审 #1）', () => {
+    // %zz 非法转义 → 该项回退保留原样（不再丢项）；合法项正常解码
+    expect(decodeMarketQuery('tags=a%zz,b').tags).toEqual(['a%zz', 'b']);
+    // 悬尾 % 序列 → 该项回退保留原样
+    expect(decodeMarketQuery('tags=x%,y').tags).toEqual(['x%', 'y']);
+    expect(decodeMarketQuery('tags=x%').tags).toEqual(['x%']);
+  });
+
+  it('decode 兼容旧 wire 格式（裸逗号分隔、简单项）：行为与此前一致', () => {
+    expect(decodeMarketQuery('tags=pdf%2C%E5%AF%BC%E5%87%BA').tags).toEqual(['pdf', '导出']);
+    expect(decodeMarketQuery('tags=a,,b%20').tags).toEqual(['a', 'b']);
+  });
+
+  it('旧 wire 含字面 % 的 tag 回退保留字面值（评审 #1 修复 fixture）', () => {
+    // 旧版 web encode（URLSearchParams.set('tags', join(','))）对 `100%done` 落 wire 为
+    // `tags=100%25done`；HTTP 层解码后到 daemon 是 `100%done`，decodeURIComponent 遇
+    // `%do` 抛 URIError——回退原项保留字面值，不再静默丢项。
+    expect(decodeMarketQuery('tags=100%25done').tags).toEqual(['100%done']);
   });
 });
 

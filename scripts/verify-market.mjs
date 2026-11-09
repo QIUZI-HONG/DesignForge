@@ -21,8 +21,20 @@
  *
  * 用法（仓库根执行）：
  *   node scripts/verify-market.mjs                    # daemon 自起夹具（临时数据根 + 空闲端口）
+ *   node scripts/verify-market.mjs --seed             # 播种模式：冻结样本 → mk-04 管线 → 夹具数据根 → 完整判定
  *   DF_DAEMON_URL=http://127.0.0.1:5000 node scripts/verify-market.mjs   # 显式外部实例
  *   node scripts/verify-market.mjs --skip-daemon      # 只跑静态两项（仍按 exit 2 记阻塞）
+ *
+ * --seed 播种模式（quality-p1 票 C5 · 追加模式，不改既有断言语义）：自起夹具的临时数据根
+ * **默认是空的**，真数据面检查（检查 3/4）必然阻塞在 index-missing——此前只能靠仓外包装脚本
+ * 手工播种（`~/df-evidence` 下两处 `run-verify-market-seeded.mjs` 同形）。`--seed` 把该样板收敛
+ * 进本脚本：冻结样本（`services/ingest/src/index/__fixtures__/dws-assets.sample.json`）经
+ * `readDwsSample → buildAdsArtifacts → writeAdsArtifacts`（调用形态同 `verify-mk-04`）灌进
+ * 夹具数据根 `<dataRoot>/market/`（daemon 候选路径首项），再起 daemon 跑完整判定。
+ * 边界：--seed 只作用于**自起夹具**的临时数据根（daemon-fixture 的 seed 钩子，先播种后启动）；
+ * 与 `DF_DAEMON_URL`（外部实例）或 `--skip-daemon` 同给 → 显式阻塞（exit 2），绝不摸外部数据根。
+ * node <22.18/23.6 直跑 ingest `.ts` 管线需显式剥类型：缺 `NODE_OPTIONS` 时本脚本自动
+ * 以 `--experimental-strip-types` 重执行自身（stdio/退出码透传，无感知）。
  *
  * daemon 来源（arch-05 口径）：显式 `DF_DAEMON_URL` → 照用外部实例；未设 → 自起夹具 daemon
  * （`lib/daemon-fixture.mjs`，用完必停）。夹具起不来 → exit 2；**禁止缺省连开发机在跑的
@@ -37,6 +49,7 @@
  * 环境变量：DF_DAEMON_URL（可选；缺省自起夹具）、DF_EVIDENCE_DIR（缺省 ~/df-evidence）。
  * 证据 JSON 字段按《前端验收标准 v1》§4：page/level/diff/artifacts/humanReview/exitCode。
  */
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -55,7 +68,78 @@ let daemonToken = null;
 const EVIDENCE_ROOT = resolve(process.env.DF_EVIDENCE_DIR ?? join(homedir(), 'df-evidence'));
 const args = process.argv.slice(2);
 const skipDaemon = args.includes('--skip-daemon');
+const seedMode = args.includes('--seed');
 const verbose = args.includes('--verbose');
+
+/** --seed 的冻结样本（与 verify-mk-04 缺省 DWS 同源）。 */
+const SEED_SAMPLE_PATH = join(
+  repoRoot,
+  'services',
+  'ingest',
+  'src',
+  'index',
+  '__fixtures__',
+  'dws-assets.sample.json',
+);
+
+/**
+ * --seed 需要动态导入 ingest 的 `.ts` 管线（`verify-mk-04` 同形态）：node <22.18/23.6
+ * 直跑 `.ts` 需显式剥类型（workflow 文档口径）。缺 `NODE_OPTIONS` 旗标时以旗标重执行
+ * 自身——阻塞等待子进程结束并透传退出码（重执行后子进程见旗标在位，不再二次重执行）。
+ *
+ * @returns {Promise<boolean>} false = 无需重执行（调用方继续主流程）；重执行路径内
+ *   `process.exit` 结束本进程，不会返回。
+ */
+async function reexecWithTypeStrippingIfNeeded() {
+  if (!seedMode) return false;
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  const stripDefaultOn =
+    (major === 22 && minor >= 18) || (major === 23 && minor >= 6) || major >= 24;
+  if (stripDefaultOn) return false;
+  const nodeOptions = process.env.NODE_OPTIONS ?? '';
+  if (nodeOptions.includes('--experimental-strip-types')) return false;
+  console.error(
+    '[verify-market] --seed：本 node 版本直跑 ingest .ts 管线需显式剥类型——以 NODE_OPTIONS=--experimental-strip-types 重执行本脚本。',
+  );
+  const exitCode = await new Promise((resolveExit) => {
+    const child = spawn(process.execPath, process.argv.slice(1), {
+      cwd: process.cwd(),
+      env: { ...process.env, NODE_OPTIONS: `${nodeOptions} --experimental-strip-types`.trim() },
+      stdio: 'inherit',
+    });
+    child.on('exit', (code) => resolveExit(code ?? 1));
+  });
+  process.exit(exitCode);
+}
+
+/**
+ * 冻结样本 → ADS 产物（--seed 播种第一步；调用形态同 `verify-mk-04`：
+ * `readDwsSample → buildAdsArtifacts`，`generatedAt` 取样本自带 `asOf` 保证 schema 合规）。
+ */
+async function buildSeedArtifacts() {
+  if (!existsSync(SEED_SAMPLE_PATH)) {
+    throw new Error(`冻结样本缺失：${SEED_SAMPLE_PATH}（种子模式的前置条件）`);
+  }
+  const ingestDir = join(repoRoot, 'services', 'ingest');
+  const dwsModule = await import(join(ingestDir, 'src', 'index', 'dws.ts'));
+  const pipelineModule = await import(join(ingestDir, 'src', 'index', 'pipeline.ts'));
+  const dwsRaw = JSON.parse(readFileSync(SEED_SAMPLE_PATH, 'utf8'));
+  const read = dwsModule.readDwsSample(dwsRaw);
+  const generatedAt = typeof dwsRaw?.asOf === 'string' ? dwsRaw.asOf : startedAt.toISOString();
+  const collector = {
+    name: 'df-market',
+    version: '0.1.0',
+    runId: `verify-market-seed-${stamp}`,
+    odsWatermark: generatedAt,
+  };
+  const artifacts = pipelineModule.buildAdsArtifacts(read.assets, { generatedAt, collector });
+  return {
+    artifacts,
+    generatedAt,
+    skipped: read.skipped,
+    sampleFingerprint: fingerprint(SEED_SAMPLE_PATH),
+  };
+}
 
 const startedAt = new Date();
 const stamp = startedAt.toISOString().replaceAll(':', '-').replace(/\..+$/, '');
@@ -99,6 +183,7 @@ function baseEvidence() {
       daemonUrl: null,
       daemon: { mode: 'pending', url: null },
       skipDaemon,
+      seed: { enabled: seedMode },
     },
     startedAt: startedAt.toISOString(),
     checks: [],
@@ -514,6 +599,9 @@ async function runBatch4MarketCheck() {
 
 /* ---------------- 主流程 ---------------- */
 
+// --seed 需要 ingest .ts 管线：node 版本不支持缺省剥类型时重执行自身（透传退出码；见函数注）。
+await reexecWithTypeStrippingIfNeeded();
+
 const tokenCheck = runTokenCheck();
 evidence.checks.push(tokenCheck);
 
@@ -524,9 +612,81 @@ evidence.checks.push(coverageCheck);
 let daemonResolveError = null;
 if (skipDaemon) {
   evidence.params.daemon = { mode: 'skipped', url: null };
+  if (seedMode) {
+    // --seed × --skip-daemon：播种出的真数据面无 daemon 可验（矛盾组合），显式阻塞。
+    evidence.checks.push({
+      id: 'seed-fixture',
+      name: '--seed 播种（冻结样本 → mk-04 管线 → 夹具数据根）',
+      verdict: 'blocked',
+      assertions: [
+        {
+          name: '--seed 与 --skip-daemon 不同时使用',
+          expected: '组合可判定',
+          actual: '矛盾组合',
+          ok: false,
+        },
+      ],
+      blockedReason:
+        '参数矛盾：--seed 播种的真数据面需要 daemon 判定，--skip-daemon 会跳过——请二选一。',
+    });
+  }
 } else {
   try {
-    activeDaemon = await resolveDaemon({ label: 'verify-market' });
+    activeDaemon = await resolveDaemon({
+      label: 'verify-market',
+      // --seed（票 C5）：冻结样本经 mk-04 同款管线灌进夹具临时数据根（先播种、后起 daemon；
+      // 钩子由 daemon-fixture 在 fixture 形态下调用，外部实例不触碰）。
+      ...(seedMode
+        ? {
+            seed: async ({ dataRoot }) => {
+              const built = await buildSeedArtifacts();
+              const pipelineModule = await import(
+                join(repoRoot, 'services', 'ingest', 'src', 'index', 'pipeline.ts')
+              );
+              const outDir = join(dataRoot, 'market');
+              // writeAdsArtifacts：落盘前重校验（invalid 拒绝落盘并抛错 → 夹具失败 → exit 2）
+              const written = await pipelineModule.writeAdsArtifacts(outDir, built.artifacts);
+              evidence.params.seed = {
+                enabled: true,
+                dataRoot,
+                outDir,
+                generatedAt: built.generatedAt,
+                skippedBadRows: built.skipped,
+                sample: built.sampleFingerprint,
+                files: { index: written.index, searchIndex: written.searchIndex },
+              };
+              evidence.checks.push({
+                id: 'seed-fixture',
+                name: '--seed 播种（冻结样本 → mk-04 管线 → 夹具数据根）',
+                verdict: 'pass',
+                assertions: [
+                  {
+                    name: '冻结样本经 ADS 管线产出合法索引（writeAdsArtifacts 落盘前重校验）',
+                    expected: 'validation ok',
+                    actual: `${built.artifacts.index.counts.total} 卡片 / 坏行 ${built.skipped} / generatedAt=${built.generatedAt}`,
+                    ok: true,
+                  },
+                  {
+                    name: '索引与 BM25 倒排同族落盘（daemon 候选路径首项）',
+                    expected:
+                      '<dataRoot>/market/{df.marketplace.index.v1.json, market_search_index.v1.json}',
+                    actual: outDir,
+                    ok: true,
+                  },
+                ],
+                metrics: {
+                  assets: built.artifacts.index.counts.total,
+                  loadable: built.artifacts.index.counts.loadable,
+                  skippedBadRows: built.skipped,
+                },
+              });
+              console.error(
+                `[verify-market] --seed：冻结样本灌入 ${outDir}（${built.artifacts.index.counts.total} 卡片，generatedAt=${built.generatedAt}）`,
+              );
+            },
+          }
+        : {}),
+    });
     daemonUrl = activeDaemon.url;
     daemonToken = activeDaemon.token;
     evidence.params.daemonUrl = daemonUrl;
@@ -534,6 +694,12 @@ if (skipDaemon) {
   } catch (error) {
     daemonResolveError = error;
     evidence.params.daemon = { mode: 'fixture-failed', url: null };
+    if (seedMode) {
+      evidence.params.seed = {
+        enabled: true,
+        error: String(error?.message ?? error).slice(0, 500),
+      };
+    }
   }
 }
 
@@ -547,6 +713,26 @@ if (daemonResolveError !== null) {
     blockedReason: `夹具 daemon 起不来（DF_DAEMON_URL 未设）：${detail}。口径：显式 DF_DAEMON_URL 或自起夹具，禁止缺省连开发机实例。`,
   });
 } else {
+  if (seedMode && activeDaemon?.mode === 'external') {
+    // --seed 只作用于自起夹具的临时数据根；外部实例的数据根禁摸（quality-p1 票 C5 边界）。
+    evidence.checks.push({
+      id: 'seed-fixture',
+      name: '--seed 播种（冻结样本 → mk-04 管线 → 夹具数据根）',
+      verdict: 'blocked',
+      assertions: [
+        {
+          name: '--seed 只作用于自起夹具',
+          expected: 'fixture 模式',
+          actual: 'external（DF_DAEMON_URL 显式给定）',
+          ok: false,
+        },
+      ],
+      blockedReason:
+        '--seed 只能灌自起夹具的临时数据根；外部实例的数据根本门禁不摸——请去掉 DF_DAEMON_URL（改自起夹具）或去掉 --seed。',
+    });
+    await releaseDaemon();
+    finish(evidence, 2, 'verify-market：阻塞 —— --seed 与外部实例（DF_DAEMON_URL）不兼容。');
+  }
   const daemonCheck = await runDaemonCheck();
   evidence.checks.push(daemonCheck);
 
@@ -595,5 +781,5 @@ await releaseDaemon();
 finish(
   evidence,
   0,
-  `verify-market：通过 —— 令牌零裸值、D1–D6 六态挂点全命中、daemon 索引可判定、工作包 E 真数据面断言全过（人工复核项 ${HUMAN_REVIEW_ITEMS.length} 条待验收会话）。`,
+  `verify-market：通过${seedMode ? '（--seed 播种）' : ''} —— 令牌零裸值、D1–D6 六态挂点全命中、daemon 索引可判定、工作包 E 真数据面断言全过（人工复核项 ${HUMAN_REVIEW_ITEMS.length} 条待验收会话）。`,
 );

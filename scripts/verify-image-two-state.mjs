@@ -376,7 +376,7 @@ async function main() {
     });
     const baseUrl = await waitForListening(child);
     // 令牌文件由 daemon 启动落盘（listening 已打印 = 应用装配完成）
-    daemonToken = (await readFile(dataRoot + '/daemon-token', 'utf8')).trim();
+    daemonToken = (await readFile(`${dataRoot}/daemon-token`, 'utf8')).trim();
     console.log(`[verify-image-two-state] daemon 监听于 ${baseUrl}`);
     // —— 态 A：ComfyUI 未启动（真跑死端口）——
     await call(baseUrl, 'PUT', '/config', { comfy: { baseUrl: DEAD_COMFY_URL } });

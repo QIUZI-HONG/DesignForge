@@ -2,47 +2,59 @@
  * 本地装载记录（D4 审计的本地真值；「已装载」态与更新判定的数据源）。
  *
  * 口径（《技能市场规格 v1》§7.4）：真实装载落点 `.dfg/market/<kind>/<slug>/`（文档工作目录内），
- * 写入归 daemon 的 MCP 确认桩；**前端持有的是本地记录册**（装载过什么、什么版本、授了什么权），
- * 用于「已装载」徽标、`digest` 变化提示与卸载入口。存储走 `localStorage`（遥测默认仅本地，§8.3），
+ * 写入走 daemon `POST /market/install`（`apps/daemon/src/market/install.ts`——安全语义为
+ * 「等价复刻 MCP 确认桩」的独立服务；D-18 #7 勘误：旧注释「写入归 daemon 的 MCP 确认桩」失实）；
+ * **前端持有的是本地记录册**（装载过什么、什么版本、授了什么权），
+ * 用于「已装载」徽标、`digest` 变化提示与卸载入口。存储走 `localStorage`（遥测默认仅本地，§8.3）。
+ *
+ * 读写机制收编 lib `createLocalStore`（票 D）：读 = safe 解析 + 形状谓词逐条过滤；
+ * 记录归一（缺省字段补默认、未知键剥离）是**变换**不是谓词，留在本册逐条执行。
  * 读写全部经本模块的纯函数（storage 作为参数注入——测试不需要浏览器）。
  */
+
+import {
+  createLocalStore,
+  type KeyValueReadWriter,
+  type LocalStore,
+  rethrowWriteError,
+} from '@/lib/local-store';
 
 import type { LoadRecord } from './load-token';
 
 /** 存储键（版本化：形状变化时新键，不就地改旧数据）。 */
 export const LOADED_RECORDS_KEY = 'dfg.market.loaded.v1';
 
-/** 最小存储接口（`localStorage` 的子集；测试用内存实现）。 */
-export interface LoadStoreLike {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
+/** 最小存储接口（lib 册引擎读写子集的单一真源；既有注入替身不变）。 */
+export type LoadStoreLike = KeyValueReadWriter;
+
+/** 装载记录册引擎（lib 收编；键与后端由本册固定；写失败上抛挂 lib 单份
+ * rethrowWriteError——use-market 的 save 回调依赖异常可见，不静默吞）。 */
+function recordStore(storage: LoadStoreLike): LocalStore<LoadRecord> {
+  return createLocalStore<LoadRecord>({
+    key: LOADED_RECORDS_KEY,
+    backend: storage,
+    validate: isLoadRecordShape,
+    onWriteError: rethrowWriteError,
+  });
 }
 
-/** 读取记录册（损坏/越权数据一律当空册——本地记录不该拖垮页面）。 */
-export function readLoadRecords(storage: LoadStoreLike): LoadRecord[] {
-  const raw = storage.getItem(LOADED_RECORDS_KEY);
-  if (raw === null || raw.length === 0) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw) as unknown;
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  const records: LoadRecord[] = [];
-  for (const item of parsed) {
-    const record = asLoadRecord(item);
-    if (record !== null) records.push(record);
-  }
-  return records;
-}
-
-/** 单个记录的最小校验（缺 assetId/digest 的条目丢弃）。 */
-function asLoadRecord(value: unknown): LoadRecord | null {
-  if (typeof value !== 'object' || value === null) return null;
+/** 记录的必需键校验（缺 assetId/digest 的条目丢弃——旧版本数据与手改坏数据不进册）。 */
+function isLoadRecordShape(value: unknown): value is LoadRecord {
+  if (typeof value !== 'object' || value === null) return false;
   const raw = value as Record<string, unknown>;
-  if (typeof raw.assetId !== 'string' || raw.assetId.length === 0) return null;
-  if (typeof raw.digest !== 'string' || raw.digest.length === 0) return null;
+  return (
+    typeof raw.assetId === 'string' &&
+    raw.assetId.length > 0 &&
+    typeof raw.digest === 'string' &&
+    raw.digest.length > 0
+  );
+}
+
+/**
+ * 逐条归一：必需键已由 {@link isLoadRecordShape} 钉住，其余字段补默认、未知键剥离。
+ * 输入可能是旧版本/手改的残缺记录，逐字段 typeof 再取值，不信任形状断言以外的部分。
+ */
+function normalizeLoadRecord(raw: LoadRecord): LoadRecord {
   const record: LoadRecord = {
     assetId: raw.assetId,
     name: typeof raw.name === 'string' ? raw.name : '',
@@ -63,11 +75,16 @@ function asLoadRecord(value: unknown): LoadRecord | null {
   return record;
 }
 
+/** 读取记录册（损坏/越权数据一律当空册——本地记录不该拖垮页面）。 */
+export function readLoadRecords(storage: LoadStoreLike): LoadRecord[] {
+  return recordStore(storage).load().map(normalizeLoadRecord);
+}
+
 /** 写入记录（同 assetId 覆盖——同一资产只留最近一次装载；返回新册便于断言）。 */
 export function writeLoadRecord(storage: LoadStoreLike, record: LoadRecord): LoadRecord[] {
   const existing = readLoadRecords(storage).filter((item) => item.assetId !== record.assetId);
   const next = [record, ...existing];
-  storage.setItem(LOADED_RECORDS_KEY, JSON.stringify(next));
+  recordStore(storage).save(next);
   return next;
 }
 
@@ -111,6 +128,6 @@ export function countUpdateAvailable(
 /** 删除某资产的装载记录（卸载）；返回新册。 */
 export function removeLoadRecord(storage: LoadStoreLike, assetId: string): LoadRecord[] {
   const next = readLoadRecords(storage).filter((record) => record.assetId !== assetId);
-  storage.setItem(LOADED_RECORDS_KEY, JSON.stringify(next));
+  recordStore(storage).save(next);
   return next;
 }

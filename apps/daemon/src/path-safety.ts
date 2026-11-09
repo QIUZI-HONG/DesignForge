@@ -65,10 +65,13 @@ export function isValidDocumentId(value: unknown): value is string {
   return true;
 }
 
-/** 校验单个路径段（拒绝空段、绝对路径、NUL、非 NFC、以及 `.`/`..` 段）。 */
+/** 校验单个路径段（拒绝空段、绝对路径、控制字符（含 NUL/DEL）、非 NFC、以及 `.`/`..` 段）。 */
 function isSafeSegment(segment: string): boolean {
   if (typeof segment !== 'string' || segment.length === 0) return false;
-  if (segment.includes('\u0000')) return false;
+  // 控制字符整体拒绝（D-18 #6 · 票 A · A3）：此前只拒 NUL，0x01–0x1F 其余控制字符
+  // （TAB/LF/CR/ESC 等）不在段级词法内，可藏进文档名/市场文件路径。复用
+  // hasControlChar（0x00–0x1F + DEL，与 isValidDocumentId 同一判据）。
+  if (hasControlChar(segment)) return false;
   if (isAbsolute(segment)) return false;
   if (segment.normalize('NFC') !== segment) return false;
   for (const part of segment.split('/')) {
@@ -109,7 +112,7 @@ async function realpathOfNearest(target: string): Promise<string> {
  * 单一安全路径解析器：把 `segments` 接到 `root` 下，越界即返回 `null`。
  *
  * 校验顺序：
- * 1. 逐段词法校验（空段 / 绝对路径 / NUL / 非 NFC / `.`/`..` 段 → 拒）；
+ * 1. 逐段词法校验（空段 / 绝对路径 / 控制字符 / 非 NFC / `.`/`..` 段 → 拒）；
  * 2. 规范化（`path.resolve`）后做前缀校验，必须仍在 `root` 内；
  * 3. 软链校验：`realpath(最近存在祖先)` 仍须落在 `realpath(root)` 内（防软链写穿）；
  * 4. 目标不得等于 `root` 本身（数据根不是任何写/删操作的合法目标）。

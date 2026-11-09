@@ -5,10 +5,11 @@
  * 真实数据根）。断言的是**对外可观察行为**：请求落点与鉴权头、信封拆包、失败归一码、
  * 超时边界与 openStream 的「只界响应头」语义。
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { t } from '@/i18n';
 import en from '../../messages/en.json';
+import { daemonEndpointCandidates, resetDaemonEndpointCache } from './daemon-endpoint';
 
 import { openStream, request } from './daemon-transport';
 
@@ -462,6 +463,74 @@ describe('openStream · 只界响应头的流式语义', () => {
     expect(result.code).toBe('daemon_bad_response');
     expect(result.details).toEqual({ reason: 'no-body' });
     expect(result.message).toBe(t('daemon.transport.noBody'));
+  });
+});
+
+describe('resolveBaseUrl · 端口窗探测的并发合并（评审 F3）', () => {
+  afterEach(() => {
+    resetDaemonEndpointCache();
+    vi.unstubAllEnvs();
+  });
+
+  /** 造一个「/health 探针计数 + 可控失败」的 fetch 替身（其余 URL 走 JSON 信封）。 */
+  function probeCountingFetch(onProbe: (url: string) => Promise<void>): {
+    fetchImpl: typeof fetch;
+    probeCount: () => number;
+  } {
+    let probes = 0;
+    const fetchImpl = (async (url: string | URL | Request) => {
+      const href = String(url);
+      if (href.endsWith('/health')) {
+        probes += 1;
+        await onProbe(href);
+        throw new TypeError('fetch failed');
+      }
+      return jsonResponse({ ok: true, result: {} });
+    }) as typeof fetch;
+    return { fetchImpl, probeCount: () => probes };
+  }
+
+  it('冷缓存并发 N 调用只发生一波探测（不各自跑满 33 端口）', async () => {
+    // 现场缺陷：daemon 停机时市场页 N 个请求各自跑完整端口窗（33 个 /health），
+    // 每波 ~2.4s——并发窗口必须共享同一次在飞探测。
+    vi.stubEnv('NEXT_PUBLIC_DF_DAEMON_URL', '');
+    resetDaemonEndpointCache();
+    const { fetchImpl, probeCount } = probeCountingFetch(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const callers = 6;
+    const results = await Promise.all(
+      Array.from({ length: callers }, () =>
+        request({ method: 'GET', path: '/x' }, { fetchImpl, timeoutMs: 10_000 }),
+      ),
+    );
+
+    // 探测失败 → 每个并发调用都归一为 daemon_unreachable（失败语义不变）
+    for (const result of results) {
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe('daemon_unreachable');
+    }
+    // 一波 = 全端口窗一次扫描（首候选 + 余量分批），不是 N 倍
+    expect(probeCount()).toBe(daemonEndpointCandidates().length);
+  });
+
+  it('失败不缓存：并发窗口结束后再次调用会重新探测', async () => {
+    vi.stubEnv('NEXT_PUBLIC_DF_DAEMON_URL', '');
+    resetDaemonEndpointCache();
+    const { fetchImpl, probeCount } = probeCountingFetch(async () => undefined);
+
+    await request({ method: 'GET', path: '/x' }, { fetchImpl, timeoutMs: 10_000 });
+    const afterFirstWave = probeCount();
+    expect(afterFirstWave).toBe(daemonEndpointCandidates().length);
+
+    const result = await request({ method: 'GET', path: '/x' }, { fetchImpl, timeoutMs: 10_000 });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('daemon_unreachable');
+    // 第二次调用重新探测了一整波（失败没有被缓存成「永久不可达」）
+    expect(probeCount()).toBe(afterFirstWave + daemonEndpointCandidates().length);
   });
 });
 

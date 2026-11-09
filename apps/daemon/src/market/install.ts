@@ -56,6 +56,28 @@ const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
  */
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 
+/**
+ * 源 ref 必须是 40 位 commit hex（D-18 #5 · 票 A · A2）：装载侧此前不校验 `source.ref`
+ * 形态，畸形 ref（分支名/短 SHA/带路径）直接进 Trees/raw URL。口径与采集索引 schema
+ * `services/ingest/src/index/schema.ts` 的 `COMMIT_RE` 同源（`/^[0-9a-f]{40}$/i`，大小写
+ * 兼容）——该正则未从包内导出，这里对齐字面量并注释同源出处。不符走既有
+ * `market_install_source_unavailable` 终态族（reason: 'ref-invalid'），不新造公开错误码。
+ */
+const COMMIT_SHA_RE = /^[0-9a-f]{40}$/i;
+
+/**
+ * 源 repo 形态白名单（quality-p1 评审 #2 纵深防御）：`owner/repo` 两段，仅字母数字与
+ * `_` `.` `-`。repo 直接拼进 Trees/raw 两处 URL 路径——`?`/`#`/多余 `/` 会把请求路径
+ * 重定向到两 GitHub host 内的其他位置，白名单外在**任何源请求前**即终态。命中走既有
+ * source-incomplete 族（与 repo/ref 缺失同档：源信息本身不可信），不新造公开错误码。
+ */
+const SOURCE_REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+/** 路径含点段判定（整段恰为 `.` 或 `..` 即命中；其余含点形态如 `a./b` 不受影响）。 */
+function hasDotSegment(path: string): boolean {
+  return path.split('/').some((segment) => segment === '.' || segment === '..');
+}
+
 /** 装载安装结果（路由层映射为统一失败信封）。 */
 export type MarketInstallResult =
   | { ok: true; response: MarketInstallResponse }
@@ -313,6 +335,27 @@ export function createMarketInstallService(options: {
         }),
       };
     }
+    // repo 形态校验（quality-p1 评审 #2 纵深防御）：白名单外（`?`/`#`/多余 `/` 等）
+    // 会在 URL 拼接前即终态——repo 进 Trees/raw 两处 URL 路径，畸形形态可把请求
+    // 重定向到两 GitHub host 内的其他位置。
+    if (!SOURCE_REPO_RE.test(repo)) {
+      return {
+        ok: false,
+        result: sourceUnavailable('资产源 repo 形态不符（应为 owner/repo），拒绝装载', {
+          reason: 'source-incomplete',
+        }),
+      };
+    }
+    // ref 形态校验（D-18 #5 · 票 A · A2）：非 40-hex commit 在发起任何源请求前即终态失败
+    // （与 source-incomplete 同族同档：源信息本身不可信，不进 URL 拼接）。
+    if (!COMMIT_SHA_RE.test(ref)) {
+      return {
+        ok: false,
+        result: sourceUnavailable('资产源 ref 不是合法的 40 位 commit SHA，拒绝装载', {
+          reason: 'ref-invalid',
+        }),
+      };
+    }
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
       accept: 'application/vnd.github+json',
@@ -392,6 +435,19 @@ export function createMarketInstallService(options: {
       if (!entry.path.startsWith(prefix)) continue;
       const relativePath = entry.path.slice(prefix.length);
       if (relativePath.length === 0) continue;
+      // 点段纵深防御（quality-p1 评审 #2）：fullPath 与落盘 relativePath 的路径段拒
+      // `.` / `..`——raw URL 逐段 encodeURIComponent 不中和点段（`..` 编码后仍是 `..`），
+      // WHATWG URL 归一会把请求路径「归」出资产目录乃至他仓文件。现无利用面（只读 +
+      // digest 前置），但 raw 请求不该为恶意清单发起：在**任何 raw 下载前**即终态，
+      // 走既有 source_unavailable 族（不新造公开错误码）。
+      if (hasDotSegment(entry.path) || hasDotSegment(relativePath)) {
+        return {
+          ok: false,
+          result: sourceUnavailable(`源文件清单路径含点段（./..）：${entry.path}`, {
+            reason: 'path-segment-invalid',
+          }),
+        };
+      }
       blobs.push({
         relativePath,
         fullPath: entry.path,
@@ -462,8 +518,15 @@ export function createMarketInstallService(options: {
       let response: Response;
       let content: Uint8Array;
       try {
+        // raw 下载 URL 的路径必须**段级**编码（D-18 #1 · 票 A · A1）：Trees 清单 fullPath
+        // 可能含空格/中文/`#`——直接拼接时 `#` 被当作 URL 片段截断、空格与非 ASCII 形态
+        // 直接 404。逐段 encodeURIComponent（保留 `/` 分隔符语义）后拼回。
+        const encodedPath = blob.fullPath
+          .split('/')
+          .map((segment) => encodeURIComponent(segment))
+          .join('/');
         response = await fetchImpl(
-          `https://raw.githubusercontent.com/${repo}/${ref}/${blob.fullPath}`,
+          `https://raw.githubusercontent.com/${repo}/${ref}/${encodedPath}`,
           {
             headers: { authorization: `Bearer ${token}` },
             signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),

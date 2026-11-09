@@ -34,8 +34,11 @@ export function defaultScheduler(): FrameScheduler {
     };
   }
   return {
-    request: (callback) => setTimeout(() => callback(Date.now()), 0) as unknown as number,
-    cancel: (handle) => clearTimeout(handle as unknown as ReturnType<typeof setTimeout>),
+    // 退化宿主（无 rAF 的测试/SSR 环境）：句柄按 number 归一——浏览器本就返回 number，
+    // Node 类型下句柄是 Timeout 对象（Symbol.toPrimitive 可取数值 id），Number() 归一
+    // 运行时零包装（quality-p1 · B11：替代两处 `as unknown as` 双跳，不改行为）。
+    request: (callback) => Number(setTimeout(() => callback(Date.now()), 0)),
+    cancel: (handle) => clearTimeout(handle),
   };
 }
 
