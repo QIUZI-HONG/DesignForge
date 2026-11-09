@@ -56,7 +56,7 @@ describe('emitTelemetryEvent（票② · 本地埋点发射）', () => {
   });
 
   it('连接卫生：请求带 30s 超时信号（B5）——signal 注入 fetch，超时拒绝同样就地吞', async () => {
-    let receivedSignal: AbortSignal | undefined;
+    let receivedSignal: AbortSignal | null | undefined;
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       receivedSignal = init?.signal;
       // 模拟 daemon 挂死：永不结算，直到 signal abort 传导

@@ -159,12 +159,11 @@ describe('AI 端口', () => {
           new Response(null, { status: 204, headers: { 'content-type': 'text/event-stream' } }),
       );
       const port = createAiPort({ baseUrl: 'http://127.0.0.1:4318', fetchImpl });
-      const error = await port
+      const iterator = port
         .chatStream({ messages: [{ role: 'user', content: 'hi' }] })
-        .next()
-        .then((r) => r)
-        .catch((caught: unknown) => caught);
+        [Symbol.asyncIterator]();
       // 异步迭代器首个 next() 抛出：openStream 失败 → DaemonRequestError
+      const error = await iterator.next().catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(DaemonRequestError);
       expect((error as DaemonRequestError).code).toBe('daemon_bad_response');
       expect((error as DaemonRequestError).message).toBe(t('daemon.transport.noBody'));
