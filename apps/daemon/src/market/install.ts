@@ -462,8 +462,15 @@ export function createMarketInstallService(options: {
       let response: Response;
       let content: Uint8Array;
       try {
+        // raw 下载 URL 的路径必须**段级**编码（D-18 #1 · 票 A · A1）：Trees 清单 fullPath
+        // 可能含空格/中文/`#`——直接拼接时 `#` 被当作 URL 片段截断、空格与非 ASCII 形态
+        // 直接 404。逐段 encodeURIComponent（保留 `/` 分隔符语义）后拼回。
+        const encodedPath = blob.fullPath
+          .split('/')
+          .map((segment) => encodeURIComponent(segment))
+          .join('/');
         response = await fetchImpl(
-          `https://raw.githubusercontent.com/${repo}/${ref}/${blob.fullPath}`,
+          `https://raw.githubusercontent.com/${repo}/${ref}/${encodedPath}`,
           {
             headers: { authorization: `Bearer ${token}` },
             signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
