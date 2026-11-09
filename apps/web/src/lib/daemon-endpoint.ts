@@ -57,6 +57,7 @@ import {
   daemonEndpointDefault,
   daemonEndpointForPort,
 } from '@dforge/contracts';
+import type { KeyValueReadWriter } from './local-store';
 
 /** daemon 缺省端点（端口纪律的起点，本机回环；端点串由契约包单点构造）。 */
 export const DAEMON_ENDPOINT_DEFAULT = daemonEndpointDefault();
@@ -132,11 +133,9 @@ function searchEndpoint(options: DaemonEndpointOptions): string | undefined {
   return normalizeCandidate(params.get(DAEMON_ENDPOINT_QUERY_KEY));
 }
 
-/** 本地存储的最小键值后端（localStorage 的形状子集；测试注入内存实现）。 */
-export interface TokenStorageBackend {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
+/** 本地存储的最小键值后端（localStorage 的形状子集；测试注入内存实现）。
+ * lib 册引擎读写子集的单一真源（票 D 合一：原手写两方法接口删除，结构不变）。 */
+export type TokenStorageBackend = KeyValueReadWriter;
 
 /** 令牌解析选项（各字段显式给出时跳过对应环境读取，便于测试与宿主注入）。 */
 export interface DaemonTokenOptions {
