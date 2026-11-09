@@ -151,7 +151,7 @@ async function main() {
     );
     const baseUrl = await waitForListening(child);
     // 令牌文件由 daemon 启动落盘（listening 已打印 = 应用装配完成）
-    daemonToken = (await readFile(join(tempRoot, 'data') + '/daemon-token', 'utf8')).trim();
+    daemonToken = (await readFile(`${join(tempRoot, 'data')}/daemon-token`, 'utf8')).trim();
     console.log(`[verify-mcp-stub] daemon 监听于 ${baseUrl}`);
 
     const proposedAt = Date.now();
