@@ -17,7 +17,6 @@ export {
   type AiPort,
   createAiPort,
   DaemonRequestError,
-  readEnvelope,
   resolveDaemonBaseUrl,
 } from './client';
 export { AiDrawer, type AiDrawerProps } from './components/AiDrawer';

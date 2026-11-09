@@ -4,11 +4,16 @@
  * 端口只暴露抽屉真正用到的两件事：`status`（是否配置 → 降级提示）与
  * `chatStream`（SSE 文本块）。**不做任何降级分支**：无 key / 上游失败由 daemon
  * 以同构响应表达（`AiStreamEvent` 通道不变），适配层（stream.ts）统一处理。
+ *
+ * 传输（arch-v1 · 票①）：一笔一元请求与一条流式请求都经 `@/lib/daemon-transport`
+ * （端点/令牌/超时/信封在彼处单点）；本模块只把结构化失败映射回领域错误
+ * `DaemonRequestError`（公开错误类型与文案不变）。**SSE 解析仍归 `stream.ts`**。
  */
 import type { AiChatRequest, AiStatusResponse } from '@dforge/contracts';
 import { DAEMON_ROUTES } from '@dforge/contracts';
 
-import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { openStream, request } from '@/lib/daemon-transport';
 
 /** daemon 请求失败（信封 error 的形状对齐；UI 只读 code/message）。 */
 export class DaemonRequestError extends Error {
@@ -38,68 +43,34 @@ export function resolveDaemonBaseUrl(explicit?: string): string {
   return resolveDaemonEndpointSync();
 }
 
-/** 解包统一信封；失败抛 DaemonRequestError。 */
-export async function readEnvelope<T>(response: Response): Promise<T> {
-  let payload: unknown = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-  if (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { ok?: unknown }).ok === true
-  ) {
-    return (payload as { result: T }).result;
-  }
-  const error =
-    typeof payload === 'object' && payload !== null
-      ? (payload as { error?: { code?: unknown; message?: unknown } }).error
-      : undefined;
-  const code = typeof error?.code === 'string' ? error.code : `http_${String(response.status)}`;
-  const message =
-    typeof error?.message === 'string'
-      ? error.message
-      : `请求失败（HTTP ${String(response.status)}）`;
-  throw new DaemonRequestError(code, message);
-}
-
 /** 创建 AI 端口（baseUrl / fetchImpl 可注入，测试与门禁直接换实现）。 */
 export function createAiPort(options: { baseUrl?: string; fetchImpl?: typeof fetch } = {}): AiPort {
   const baseUrl = resolveDaemonBaseUrl(options.baseUrl);
-  const doFetch = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? fetch;
 
   return {
     async status(signal) {
-      const response = await doFetch(`${baseUrl}${DAEMON_ROUTES.aiStatus.path}`, {
-        method: DAEMON_ROUTES.aiStatus.method,
-        headers: daemonAuthHeaders(), // 本地令牌鉴权（audit-d02 · D-02）
+      const result = await request<AiStatusResponse>(DAEMON_ROUTES.aiStatus, {
+        baseUrl,
+        fetchImpl,
         ...(signal === undefined ? {} : { signal }),
       });
-      return readEnvelope<AiStatusResponse>(response);
+      if (!result.ok) throw new DaemonRequestError(result.code, result.message);
+      return result.value;
     },
 
-    async *chatStream(request, signal) {
-      const response = await doFetch(`${baseUrl}${DAEMON_ROUTES.aiChat.path}`, {
-        method: DAEMON_ROUTES.aiChat.method,
-        headers: { 'content-type': 'application/json', ...daemonAuthHeaders() },
-        body: JSON.stringify({ ...request, stream: true }),
+    async *chatStream(chatRequest, signal) {
+      const opened = await openStream(DAEMON_ROUTES.aiChat, {
+        baseUrl,
+        fetchImpl,
+        body: { ...chatRequest, stream: true },
         ...(signal === undefined ? {} : { signal }),
       });
-      if (!response.ok || response.body === null) {
+      if (!opened.ok) {
         // 流式通道未建立：优先用信封里的错误码（如 ai_invalid_request），否则退化为 HTTP 码
-        const fallback = new DaemonRequestError(
-          `http_${String(response.status)}`,
-          'AI 流式通道建立失败',
-        );
-        const failure = await readEnvelope<never>(response).then(
-          () => fallback,
-          (error: unknown) => (error instanceof DaemonRequestError ? error : fallback),
-        );
-        throw failure;
+        throw new DaemonRequestError(opened.code, opened.message);
       }
-      const reader = response.body.getReader();
+      const reader = opened.stream.getReader();
       const decoder = new TextDecoder();
       for (;;) {
         const { done, value } = await reader.read();
