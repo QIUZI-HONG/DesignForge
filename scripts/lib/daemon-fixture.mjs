@@ -100,7 +100,12 @@ export const TEMP_ROOT_RM_OPTIONS = Object.freeze({
  *   rmImpl?: (path: string) => Promise<void>,
  *   timeoutMs?: number,
  *   releaseTimeoutMs?: number,
+ *   seed?: (dirs: { dataRoot: string, workspaceDir: string }) => Promise<void> | void,
  * }} [options]
+ *   `seed`（可选 · quality-p1 票 C5）：夹具数据根建好后、daemon 启动**前**调用的播种钩子
+ *   （把索引/产物灌进临时数据根，daemon 一启动就看到数据）。抛错按夹具失败处理（清临时根
+ *   后抛 `DaemonFixtureError`，文案带「播种失败」）。仅 fixture 形态生效；外部实例不调用
+ *   （门禁不摸外部数据根）。
  * @returns {Promise<{
  *   url: string,
  *   token: string | null,
@@ -122,6 +127,7 @@ export async function resolveDaemon({
   rmImpl = (path) => rm(path, TEMP_ROOT_RM_OPTIONS),
   timeoutMs = 20_000,
   releaseTimeoutMs = 5000,
+  seed,
 } = {}) {
   const explicit = typeof env.DF_DAEMON_URL === 'string' ? env.DF_DAEMON_URL.trim() : '';
   if (explicit !== '') {
@@ -165,6 +171,20 @@ export async function resolveDaemon({
   log(`[daemon] 未设 DF_DAEMON_URL → 自起夹具 daemon（${slug}）：临时数据根 + 空闲端口。`);
   const dataRoot = await mkdtempImpl(`df-gate-${slug}-data-`);
   const workspaceDir = await mkdtempImpl(`df-gate-${slug}-ws-`);
+
+  // 播种钩子（可选）：数据根建好后、daemon 启动前灌数据（票 C5）——失败按夹具失败处理。
+  if (typeof seed === 'function') {
+    try {
+      await seed({ dataRoot, workspaceDir });
+    } catch (error) {
+      await removeTempRoot(dataRoot);
+      await removeTempRoot(workspaceDir);
+      throw new DaemonFixtureError(
+        `夹具数据根播种失败（${slug}）：${String(error?.message ?? error).slice(0, 1500)}`,
+        { cause: error },
+      );
+    }
+  }
 
   let daemon;
   try {
