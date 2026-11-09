@@ -8,8 +8,9 @@
  * - **采纳**只记本地计数（遥测默认仅本地，§8.3），不改文档、不上云；
  * - 装载（写事务）仍走 `LoadConfirmDialog` 的三段式——面板给入口，不另开旁路。
  *
- * 挂点说明：编辑器壳层（FE-03）尚未并入集成分支，本组件先在独立深色路由 `/market/panel`
- * 完整呈现（含 `data-df-page` 取样名），壳层落地后由壳层把本组件挂到右栏并持有主题。
+ * 挂点现状：编辑器壳层（FE-03）已落地——本组件经 `MarketPanelBody` 在两处呈现：
+ * 编辑器左栏页签（`register.tsx` 的 `MarketPanelSlot`，主题由壳层 `EditorThemeScope` 持有）
+ * 与独立深色路由 `/market/panel`（页面持有主题开关与页面 chrome，取样名不变）。
  */
 
 import type { MarketAsset } from '@dforge/contracts';
