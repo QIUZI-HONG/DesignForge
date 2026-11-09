@@ -56,6 +56,15 @@ const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
  */
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 
+/**
+ * 源 ref 必须是 40 位 commit hex（D-18 #5 · 票 A · A2）：装载侧此前不校验 `source.ref`
+ * 形态，畸形 ref（分支名/短 SHA/带路径）直接进 Trees/raw URL。口径与采集索引 schema
+ * `services/ingest/src/index/schema.ts` 的 `COMMIT_RE` 同源（`/^[0-9a-f]{40}$/i`，大小写
+ * 兼容）——该正则未从包内导出，这里对齐字面量并注释同源出处。不符走既有
+ * `market_install_source_unavailable` 终态族（reason: 'ref-invalid'），不新造公开错误码。
+ */
+const COMMIT_SHA_RE = /^[0-9a-f]{40}$/i;
+
 /** 装载安装结果（路由层映射为统一失败信封）。 */
 export type MarketInstallResult =
   | { ok: true; response: MarketInstallResponse }
@@ -313,6 +322,16 @@ export function createMarketInstallService(options: {
         }),
       };
     }
+    // ref 形态校验（D-18 #5 · 票 A · A2）：非 40-hex commit 在发起任何源请求前即终态失败
+    // （与 source-incomplete 同族同档：源信息本身不可信，不进 URL 拼接）。
+    if (!COMMIT_SHA_RE.test(ref)) {
+      return {
+        ok: false,
+        result: sourceUnavailable('资产源 ref 不是合法的 40 位 commit SHA，拒绝装载', {
+          reason: 'ref-invalid',
+        }),
+      };
+    }
     const headers: Record<string, string> = {
       authorization: `Bearer ${token}`,
       accept: 'application/vnd.github+json',
@@ -462,8 +481,15 @@ export function createMarketInstallService(options: {
       let response: Response;
       let content: Uint8Array;
       try {
+        // raw 下载 URL 的路径必须**段级**编码（D-18 #1 · 票 A · A1）：Trees 清单 fullPath
+        // 可能含空格/中文/`#`——直接拼接时 `#` 被当作 URL 片段截断、空格与非 ASCII 形态
+        // 直接 404。逐段 encodeURIComponent（保留 `/` 分隔符语义）后拼回。
+        const encodedPath = blob.fullPath
+          .split('/')
+          .map((segment) => encodeURIComponent(segment))
+          .join('/');
         response = await fetchImpl(
-          `https://raw.githubusercontent.com/${repo}/${ref}/${blob.fullPath}`,
+          `https://raw.githubusercontent.com/${repo}/${ref}/${encodedPath}`,
           {
             headers: { authorization: `Bearer ${token}` },
             signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),

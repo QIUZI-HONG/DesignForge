@@ -26,9 +26,9 @@ import {
   approveLoadSession,
   completeLoadInstall,
   EMPTY_LOAD_SESSION,
-  type LoadErrorCode,
   type LoadRecord,
   type LoadSession,
+  loadErrorCopyKey,
   type MarketInstallClient,
   openLoadSession,
   rejectLoadSession,
@@ -38,40 +38,6 @@ import {
 import { CapabilityList } from './CapabilityList';
 
 import '../market.css';
-
-/** 装载错误码 → i18n 键（票③：daemon 真写失败族 + 原有会话错误）。 */
-function loadErrorCopyKey(code: LoadErrorCode): string {
-  switch (code) {
-    case 'load_token_expired':
-      return 'market.load.tokenExpired';
-    case 'load_token_used':
-      return 'market.load.tokenUsed';
-    case 'load_already_approved':
-      return 'market.load.alreadyApproved';
-    case 'load_not_loadable':
-      return 'market.load.notLoadable';
-    case 'load_install_asset_not_found':
-      return 'market.load.installAssetNotFound';
-    case 'load_install_ack_invalid':
-      return 'market.load.installAckInvalid';
-    case 'load_install_ack_expired':
-      return 'market.load.installAckExpired';
-    case 'load_install_digest_mismatch':
-      return 'market.load.installDigestMismatch';
-    case 'load_install_source_unavailable':
-      return 'market.load.installSourceUnavailable';
-    case 'load_install_target_invalid':
-      return 'market.load.installTargetInvalid';
-    case 'load_install_gate_blocked':
-      return 'market.load.installGateBlocked';
-    case 'load_install_unreachable':
-      return 'market.load.installUnreachable';
-    case 'load_install_bad_response':
-      return 'market.load.installBadResponse';
-    default:
-      return 'market.load.installFailed';
-  }
-}
 
 /** 对话框 props（`now` 可注入：测试模拟超时，不依赖真实时钟；`install` 为 daemon 真写客户端）。 */
 export interface LoadConfirmDialogProps {
