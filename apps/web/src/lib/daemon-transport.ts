@@ -29,6 +29,7 @@
 import type { DaemonRouteSpec } from '@dforge/contracts';
 import { isApiFailure, isApiSuccess } from '@dforge/contracts';
 
+import { t } from '@/i18n';
 import {
   DaemonEndpointError,
   daemonAuthHeaders,
@@ -182,7 +183,7 @@ async function readJson(response: Response): Promise<unknown | TransportFailure>
   try {
     text = await response.text();
   } catch {
-    return failure('daemon_bad_response', '本地服务返回了无法解析的响应（非 JSON）', {
+    return failure('daemon_bad_response', t('daemon.transport.badResponse'), {
       details: { reason: 'invalid-json' },
       status: response.status,
     });
@@ -195,7 +196,7 @@ function parseJsonText(text: string, status: number): unknown | TransportFailure
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    return failure('daemon_bad_response', '本地服务返回了无法解析的响应（非 JSON）', {
+    return failure('daemon_bad_response', t('daemon.transport.badResponse'), {
       details: { reason: 'invalid-json' },
       status,
     });
@@ -290,7 +291,7 @@ function unwrapEnvelope<T>(
 ): TransportResult<T> {
   if (isApiSuccess<T>(payload)) {
     if (init.validate !== undefined && !init.validate(payload.result)) {
-      return failure('daemon_bad_response', '本地服务返回的 result 形状不符合契约', {
+      return failure('daemon_bad_response', t('daemon.transport.invalidShape'), {
         details: { reason: 'invalid-shape' },
         status,
       });
@@ -302,7 +303,9 @@ function unwrapEnvelope<T>(
     const error = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
     return failure(
       typeof error.code === 'string' ? error.code : `http_${String(status)}`,
-      typeof error.message === 'string' ? error.message : `请求失败（HTTP ${String(status)}）`,
+      typeof error.message === 'string'
+        ? error.message
+        : t('daemon.transport.httpFailure', { status }),
       {
         ...(typeof error.details === 'object' && error.details !== null
           ? { details: error.details }
@@ -311,7 +314,7 @@ function unwrapEnvelope<T>(
       },
     );
   }
-  return failure('daemon_bad_response', '本地服务返回了不可识别的 JSON 信封', {
+  return failure('daemon_bad_response', t('daemon.transport.malformedEnvelope'), {
     details: { reason: 'malformed-envelope' },
     status,
   });
@@ -429,7 +432,7 @@ export async function openStream(
       // 非 2xx 且正文不是 JSON：仍按 HTTP 状态给码（旧 AI 客户端同口径）
       return failure(
         `http_${String(response.status)}`,
-        `请求失败（HTTP ${String(response.status)}）`,
+        t('daemon.transport.httpFailure', { status: response.status }),
         {
           status: response.status,
         },
@@ -442,7 +445,7 @@ export async function openStream(
         typeof error.code === 'string' ? error.code : `http_${String(response.status)}`,
         typeof error.message === 'string'
           ? error.message
-          : `请求失败（HTTP ${String(response.status)}）`,
+          : t('daemon.transport.httpFailure', { status: response.status }),
         {
           ...(typeof error.details === 'object' && error.details !== null
             ? { details: error.details }
@@ -453,7 +456,7 @@ export async function openStream(
     }
     return failure(
       `http_${String(response.status)}`,
-      `请求失败（HTTP ${String(response.status)}）`,
+      t('daemon.transport.httpFailure', { status: response.status }),
       {
         status: response.status,
       },
@@ -461,7 +464,7 @@ export async function openStream(
   }
 
   if (response.body === null) {
-    return failure('daemon_bad_response', '本地服务流式响应没有响应体', {
+    return failure('daemon_bad_response', t('daemon.transport.noBody'), {
       details: { reason: 'no-body' },
       status: response.status,
     });

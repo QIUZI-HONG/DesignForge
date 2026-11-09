@@ -7,6 +7,9 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
+import { t } from '@/i18n';
+import en from '../../messages/en.json';
+
 import { openStream, request } from './daemon-transport';
 
 const BASE = 'http://127.0.0.1:4318';
@@ -66,7 +69,7 @@ describe('request · 信封与传输失败归一', () => {
     expect(result.status).toBe(404);
   });
 
-  it('非 JSON 响应 → daemon_bad_response（带状态与 invalid-json 理由）', async () => {
+  it('非 JSON 响应 → daemon_bad_response（带状态与 invalid-json 理由，文案来自 i18n）', async () => {
     const fetchImpl = vi.fn(async () => new Response('<html>bad gateway</html>', { status: 502 }));
     const result = await request({ method: 'GET', path: '/health' }, { baseUrl: BASE, fetchImpl });
 
@@ -75,6 +78,7 @@ describe('request · 信封与传输失败归一', () => {
     expect(result.code).toBe('daemon_bad_response');
     expect(result.status).toBe(502);
     expect(result.details).toEqual({ reason: 'invalid-json' });
+    expect(result.message).toBe(t('daemon.transport.badResponse'));
   });
 
   it('网络异常 → daemon_unreachable（保留原始技术信息，不伪装成 HTTP 码）', async () => {
@@ -153,6 +157,18 @@ describe('request · 信封与传输失败归一', () => {
     if (result.ok) return;
     expect(result.code).toBe('daemon_bad_response');
     expect(result.details).toEqual({ reason: 'invalid-shape' });
+    expect(result.message).toBe(t('daemon.transport.invalidShape'));
+  });
+
+  it('可识别 JSON 但不是信封 → daemon_bad_response（malformed-envelope，文案来自 i18n）', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ nope: true }));
+    const result = await request({ method: 'GET', path: '/health' }, { baseUrl: BASE, fetchImpl });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('daemon_bad_response');
+    expect(result.details).toEqual({ reason: 'malformed-envelope' });
+    expect(result.message).toBe(t('daemon.transport.malformedEnvelope'));
   });
 });
 
@@ -326,7 +342,23 @@ describe('openStream · 只界响应头的流式语义', () => {
     expect(result.status).toBe(400);
   });
 
-  it('2xx 但无响应体 → daemon_bad_response（不假装流已建立）', async () => {
+  it('非 2xx + 非 JSON 正文 → http_<status>（文案来自 i18n，带状态参数）', async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response('<html>502 Bad Gateway</html>', { status: 502 }),
+    );
+    const result = await openStream(
+      { method: 'POST', path: '/ai/chat' },
+      { baseUrl: BASE, fetchImpl, body: {} },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('http_502');
+    expect(result.status).toBe(502);
+    expect(result.message).toBe(t('daemon.transport.httpFailure', { status: 502 }));
+  });
+
+  it('2xx 但无响应体 → daemon_bad_response（不假装流已建立，文案来自 i18n）', async () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response(null, { status: 204, headers: { 'content-type': 'text/event-stream' } }),
@@ -340,5 +372,25 @@ describe('openStream · 只界响应头的流式语义', () => {
     if (result.ok) return;
     expect(result.code).toBe('daemon_bad_response');
     expect(result.details).toEqual({ reason: 'no-body' });
+    expect(result.message).toBe(t('daemon.transport.noBody'));
+  });
+});
+
+describe('transport 文案 · i18n 目录（评审 F5）', () => {
+  it('关键失败文案在 zh-CN / en 两目录同键（en 缺键会裸键直出）', () => {
+    const keys = [
+      'daemon.transport.badResponse',
+      'daemon.transport.invalidShape',
+      'daemon.transport.malformedEnvelope',
+      'daemon.transport.httpFailure',
+      'daemon.transport.noBody',
+    ] as const;
+    for (const key of keys) {
+      const rendered = key === 'daemon.transport.httpFailure' ? t(key, { status: 500 }) : t(key);
+      expect(rendered.length).toBeGreaterThan(0);
+      expect(rendered).not.toBe(key); // 两目录皆缺键时原样回键
+      expect((en as Record<string, string>)[key]?.length).toBeGreaterThan(0);
+    }
+    expect(t('daemon.transport.httpFailure', { status: 503 })).toContain('503');
   });
 });
