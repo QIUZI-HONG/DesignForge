@@ -9,7 +9,7 @@
 | P0 | 0 | — |
 | P1 | 3 | D-01 canvas 持久化往返断裂 · D-02 daemon 本地特权面 · D-03 /editor 导入未接线 |
 | P2 | 9 | D-04~D-12 |
-| P3 | 6 | D-13~D-18 |
+| P3 | 7 | D-13~D-19 |
 
 ## 1. P1 缺陷（含 5 Whys）
 
@@ -78,13 +78,29 @@
 | 6 | 装载文件名未显式拒绝控制字符（`resolveWithin` 拒 NUL/非 NFC，0x01–0x1F 其余控制字符不在段级词法内） | `apps/daemon/src/path-safety.ts` isSafeSegment | 后续批次：isSafeSegment 扩控制字符拒绝（影响面广，需回归文档链路） |
 | 7 | 注释失实（如 LoadConfirmDialog「第二次打开不复用旧 token」与实现不符） | `apps/web/src/features/market/` | **本批 F1 已修此一处**；其余同类注释后续批次顺带核对 |
 
+### D-19 arch-v1 集成分支评审 Nit 汇总（低影响代码卫生 · 状态：开放 · 处置=后续批次）
+
+- **来源**：架构深化批 v1 集成分支评审轮（2026-11-09，`integration/arch-v1`）——两名独立
+  verifier 确认的 5 项 Important（F1~F5）当批已修（见集成分支修复轮提交记录）；以下 Nit
+  类别评审已登记、当批**不修**，留待后续批次收口。
+- **Nit 清单**：
+
+| # | Nit | 位置 | 处置建议 |
+|---|---|---|---|
+| 1 | `openStream` 非 2xx 的失败信封正文读取**无时限**（`readJson` 直接读文本，正文滴流挂死会一直等下去） | `apps/web/src/lib/daemon-transport.ts` openStream / readJson | 后续批次：非 2xx 正文读取也套上限并取消上游 |
+| 2 | ADS 产物读入无 realpath 校验、无文件大小上限（`readFile` 按 `<dir>` 拼名整读） | `services/ingest/src/index/read.ts` readAdsArtifacts | 后续批次：realpath 限定数据根内 + 大小上限 |
+| 3 | tags 逗号 join/decode 可拆项：含逗号的单个 tag 在解码侧被拆成多个 | `packages/contracts/src/market/query.ts`（encode `tags.join(',')` / decode `split(',')`） | 后续批次：逐项转义或改用重复查询参数 |
+| 4 | 注释过界：transport 头注释写「单一访问 module」，`read.ts` 写「读+校验+归一化收成一处」——实际 telemetry / inspect-export / daemon service / search-cmd 仍自建访问或读入路径 | `apps/web/src/lib/daemon-transport.ts` 模块头；`services/ingest/src/index/read.ts`、`index/index.ts`（#3 三读者收敛） | 后续批次：收编剩余访问点，或把注释改成现状枚举 |
+| 5 | ai 2xx 无 body 的错误码/文案变化未入测试（旧客户端与传输层对 2xx 空 body 的失败形状不同） | `apps/web/src/features/ai/client.ts` + `daemon-transport.ts` openStream | 后续批次：补 ai 2xx 无 body 的契约用例 |
+| 6 | `TransportInit.validate` 签名是 `(value: unknown) => boolean`，与设计简报的 `v is T` 谓词签名不一致（调用方无法收窄，且市场层另在 `readEnvelope` 做形状校验） | `apps/web/src/lib/daemon-transport.ts` TransportInit.validate | 后续批次：统一为类型谓词或把 validate 收进市场层单一入口 |
+
 ## 4. 修复优先级矩阵（影响 × 紧迫）
 
 | | 高紧迫 | 中紧迫 | 低紧迫 |
 |---|---|---|---|
 | **高影响** | D-01（主工作页数据丢失风险）· D-02（本地数据可被任意网页读取） | D-03（导入不可用）· D-05（并发丢更新） | D-08（大文档上限） |
 | **中影响** | D-04（保存挂死观感） | D-06/D-07（数据面健壮）· D-09（门禁可信度）· D-10（文案一致性） | D-11（覆盖率）· D-12（依赖） |
-| **低影响** | — | D-17（卫生） | D-13~D-16 · D-18（评审 Nit 汇总） |
+| **低影响** | — | D-17（卫生） | D-13~D-16 · D-18/D-19（评审 Nit 汇总） |
 
 ## 5. 阻塞与规避
 
