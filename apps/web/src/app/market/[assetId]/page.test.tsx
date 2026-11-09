@@ -11,7 +11,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { marketFixtures } from '@/features/market';
+import { marketFixtures, marketTestUtils } from '@/features/market';
 
 const push = vi.fn();
 
@@ -106,18 +106,9 @@ describe('/market/[assetId] · E2 错误分类（not-found 与连接错误分流
 });
 
 describe('/market/[assetId] · 行为事件（票②）', () => {
-  /** 抽取打到 /telemetry/events 的调用体。 */
-  function telemetryCalls(): Array<{ name: string; payload: Record<string, unknown> }> {
-    return fetchMock.mock.calls
-      .filter((call) => String(call[0]).includes('/telemetry/events'))
-      .map(
-        (call) =>
-          JSON.parse(String((call[1] as { body: string }).body)) as {
-            name: string;
-            payload: Record<string, unknown>;
-          },
-      );
-  }
+  /** 抽取打到 /telemetry/events 的调用体（共享工具 D-18 #4；桩 = 本文件模块级 fetchMock）。 */
+  const telemetryCalls = (): ReturnType<typeof marketTestUtils.telemetryCalls> =>
+    marketTestUtils.telemetryCalls(fetchMock);
 
   it('详情就绪 → 发 market.asset-detail（含 assetId，且一次挂载只发一次）', async () => {
     const asset = marketFixtures.makeAsset();

@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const fetchMock = vi.fn();
 
 import { makeAsset, makeLoadPlan } from '../__fixtures__/market';
+import { telemetryCalls } from '../__fixtures__/telemetry-calls';
 import type { LoadRecord, MarketInstallClient, MarketInstallOutcome } from '../load-token';
 import { CapabilityList } from './CapabilityList';
 import { LoadConfirmDialog } from './LoadConfirmDialog';
@@ -177,18 +178,8 @@ describe('LoadConfirmDialog · 三段式装载（D4）', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  /** 抽取打到 /telemetry/events 的调用体。 */
-  function telemetryCalls(): Array<{ name: string; payload: Record<string, unknown> }> {
-    return fetchMock.mock.calls
-      .filter((call) => String(call[0]).includes('/telemetry/events'))
-      .map(
-        (call) =>
-          JSON.parse(String((call[1] as { body: string }).body)) as {
-            name: string;
-            payload: Record<string, unknown>;
-          },
-      );
-  }
+  /** 抽取打到 /telemetry/events 的调用体（共享工具；桩 = 本文件模块级 fetchMock）。 */
+  const collectTelemetry = (): ReturnType<typeof telemetryCalls> => telemetryCalls(fetchMock);
 
   it('确认写入成功 → 发 market.load-attempt（result=success，含 assetId）', async () => {
     fetchMock.mockReset();
@@ -208,7 +199,7 @@ describe('LoadConfirmDialog · 三段式装载（D4）', () => {
     await user.click(screen.getByRole('button', { name: '确认写入' }));
     expect(screen.getByText('已装载：写入记录与审计已生成。')).toBeTruthy();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const attempts = telemetryCalls().filter((call) => call.name === 'market.load-attempt');
+    const attempts = collectTelemetry().filter((call) => call.name === 'market.load-attempt');
     expect(attempts).toHaveLength(1);
     expect(attempts[0]?.payload).toMatchObject({
       assetId: 'gh:acme/skills#skills/pdf-export',
@@ -235,7 +226,7 @@ describe('LoadConfirmDialog · 三段式装载（D4）', () => {
     clock.now += 5_001;
     await user.click(screen.getByRole('button', { name: '确认写入' }));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const attempts = telemetryCalls().filter((call) => call.name === 'market.load-attempt');
+    const attempts = collectTelemetry().filter((call) => call.name === 'market.load-attempt');
     expect(attempts).toHaveLength(1);
     expect(attempts[0]?.payload).toMatchObject({
       assetId: 'gh:acme/skills#skills/pdf-export',
@@ -250,7 +241,7 @@ describe('LoadConfirmDialog · 三段式装载（D4）', () => {
     const user = userEvent.setup();
     setup();
     await user.click(screen.getByRole('button', { name: '取消' }));
-    expect(telemetryCalls().some((call) => call.name === 'market.load-attempt')).toBe(false);
+    expect(collectTelemetry().some((call) => call.name === 'market.load-attempt')).toBe(false);
   });
 });
 
