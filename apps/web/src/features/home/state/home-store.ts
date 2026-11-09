@@ -8,14 +8,17 @@
  *
  * 工厂形态（`createHomeStore`）：测试与多窗口场景各自持有实例，互不污染；
  * 页面用模块级单例 `useHomeStore`。
+ *
+ * 回收站册的 localStorage 读写机制收编 lib `createLocalStore`（票 D，validate=isTrashRecord）；
+ * 坏数据容忍口径与 lib 一致（读失败/坏项当空，不炸界面）。
  */
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
+import { createLocalStore, type KeyValueReadWriter, type LocalStore } from '@/lib/local-store';
 import type { DocumentRange, DocumentSort } from '../lib/filter';
 import {
   appendTrashRecord,
-  parseTrashRecords,
+  isTrashRecord,
   removeTrashRecord,
-  serializeTrashRecords,
   TRASH_STORAGE_KEY,
   type TrashRecord,
 } from '../lib/trash';
@@ -52,11 +55,9 @@ export interface HomeState {
   purgeTrashRecord: (id: string) => void;
 }
 
-/** store 用到的存储面（注入替身便于测试；SSR 无 window 时为 null）。 */
-export interface HomeStorage {
-  getItem: (key: string) => string | null;
-  setItem: (key: string, value: string) => void;
-}
+/** store 用到的存储面（注入替身便于测试；SSR 无 window 时为 null）。
+ * lib 册引擎读写子集的单一真源（票 D 合一：原手写两方法接口删除）。 */
+export type HomeStorage = KeyValueReadWriter;
 
 /** 构造选项。 */
 export interface HomeStoreOptions {
@@ -75,9 +76,22 @@ function defaultStorage(): HomeStorage | null {
   }
 }
 
+/** 回收站册引擎（lib createLocalStore 收编，票 D：validate=isTrashRecord 逐条过滤；
+ * 写失败上抛与旧实现同口径——recordDeletion/purgeTrashRecord 的调用方依赖异常可见）。 */
+function trashStore(storage: HomeStorage | null): LocalStore<TrashRecord> {
+  return createLocalStore<TrashRecord>({
+    key: TRASH_STORAGE_KEY,
+    backend: storage ?? undefined,
+    validate: isTrashRecord,
+    onWriteError: (error) => {
+      throw error;
+    },
+  });
+}
+
 /** 读初始删除记录。 */
 function initialTrashRecords(storage: HomeStorage | null): TrashRecord[] {
-  return storage === null ? [] : parseTrashRecords(storage.getItem(TRASH_STORAGE_KEY));
+  return trashStore(storage).load();
 }
 
 /** 创建首页 store（工厂：测试与多实例用）。 */
@@ -105,13 +119,13 @@ export function createHomeStore(
     recordDeletion: (record) => {
       const next = appendTrashRecord(get().trashRecords, record);
       set({ trashRecords: next });
-      storage?.setItem(TRASH_STORAGE_KEY, serializeTrashRecords(next));
+      trashStore(storage).save(next);
     },
 
     purgeTrashRecord: (id) => {
       const next = removeTrashRecord(get().trashRecords, id);
       set({ trashRecords: next });
-      storage?.setItem(TRASH_STORAGE_KEY, serializeTrashRecords(next));
+      trashStore(storage).save(next);
     },
   }));
 }
