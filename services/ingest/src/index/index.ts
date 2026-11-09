@@ -5,6 +5,7 @@
  *   dws      → DWS 输入契约（DWD 资产行 + DWS 质量/facet 联结行）与宽容读取器
  *   build    → `df.marketplace.index/v1` 产出（门禁合成/blocked 过滤/counts/确定性排序）
  *   schema   → schema 校验器（生产侧严格档；daemon/FE-11/MK-05 复用）
+ *   read     → ADS 产物读入面（判别式：readSearchIndex / readAdsArtifacts；#3 三读者收敛）
  *   terms    → 中英术语等价类与分词（"PPT/幻灯片/deck" 起步表）
  *   search   → BM25 检索、排序（质量分 × 相关度）与倒排产物
  *   pipeline → ADS 产物集构建与落盘（先校验后写）
@@ -40,16 +41,20 @@ export {
 } from './pipeline.ts';
 export type { ExampleQuery, ExampleQueryFilters } from './query-set.ts';
 export { EXAMPLE_QUERIES } from './query-set.ts';
+export type { ReadAdsArtifactsResult, ReadSearchIndexResult } from './read.ts';
+export { readAdsArtifacts, readSearchIndex } from './read.ts';
 export type {
   IndexIssueCode,
   IndexValidationIssue,
   IndexValidationOptions,
   IndexValidationResult,
+  SearchIndexParseResult,
 } from './schema.ts';
 export {
   CAPABILITY_WHITELIST,
   formatIndexIssues,
   MARKETPLACE_INDEX_SCHEMA_ID,
+  parseSearchIndexArtifact,
   QUALITY_WEIGHTS,
   validateMarketplaceIndex,
 } from './schema.ts';
