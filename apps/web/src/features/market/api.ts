@@ -120,8 +120,21 @@ export function readEnvelope<T>(
 }
 
 /** 造一个失败信封（内部小工具，避免每处重复字面量）。 */
-function failure(code: string, message: string): { ok: false; error: MarketFailure } {
-  return { ok: false, error: { code, message } };
+function failure(
+  code: string,
+  message: string,
+  details?: unknown,
+): { ok: false; error: MarketFailure } {
+  return {
+    ok: false,
+    error: {
+      code,
+      message,
+      ...(typeof details === 'object' && details !== null
+        ? { details: details as Record<string, unknown> }
+        : {}),
+    },
+  };
 }
 
 /** 判断值是否为非 null 对象（形状校验的最小单元）。 */
@@ -241,9 +254,11 @@ async function requestJson<T>(
   if (!result.ok) {
     // 客户端层只透传原始错误与归一码（票 06 / spec P1-2）：不在这里拼界面文案——
     // 「中文人话 + 下一步 + 技术详情」由展示层经共享归类（`@/lib/daemon-failure`）生成。
-    // 传输失败（网络/超时）沿用市场侧既有归一码 daemon_unreachable；坏响应保留结构化码。
+    // 传输层坏响应（非 JSON / 脏信封，如反代 502 HTML）在**市场适配层**归一到
+    // `daemon_unreachable`：网关活着但上游 daemon 不可用，与不可达同一用户动作
+    // （确认服务 / 重试）；message/details 保留技术细节，便于诊断（评审 F4）。
     if (result.code === 'daemon_bad_response') {
-      return failure('daemon_bad_response', result.message);
+      return failure('daemon_unreachable', result.message, result.details);
     }
     if (result.code === 'daemon_unreachable' || result.code === 'daemon_timeout') {
       return failure('daemon_unreachable', result.message);

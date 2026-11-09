@@ -9,6 +9,7 @@ import { MARKETPLACE_INDEX_SCHEMA } from '@dforge/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
 import { resetDaemonEndpointCache } from '@/lib/daemon-endpoint';
+import { classifyDaemonFailure } from '@/lib/daemon-failure';
 
 import { makeAsset, makeMissingIndexResponse, makeQueryResponse } from './__fixtures__/market';
 import {
@@ -22,6 +23,7 @@ import {
   classifyWarnings,
   DEFAULT_DAEMON_URL,
   daemonBaseUrl,
+  fetchMarketAsset,
   fetchMarketInstall,
   fetchMarketLoadPlan,
   fetchMarketQuery,
@@ -267,6 +269,48 @@ describe('api · 取数（假 fetch）', () => {
       // 客户端层只透传原始错误（票 06 / P1-2）：不在这里拼界面文案，人话由展示层归类生成
       expect(result.error.message).toBe('ECONNREFUSED');
     }
+  });
+
+  it('反代 502 HTML（非 JSON）→ daemon_unreachable（网络族），message/details 保留技术细节', async () => {
+    // 故障形态：同源网关把 daemon 失联代理成 502，正文是 HTML 而不是信封。
+    // 旧码：transport 的 daemon_bad_response 原样透出 → 市场错误态落「非网络族」，
+    // 用户看到的是技术串而不是「确认服务已启动 / 重试」。
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response('<html>502 Bad Gateway</html>', {
+          status: 502,
+          headers: { 'content-type': 'text/html' },
+        }),
+    );
+    const result = await fetchMarketQuery(
+      { q: 'pdf' },
+      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('daemon_unreachable');
+    // 技术细节保留（便于诊断），不换成拼给人看的界面文案
+    expect(result.error.message.length).toBeGreaterThan(0);
+    expect(result.error.details).toEqual({ reason: 'invalid-json' });
+    expect(
+      classifyDaemonFailure({ message: result.error.message, code: result.error.code }).isNetwork,
+    ).toBe(true);
+  });
+
+  it('HTTP 有响应的 4xx/5xx 线上码照旧透传（不被 F4 一并归一）', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ ok: false, error: { code: 'market_asset_not_found', message: '无' } }),
+          { status: 404, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    const result = await fetchMarketAsset('gh:no/such#x', {
+      baseUrl: 'http://127.0.0.1:4318',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('market_asset_not_found');
   });
 
   it('详情未命中 → null（页面渲染「资源不存在」态）', () => {
