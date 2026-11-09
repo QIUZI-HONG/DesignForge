@@ -602,6 +602,120 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
     }
   });
 
+  /** 覆盖 source.repo 的资产夹具（repo 形态校验用例，quality-p1 评审 #2）。 */
+  function assetWithRepo(
+    repo: string,
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return makeAsset({
+      ...overrides,
+      source: { ...(makeAsset().source as Record<string, unknown>), repo },
+    });
+  }
+
+  it('repo 形态不符（?/#/多余 /）→ 503 source_unavailable（source-incomplete），不发起任何源请求（评审 #2 纵深防御）', async () => {
+    const requested: string[] = [];
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({
+        repo: 'acme/skills',
+        ref: REF,
+        files: ASSET_FILES,
+        recordUrls: requested,
+      }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(
+        daemon,
+        makeIndex([
+          assetWithRepo('acme/skills?redirect=x', {
+            id: 'gh:acme/skills#skills/q-mark',
+            name: 'q-mark',
+          }),
+          assetWithRepo('acme/skills#fragment', {
+            id: 'gh:acme/skills#skills/frag',
+            name: 'frag',
+          }),
+          assetWithRepo('acme/skills/extra', {
+            id: 'gh:acme/skills#skills/extra-slash',
+            name: 'extra-slash',
+          }),
+        ]),
+      );
+      for (const assetId of [
+        'gh:acme/skills#skills/q-mark',
+        'gh:acme/skills#skills/frag',
+        'gh:acme/skills#skills/extra-slash',
+      ]) {
+        const ackToken = await planToken(daemon, assetId);
+        const installed = await injectJson(daemon.app, {
+          method: 'POST',
+          url: '/market/install',
+          payload: { assetId, ackToken },
+        });
+        expect(installed.statusCode).toBe(503);
+        const error = (
+          installed.payload as { error: { code: string; details?: Record<string, unknown> } }
+        ).error;
+        expect(error.code).toBe('market_install_source_unavailable');
+        expect(error.details?.reason).toBe('source-incomplete');
+      }
+      // 零源请求：repo 形态不符在 URL 拼接前即终态（Trees/raw 都不发）
+      expect(requested).toEqual([]);
+      await expect(
+        readFile(join(daemon.dataRoot, '.dfg', 'market', 'skill', 'q-mark'), 'utf8'),
+      ).rejects.toThrow();
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
+  it('Trees 清单路径含 .. 点段 → 503 source_unavailable（path-segment-invalid），raw 零请求（评审 #2 纵深防御）', async () => {
+    const requested: string[] = [];
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({
+        repo: 'acme/skills',
+        ref: REF,
+        // 恶意清单：资产前缀内的 .. 点段——WHATWG URL 归一会把 raw 请求路径
+        // 「归」到资产目录之外（encodeURIComponent('..') 不中和点段）
+        files: {
+          ...ASSET_FILES,
+          'skills/pdf-export/references/../../../escape.md': 'escaped',
+        },
+        recordUrls: requested,
+      }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset()]));
+      const ackToken = await planToken(daemon, 'gh:acme/skills#skills/pdf-export');
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      expect(installed.statusCode).toBe(503);
+      const error = (
+        installed.payload as { error: { code: string; details?: Record<string, unknown> } }
+      ).error;
+      expect(error.code).toBe('market_install_source_unavailable');
+      expect(error.details?.reason).toBe('path-segment-invalid');
+      // Trees 请求必然已发（路径来自清单），但 raw 下载一个都不发
+      expect(
+        requested.filter((url) => url.startsWith('https://raw.githubusercontent.com/')),
+      ).toEqual([]);
+      await expect(
+        readFile(join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export'), 'utf8'),
+      ).rejects.toThrow();
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('raw 404（源文件已移除）→ 503 source_unavailable，且不写任何文件', async () => {
     const daemon = await createInstallDaemon({
       fetchImpl: githubStub({

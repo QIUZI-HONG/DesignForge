@@ -65,6 +65,19 @@ const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
  */
 const COMMIT_SHA_RE = /^[0-9a-f]{40}$/i;
 
+/**
+ * 源 repo 形态白名单（quality-p1 评审 #2 纵深防御）：`owner/repo` 两段，仅字母数字与
+ * `_` `.` `-`。repo 直接拼进 Trees/raw 两处 URL 路径——`?`/`#`/多余 `/` 会把请求路径
+ * 重定向到两 GitHub host 内的其他位置，白名单外在**任何源请求前**即终态。命中走既有
+ * source-incomplete 族（与 repo/ref 缺失同档：源信息本身不可信），不新造公开错误码。
+ */
+const SOURCE_REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+/** 路径含点段判定（整段恰为 `.` 或 `..` 即命中；其余含点形态如 `a./b` 不受影响）。 */
+function hasDotSegment(path: string): boolean {
+  return path.split('/').some((segment) => segment === '.' || segment === '..');
+}
+
 /** 装载安装结果（路由层映射为统一失败信封）。 */
 export type MarketInstallResult =
   | { ok: true; response: MarketInstallResponse }
@@ -322,6 +335,17 @@ export function createMarketInstallService(options: {
         }),
       };
     }
+    // repo 形态校验（quality-p1 评审 #2 纵深防御）：白名单外（`?`/`#`/多余 `/` 等）
+    // 会在 URL 拼接前即终态——repo 进 Trees/raw 两处 URL 路径，畸形形态可把请求
+    // 重定向到两 GitHub host 内的其他位置。
+    if (!SOURCE_REPO_RE.test(repo)) {
+      return {
+        ok: false,
+        result: sourceUnavailable('资产源 repo 形态不符（应为 owner/repo），拒绝装载', {
+          reason: 'source-incomplete',
+        }),
+      };
+    }
     // ref 形态校验（D-18 #5 · 票 A · A2）：非 40-hex commit 在发起任何源请求前即终态失败
     // （与 source-incomplete 同族同档：源信息本身不可信，不进 URL 拼接）。
     if (!COMMIT_SHA_RE.test(ref)) {
@@ -411,6 +435,19 @@ export function createMarketInstallService(options: {
       if (!entry.path.startsWith(prefix)) continue;
       const relativePath = entry.path.slice(prefix.length);
       if (relativePath.length === 0) continue;
+      // 点段纵深防御（quality-p1 评审 #2）：fullPath 与落盘 relativePath 的路径段拒
+      // `.` / `..`——raw URL 逐段 encodeURIComponent 不中和点段（`..` 编码后仍是 `..`），
+      // WHATWG URL 归一会把请求路径「归」出资产目录乃至他仓文件。现无利用面（只读 +
+      // digest 前置），但 raw 请求不该为恶意清单发起：在**任何 raw 下载前**即终态，
+      // 走既有 source_unavailable 族（不新造公开错误码）。
+      if (hasDotSegment(entry.path) || hasDotSegment(relativePath)) {
+        return {
+          ok: false,
+          result: sourceUnavailable(`源文件清单路径含点段（./..）：${entry.path}`, {
+            reason: 'path-segment-invalid',
+          }),
+        };
+      }
       blobs.push({
         relativePath,
         fullPath: entry.path,
