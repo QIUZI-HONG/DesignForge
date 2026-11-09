@@ -18,7 +18,7 @@ import type {
   MarketLane,
   MarketQueryParams,
 } from '@dforge/contracts';
-import { displayText } from '@dforge/contracts';
+import { compareMarketAssets } from '@dforge/contracts';
 
 /** 一级标签（四类资产 + 全部；《技能市场规格 v1》§6.1）。 */
 export const MARKET_KIND_TABS: readonly { value: MarketAssetKind | 'all'; labelKey: string }[] = [
@@ -159,29 +159,16 @@ export function applyClientFilters(
   return sortAssets(filtered, input.sort);
 }
 
-/** 排序（与 daemon `sortAssets` 同口径；纯函数，便于断言）。 */
+/**
+ * 排序（口径收口 contracts `compareMarketAssets`，arch-v1 · 票② · #4）。
+ * 此前这里与 daemon `sortAssets` 各一份逐字实现；现共享一份（以 daemon 口径为准：
+ * score 质量分降序→stars 降序 / updated pushedAt 倒序 / name zh-CN localeCompare）。
+ */
 export function sortAssets(
   assets: readonly MarketAsset[],
   sort: MarketFilters['sort'],
 ): MarketAsset[] {
-  const sorted = [...assets];
-  switch (sort) {
-    case 'name':
-      sorted.sort((a, b) =>
-        displayText(a.displayName, a.name).localeCompare(
-          displayText(b.displayName, b.name),
-          'zh-CN',
-        ),
-      );
-      break;
-    case 'updated':
-      sorted.sort((a, b) => b.source.pushedAt.localeCompare(a.source.pushedAt));
-      break;
-    default:
-      sorted.sort((a, b) => b.quality.score - a.quality.score || b.source.stars - a.source.stars);
-      break;
-  }
-  return sorted;
+  return [...assets].sort(compareMarketAssets(sort));
 }
 
 /**

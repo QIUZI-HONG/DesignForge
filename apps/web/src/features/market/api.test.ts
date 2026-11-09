@@ -32,7 +32,7 @@ import {
 } from './api';
 
 describe('api · URL 构造', () => {
-  it('查询串按 daemon parseQuery 口径序列化（kind 逗号连接、loadable=1）', () => {
+  it('查询串按 contracts encodeMarketQuery 口径序列化（kind 逗号连接、loadable=1）', () => {
     const url = buildMarketQueryUrl('http://127.0.0.1:4318', {
       q: '幻灯片 导出',
       kinds: ['skill', 'plugin'],
@@ -58,6 +58,18 @@ describe('api · URL 构造', () => {
   it('空参数不落查询串（默认取 daemon 缺省）', () => {
     const url = buildMarketQueryUrl('http://127.0.0.1:4318', {});
     expect(new URL(url).search).toBe('');
+  });
+
+  it('分页覆盖参数（options.limit/offset）优先于 params 且不丢其他参数', () => {
+    const url = buildMarketQueryUrl(
+      'http://127.0.0.1:4318',
+      { q: '图标', limit: 60 },
+      { limit: 12, offset: 24 },
+    );
+    const search = new URL(url).searchParams;
+    expect(search.get('q')).toBe('图标');
+    expect(search.get('limit')).toBe('12');
+    expect(search.get('offset')).toBe('24');
   });
 
   it('详情 URL 对 assetId 做 URL 编码（gh:owner/repo#path 形态）', () => {

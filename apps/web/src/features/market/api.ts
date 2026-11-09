@@ -21,7 +21,7 @@ import type {
   MarketQueryResponse,
   MarketQueryWarning,
 } from '@dforge/contracts';
-import { DAEMON_ROUTES } from '@dforge/contracts';
+import { DAEMON_ROUTES, encodeMarketQuery } from '@dforge/contracts';
 
 import {
   DAEMON_ENDPOINT_DEFAULT,
@@ -171,29 +171,17 @@ export function validateMarketLoadPlan(value: unknown): MarketLoadPlan | null {
   return value as unknown as MarketLoadPlan;
 }
 
-/** 查询串序列化（字段口径与 daemon `routes/market.ts` 的 parseQuery 一致）。 */
+/** 查询串序列化（口径与 daemon `routes/market.ts` 的解码表同源：contracts `encodeMarketQuery`）。 */
 export function buildMarketQueryUrl(
   baseUrl: string,
   params: MarketQueryParams,
   options?: { limit?: number; offset?: number },
 ): string {
-  const search = new URLSearchParams();
-  if (params.q !== undefined && params.q.length > 0) search.set('q', params.q);
-  if (params.kinds !== undefined && params.kinds.length > 0)
-    search.set('kind', params.kinds.join(','));
-  if (params.category !== undefined) search.set('category', params.category);
-  if (params.lane !== undefined) search.set('lane', params.lane);
-  if (params.mode !== undefined) search.set('mode', params.mode);
-  if (params.scene !== undefined) search.set('scene', params.scene);
-  if (params.tags !== undefined && params.tags.length > 0)
-    search.set('tags', params.tags.join(','));
-  if (params.loadableOnly === true) search.set('loadable', '1');
-  if (params.sort !== undefined) search.set('sort', params.sort);
-  const limit = options?.limit ?? params.limit;
-  if (limit !== undefined) search.set('limit', String(limit));
-  const offset = options?.offset ?? params.offset;
-  if (offset !== undefined && offset > 0) search.set('offset', String(offset));
-  const query = search.toString();
+  // 分页覆盖是 URL 构造器的便利参数（不属于 MarketQueryParams）；合并后交协议层编码。
+  const merged: MarketQueryParams = { ...params };
+  if (options?.limit !== undefined) merged.limit = options.limit;
+  if (options?.offset !== undefined) merged.offset = options.offset;
+  const query = encodeMarketQuery(merged);
   return `${baseUrl}${DAEMON_ROUTES.marketQuery.path}${query.length > 0 ? `?${query}` : ''}`;
 }
 
