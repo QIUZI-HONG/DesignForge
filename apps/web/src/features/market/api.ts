@@ -23,11 +23,8 @@ import type {
 } from '@dforge/contracts';
 import { DAEMON_ROUTES } from '@dforge/contracts';
 
-import {
-  DAEMON_ENDPOINT_DEFAULT,
-  daemonAuthHeaders,
-  resolveDaemonEndpointSync,
-} from '@/lib/daemon-endpoint';
+import { DAEMON_ENDPOINT_DEFAULT, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { request as daemonRequest } from '@/lib/daemon-transport';
 
 import type { MarketInstallClient } from './load-token';
 
@@ -221,33 +218,45 @@ async function requestJson<T>(
     validate?: MarketShapeValidator<T>;
   },
 ): Promise<MarketEnvelope<T>> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const init: RequestInit = { method: options.method ?? 'GET' };
-  if (options.signal !== undefined) init.signal = options.signal;
-  // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象（头不存在）
-  init.headers = {
-    ...daemonAuthHeaders(),
-    ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
-  };
-  if (options.body !== undefined) {
-    init.method = 'POST';
-    init.body = JSON.stringify(options.body);
-  }
-  try {
-    const response = await fetchImpl(url, init);
-    const payload: unknown = await response.json();
-    return readEnvelope<T>(payload, options.validate);
-  } catch (error) {
+  const base = options.baseUrl ?? daemonBaseUrl();
+  // URL 构造单点仍是上面的 build*Url（导出面）；传输层收 path 而不收整串
+  const path = url.startsWith(base) ? url.slice(base.length) : url;
+  const method = options.body === undefined ? (options.method ?? 'GET') : 'POST';
+  const result = await daemonRequest<unknown>(
+    { method, path },
+    {
+      baseUrl: base,
+      ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.body === undefined ? {} : { body: options.body }),
+    },
+  );
+
+  if (!result.ok) {
     // 客户端层只透传原始错误与归一码（票 06 / spec P1-2）：不在这里拼界面文案——
-    // 「中文人话 + 下一步 + 技术详情」由展示层经共享归类（`@/lib/daemon-failure`）生成
+    // 「中文人话 + 下一步 + 技术详情」由展示层经共享归类（`@/lib/daemon-failure`）生成。
+    // 传输失败（网络/超时）沿用市场侧既有归一码 daemon_unreachable；坏响应保留结构化码。
+    if (result.code === 'daemon_bad_response') {
+      return failure('daemon_bad_response', result.message);
+    }
+    if (result.code === 'daemon_unreachable' || result.code === 'daemon_timeout') {
+      return failure('daemon_unreachable', result.message);
+    }
     return {
       ok: false,
       error: {
-        code: 'daemon_unreachable',
-        message: error instanceof Error ? error.message : String(error),
+        code: result.code,
+        message: result.message,
+        ...(typeof result.details === 'object' && result.details !== null
+          ? { details: result.details as Record<string, unknown> }
+          : {}),
       },
     };
   }
+
+  // 成功信封的内层形状仍由本模块的 readEnvelope 收口（result 为 null / 形状不符
+  // 一律判失败——市场页渲染路径不接受脏数据）。
+  return readEnvelope<T>({ ok: true, result: result.value }, options.validate);
 }
 
 /** 查询市场（含空态/告警；不抛错——失败走信封；内层形状校验后页面不会读到脏字段）。 */
