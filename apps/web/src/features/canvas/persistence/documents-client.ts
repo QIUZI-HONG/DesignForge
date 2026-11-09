@@ -16,12 +16,8 @@ import { DAEMON_ROUTES, DF_REVISION_HEADER, formatRevisionHeader } from '@dforge
 import type { DesignDocument } from '@dforge/engine';
 import { parseDocument } from '@dforge/engine';
 
-import { daemonAuthHeaders } from '@/lib/daemon-endpoint';
-import {
-  DAEMON_REQUEST_TIMEOUT_MS,
-  fetchWithinDeadline,
-  RequestTimeoutError,
-} from '@/lib/request-timeout';
+import { request as daemonRequest, type TransportFailure } from '@/lib/daemon-transport';
+import { DAEMON_REQUEST_TIMEOUT_MS } from '@/lib/request-timeout';
 import { type ClientResult, loadPageSet, planPageSetSave } from './page-set';
 
 export type { CanvasPageBody, ClientResult } from './page-set';
@@ -88,29 +84,26 @@ export function routeUrl(
 }
 
 /**
- * daemon 响应信封（`apps/daemon/src/http.ts` 的 `sendOk/sendFail` 形状）。
- * 注意两点：
- * - 成功载荷字段名是 **result**（不是 data）——写错会静默拿到整个信封，随后在 `.id` 上炸；
- * - 失败是**嵌套**的 `error: { code, message, details }`（契约 `apiFailure`）——
- *   只看顶层 `code/message` 会把原因丢成「HTTP 404：请求失败」，用户看不到「文档不存在」这类真因。
+ * 传输失败 → 画布保存链的 `{ok:false,error[,code]}`（`save-control` 依赖原文归类）。
+ *
+ * 口径与旧实现一致：
+ * - 传输层失败（不可达/超时）只给 `error` 原文（超时人话含「请求超时」→ 归网络族）；
+ * - daemon 失败信封给「码：人话」并带上 `code`（`doc_revision_conflict` 的分流依据）；
+ * - 非法 JSON 给画面向原文（含 HTTP 状态）。
  */
-interface DaemonEnvelope {
-  ok?: boolean;
-  result?: unknown;
-  data?: unknown;
-  error?: { code?: string; message?: string };
-  code?: string;
-  message?: string;
-}
-
-/** 失败信封 → 「码：人话」文本（取不到码时退回 HTTP 状态，绝不硬编「请求失败」冒充原因）。 */
-function failureText(envelope: DaemonEnvelope, status: number): string {
-  const code = envelope.error?.code ?? envelope.code;
-  const message = envelope.error?.message ?? envelope.message;
-  if (code !== undefined && message !== undefined) return `${code}：${message}`;
-  if (code !== undefined) return `${code}：请求失败`;
-  if (message !== undefined) return `HTTP ${status}：${message}`;
-  return `HTTP ${status}：请求失败`;
+function failureOf(failure: TransportFailure): ClientResult<never> {
+  if (failure.code === 'daemon_unreachable' || failure.code === 'daemon_timeout') {
+    return { ok: false, error: failure.message };
+  }
+  if (failure.code === 'daemon_bad_response') {
+    const reason = (failure.details as { reason?: unknown } | undefined)?.reason;
+    if (reason === 'invalid-json') {
+      return { ok: false, error: `响应不是合法 JSON（HTTP ${String(failure.status ?? 0)}）` };
+    }
+    return { ok: false, error: failure.message };
+  }
+  const message = failure.message.startsWith('请求失败（HTTP ') ? '请求失败' : failure.message;
+  return { ok: false, error: `${failure.code}：${message}`, code: failure.code };
 }
 
 /** 创建客户端。 */
@@ -125,55 +118,19 @@ export function createDocumentsClient(options: DocumentsClientOptions): Document
     body?: unknown,
     extraHeaders?: Record<string, string>,
   ): Promise<ClientResult<unknown>> => {
-    try {
-      // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象。
-      // 请求带超时上限（audit-d04 · D-04）：daemon「活着但不响应」时保存不得永久
-      // pending——到点 abort 在飞请求并以 {@link RequestTimeoutError} 落为有界失败
-      // （错误文案归网络族 → 保存态渲染统一人话 + 可重试，见 save-control）。
-      const response = await fetchWithinDeadline(
+    const path = url.startsWith(base) ? url.slice(base.length) : url;
+    const result = await daemonRequest<unknown>(
+      { method: method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path },
+      {
+        baseUrl: base,
         fetchImpl,
-        url,
-        {
-          method,
-          ...(body === undefined
-            ? { headers: { ...daemonAuthHeaders(), ...extraHeaders } }
-            : {
-                headers: {
-                  'content-type': 'application/json',
-                  ...daemonAuthHeaders(),
-                  ...extraHeaders,
-                },
-                body: JSON.stringify(body),
-              }),
-        },
         timeoutMs,
-        (ms) => new RequestTimeoutError(ms),
-      );
-      const text = await response.text();
-      let parsed: unknown = null;
-      try {
-        parsed = text.length === 0 ? null : JSON.parse(text);
-      } catch {
-        return { ok: false, error: `响应不是合法 JSON（HTTP ${response.status}）` };
-      }
-      const envelope = (parsed ?? {}) as DaemonEnvelope;
-      if (!response.ok || envelope.ok === false) {
-        // code（audit-d06 · D-05）：daemon 统一错误码随结果透出——保存链据此把
-        // doc_revision_conflict 走独立冲突文案（不与网络族/通用失败混同）
-        const code = envelope.error?.code ?? envelope.code;
-        return {
-          ok: false,
-          error: failureText(envelope, response.status),
-          ...(code === undefined ? {} : { code }),
-        };
-      }
-      return { ok: true, value: envelope.result ?? envelope.data ?? parsed };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+        ...(body === undefined ? {} : { body }),
+        ...(extraHeaders === undefined ? {} : { headers: extraHeaders }),
+      },
+    );
+    if (!result.ok) return failureOf(result);
+    return { ok: true, value: result.value };
   };
 
   return {
