@@ -9,6 +9,7 @@
  */
 
 import { isSha256Digest } from '../ipc/guards.ts';
+import type { MarketLocalizedText } from './query.ts';
 import type {
   LicenseGate,
   MarketAssetKind,
@@ -26,6 +27,8 @@ import {
   MARKET_MODES,
 } from './vocab.ts';
 
+// 查询协议与资产比较（arch-v1 · 票② · #4）：encode/decode/compare/matches 的唯一实现。
+export * from './query.ts';
 export type {
   LicenseGate,
   MarketAssetKind,
@@ -67,12 +70,6 @@ export const MARKETPLACE_INDEX_SCHEMA = 'df.marketplace.index/v1' as const;
  * 已由 `guard:vocab` 登记名 InstallGateMode 覆盖）。
  */
 export type InstallGateMode = LicenseGate;
-
-/** 双语字段（缺一言回退另一言，皆缺回退 name）。 */
-export interface MarketLocalizedText {
-  'zh-CN'?: string;
-  en?: string;
-}
 
 /** 溯源块（§1.3）。 */
 export interface MarketSource {
@@ -419,30 +416,6 @@ export function parseMarketplaceIndex(value: unknown): MarketplaceParseResult {
       assets,
     },
   };
-}
-
-/** 双语回退（卡片主文案：zh-CN → en → 机器名）。 */
-export function displayText(localized: MarketLocalizedText, fallback: string): string {
-  const zh = localized['zh-CN'];
-  if (typeof zh === 'string' && zh.trim().length > 0) return zh;
-  const en = localized.en;
-  if (typeof en === 'string' && en.trim().length > 0) return en;
-  return fallback;
-}
-
-/** 查询请求（`GET /market/query` 查询串 → 规范化参数）。 */
-export interface MarketQueryParams {
-  q?: string;
-  kinds?: MarketAssetKind[];
-  category?: MarketCategory;
-  lane?: MarketLane;
-  mode?: MarketMode;
-  scene?: string;
-  tags?: string[];
-  loadableOnly?: boolean;
-  sort?: 'score' | 'updated' | 'name';
-  limit?: number;
-  offset?: number;
 }
 
 /** 查询告警（部分失败/索引缺失不抛错，前端在结果区提示）。

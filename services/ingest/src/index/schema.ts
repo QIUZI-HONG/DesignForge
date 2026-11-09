@@ -33,6 +33,14 @@ import {
   MARKETPLACE_INDEX_SCHEMA,
 } from '@dforge/contracts';
 
+import {
+  BM25_B,
+  BM25_K1,
+  SEARCH_INDEX_SCHEMA,
+  type SearchIndex,
+  type SearchIndexDoc,
+} from './search.ts';
+
 /** 校验问题码（稳定标识，可进证据 JSON 与日志）。 */
 export type IndexIssueCode =
   | 'schema-mismatch'
@@ -669,4 +677,105 @@ export function validateMarketplaceIndex(
 /** 把校验问题压成单行文本（证据 JSON / 日志用）。 */
 export function formatIndexIssues(issues: IndexValidationIssue[]): string[] {
   return issues.map((issue) => `${issue.path || '(root)'}: [${issue.code}] ${issue.message}`);
+}
+
+/** 检索索引校验结果（判别式：坏产物给可读 reason，不抛异常）。 */
+export type SearchIndexParseResult =
+  | { ok: true; index: SearchIndex }
+  | { ok: false; reason: string };
+
+/** 数字记录（fieldWeights 的宽容读取；非数值项忽略）。 */
+function numberRecord(value: unknown): Record<string, number> {
+  if (!isRecord(value)) return {};
+  const record: Record<string, number> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === 'number' && Number.isFinite(item)) record[key] = item;
+  }
+  return record;
+}
+
+/**
+ * 校验并归一化**检索索引**产物（`market_search_index.v1.json`，arch-v1 · 票② · #3）。
+ *
+ * 宽容口径（与 daemon 原深解析逐条对齐，行为零回归）：
+ * - 根/`schema`/`docs`/`postings` 关键结构不可用 → 整份判坏（`ok:false`）；
+ * - 单条 doc 形状坏（缺 id / length / quality 非有限数）→ 整份判坏（索引不自洽即不可用）；
+ * - 单条 posting 项坏（非二元组 / 非有限数）→ **只丢该条**，不拖垮整批；
+ * - 打分实参（k1/b）取模块常量、产物里的 `algorithm` 只是审计快照，不二次推断。
+ *
+ * 调用方：`readSearchIndex`（本包读入面）与 daemon 的检索索引装载（失败 → 空态 + warning）。
+ */
+export function parseSearchIndexArtifact(value: unknown): SearchIndexParseResult {
+  if (!isRecord(value)) {
+    return { ok: false, reason: '检索索引根必须是 JSON 对象' };
+  }
+  if (value.schema !== SEARCH_INDEX_SCHEMA) {
+    return {
+      ok: false,
+      reason: `检索索引 schema 不匹配（期望 ${SEARCH_INDEX_SCHEMA}，实际 ${String(value.schema)}）`,
+    };
+  }
+  const rawDocs = value.docs;
+  if (!Array.isArray(rawDocs)) {
+    return { ok: false, reason: '检索索引 docs 必须是数组' };
+  }
+  const docs: SearchIndexDoc[] = [];
+  for (const [index, raw] of rawDocs.entries()) {
+    if (!isRecord(raw)) {
+      return { ok: false, reason: `检索索引 docs[${index}] 必须是对象` };
+    }
+    if (typeof raw.id !== 'string' || raw.id.length === 0) {
+      return { ok: false, reason: `检索索引 docs[${index}].id 必须是非空字符串` };
+    }
+    if (typeof raw.length !== 'number' || !Number.isFinite(raw.length)) {
+      return { ok: false, reason: `检索索引 docs[${index}].length 必须是有限数` };
+    }
+    if (typeof raw.quality !== 'number' || !Number.isFinite(raw.quality)) {
+      return { ok: false, reason: `检索索引 docs[${index}].quality 必须是有限数` };
+    }
+    docs.push({ id: raw.id, length: raw.length, quality: raw.quality });
+  }
+
+  const rawPostings = value.postings;
+  if (!isRecord(rawPostings)) {
+    return { ok: false, reason: '检索索引 postings 必须是对象' };
+  }
+  const postings: Record<string, [number, number][]> = {};
+  for (const [term, rawList] of Object.entries(rawPostings)) {
+    if (!Array.isArray(rawList)) continue;
+    const pairs: [number, number][] = [];
+    for (const rawPair of rawList) {
+      if (!Array.isArray(rawPair) || rawPair.length !== 2) continue;
+      const [docIndex, tf] = rawPair as [unknown, unknown];
+      if (typeof docIndex !== 'number' || !Number.isFinite(docIndex)) continue;
+      if (typeof tf !== 'number' || !Number.isFinite(tf)) continue;
+      pairs.push([docIndex, tf]);
+    }
+    if (pairs.length > 0) postings[term] = pairs;
+  }
+
+  return {
+    ok: true,
+    index: {
+      schema: SEARCH_INDEX_SCHEMA,
+      generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : '',
+      // 打分实参取模块常量（与 CLI 同口径）；产物里的 algorithm 是审计快照，不二次推断
+      algorithm: { name: 'bm25', k1: BM25_K1, b: BM25_B },
+      fieldWeights: numberRecord(value.fieldWeights),
+      termTableVersion:
+        typeof value.termTableVersion === 'number' && Number.isFinite(value.termTableVersion)
+          ? value.termTableVersion
+          : 0,
+      docCount:
+        typeof value.docCount === 'number' && Number.isFinite(value.docCount)
+          ? value.docCount
+          : docs.length,
+      avgDocLength:
+        typeof value.avgDocLength === 'number' && Number.isFinite(value.avgDocLength)
+          ? value.avgDocLength
+          : 0,
+      docs,
+      postings,
+    },
+  };
 }
