@@ -152,17 +152,24 @@ describe('encodeMarketQuery（与 web 原查询串表逐参数一致）', () => 
     expect(roundTripped.tags).toEqual(tags);
   });
 
-  it('decode 逐项转义：非法转义序列丢弃该项、其余保留（容忍哲学）', () => {
-    // %zz 非法转义 → 该项丢弃；合法项保留
-    expect(decodeMarketQuery('tags=a%zz,b').tags).toEqual(['b']);
-    // 悬尾 % 序列 → 该项丢弃；全部非法 → tags 不入参
-    expect(decodeMarketQuery('tags=%E0%A4%A,x').tags).toEqual(['x']);
-    expect(decodeMarketQuery('tags=%E0%A4%A').tags).toBeUndefined();
+  it('decode 逐项转义：非法转义序列回退保留原项、其余正常解码（评审 #1）', () => {
+    // %zz 非法转义 → 该项回退保留原样（不再丢项）；合法项正常解码
+    expect(decodeMarketQuery('tags=a%zz,b').tags).toEqual(['a%zz', 'b']);
+    // 悬尾 % 序列 → 该项回退保留原样
+    expect(decodeMarketQuery('tags=x%,y').tags).toEqual(['x%', 'y']);
+    expect(decodeMarketQuery('tags=x%').tags).toEqual(['x%']);
   });
 
   it('decode 兼容旧 wire 格式（裸逗号分隔、简单项）：行为与此前一致', () => {
     expect(decodeMarketQuery('tags=pdf%2C%E5%AF%BC%E5%87%BA').tags).toEqual(['pdf', '导出']);
     expect(decodeMarketQuery('tags=a,,b%20').tags).toEqual(['a', 'b']);
+  });
+
+  it('旧 wire 含字面 % 的 tag 回退保留字面值（评审 #1 修复 fixture）', () => {
+    // 旧版 web encode（URLSearchParams.set('tags', join(','))）对 `100%done` 落 wire 为
+    // `tags=100%25done`；HTTP 层解码后到 daemon 是 `100%done`，decodeURIComponent 遇
+    // `%do` 抛 URIError——回退原项保留字面值，不再静默丢项。
+    expect(decodeMarketQuery('tags=100%25done').tags).toEqual(['100%done']);
   });
 });
 
