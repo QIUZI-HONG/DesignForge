@@ -103,6 +103,42 @@ export interface LoadedPage {
   pageId: string;
 }
 
+/**
+ * 载入的页级并发上限（quality-p1 · B10）。页间无依赖，逐页串行是 N × RTT 的载入延迟；
+ * 4–8 折中取 6——20k 文档 200+ 页收敛为 ~⌈N/6⌉ 波，同时不一次性打满 daemon 连接窗。
+ */
+const LOAD_PAGE_CONCURRENCY = 6;
+
+/**
+ * 有界并行读取全部页面正文（quality-p1 · B10，只动载入路径——保存计划不经此函数）。
+ *
+ * - 并发度 ≤ {@link LOAD_PAGE_CONCURRENCY}：worker 池按游标领页，不一次性把 manifest
+ *   打满（一次 200 个并发 PUT/GET 会撞 daemon 的连接与磁盘）；
+ * - **结果按 manifest 顺序落位**（索引数组），并发不改变页序、tokens 取「首个可解码页」
+ *   的既有口径；
+ * - 单页失败不整批失败：失败结果原样落位，由调用方按 `unresolvedPageIds` 既有语义处理。
+ */
+async function readPagesBounded(
+  client: PageSetClient,
+  documentId: string,
+  pageIds: readonly string[],
+): Promise<Array<ClientResult<unknown>>> {
+  const results = new Array<ClientResult<unknown>>(pageIds.length);
+  let cursor = 0;
+  const workerCount = Math.min(LOAD_PAGE_CONCURRENCY, pageIds.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      const pageId = pageIds[index];
+      if (pageId === undefined) return;
+      results[index] = await client.readPage(documentId, pageId);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /** loadPageSet 结果。 */
 export interface PageSetLoad {
   name: string;
@@ -129,6 +165,9 @@ export interface PageSetLoad {
  * 成了空占位页且排在 manifest 前列——当前页（会话初始页 = `pages[0]`）会落到空页上，
  * 用户看到「内容丢失」。这里把**空占位页沉到页集末尾**（有内容页在前，组内保持 manifest
  * 顺序）：占位页没有数据可丢，不违反「不静默删数据」；页 id 校验逻辑不动。
+ *
+ * 页正文读取为**有界并行**（quality-p1 · B10，见 {@link readPagesBounded}）：结果按
+ * manifest 顺序落位后走既有逐页解码（tokens / 占位页 / 结构错误语义全部不变）。
  */
 export async function loadPageSet(
   client: PageSetClient,
@@ -151,9 +190,14 @@ export async function loadPageSet(
   const unresolvedPageIds: string[] = [];
   let tokens: TokenSet | null = null;
 
-  for (const meta of manifestPages) {
-    const body = await client.readPage(documentId, meta.id);
-    if (!body.ok) {
+  const bodies = await readPagesBounded(
+    client,
+    documentId,
+    manifestPages.map((meta) => meta.id),
+  );
+  for (const [index, meta] of manifestPages.entries()) {
+    const body = bodies[index];
+    if (body === undefined || !body.ok) {
       unresolvedPageIds.push(meta.id);
       continue;
     }

@@ -370,6 +370,71 @@ describe('planPageSetSave · 按 id 定位、孤儿只报告', () => {
   });
 });
 
+describe('loadPageSet · 载入并行（quality-p1 · B10）', () => {
+  /** 并发记录版 readPage（统计在飞峰值，返回可见的页正文）。 */
+  function concurrencyTrackingClient(init: { pages: FakePage[] }): {
+    client: PageSetClient;
+    maxInFlight: () => number;
+  } {
+    const pages = new Map(init.pages.map((page) => [page.meta.id, page]));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const detail = (): DocumentDetail => ({
+      id: 'doc-1',
+      name: '演示文档',
+      directory: '/tmp/doc-1.dfg',
+      createdAt: '2026-11-04T00:00:00.000Z',
+      updatedAt: '2026-11-04T00:00:00.000Z',
+      pageCount: pages.size,
+      revision: 1,
+      sizeBytes: 0,
+      pages: [...pages.values()].map((page) => page.meta),
+    });
+    const client: PageSetClient = {
+      async getDocument() {
+        return { ok: true, value: detail() };
+      },
+      async readPage(_documentId, pageId) {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        const page = pages.get(pageId);
+        if (page === undefined) return { ok: false, error: 'not_found' };
+        return { ok: true, value: page.body };
+      },
+      async createPage() {
+        return { ok: false, error: '载入路径不建页' };
+      },
+      async savePage() {
+        return { ok: false, error: '载入路径不写页' };
+      },
+    };
+    return { client, maxInFlight: () => maxInFlight };
+  }
+
+  it('20 页 manifest：页级并发有界（一波 = 6，不串行也不打满）且结果顺序与 manifest 一致', async () => {
+    // 串行实现 maxInFlight=1（N 页 = N×RTT，红）；无界 Promise.all 是 20（禁打满 daemon）
+    const document = createDocument({ id: 'doc-1', pages: [createPage({ id: 'ignored' })] });
+    const metas = Array.from({ length: 20 }, (_, index) => meta(`page-${String(index + 1)}`));
+    const fake = concurrencyTrackingClient({
+      pages: metas.map((pageMeta) => ({
+        meta: pageMeta,
+        body: body(document, createPage({ id: `body-${pageMeta.id}` })),
+      })),
+    });
+
+    const loaded = await loadPageSet(fake.client, 'doc-1');
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    // 结果顺序与 manifest 一致（并发不改顺序）
+    expect(loaded.value.pages.map((entry) => entry.pageId)).toEqual(
+      metas.map((pageMeta) => pageMeta.id),
+    );
+    expect(fake.maxInFlight()).toBe(6);
+  });
+});
+
 type Fake = ReturnType<typeof fakeClient>;
 
 /** 把一次保存计划应用到内存页文件集合（与 saveDesignDocument 同序：先 update 再 create）。 */

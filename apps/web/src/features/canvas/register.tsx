@@ -31,7 +31,7 @@ import {
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
 
-import { SAVE_DOCUMENT_COMMAND_ID } from './workspace/document-bridge';
+import { type DocumentErrorKind, SAVE_DOCUMENT_COMMAND_ID } from './workspace/document-bridge';
 import { connectToolSync, registerWorkspaceToolCommands } from './workspace/tool-bridge';
 import { useWorkspaceUi } from './workspace/ui-state';
 
@@ -161,7 +161,7 @@ export function registerWorkspaceCommands(): void {
     shortcut: '⌘S',
     enabled: () => workspace.documents.store.getState().status !== 'saving',
     run: () => {
-      void workspace.documents.save();
+      void workspace.documents.save().catch(catchDocumentBridgeFailure('save'));
     },
   });
 
@@ -277,7 +277,24 @@ export function connectDocumentBridge(): void {
   const documentId = readDocumentId(window.location.search);
   if (documentId === null || locks.documentLoadRequested === documentId) return;
   locks.documentLoadRequested = documentId;
-  void workspace.documents.load(documentId);
+  void workspace.documents.load(documentId).catch(catchDocumentBridgeFailure('load'));
+}
+
+/**
+ * 意外异常兜底（quality-p1 · B11）：save()/load() 的**失败**在 document-bridge 内已由
+ * fail() 归一进 store 错误态；bridge 实现自身抛出的意外异常（bug）会逃逸成 unhandled
+ * rejection——补 catch 把异常归入同一错误态（顶栏可见），不再静默丢失。
+ */
+function catchDocumentBridgeFailure(kind: DocumentErrorKind): (cause: unknown) => void {
+  return (cause) => {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    getWorkspace().documents.store.setState({
+      status: 'error',
+      error: message,
+      errorKind: kind,
+      errorCode: null,
+    });
+  };
 }
 
 /**
@@ -304,7 +321,9 @@ function installInspectorProbe(): () => void {
     redo: (): string[] => workspace.canvas.stack.history().redo,
     node: (id: string): Record<string, unknown> | undefined => {
       const node = workspace.canvas.page().nodes[id];
-      return node === undefined ? undefined : ({ ...node } as unknown as Record<string, unknown>);
+      // 引擎节点是接口联合（无隐式索引签名）：entries 往返做浅拷贝属性袋——
+      // 与展开同义（纯数据节点，无 symbol 键），无双跳断言（quality-p1 · B11）。
+      return node === undefined ? undefined : Object.fromEntries(Object.entries(node));
     },
   };
   (globalThis as Record<string, unknown>).__dfInspectorProbe = probe;

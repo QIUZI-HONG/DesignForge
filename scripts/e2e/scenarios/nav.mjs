@@ -130,7 +130,7 @@ export async function run(page, ctx) {
   // --- 0) 前置：夹具 daemon 活着 ---
   const health = await fetch(`${ctx.daemonUrl}/health`).catch(() => null);
   ctx.assert(
-    health !== null && health.ok,
+    health?.ok,
     '本地服务（夹具 daemon）可达',
     health === null ? `不可达：${ctx.daemonUrl}` : `HTTP ${String(health.status)}`,
   );
