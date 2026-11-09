@@ -8,7 +8,7 @@
  * 主状态按钮（装载 / 已装载 / 仅看 / 禁，三态由 `describeInstallButton` 给）与更多操作。
  *
  * 交互：**悬停抬升**由组件状态驱动（jsdom 可断言，不依赖 CSS 伪类）；
- * `data-df-state` 暴露当前态供截图门禁取样（hover 无法用伪类截图，见 components.css 注）。
+ * `data-df-state` 暴露当前态供截图门禁取样（hover 无法用伪类截图，见 market.css 卡片悬停态注）。
  */
 
 import type { MarketAsset } from '@dforge/contracts';

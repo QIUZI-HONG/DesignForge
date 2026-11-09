@@ -15,6 +15,8 @@ import {
   consumeLoadSession,
   EMPTY_LOAD_SESSION,
   LOAD_TOKEN_TTL_MS,
+  type LoadErrorCode,
+  loadErrorCopyKey,
   mapInstallErrorCode,
   openLoadSession,
   rejectLoadSession,
@@ -318,5 +320,59 @@ describe('load-token · daemon 真写接线（装载中/失败；票③）', () 
     expect(mapInstallErrorCode('daemon_unreachable')).toBe('load_install_unreachable');
     expect(mapInstallErrorCode('daemon_bad_response')).toBe('load_install_bad_response');
     expect(mapInstallErrorCode('weird_unknown')).toBe('load_install_failed');
+  });
+});
+
+/**
+ * 装载错误词表契约（D-18 #3 · 单一映射表）：daemon 原码、前端错误码与 i18n 文案键收敛一张表，
+ * 不再有两把需人工同步的 switch。期望值是独立真源——历史双 switch 的字面量（与 i18n 目录同源），
+ * 合并前后行为零变化：copy key 与既有 i18n 键零变化，daemon 原码映射逐条不变。
+ */
+describe('load-token · 装载错误词表（单一映射表 · D-18 #3）', () => {
+  /** 历史 `loadErrorCopyKey`（LoadConfirmDialog 内联 switch）的全部字面量（独立真源）。 */
+  const HISTORIC_COPY_KEYS: Record<LoadErrorCode, string> = {
+    load_not_loadable: 'market.load.notLoadable',
+    load_not_approved: 'market.load.installFailed', // 历史走 switch default
+    load_token_used: 'market.load.tokenUsed',
+    load_token_expired: 'market.load.tokenExpired',
+    load_already_approved: 'market.load.alreadyApproved',
+    load_install_asset_not_found: 'market.load.installAssetNotFound',
+    load_install_ack_invalid: 'market.load.installAckInvalid',
+    load_install_ack_expired: 'market.load.installAckExpired',
+    load_install_digest_mismatch: 'market.load.installDigestMismatch',
+    load_install_source_unavailable: 'market.load.installSourceUnavailable',
+    load_install_target_invalid: 'market.load.installTargetInvalid',
+    load_install_gate_blocked: 'market.load.installGateBlocked',
+    load_install_unreachable: 'market.load.installUnreachable',
+    load_install_bad_response: 'market.load.installBadResponse',
+    load_install_failed: 'market.load.installFailed',
+  };
+
+  it('loadErrorCopyKey：全部错误码的文案键与既有 i18n 键一致（copy key 零变化）', () => {
+    for (const [code, key] of Object.entries(HISTORIC_COPY_KEYS)) {
+      expect(loadErrorCopyKey(code as LoadErrorCode)).toBe(key);
+    }
+  });
+
+  it('daemon 原码 → 错误码 → 文案键 成对收敛（两把 switch 不再各自漂移）', () => {
+    const daemonPairs: Array<[string, string]> = [
+      ['market_install_asset_not_found', 'market.load.installAssetNotFound'],
+      ['market_install_ack_invalid', 'market.load.installAckInvalid'],
+      ['market_install_ack_expired', 'market.load.installAckExpired'],
+      ['market_install_digest_mismatch', 'market.load.installDigestMismatch'],
+      ['market_install_source_unavailable', 'market.load.installSourceUnavailable'],
+      ['market_install_target_invalid', 'market.load.installTargetInvalid'],
+      ['market_install_gate_blocked', 'market.load.installGateBlocked'],
+      ['daemon_unreachable', 'market.load.installUnreachable'],
+      ['daemon_bad_response', 'market.load.installBadResponse'],
+    ];
+    for (const [daemonCode, expectedKey] of daemonPairs) {
+      const code = mapInstallErrorCode(daemonCode);
+      expect(loadErrorCopyKey(code)).toBe(expectedKey);
+    }
+    // 未知原码兜底链不变：load_install_failed → market.load.installFailed
+    expect(loadErrorCopyKey(mapInstallErrorCode('weird_unknown'))).toBe(
+      'market.load.installFailed',
+    );
   });
 });

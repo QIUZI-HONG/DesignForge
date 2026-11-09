@@ -14,7 +14,7 @@
  *
  * 测试夹具：`marketFixtures` 命名空间——卡片字段多（§1.2 二十余键），逐用例手写会把测试淹在
  * 样板里；跨 feature 的测试（dashboard / app 路由）经此取，**不经 `__fixtures__` 深路径**。
- * 生产代码不得引用它。
+ * 生产代码不得引用它。共享测试辅助同理走 `marketTestUtils` 命名空间（遥测断言，D-18 #4）。
  *
  * 不导出（刻意的）：`api.ts` 的取数客户端与 URL 构造（只服务本 feature 的 hooks 与门禁脚本）、
  * `capabilities` / `quality` 内部口径、`state-coverage*`（门禁用统计）。
@@ -26,6 +26,8 @@ import './market.css';
 
 /** 测试夹具命名空间（**仅供 `*.test.*`**；理由见文件头）。 */
 export * as marketFixtures from './__fixtures__/market';
+/** 测试工具命名空间（**仅供 `*.test.*`**；跨 feature 测试经此取共享辅助，不走深路径）。 */
+export * as marketTestUtils from './__fixtures__/telemetry-calls';
 export {
   classifyMarketOutcome,
   isSearchDegraded,

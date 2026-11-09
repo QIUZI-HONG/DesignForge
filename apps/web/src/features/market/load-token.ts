@@ -138,30 +138,85 @@ export type MarketInstallClient = (input: {
   ackToken: string;
 }) => Promise<MarketInstallOutcome>;
 
+/**
+ * 装载错误词表（单一映射表 · D-18 #3）：daemon 原码、前端错误码与界面文案键的唯一定义点。
+ *
+ * 口径：新增/改动装载错误只改这张表（一行一条），不再维护两把需人工同步的 switch
+ * （历史形态：本文件的 `mapInstallErrorCode` switch + `LoadConfirmDialog` 内联
+ * `loadErrorCopyKey` switch——两处漂移会静默兜底到 failed 文案）。表派生出的两个映射：
+ * - `mapInstallErrorCode`：daemon 原码 → 前端错误码（未知码归 `load_install_failed`）；
+ * - `loadErrorCopyKey`：前端错误码 → i18n 文案键（`LoadConfirmDialog` 消费；键与既有目录零变化）。
+ */
+interface LoadErrorSpec {
+  /** daemon 安装端点的原始错误码（无 daemon 对应的会话级错误省略此字段）。 */
+  daemonCode?: string;
+  /** i18n 文案键（zh-CN/en 目录既有键，零变化）。 */
+  copyKey: string;
+}
+
+const LOAD_ERROR_TABLE: Readonly<Record<LoadErrorCode, LoadErrorSpec>> = {
+  load_not_loadable: { copyKey: 'market.load.notLoadable' },
+  load_not_approved: { copyKey: 'market.load.installFailed' },
+  load_token_used: { copyKey: 'market.load.tokenUsed' },
+  load_token_expired: { copyKey: 'market.load.tokenExpired' },
+  load_already_approved: { copyKey: 'market.load.alreadyApproved' },
+  load_install_asset_not_found: {
+    daemonCode: 'market_install_asset_not_found',
+    copyKey: 'market.load.installAssetNotFound',
+  },
+  load_install_ack_invalid: {
+    daemonCode: 'market_install_ack_invalid',
+    copyKey: 'market.load.installAckInvalid',
+  },
+  load_install_ack_expired: {
+    daemonCode: 'market_install_ack_expired',
+    copyKey: 'market.load.installAckExpired',
+  },
+  load_install_digest_mismatch: {
+    daemonCode: 'market_install_digest_mismatch',
+    copyKey: 'market.load.installDigestMismatch',
+  },
+  load_install_source_unavailable: {
+    daemonCode: 'market_install_source_unavailable',
+    copyKey: 'market.load.installSourceUnavailable',
+  },
+  load_install_target_invalid: {
+    daemonCode: 'market_install_target_invalid',
+    copyKey: 'market.load.installTargetInvalid',
+  },
+  load_install_gate_blocked: {
+    daemonCode: 'market_install_gate_blocked',
+    copyKey: 'market.load.installGateBlocked',
+  },
+  load_install_unreachable: {
+    daemonCode: 'daemon_unreachable',
+    copyKey: 'market.load.installUnreachable',
+  },
+  load_install_bad_response: {
+    daemonCode: 'daemon_bad_response',
+    copyKey: 'market.load.installBadResponse',
+  },
+  load_install_failed: { copyKey: 'market.load.installFailed' },
+};
+
+/** daemon 原码 → 前端错误码反查表（由 `LOAD_ERROR_TABLE` 单源派生，不手工维护第二份）。 */
+const DAEMON_CODE_TO_LOAD_ERROR: ReadonlyMap<string, LoadErrorCode> = new Map(
+  Object.entries(LOAD_ERROR_TABLE)
+    .filter(
+      (entry): entry is [LoadErrorCode, LoadErrorSpec & { daemonCode: string }] =>
+        entry[1].daemonCode !== undefined,
+    )
+    .map(([code, spec]) => [spec.daemonCode, code]),
+);
+
 /** daemon 错误码 → 前端装载词表（未知码归 `load_install_failed`；原码另存 `installErrorCode` 供诊断）。 */
 export function mapInstallErrorCode(code: string): LoadErrorCode {
-  switch (code) {
-    case 'market_install_asset_not_found':
-      return 'load_install_asset_not_found';
-    case 'market_install_ack_invalid':
-      return 'load_install_ack_invalid';
-    case 'market_install_ack_expired':
-      return 'load_install_ack_expired';
-    case 'market_install_digest_mismatch':
-      return 'load_install_digest_mismatch';
-    case 'market_install_source_unavailable':
-      return 'load_install_source_unavailable';
-    case 'market_install_target_invalid':
-      return 'load_install_target_invalid';
-    case 'market_install_gate_blocked':
-      return 'load_install_gate_blocked';
-    case 'daemon_unreachable':
-      return 'load_install_unreachable';
-    case 'daemon_bad_response':
-      return 'load_install_bad_response';
-    default:
-      return 'load_install_failed';
-  }
+  return DAEMON_CODE_TO_LOAD_ERROR.get(code) ?? 'load_install_failed';
+}
+
+/** 装载错误码 → i18n 文案键（`LoadConfirmDialog` 消费；键与既有 i18n 目录零变化）。 */
+export function loadErrorCopyKey(code: LoadErrorCode): string {
+  return LOAD_ERROR_TABLE[code].copyKey;
 }
 
 /** 会话事件结果：成功带新会话，（可选）记录；失败带原因码。 */
