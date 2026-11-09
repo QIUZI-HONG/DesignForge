@@ -191,37 +191,29 @@ export async function runDeployCommand(
     };
   }
 
-  // 写前校验（复用 pipeline 的 schema 校验器；解析失败按断言失败处理，不部署）。
-  const assertions: score.EvidenceAssertion[] = [];
-  let parsedIndex: MarketplaceIndex | null = null;
-  try {
-    parsedIndex = JSON.parse(indexText) as MarketplaceIndex;
-  } catch {
-    parsedIndex = null;
-  }
-  if (parsedIndex === null) {
-    assertions.push({
-      name: '源 ADS 索引可解析且通过 schema 校验（df.marketplace.index/v1）',
-      expected: '0 错误',
-      actual: '索引不是合法 JSON',
-      ok: false,
-    });
-  } else {
-    const validation = ads.validateMarketplaceIndex(parsedIndex);
-    assertions.push({
-      name: '源 ADS 索引可解析且通过 schema 校验（df.marketplace.index/v1）',
-      expected: '0 错误',
-      actual: validation.ok
-        ? '0 错误'
-        : validation.errors
-            .slice(0, 2)
-            .map((issue) => `${issue.path || '(root)'}:${issue.code}`)
-            .join(' / '),
-      ok: validation.ok,
-    });
+  // 写前校验（复用 ADS 读入面 + 生产侧 schema 校验器；解析失败按断言失败处理，不部署）。
+  // arch-v1 · 票② · #3：与 CLI search / daemon 同一读入实现，不再各写一份浅查。
+  const readResult = await ads.readAdsArtifacts(paths.ads);
+  if (readResult.ok && readResult.searchIndex === null) {
+    // 两张产物缺一不可（上方 readFile 已确认存在；此处覆盖读入面报缺失的竞态）
+    return {
+      exitCode: 2,
+      summary: { dataRoot: options.dataRoot, deployRoot },
+      blockedReason: `检索索引缺失（${join(paths.ads, ads.ADS_SEARCH_INDEX_FILENAME)}）——先跑 df market index（或用 --collect 全链模式）`,
+    };
   }
 
-  const total = parsedIndex?.counts?.total ?? 0;
+  const assertions: score.EvidenceAssertion[] = [];
+  const parsedIndex: MarketplaceIndex | null = readResult.ok ? readResult.index : null;
+  const parsedSearch: ads.SearchIndex | null = readResult.ok ? readResult.searchIndex : null;
+  assertions.push({
+    name: '源 ADS 索引可解析且通过 schema 校验（df.marketplace.index/v1）',
+    expected: '0 错误',
+    actual: readResult.ok ? '0 错误' : readResult.reason,
+    ok: readResult.ok,
+  });
+
+  const total = parsedIndex?.counts.total ?? 0;
   assertions.push({
     name: '资产数 > 0（空索引不部署，防清空真实数据根市场面）',
     expected: '> 0',
@@ -229,15 +221,8 @@ export async function runDeployCommand(
     ok: total > 0,
   });
 
-  let parsedSearch: ads.SearchIndex | null = null;
-  try {
-    parsedSearch = JSON.parse(searchText) as ads.SearchIndex;
-  } catch {
-    parsedSearch = null;
-  }
   const searchConsistent =
     parsedSearch !== null &&
-    parsedSearch.schema === ads.SEARCH_INDEX_SCHEMA &&
     parsedSearch.docCount === total &&
     parsedSearch.generatedAt === parsedIndex?.generatedAt;
   assertions.push({
