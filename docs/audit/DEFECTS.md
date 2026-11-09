@@ -120,6 +120,26 @@
 - **D-20 #3（登记）**：verify:perf 的 M1 为**单发测量**，对本机 ~400ms 级偶发停顿（M2 p99
   偶现 366-400ms，main 上亦存在）脆弱；基线标定注记已备证据层处置（时段标注/多轮取中位/
   暖机轮剥离）——后续若再遇「跳档超阈」按该注记处置，不得上调阈值系数。
+- **D-20 评审轮补记（2026-11-10 · quality-p1 评审轮：2 猎手 + 安全 + verifier 核证 7 项）**：
+  - **tags decode「旧 wire 向后兼容」声明无 fixture（已修 = 失败回退原项）**：旧版 web
+    encode（`URLSearchParams.set('tags', join(','))`）对含字面 `%` 的 tag（`100%done`）到
+    daemon 侧 `decodeURIComponent` 必抛 URIError，「丢该项」语义会静默丢旧 wire 合法 tag，
+    且兼容声明无 fixture 背书。修复：decode 失败回退保留原项（新↔新往返不变），钉子用例
+    改钉新语义 + 旧 wire fixture（`tags=100%25done` → `['100%done']`），注释如实改写
+    （df7bead）。
+  - **install 源路径点段与 repo 形态（已修，纵深防御）**：Trees `fullPath`/落盘
+    `relativePath` 的 `.`/`..` 整段此前不拒——raw URL 逐段 `encodeURIComponent` 不中和点段，
+    WHATWG 归一可取回资产目录外文件（现无利用面：只读 + digest 前置）；`asset.source.repo`
+    可被 `?`/`#`/多余 `/` 在两 GitHub host 内重定向请求路径。修复：点段与 repo 白名单外均
+    在任何源请求前即终态，走既有 source_unavailable 族（83d0862）。
+  - **read.ts TOCTOU 与 path-safety 反斜杠（有因关闭，登记 Phase 2 候选）**：`readArtifactWithin`
+    的 stat 后再读存在理论 TOCTOU；path-safety 对反斜杠不视为分隔符。关闭理由：产物目录与
+    daemon 同信任域、POSIX 单机部署下反斜杠是合法文件名字符——现实威胁模型内不成立，
+    登记 Phase 2 候选（若未来引入 Windows 宿主或跨信任域读取再立项）。
+  - **daemon 运行时读者未走 readArtifactWithin（维持 Phase 2 登记）**：部分运行时读取路径
+    未统一走 path-safety 入口，与上述同批 Phase 2 候选，不阻塞本批。
+  - **B8 超时文案复用既有键（登记为简报勘误）**：export-client 超时文案未新增专用键，
+    复用既有 i18n 键、UI 按 `code` 分支——code 不变、行为正确，属简报表述勘误而非缺陷。
 
 ## 4. 修复优先级矩阵（影响 × 紧迫）
 
