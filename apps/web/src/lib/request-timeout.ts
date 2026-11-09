@@ -73,6 +73,16 @@ export async function fetchWithinDeadline(
   toTimeoutError: (timeoutMs: number) => Error,
 ): Promise<Response> {
   const controller = new AbortController();
+  // 调用方自带 signal（取消/卸载）与上限计时**合并**：任一触发都 abort 同一控制器。
+  // 不合并会让 `{...init, signal}` 覆盖掉调用方信号——取消语义静默失效。
+  const external = init.signal ?? undefined;
+  const abortFromExternal = (): void => {
+    controller.abort(external?.reason);
+  };
+  if (external !== undefined) {
+    if (external.aborted) abortFromExternal();
+    else external.addEventListener('abort', abortFromExternal, { once: true });
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
@@ -84,5 +94,6 @@ export async function fetchWithinDeadline(
     return await Promise.race([fetchImpl(url, { ...init, signal: controller.signal }), timeout]);
   } finally {
     clearTimeout(timer); // 已落定就撤掉上限计时（别让计时器吊着事件循环）
+    external?.removeEventListener('abort', abortFromExternal);
   }
 }
