@@ -102,11 +102,14 @@ export interface GithubStubOptions {
    * 报成超过 MAX_FILE_BYTES 的值——断言预检在 raw 下载前即终态失败。
    */
   oversizedPaths?: string[];
+  /** 记录收到的全部请求 URL（票 A · A1：断言 raw 下载 URL 的段级编码形态）。 */
+  recordUrls?: string[];
 }
 
 function githubStub(options: GithubStubOptions): typeof fetch {
   return async (url: string | URL | Request): Promise<Response> => {
     const target = typeof url === 'string' ? url : url.toString();
+    options.recordUrls?.push(target);
     const treePrefix = `https://api.github.com/repos/${options.repo}/git/trees/`;
     if (target.startsWith(treePrefix)) {
       const status = options.treeStatus ?? 200;
@@ -130,7 +133,9 @@ function githubStub(options: GithubStubOptions): typeof fetch {
     }
     const rawPrefix = `https://raw.githubusercontent.com/${options.repo}/${options.ref}/`;
     if (target.startsWith(rawPrefix)) {
-      const path = target.slice(rawPrefix.length);
+      // 装载侧按段级编码请求（票 A · A1）：stub 模拟源站行为——收到编码 URL 后按
+      // 解码路径命中真实文件（全 ASCII 路径解码后不变，既有用例不受影响）。
+      const path = decodeURIComponent(target.slice(rawPrefix.length));
       if (options.missingPaths?.includes(path) === true || !(path in options.files)) {
         return new Response('Not Found', { status: 404 });
       }
@@ -465,6 +470,63 @@ describe('market install · 真写成功（拉取 → digest 对齐 → 落盘 �
   });
 });
 
+describe('market install · raw URL 段级编码（D-18 #1 · 票 A · A1）', () => {
+  const REF = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+  /** 含空格 / 中文 / `#` 的仓库路径：此前直接拼 URL，`#` 截断为片段、空格与非 ASCII 直接 404。 */
+  const UNICODE_FILES = {
+    'skills/pdf-export/SKILL.md': '# PDF Export\n\n把设计稿导出为分页 PDF。\n',
+    'skills/pdf-export/docs/a b/中文名#1.md': '带空格、中文与 # 的路径。\n',
+  };
+  const UNICODE_DIGEST = specDigest(UNICODE_FILES);
+  const CREDENTIALS = { env: { GH_TOKEN: 'test-token-123' } };
+
+  it('raw 下载 URL 对 fullPath 逐段 encodeURIComponent（保留 / 分隔符）且装载成功', async () => {
+    const requested: string[] = [];
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({
+        repo: 'acme/skills',
+        ref: REF,
+        files: UNICODE_FILES,
+        recordUrls: requested,
+      }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(daemon, makeIndex([makeAsset({ digest: UNICODE_DIGEST })]));
+      const plan = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/load-plan',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export' },
+      });
+      const ackToken = (plan.payload as { result: { ackToken: string } }).result.ackToken;
+      const installed = await injectJson(daemon.app, {
+        method: 'POST',
+        url: '/market/install',
+        payload: { assetId: 'gh:acme/skills#skills/pdf-export', ackToken },
+      });
+      // 装载成功：stub 按解码路径命中文件 → 段级编码不失真（相对路径仍是原始形态）
+      expect(installed.statusCode).toBe(200);
+      const result = (installed.payload as { result: { files: string[] } }).result;
+      expect(result.files).toEqual(['SKILL.md', 'docs/a b/中文名#1.md']);
+
+      // raw 请求 URL 逐段编码：空格 → %20、中文 → UTF-8 百分号、`#` → %23、`/` 分隔符保留
+      const rawUrls = requested.filter((url) =>
+        url.startsWith(`https://raw.githubusercontent.com/acme/skills/${REF}/`),
+      );
+      expect(rawUrls).toContain(
+        `https://raw.githubusercontent.com/acme/skills/${REF}/skills/pdf-export/SKILL.md`,
+      );
+      expect(rawUrls).toContain(
+        `https://raw.githubusercontent.com/acme/skills/${REF}/skills/pdf-export/docs/a%20b/%E4%B8%AD%E6%96%87%E5%90%8D%231.md`,
+      );
+      // 未编码形态（空格/`#` 裸现）不得出现
+      expect(rawUrls.every((url) => !url.includes('a b/') && !url.includes('#1.md'))).toBe(true);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+});
+
 describe('market install · 源与内容失败分支（结构化错误，不静默）', () => {
   const REF = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
   const EXPECTED_DIGEST = specDigest(ASSET_FILES);
@@ -478,6 +540,67 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
     });
     return (plan.payload as { result: { ackToken: string } }).result.ackToken;
   }
+
+  /** 覆盖 source.ref 的资产夹具（makeAsset 返回 Record<string, unknown>，source 展开需显式形态）。 */
+  function assetWithRef(
+    ref: string,
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return makeAsset({
+      ...overrides,
+      source: { ...(makeAsset().source as Record<string, unknown>), ref },
+    });
+  }
+
+  it('畸形 ref（非 40-hex commit）→ 503 source_unavailable（ref-invalid），不发起任何源请求（D-18 #5 · 票 A · A2）', async () => {
+    const requested: string[] = [];
+    const daemon = await createInstallDaemon({
+      fetchImpl: githubStub({
+        repo: 'acme/skills',
+        ref: 'main', // 资产索引里登记的畸形 ref（分支名，不是 commit SHA）
+        files: ASSET_FILES,
+        recordUrls: requested,
+      }),
+      marketInstallCredentials: CREDENTIALS,
+    });
+    try {
+      await seedIndex(
+        daemon,
+        makeIndex([
+          assetWithRef('main'),
+          assetWithRef('a1b2c3d', { id: 'gh:acme/skills#skills/short-ref', name: 'short-ref' }),
+        ]),
+      );
+      for (const assetId of [
+        'gh:acme/skills#skills/pdf-export',
+        'gh:acme/skills#skills/short-ref',
+      ]) {
+        const ackToken = await planToken(daemon, assetId);
+        const installed = await injectJson(daemon.app, {
+          method: 'POST',
+          url: '/market/install',
+          payload: { assetId, ackToken },
+        });
+        expect(installed.statusCode).toBe(503);
+        const error = (
+          installed.payload as { error: { code: string; details?: Record<string, unknown> } }
+        ).error;
+        expect(error.code).toBe('market_install_source_unavailable');
+        expect(error.details?.reason).toBe('ref-invalid');
+      }
+      // 零源请求：Trees/raw 都不发（畸形 ref 在装载前即终态）
+      expect(requested).toEqual([]);
+      // 未写入任何文件
+      await expect(
+        readFile(join(daemon.dataRoot, '.dfg', 'market', 'skill', 'pdf-export'), 'utf8'),
+      ).rejects.toThrow();
+      // 审计如实留痕
+      const audit = await readFile(join(daemon.dataRoot, 'audit', 'market-install.jsonl'), 'utf8');
+      expect(audit).toContain('"applied":false');
+    } finally {
+      await daemon.cleanup();
+    }
+  });
 
   it('raw 404（源文件已移除）→ 503 source_unavailable，且不写任何文件', async () => {
     const daemon = await createInstallDaemon({

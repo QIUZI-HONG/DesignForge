@@ -11,7 +11,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -242,6 +242,78 @@ describe('readAdsArtifacts（ADS 产物集读入）', () => {
       );
       const result = await readAdsArtifacts(dir);
       expect(result.ok).toBe(false);
+    });
+  });
+
+  // 以下四块为票 A · A4（D-19 #2）：产物读入面的 realpath 限定 + 单文件大小上限。
+  /** 逃逸目标（产物目录之外的临时区；与 dir 平级另建，测试内自行回收）。 */
+  async function withOutsideZone<T>(
+    body: (dir: string, outside: string) => Promise<T>,
+  ): Promise<T> {
+    return withTempDir(async (dir) => {
+      const outside = await mkdtemp(join(tmpdir(), 'df-ads-escape-'));
+      try {
+        return await body(dir, outside);
+      } finally {
+        await rm(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      }
+    });
+  }
+
+  it('市场索引是软链且指向产物目录之外 → ok:false（读入面不读穿逃逸路径）', async () => {
+    await withOutsideZone(async (dir, outside) => {
+      const artifacts = buildAdsArtifacts(readFixture(), OPTIONS);
+      await writeAdsArtifacts(dir, artifacts);
+      // 逃逸目标放的是**同一份合法索引**：证明拒的是「位置逃逸」不是内容损坏
+      await writeFile(join(outside, 'leak-index.json'), JSON.stringify(artifacts.index), 'utf8');
+      await rm(join(dir, ADS_INDEX_FILENAME));
+      await symlink(join(outside, 'leak-index.json'), join(dir, ADS_INDEX_FILENAME));
+      const result = await readAdsArtifacts(dir);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.reason).toContain('产物目录之外');
+    });
+  });
+
+  it('检索索引软链逃逸到产物目录之外 → ok:false（存在但不安全 ≠ 缺失，不静默当空）', async () => {
+    await withOutsideZone(async (dir, outside) => {
+      const artifacts = buildAdsArtifacts(readFixture(), OPTIONS);
+      await writeAdsArtifacts(dir, artifacts);
+      // 逃逸目标放同一份合法检索索引：红形态下读穿会得 ok:true（漏洞），修复后按位置逃逸拒
+      await writeFile(
+        join(outside, 'leak-search.json'),
+        JSON.stringify(artifacts.searchIndex),
+        'utf8',
+      );
+      await rm(join(dir, ADS_SEARCH_INDEX_FILENAME));
+      await symlink(join(outside, 'leak-search.json'), join(dir, ADS_SEARCH_INDEX_FILENAME));
+      const result = await readAdsArtifacts(dir);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.reason).toContain('产物目录之外');
+    });
+  });
+
+  it('市场索引超单文件大小上限（16MB）→ ok:false 且 reason 点名上限（先于 JSON 解析判）', async () => {
+    await withTempDir(async (dir) => {
+      await writeFile(join(dir, ADS_INDEX_FILENAME), 'x'.repeat(16 * 1024 * 1024 + 1), 'utf8');
+      const result = await readAdsArtifacts(dir);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.reason).toContain('大小上限');
+    });
+  });
+
+  it('产物目录内的软链（指向 dir 内文件）仍可用：约束是「不逃逸 dir」不是「禁软链」', async () => {
+    await withTempDir(async (dir) => {
+      const artifacts = buildAdsArtifacts(readFixture(), OPTIONS);
+      await writeAdsArtifacts(dir, artifacts);
+      // dir 内副本 + dir 内软链：realpath 解析后仍在 dir 内 → 放行
+      await copyFile(join(dir, ADS_INDEX_FILENAME), join(dir, 'index-copy.json'));
+      await rm(join(dir, ADS_INDEX_FILENAME));
+      await symlink(join(dir, 'index-copy.json'), join(dir, ADS_INDEX_FILENAME));
+      const result = await readAdsArtifacts(dir);
+      expect(result.ok).toBe(true);
     });
   });
 });
