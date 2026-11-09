@@ -11,7 +11,6 @@ export {
   createDiagnosticsPort,
   DaemonRequestError,
   type DiagnosticsPort,
-  readEnvelope,
   resolveDaemonBaseUrl,
 } from './client';
 export {
