@@ -10,6 +10,8 @@ import { MARKETPLACE_INDEX_SCHEMA, type MarketAsset } from '@dforge/contracts';
 import { renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { resetDaemonEndpointCache } from '@/lib/daemon-endpoint';
+
 import { MARKET_RESULT_LIMIT, searchMarketHits, useMarketSearchHits } from './use-market-search';
 
 const BASE = 'http://127.0.0.1:4318';
@@ -161,6 +163,33 @@ describe('searchMarketHits · 取数口径', () => {
       searchDegraded: false,
     });
     expect(calls).toEqual([]);
+  });
+
+  it('默认路径（无注入 baseUrl）→ 异步端口窗探测命中 4319（评审 F3）', async () => {
+    resetDaemonEndpointCache();
+    vi.stubEnv('NEXT_PUBLIC_DF_DAEMON_URL', '');
+    const calls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith('/health')) {
+        return new Response('{}', { status: url.includes(':4319') ? 200 : 503 });
+      }
+      return new Response(JSON.stringify(okBody([asset('a/b', 'Skill A')])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await searchMarketHits('设计', { fetchImpl });
+      expect(result.available).toBe(true);
+      const marketCall = calls.find((url) => url.includes('/market/query'));
+      expect(marketCall?.startsWith('http://127.0.0.1:4319')).toBe(true);
+    } finally {
+      resetDaemonEndpointCache();
+      vi.unstubAllEnvs();
+    }
   });
 });
 

@@ -43,17 +43,23 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
+/** 默认路径先做端口窗健康探测：/health 回 200，其余请求回给定响应。 */
+function respondAll(payload: unknown, status = 200): void {
+  fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    if (String(input).endsWith('/health')) return new Response('{}', { status: 200 });
+    return jsonResponse(payload, status);
+  });
+}
+
 describe('/market/[assetId] · E2 错误分类（not-found 与连接错误分流）', () => {
   it('daemon 404 market_asset_not_found → 独立「未找到该资产」空态 + 去市场出口', async () => {
     const user = userEvent.setup();
-    fetchMock.mockResolvedValue(
-      jsonResponse(
-        {
-          ok: false,
-          error: { code: 'market_asset_not_found', message: '资产不存在（可能未采集或已下架）' },
-        },
-        404,
-      ),
+    respondAll(
+      {
+        ok: false,
+        error: { code: 'market_asset_not_found', message: '资产不存在（可能未采集或已下架）' },
+      },
+      404,
     );
     const { container } = render(<MarketAssetPage />);
 
@@ -129,14 +135,12 @@ describe('/market/[assetId] · 行为事件（票②）', () => {
   });
 
   it('资产不存在 → 不发 market.asset-detail（没有「查看」行为就没有事件）', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse(
-        {
-          ok: false,
-          error: { code: 'market_asset_not_found', message: '资产不存在（可能未采集或已下架）' },
-        },
-        404,
-      ),
+    respondAll(
+      {
+        ok: false,
+        error: { code: 'market_asset_not_found', message: '资产不存在（可能未采集或已下架）' },
+      },
+      404,
     );
     render(<MarketAssetPage />);
     await waitFor(() => {

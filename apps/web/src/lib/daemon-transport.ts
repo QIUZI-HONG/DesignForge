@@ -119,7 +119,11 @@ async function resolveBaseUrl(init: TransportInit): Promise<string | TransportFa
     return trimTrailingSlash(init.baseUrl);
   }
   try {
-    return trimTrailingSlash(await resolveDaemonEndpoint());
+    // 注入的 fetch 一并用于端口窗探测（测试替身不真连网络；生产为全局 fetch）。
+    const endpoint = await resolveDaemonEndpoint(
+      init.fetchImpl === undefined ? {} : { fetchImpl: init.fetchImpl },
+    );
+    return trimTrailingSlash(endpoint);
   } catch (cause) {
     if (cause instanceof DaemonEndpointError) {
       return failure(cause.code, cause.message);

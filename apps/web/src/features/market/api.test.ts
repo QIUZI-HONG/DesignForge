@@ -8,6 +8,8 @@
 import { MARKETPLACE_INDEX_SCHEMA } from '@dforge/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
+import { resetDaemonEndpointCache } from '@/lib/daemon-endpoint';
+
 import { makeAsset, makeMissingIndexResponse, makeQueryResponse } from './__fixtures__/market';
 import {
   assetFromDetail,
@@ -100,6 +102,36 @@ describe('api · 基址解析', () => {
     } finally {
       if (original === undefined) delete process.env.NEXT_PUBLIC_DF_DAEMON_URL;
       else process.env.NEXT_PUBLIC_DF_DAEMON_URL = original;
+    }
+  });
+});
+
+describe('api · 默认路径端口窗探测（评审 F3）', () => {
+  it('无注入 baseUrl → 异步解析：4318 不健康、4319 健康时请求打到 4319', async () => {
+    // 旧实现用 resolveDaemonEndpointSync()（缺省 4318、不探测），端口漂移时整块市场不可用。
+    resetDaemonEndpointCache();
+    vi.stubEnv('NEXT_PUBLIC_DF_DAEMON_URL', '');
+    const calls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith('/health')) {
+        return new Response('{}', { status: url.includes(':4319') ? 200 : 503 });
+      }
+      return new Response(JSON.stringify({ ok: true, result: makeQueryResponse() }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await fetchMarketQuery({ q: 'pdf' }, { fetchImpl });
+      expect(result.ok).toBe(true);
+      const marketCall = calls.find((url) => url.includes('/market/query'));
+      expect(marketCall?.startsWith('http://127.0.0.1:4319')).toBe(true);
+    } finally {
+      resetDaemonEndpointCache();
+      vi.unstubAllEnvs();
     }
   });
 });

@@ -64,8 +64,11 @@ describe('MarketPanelSlot · 编辑器内市场面板（数据接线）', () => 
     respondWith(makeQueryResponse());
     render(<MarketPanelSlot />);
     await waitForPanelReady();
-    const url = String(fetchMock.mock.calls[0]?.[0]);
-    expect(url).toContain('/market/query');
+    // 默认路径先做端口窗健康探测（/health），再发市场查询
+    const url = fetchMock.mock.calls
+      .map((call) => String(call?.[0]))
+      .find((candidate) => candidate.includes('/market/query'));
+    expect(url).toBeDefined();
     expect(url).toContain('sort=score');
     expect(url).toContain('limit=8');
     expect(document.querySelectorAll('[data-df-market="panel-row"]').length).toBeGreaterThan(0);

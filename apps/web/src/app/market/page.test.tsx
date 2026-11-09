@@ -85,9 +85,12 @@ describe('/market · 正常路径（D1）', () => {
     expect(screen.getByText(/共 2 个资源 · 可装载 2 个/)).toBeTruthy();
     expect(screen.getAllByRole('button', { name: '装载' }).length).toBe(2);
     expect(fetchMock).toHaveBeenCalled();
-    const firstUrl = String((fetchMock.mock.calls[0] as unknown[])[0]);
-    expect(firstUrl).toContain('/market/query');
-    expect(firstUrl).toContain('sort=score');
+    // 默认路径先做端口窗健康探测（/health），再发市场查询——取查询请求而不是首调用
+    const marketUrl = fetchMock.mock.calls
+      .map((call) => String((call as unknown[])[0]))
+      .find((url) => url.includes('/market/query'));
+    expect(marketUrl).toBeDefined();
+    expect(marketUrl).toContain('sort=score');
   });
 
   it('搜索无结果 → 无结果空态；清空筛选后重新取数（不是加载态，也不是采集指引）', async () => {

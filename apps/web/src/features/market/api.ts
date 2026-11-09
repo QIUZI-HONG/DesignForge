@@ -62,8 +62,12 @@ export interface MarketClientOptions {
 }
 
 /**
- * 取 daemon 基址——纯委托 `@/lib/daemon-endpoint`（解析顺序与环境变量读取都在那里，
- * 本模块不再暴露 env 注入口；测试要注入环境请用收敛模块的 `envUrl` 选项或其单测）。
+ * 取 daemon 基址的**同步**快路径（查询参数 → env → 端口窗起点；不探测）。
+ *
+ * 只用于「创建时就要一个字符串」的宿主/测试；**取数路径不经过它**——无注入 `baseUrl`
+ * 时 `requestJson` 把解析交给传输层的异步 `resolveDaemonEndpoint()`（端口窗健康探测
+ * 4318..4350，命中即止、进程内缓存）。此前这里用同步解析导致首页市场检索只能打到
+ * 端口窗起点，端口漂移时整块市场「不可用」（评审 F3）。
  */
 export function daemonBaseUrl(): string {
   return resolveDaemonEndpointSync();
@@ -170,9 +174,8 @@ export function validateMarketLoadPlan(value: unknown): MarketLoadPlan | null {
   return value as unknown as MarketLoadPlan;
 }
 
-/** 查询串序列化（口径与 daemon `routes/market.ts` 的解码表同源：contracts `encodeMarketQuery`）。 */
-export function buildMarketQueryUrl(
-  baseUrl: string,
+/** 查询路径（含序列化查询串；URL 构造器与传输层共用这一份，避免路径两处漂移）。 */
+function marketQueryPath(
   params: MarketQueryParams,
   options?: { limit?: number; offset?: number },
 ): string {
@@ -181,13 +184,26 @@ export function buildMarketQueryUrl(
   if (options?.limit !== undefined) merged.limit = options.limit;
   if (options?.offset !== undefined) merged.offset = options.offset;
   const query = encodeMarketQuery(merged);
-  return `${baseUrl}${DAEMON_ROUTES.marketQuery.path}${query.length > 0 ? `?${query}` : ''}`;
+  return `${DAEMON_ROUTES.marketQuery.path}${query.length > 0 ? `?${query}` : ''}`;
+}
+
+/** 查询串序列化（口径与 daemon `routes/market.ts` 的解码表同源：contracts `encodeMarketQuery`）。 */
+export function buildMarketQueryUrl(
+  baseUrl: string,
+  params: MarketQueryParams,
+  options?: { limit?: number; offset?: number },
+): string {
+  return `${baseUrl}${marketQueryPath(params, options)}`;
+}
+
+/** 资产详情路径（路径参数需 URL 编码——id 形如 `gh:owner/repo#path`）。 */
+function marketAssetPath(assetId: string): string {
+  return DAEMON_ROUTES.marketAsset.path.replace(':assetId', encodeURIComponent(assetId));
 }
 
 /** 资产详情 URL（路径参数需 URL 编码——id 形如 `gh:owner/repo#path`）。 */
 export function buildMarketAssetUrl(baseUrl: string, assetId: string): string {
-  const path = DAEMON_ROUTES.marketAsset.path.replace(':assetId', encodeURIComponent(assetId));
-  return `${baseUrl}${path}`;
+  return `${baseUrl}${marketAssetPath(assetId)}`;
 }
 
 /** 装载提案 URL。 */
@@ -201,21 +217,20 @@ export function buildMarketInstallUrl(baseUrl: string): string {
 }
 
 async function requestJson<T>(
-  url: string,
+  path: string,
   options: MarketClientOptions & {
     method?: 'GET' | 'POST';
     body?: unknown;
     validate?: MarketShapeValidator<T>;
   },
 ): Promise<MarketEnvelope<T>> {
-  const base = options.baseUrl ?? daemonBaseUrl();
-  // URL 构造单点仍是上面的 build*Url（导出面）；传输层收 path 而不收整串
-  const path = url.startsWith(base) ? url.slice(base.length) : url;
   const method = options.body === undefined ? (options.method ?? 'GET') : 'POST';
+  // 无注入 baseUrl 时不预解析：传输层走异步 `resolveDaemonEndpoint()`（端口窗探测 +
+  // 进程内缓存）；注入 baseUrl 时按原样使用（测试/宿主显式指向）。
   const result = await daemonRequest<unknown>(
     { method, path },
     {
-      baseUrl: base,
+      ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
       ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
@@ -255,8 +270,7 @@ export function fetchMarketQuery(
   params: MarketQueryParams,
   options: MarketClientOptions = {},
 ): Promise<MarketEnvelope<MarketQueryResponse>> {
-  const base = options.baseUrl ?? daemonBaseUrl();
-  return requestJson<MarketQueryResponse>(buildMarketQueryUrl(base, params), {
+  return requestJson<MarketQueryResponse>(marketQueryPath(params), {
     ...options,
     validate: validateMarketQueryResponse,
   });
@@ -267,8 +281,7 @@ export function fetchMarketAsset(
   assetId: string,
   options: MarketClientOptions = {},
 ): Promise<MarketEnvelope<MarketAssetDetailResponse>> {
-  const base = options.baseUrl ?? daemonBaseUrl();
-  return requestJson<MarketAssetDetailResponse>(buildMarketAssetUrl(base, assetId), {
+  return requestJson<MarketAssetDetailResponse>(marketAssetPath(assetId), {
     ...options,
     validate: validateMarketAssetDetail,
   });
@@ -279,8 +292,7 @@ export function fetchMarketLoadPlan(
   assetId: string,
   options: MarketClientOptions & { documentId?: string | null } = {},
 ): Promise<MarketEnvelope<MarketLoadPlan>> {
-  const base = options.baseUrl ?? daemonBaseUrl();
-  return requestJson<MarketLoadPlan>(buildMarketLoadPlanUrl(base), {
+  return requestJson<MarketLoadPlan>(DAEMON_ROUTES.marketLoadPlan.path, {
     ...options,
     validate: validateMarketLoadPlan,
     body: { assetId, documentId: options.documentId ?? null },
@@ -309,8 +321,7 @@ export function fetchMarketInstall(
   input: { assetId: string; ackToken: string },
   options: MarketClientOptions = {},
 ): Promise<MarketEnvelope<MarketInstallResponse>> {
-  const base = options.baseUrl ?? daemonBaseUrl();
-  return requestJson<MarketInstallResponse>(buildMarketInstallUrl(base), {
+  return requestJson<MarketInstallResponse>(DAEMON_ROUTES.marketInstall.path, {
     ...options,
     validate: validateMarketInstallResponse,
     body: { assetId: input.assetId, ackToken: input.ackToken },
