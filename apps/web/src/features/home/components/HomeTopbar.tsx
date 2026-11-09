@@ -28,9 +28,9 @@ import {
 } from '@dforge/ui';
 import { useId, useState } from 'react';
 
+import type { MarketSearchHit } from '@/features/market';
 import { t } from '@/i18n';
 import { useDaemonEndpointHref } from '@/lib/daemon-href';
-import type { MarketSearchHit } from '../api/market';
 import { GearIcon, TemplateIcon } from '../icons';
 
 /** 技能市场结果线状态。 */

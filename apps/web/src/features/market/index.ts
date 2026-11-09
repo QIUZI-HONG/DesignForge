@@ -51,3 +51,14 @@ export {
   useUpdatableCount,
 } from './use-market';
 export { type MarketPanelData, PANEL_LIMIT, useMarketPanelData } from './use-market-panel';
+export {
+  MARKET_RESULT_LIMIT,
+  MARKET_SEARCH_DEADLINE_MS,
+  MARKET_SEARCH_DEBOUNCE_MS,
+  type MarketSearchHit,
+  type MarketSearchHitsState,
+  type MarketSearchOptions,
+  type MarketSearchResult,
+  searchMarketHits,
+  useMarketSearchHits,
+} from './use-market-search';

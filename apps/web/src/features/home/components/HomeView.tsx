@@ -21,7 +21,7 @@ import type { DocumentListWarning, DocumentSummary } from '@dforge/contracts';
 import { useToast } from '@dforge/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type StoreApi, type UseBoundStore, useStore } from 'zustand';
-import { useUpdatableCount } from '@/features/market';
+import { type MarketSearchResult, useMarketSearchHits, useUpdatableCount } from '@/features/market';
 import { t } from '@/i18n';
 import { resolveDaemonBaseUrl } from '../api/daemon-url';
 import {
@@ -31,7 +31,6 @@ import {
   describeApiErrorCode,
 } from '../api/documents';
 import { GATEWAY_TIMEOUT_MS } from '../api/gateway-timeout';
-import { type MarketSearchResult, searchMarketAssets } from '../api/market';
 import { cx } from '../lib/cx';
 import { resolveEmptyKind } from '../lib/empty-kind';
 import { selectDocumentList } from '../lib/filter';
@@ -48,12 +47,6 @@ import { TrashList } from './TrashList';
 
 /** 首页 store 类型（工厂返回的 hook 也是 store API）。 */
 export type HomeStore = UseBoundStore<StoreApi<HomeState>>;
-
-/** 默认市场检索（走 daemon；基址与文档接口同源解析）。 */
-async function defaultSearchMarket(query: string): Promise<MarketSearchResult> {
-  const baseUrl = await resolveDaemonBaseUrl();
-  return searchMarketAssets({ baseUrl, query });
-}
 
 /** 首页编排 props（全部可选：缺省即真实浏览器路径）。 */
 export interface HomeViewProps {
@@ -133,12 +126,6 @@ export function HomeView({
   const [deleting, setDeleting] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [market, setMarket] = useState<MarketPanelState>({
-    loading: false,
-    available: true,
-    items: [],
-    degraded: false,
-  });
   // 侧栏「可更新 N」徽标计数（票②）：市场 feature 公开面 hook——无装载记录不发请求，
   // 市场侧不可达降级为 0（不虚报；本地记录册真值在 localStorage）
   const marketUpdateCount = useUpdatableCount();
@@ -199,50 +186,14 @@ export function HomeView({
     void load('initial');
   }, [load]);
 
-  // 市场结果线：输入搜索词后（防抖）查 daemon；清空即复位。
-  // 出口保证（三条，不允许永久 loading）：① 落定即用真实结果；② 被拒 → 落「市场不可用」降级态
-  // （拒绝不逃逸成 unhandled rejection）；③ 超上限仍未落定 → 先落降级态给可读出口，
-  // 结果迟到再覆盖（自愈）。
-  useEffect(() => {
-    const query = home.query.trim();
-    if (query === '') {
-      setMarket({ loading: false, available: true, items: [], degraded: false });
-      return undefined;
-    }
-    let cancelled = false;
-    let deadline: ReturnType<typeof setTimeout> | null = null;
-    setMarket((current) => ({ ...current, loading: true }));
-    const timer = setTimeout(() => {
-      deadline = setTimeout(() => {
-        if (!cancelled) setMarket({ loading: false, available: false, items: [], degraded: false });
-      }, marketSearchDeadlineMs);
-      // `Promise.resolve().then(…)`：连「同步抛错」的实现也归一到拒绝路径，异常不逃出定时器回调
-      void Promise.resolve()
-        .then(() => (searchMarket ?? defaultSearchMarket)(query))
-        .then(
-          (result) => {
-            if (deadline !== null) clearTimeout(deadline);
-            if (cancelled) return;
-            setMarket({
-              loading: false,
-              available: result.available,
-              items: result.items,
-              degraded: result.searchDegraded,
-            });
-          },
-          () => {
-            if (deadline !== null) clearTimeout(deadline);
-            if (cancelled) return;
-            setMarket({ loading: false, available: false, items: [], degraded: false });
-          },
-        );
-    }, searchDebounceMs);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      if (deadline !== null) clearTimeout(deadline);
-    };
-  }, [home.query, searchMarket, searchDebounceMs, marketSearchDeadlineMs]);
+  // 市场结果线（arch-v1 · 票① · 候选 5）：取数/防抖/deadline/降级态收进 market 公开面
+  // `useMarketSearchHits`，首页只留 UI 态；出口保证与旧实现一致（落定即真值、被拒落
+  // 降级、超上限先落降级且迟到结果覆盖）。
+  const market: MarketPanelState = useMarketSearchHits(home.query, {
+    ...(searchMarket === undefined ? {} : { search: searchMarket }),
+    debounceMs: searchDebounceMs,
+    deadlineMs: marketSearchDeadlineMs,
+  });
 
   const filtered = home.query.trim() !== '' || home.range !== 'all';
   // 时间基准在每次重算时取一次（`now` 为注入的稳定时钟；不把它当渲染依赖，避免每帧新建 Date）

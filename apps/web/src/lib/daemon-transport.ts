@@ -106,6 +106,10 @@ function trimTrailingSlash(url: string): string {
 /**
  * 解析本次请求的基址：显式值优先；否则走 `resolveDaemonEndpoint()` 的完整解析顺序
  * （查询参数 → env → 端口窗探测，失败映射 `daemon_unreachable`）。
+ *
+ * 显式基址**不经过 await**（见 `request`/`openStream`）：消费方创建客户端时已解析过一次，
+ * 这里再让出一个微任务会打乱「同帧先发的请求先到」的既有顺序（市场页取数/遥测的
+ * 首请求顺序由测试钉住）。只有需要端口窗探测时才异步。
  */
 async function resolveBaseUrl(init: TransportInit): Promise<string | TransportFailure> {
   if (init.baseUrl !== undefined && init.baseUrl.length > 0) {
@@ -119,6 +123,13 @@ async function resolveBaseUrl(init: TransportInit): Promise<string | TransportFa
     }
     return failure('daemon_unreachable', cause instanceof Error ? cause.message : String(cause));
   }
+}
+
+/** 显式基址（无需探测；缺省/空白 → undefined，走 {@link resolveBaseUrl}）。 */
+function explicitBaseUrl(init: TransportInit): string | undefined {
+  return init.baseUrl !== undefined && init.baseUrl.length > 0
+    ? trimTrailingSlash(init.baseUrl)
+    : undefined;
 }
 
 /** 拼 fetch 初始化（鉴权头 + 可选 JSON 体；调用方头最后合并）。 */
@@ -220,7 +231,8 @@ export async function request<T>(
   route: DaemonRoute,
   init: TransportInit = {},
 ): Promise<TransportResult<T>> {
-  const baseUrl = await resolveBaseUrl(init);
+  const explicit = explicitBaseUrl(init);
+  const baseUrl = explicit ?? (await resolveBaseUrl(init));
   if (typeof baseUrl !== 'string') return baseUrl;
 
   const response = await fetchRoute(route, init, baseUrl);
@@ -239,7 +251,8 @@ export async function openStream(
   route: DaemonRoute,
   init: TransportInit = {},
 ): Promise<TransportStreamResult> {
-  const baseUrl = await resolveBaseUrl(init);
+  const explicit = explicitBaseUrl(init);
+  const baseUrl = explicit ?? (await resolveBaseUrl(init));
   if (typeof baseUrl !== 'string') return baseUrl;
 
   const response = await fetchRoute(route, init, baseUrl);

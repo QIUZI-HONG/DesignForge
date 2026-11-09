@@ -57,6 +57,8 @@ export interface MarketClientOptions {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+  /** 单请求超时上限（毫秒；测试注入小值；缺省走传输层 30s）。 */
+  timeoutMs?: number;
 }
 
 /**
@@ -228,6 +230,7 @@ async function requestJson<T>(
       baseUrl: base,
       ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
       ...(options.body === undefined ? {} : { body: options.body }),
     },
   );
