@@ -3,6 +3,10 @@
  *
  * 覆盖 `df.image-run/v1` 的询价-提交-轮询-取消四件事；失败一律以
  * `DaemonRequestError`（带 code/details）抛出，UI 用 `failureOf` 映射成可渲染视图。
+ *
+ * 传输（arch-v1 · 票①）：端点/令牌/超时/信封经 `@/lib/daemon-transport` 单点；
+ * 本模块只保留领域错误映射。**新增 30s 请求超时**（此前请求悬挂无出口）——
+ * 超时以 `daemon_timeout` 抛 `DaemonRequestError`，UI 归网络族。
  */
 import type {
   ComfyProbeResponse,
@@ -13,7 +17,8 @@ import type {
 } from '@dforge/contracts';
 import { DAEMON_ROUTES } from '@dforge/contracts';
 
-import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { request as daemonRequest } from '@/lib/daemon-transport';
 
 /** daemon 请求失败（信封 error 的形状对齐：code/message/details）。 */
 export class DaemonRequestError extends Error {
@@ -51,35 +56,9 @@ export function resolveDaemonBaseUrl(explicit?: string): string {
   return resolveDaemonEndpointSync();
 }
 
-/** 解包统一信封；失败抛 DaemonRequestError（details 原样带上）。 */
-export async function readEnvelope<T>(response: Response): Promise<T> {
-  let payload: unknown = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-  if (
-    typeof payload === 'object' &&
-    payload !== null &&
-    (payload as { ok?: unknown }).ok === true
-  ) {
-    return (payload as { result: T }).result;
-  }
-  const error =
-    typeof payload === 'object' && payload !== null
-      ? (payload as { error?: { code?: unknown; message?: unknown; details?: unknown } }).error
-      : undefined;
-  const code = typeof error?.code === 'string' ? error.code : `http_${String(response.status)}`;
-  const message =
-    typeof error?.message === 'string'
-      ? error.message
-      : `请求失败（HTTP ${String(response.status)}）`;
-  const details =
-    typeof error?.details === 'object' && error.details !== null
-      ? (error.details as Record<string, unknown>)
-      : null;
-  throw new DaemonRequestError(code, message, details);
+/** 传输层 details 收窄为信封 details 形状（非对象一律 null）。 */
+function detailsOf(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 /** 创建出图端口（baseUrl / fetchImpl 可注入）。 */
@@ -87,20 +66,16 @@ export function createImagePort(
   options: { baseUrl?: string; fetchImpl?: typeof fetch } = {},
 ): ImagePort {
   const baseUrl = resolveDaemonBaseUrl(options.baseUrl);
-  const doFetch = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? fetch;
 
   const request = async <T>(path: string, method: string, body?: unknown): Promise<T> => {
-    // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象
-    const response = await doFetch(`${baseUrl}${path}`, {
-      method,
-      ...(body === undefined
-        ? { headers: daemonAuthHeaders() }
-        : {
-            headers: { 'content-type': 'application/json', ...daemonAuthHeaders() },
-            body: JSON.stringify(body),
-          }),
-    });
-    return readEnvelope<T>(response);
+    const result = await daemonRequest<T>(
+      { method: method as 'GET' | 'POST', path },
+      { baseUrl, fetchImpl, ...(body === undefined ? {} : { body }) },
+    );
+    if (!result.ok)
+      throw new DaemonRequestError(result.code, result.message, detailsOf(result.details));
+    return result.value;
   };
 
   return {
