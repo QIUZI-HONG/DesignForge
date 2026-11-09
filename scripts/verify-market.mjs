@@ -93,7 +93,8 @@ const SEED_SAMPLE_PATH = join(
 async function reexecWithTypeStrippingIfNeeded() {
   if (!seedMode) return false;
   const [major, minor] = process.versions.node.split('.').map(Number);
-  const stripDefaultOn = (major === 22 && minor >= 18) || (major === 23 && minor >= 6) || major >= 24;
+  const stripDefaultOn =
+    (major === 22 && minor >= 18) || (major === 23 && minor >= 6) || major >= 24;
   if (stripDefaultOn) return false;
   const nodeOptions = process.env.NODE_OPTIONS ?? '';
   if (nodeOptions.includes('--experimental-strip-types')) return false;
@@ -132,7 +133,12 @@ async function buildSeedArtifacts() {
     odsWatermark: generatedAt,
   };
   const artifacts = pipelineModule.buildAdsArtifacts(read.assets, { generatedAt, collector });
-  return { artifacts, generatedAt, skipped: read.skipped, sampleFingerprint: fingerprint(SEED_SAMPLE_PATH) };
+  return {
+    artifacts,
+    generatedAt,
+    skipped: read.skipped,
+    sampleFingerprint: fingerprint(SEED_SAMPLE_PATH),
+  };
 }
 
 const startedAt = new Date();
@@ -613,9 +619,15 @@ if (skipDaemon) {
       name: '--seed 播种（冻结样本 → mk-04 管线 → 夹具数据根）',
       verdict: 'blocked',
       assertions: [
-        { name: '--seed 与 --skip-daemon 不同时使用', expected: '组合可判定', actual: '矛盾组合', ok: false },
+        {
+          name: '--seed 与 --skip-daemon 不同时使用',
+          expected: '组合可判定',
+          actual: '矛盾组合',
+          ok: false,
+        },
       ],
-      blockedReason: '参数矛盾：--seed 播种的真数据面需要 daemon 判定，--skip-daemon 会跳过——请二选一。',
+      blockedReason:
+        '参数矛盾：--seed 播种的真数据面需要 daemon 判定，--skip-daemon 会跳过——请二选一。',
     });
   }
 } else {
@@ -656,7 +668,8 @@ if (skipDaemon) {
                   },
                   {
                     name: '索引与 BM25 倒排同族落盘（daemon 候选路径首项）',
-                    expected: '<dataRoot>/market/{df.marketplace.index.v1.json, market_search_index.v1.json}',
+                    expected:
+                      '<dataRoot>/market/{df.marketplace.index.v1.json, market_search_index.v1.json}',
                     actual: outDir,
                     ok: true,
                   },

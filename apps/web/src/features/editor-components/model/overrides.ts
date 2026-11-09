@@ -12,6 +12,7 @@ import {
   type NodePatch,
   overrideAt,
   type PatchableKey,
+  type SceneNode,
   type ScenePage,
   virtualNodeId,
 } from '@dforge/engine';
@@ -60,9 +61,7 @@ export function readOverrideEntries(page: ScenePage, instanceId: NodeId): Overri
         .sort()
         .map((propertyKey) => {
           const typedKey = propertyKey as PatchableKey;
-          const mainSource = (main as unknown as Record<string, unknown> | undefined)?.[
-            propertyKey
-          ];
+          const mainSource = main === undefined ? undefined : readNodeProperty(main, propertyKey);
           return {
             key: typedKey,
             value: summarizePatchValue((patch as Record<string, unknown>)[propertyKey]),
@@ -72,6 +71,15 @@ export function readOverrideEntries(page: ScenePage, instanceId: NodeId): Overri
     });
   }
   return entries;
+}
+
+/**
+ * 从引擎节点按属性名读值（quality-p1 · B11）：引擎节点是接口联合（无隐式索引签名），
+ * 不能直接宽化为 Record——entries 扫描替代 `as unknown as` 双跳；纯数据节点
+ * （JSON 形态，无 symbol 键/原型属性），行为与索引读取一致。
+ */
+function readNodeProperty(node: SceneNode, key: string): unknown {
+  return Object.entries(node).find(([entryKey]) => entryKey === key)?.[1];
 }
 
 /** 某实例某路径上的覆盖补丁（外部只读用途；不存在返回 undefined）。 */

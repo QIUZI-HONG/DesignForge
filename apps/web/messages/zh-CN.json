@@ -648,6 +648,8 @@
   "editor.export.hint.docNotFound": "请先保存本文档，或从首页打开已保存的文档后再导出。",
   "editor.export.hint.daemonOffline": "请启动设界本地服务（daemon）后重试。",
   "editor.export.hint.retry": "请重试；若仍失败，请确认文档已保存（未保存的文档没有可导出的本地文件）。",
+  "export.client.invalidJson": "导出响应不是合法 JSON（HTTP {status}）",
+  "export.client.invalidEnvelope": "导出响应信封不符合契约（HTTP {status}）",
   "editor.components.badge.componentSet": "组件集",
   "editor.components.set.variantCount": "{count} 个变体",
   "editor.components.createDialog.close": "关闭对话框",
