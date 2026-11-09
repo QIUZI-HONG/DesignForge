@@ -61,11 +61,10 @@ function fakeFetch(response: { status?: number; body?: unknown; reject?: boolean
   const fetchImpl = (async (input: RequestInfo | URL) => {
     calls.push(String(input));
     if (response.reject === true) throw new TypeError('ECONNREFUSED');
-    return {
-      ok: (response.status ?? 200) < 400,
+    return new Response(JSON.stringify(response.body ?? null), {
       status: response.status ?? 200,
-      json: async () => response.body,
-    } as Response;
+      headers: { 'content-type': 'application/json' },
+    });
   }) as typeof fetch;
   return { fetchImpl, calls };
 }

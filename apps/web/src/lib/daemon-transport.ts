@@ -36,7 +36,9 @@ import {
 import {
   DAEMON_REQUEST_TIMEOUT_MS,
   fetchWithinDeadline,
+  fetchWithinTotalDeadline,
   RequestTimeoutError,
+  type TotalDeadlineResponse,
 } from '@/lib/request-timeout';
 
 /** 路由（取 `DAEMON_ROUTES` 的值；路径模板拼参数由消费方完成）。 */
@@ -171,39 +173,98 @@ async function fetchRoute(
 
 /** 读响应 JSON；失败（非 JSON）归一为 `daemon_bad_response`。 */
 async function readJson(response: Response): Promise<unknown | TransportFailure> {
+  let text: string;
   try {
-    return await response.json();
+    text = await response.text();
   } catch {
     return failure('daemon_bad_response', '本地服务返回了无法解析的响应（非 JSON）', {
       details: { reason: 'invalid-json' },
       status: response.status,
     });
   }
+  return parseJsonText(text, response.status);
+}
+
+/** JSON 解析单点：文本 → 值；解析失败归一 `daemon_bad_response`（invalid-json）。 */
+function parseJsonText(text: string, status: number): unknown | TransportFailure {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return failure('daemon_bad_response', '本地服务返回了无法解析的响应（非 JSON）', {
+      details: { reason: 'invalid-json' },
+      status,
+    });
+  }
 }
 
 /**
- * 一元请求的**总**超时：响应头已到、正文（JSON）仍可不落定——30s 界的是整次调用，
- * 不是只界响应头。到点取消 body 释放连接，并归一为 `daemon_timeout`。
+ * 读全响应体文本（**自有 reader**，不用 `response.json()`/`response.text()` 的托管读取）。
+ *
+ * 为什么必须自有 reader：`response.json()` 会锁定流，随后对 `response.body.cancel()`
+ * 是无效操作（locked stream 不可 cancel）——正文滴流挂死时调用方虽已按超时返回，
+ * 底层连接却永不释放。这里在 abort（超时到点 / 调用方取消）时 `reader.cancel()`，
+ * 正常读完与中途异常也 cancel（幂等），**任何路径都释放连接**。
  */
-async function readJsonWithin(
-  response: Response,
-  timeoutMs: number,
-): Promise<unknown | TransportFailure> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<TransportFailure>((resolve) => {
-    timer = setTimeout(
-      () => {
-        void response.body?.cancel().catch(() => undefined);
-        resolve(failure('daemon_timeout', new RequestTimeoutError(timeoutMs).message));
-      },
-      Math.max(0, timeoutMs),
-    );
-  });
+async function readBodyText(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+): Promise<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  const cancel = (): void => {
+    void reader.cancel().catch(() => undefined);
+  };
+  if (signal.aborted) cancel();
+  else signal.addEventListener('abort', cancel, { once: true });
   try {
-    return await Promise.race([readJson(response), timeout]);
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value !== undefined) text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
   } finally {
-    clearTimeout(timer);
+    signal.removeEventListener('abort', cancel);
+    // 读完时是幂等空操作；被 abort / 中途异常时真正取消上游（释放连接）
+    await reader.cancel().catch(() => undefined);
   }
+}
+
+/** abort 后的失败归一：超时哨兵 → `daemon_timeout`；其余（调用方取消/连接中断）→ `daemon_unreachable`。 */
+function abortFailure(signal: AbortSignal): TransportFailure {
+  const reason: unknown = signal.reason;
+  if (reason instanceof RequestTimeoutError) return failure('daemon_timeout', reason.message);
+  return failure(
+    'daemon_unreachable',
+    reason instanceof Error ? reason.message : String(reason ?? 'aborted'),
+  );
+}
+
+/**
+ * 读一元响应正文：读文本 → `JSON.parse`（超时/取消经 signal 取消 reader）。
+ * 解析失败仍是 `daemon_bad_response`（与旧 `response.json()` 的语义一致）。
+ */
+async function readPayload(deadline: TotalDeadlineResponse): Promise<unknown | TransportFailure> {
+  const { response, signal } = deadline;
+  // 真实 Response 的 body 是字节流（自有 reader 路径）；204/HEAD 为 null，宿主替身可能只
+  // 实现 text()——两者都走 text()（语义等价：读全量文本）。
+  const body = response.body as ReadableStream<Uint8Array> | null | undefined;
+  let text: string;
+  try {
+    text =
+      body === null || body === undefined || typeof body.getReader !== 'function'
+        ? await response.text()
+        : await readBodyText(body, signal);
+  } catch (cause) {
+    if (signal.aborted) return abortFailure(signal);
+    return failure('daemon_unreachable', cause instanceof Error ? cause.message : String(cause), {
+      status: response.status,
+    });
+  }
+  // abort 可能让 reader 以 done 落定（而非抛错）：到点/取消仍按失败归一
+  if (signal.aborted) return abortFailure(signal);
+  return parseJsonText(text, response.status);
 }
 
 /** 判别一个值是否为结构化失败（`readJson` 的返回是 unknown，需显式收窄）。 */
@@ -251,7 +312,7 @@ function unwrapEnvelope<T>(
   });
 }
 
-/** 一元请求：缺省 30s 总超时；失败一律结构化返回（不抛）。 */
+/** 一元请求：缺省 30s 总超时（头 + 正文同一预算）；失败一律结构化返回（不抛）。 */
 export async function request<T>(
   route: DaemonRoute,
   init: TransportInit = {},
@@ -261,15 +322,31 @@ export async function request<T>(
   if (typeof baseUrl !== 'string') return baseUrl;
 
   const timeoutMs = init.timeoutMs ?? DAEMON_REQUEST_TIMEOUT_MS;
-  const startedAt = Date.now();
-  const response = await fetchRoute(route, init, baseUrl);
-  if (isTransportFailure(response)) return response;
+  const fetchImpl = init.fetchImpl ?? fetch;
+  // 总超时：一条 AbortController 覆盖建连 + 响应头 + 正文读取；到点 abort 即取消 reader。
+  let deadline: TotalDeadlineResponse;
+  try {
+    deadline = await fetchWithinTotalDeadline(
+      fetchImpl,
+      `${baseUrl}${route.path}`,
+      buildRequestInit(route, init),
+      timeoutMs,
+      (ms) => new RequestTimeoutError(ms),
+    );
+  } catch (cause) {
+    if (cause instanceof RequestTimeoutError) {
+      return failure('daemon_timeout', cause.message);
+    }
+    return failure('daemon_unreachable', cause instanceof Error ? cause.message : String(cause));
+  }
 
-  // 总超时：fetch 只界到响应头；正文读取用剩余预算（头到正文挂死同样有界失败）。
-  const remaining = timeoutMs - (Date.now() - startedAt);
-  const payload = await readJsonWithin(response, remaining);
-  if (isTransportFailure(payload)) return payload;
-  return unwrapEnvelope<T>(payload, init, response.status);
+  try {
+    const payload = await readPayload(deadline);
+    if (isTransportFailure(payload)) return payload;
+    return unwrapEnvelope<T>(payload, init, deadline.response.status);
+  } finally {
+    deadline.dispose(); // 正文已落定：撤掉计时器与调用方监听
+  }
 }
 
 /**

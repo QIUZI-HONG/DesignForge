@@ -108,11 +108,17 @@ describe('request · 信封与传输失败归一', () => {
     expect(signals[0]?.aborted).toBe(true);
   });
 
-  it('响应头到达但正文永不落定 → 一元请求仍按总超时有界失败为 daemon_timeout', async () => {
-    // 真实故障形态：daemon 送了响应头，正文滴流挂死。30s 是**总**上限，不是只界响应头。
+  it('响应头到达但正文永不落定 → 总超时 daemon_timeout，且底层流被 cancel（旧实现锁流后 cancel 无效）', async () => {
+    // 真实故障形态：daemon 送了响应头，正文滴流挂死。30s 是**总**上限，不是只界响应头；
+    // 到点必须真正取消上游流（`response.json()` 锁流后 `body.cancel()` 是无效操作，
+    // 连接会永远悬着——本断言就是钉这一点）。
+    let cancelled = false;
     const never = new ReadableStream<Uint8Array>({
       start() {
         // 永不 close/enqueue：read() 永远 pending
+      },
+      cancel() {
+        cancelled = true;
       },
     });
     const fetchImpl = vi.fn(async () => new Response(never, { status: 200 }));
@@ -126,6 +132,7 @@ describe('request · 信封与传输失败归一', () => {
     if (result.ok) return;
     expect(result.code).toBe('daemon_timeout');
     expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(cancelled).toBe(true);
   });
 
   it('validate 判定形状不符 → daemon_bad_response（不让脏 result 过关）', async () => {

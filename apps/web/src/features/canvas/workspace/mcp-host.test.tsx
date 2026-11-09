@@ -67,13 +67,12 @@ function ackApproved(): McpAckResponse {
   };
 }
 
-/** 统一信封响应桩（readEnvelope 只消费 `json()`）。 */
-function envelopeResponse(result: unknown): {
-  ok: boolean;
-  status: number;
-  json: () => Promise<unknown>;
-} {
-  return { ok: true, status: 200, json: async () => ({ ok: true, result }) };
+/** 统一信封响应桩（真实 Response；传输层读文本后 JSON.parse）。 */
+function envelopeResponse(result: unknown): Response {
+  return new Response(JSON.stringify({ ok: true, result }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 beforeEach(() => {
