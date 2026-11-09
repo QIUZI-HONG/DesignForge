@@ -181,6 +181,31 @@ async function readJson(response: Response): Promise<unknown | TransportFailure>
   }
 }
 
+/**
+ * 一元请求的**总**超时：响应头已到、正文（JSON）仍可不落定——30s 界的是整次调用，
+ * 不是只界响应头。到点取消 body 释放连接，并归一为 `daemon_timeout`。
+ */
+async function readJsonWithin(
+  response: Response,
+  timeoutMs: number,
+): Promise<unknown | TransportFailure> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<TransportFailure>((resolve) => {
+    timer = setTimeout(
+      () => {
+        void response.body?.cancel().catch(() => undefined);
+        resolve(failure('daemon_timeout', new RequestTimeoutError(timeoutMs).message));
+      },
+      Math.max(0, timeoutMs),
+    );
+  });
+  try {
+    return await Promise.race([readJson(response), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** 判别一个值是否为结构化失败（`readJson` 的返回是 unknown，需显式收窄）。 */
 function isTransportFailure(value: unknown): value is TransportFailure {
   return (
@@ -235,10 +260,14 @@ export async function request<T>(
   const baseUrl = explicit ?? (await resolveBaseUrl(init));
   if (typeof baseUrl !== 'string') return baseUrl;
 
+  const timeoutMs = init.timeoutMs ?? DAEMON_REQUEST_TIMEOUT_MS;
+  const startedAt = Date.now();
   const response = await fetchRoute(route, init, baseUrl);
   if (isTransportFailure(response)) return response;
 
-  const payload = await readJson(response);
+  // 总超时：fetch 只界到响应头；正文读取用剩余预算（头到正文挂死同样有界失败）。
+  const remaining = timeoutMs - (Date.now() - startedAt);
+  const payload = await readJsonWithin(response, remaining);
   if (isTransportFailure(payload)) return payload;
   return unwrapEnvelope<T>(payload, init, response.status);
 }

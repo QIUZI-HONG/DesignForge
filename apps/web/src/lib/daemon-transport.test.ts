@@ -108,6 +108,26 @@ describe('request · 信封与传输失败归一', () => {
     expect(signals[0]?.aborted).toBe(true);
   });
 
+  it('响应头到达但正文永不落定 → 一元请求仍按总超时有界失败为 daemon_timeout', async () => {
+    // 真实故障形态：daemon 送了响应头，正文滴流挂死。30s 是**总**上限，不是只界响应头。
+    const never = new ReadableStream<Uint8Array>({
+      start() {
+        // 永不 close/enqueue：read() 永远 pending
+      },
+    });
+    const fetchImpl = vi.fn(async () => new Response(never, { status: 200 }));
+    const startedAt = Date.now();
+    const result = await request(
+      { method: 'GET', path: '/health' },
+      { baseUrl: BASE, fetchImpl, timeoutMs: 30 },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('daemon_timeout');
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
   it('validate 判定形状不符 → daemon_bad_response（不让脏 result 过关）', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ ok: true, result: { nope: true } }));
     const result = await request<{ n: number }>(
