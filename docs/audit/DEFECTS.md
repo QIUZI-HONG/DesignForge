@@ -83,11 +83,14 @@
 - **来源**：架构深化批 v1 集成分支评审轮（2026-11-09，`integration/arch-v1`）——两名独立
   verifier 确认的 5 项 Important（F1~F5）当批已修（见集成分支修复轮提交记录）；以下 Nit
   类别评审已登记、当批**不修**，留待后续批次收口。
+- **R2 修复轮（2026-11-09，评审 Round 2）**：新增 Important F6（`openStream` 非 2xx 错误
+  正文无时限）当批已修（#1）；同根因 Nit R2-N2（一元 `text()` 回退分支无 race）与
+  R2-N5（transport 注释「消费方创建时已解析一次」失实）同批已修。其余 Nit 保留开放。
 - **Nit 清单**：
 
 | # | Nit | 位置 | 处置建议 |
 |---|---|---|---|
-| 1 | `openStream` 非 2xx 的失败信封正文读取**无时限**（`readJson` 直接读文本，正文滴流挂死会一直等下去） | `apps/web/src/lib/daemon-transport.ts` openStream / readJson | 后续批次：非 2xx 正文读取也套上限并取消上游 |
+| 1 | `openStream` 非 2xx 的失败信封正文读取**无时限**（`readJson` 直接读文本，正文滴流挂死会一直等下去） | `apps/web/src/lib/daemon-transport.ts` openStream / readJson | **已修（F6）**：非 2xx 错误正文读取并入同一总预算（`fetchWithinTotalDeadline` 句柄 + 自有 reader + `race(deadline.timeout)`），超时/调用方取消即 cancel 上游并按 `http_<status>` 失败；见 arch-v1 评审 R2 修复轮 |
 | 2 | ADS 产物读入无 realpath 校验、无文件大小上限（`readFile` 按 `<dir>` 拼名整读） | `services/ingest/src/index/read.ts` readAdsArtifacts | 后续批次：realpath 限定数据根内 + 大小上限 |
 | 3 | tags 逗号 join/decode 可拆项：含逗号的单个 tag 在解码侧被拆成多个 | `packages/contracts/src/market/query.ts`（encode `tags.join(',')` / decode `split(',')`） | 后续批次：逐项转义或改用重复查询参数 |
 | 4 | 注释过界：transport 头注释写「单一访问 module」，`read.ts` 写「读+校验+归一化收成一处」——实际 telemetry / inspect-export / daemon service / search-cmd 仍自建访问或读入路径 | `apps/web/src/lib/daemon-transport.ts` 模块头；`services/ingest/src/index/read.ts`、`index/index.ts`（#3 三读者收敛） | 后续批次：收编剩余访问点，或把注释改成现状枚举 |

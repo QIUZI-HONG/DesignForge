@@ -111,9 +111,11 @@ function trimTrailingSlash(url: string): string {
  * 解析本次请求的基址：显式值优先；否则走 `resolveDaemonEndpoint()` 的完整解析顺序
  * （查询参数 → env → 端口窗探测，失败映射 `daemon_unreachable`）。
  *
- * 显式基址**不经过 await**（见 `request`/`openStream`）：消费方创建客户端时已解析过一次，
- * 这里再让出一个微任务会打乱「同帧先发的请求先到」的既有顺序（市场页取数/遥测的
- * 首请求顺序由测试钉住）。只有需要端口窗探测时才异步。
+ * 显式基址**不经过 await**（见 `request`/`openStream`）：多数消费方（ai / mcp / image /
+ * diagnostics / settings / canvas 持久化）在创建端口时已同步解析出基址，显式路径再让出
+ * 一个微任务只会推迟 fetch 的发出（「同帧先后发出的请求谁先到」的既有顺序会变）。
+ * **并非所有消费方都预解析**：市场取数无注入 `baseUrl` 时把解析交给本函数的异步端口窗
+ * 探测（评审 F3）——所以本函数必须保留异步路径，显式基址只省掉那一次 await。
  */
 async function resolveBaseUrl(init: TransportInit): Promise<string | TransportFailure> {
   if (init.baseUrl !== undefined && init.baseUrl.length > 0) {
