@@ -247,7 +247,9 @@ describe('readAdsArtifacts（ADS 产物集读入）', () => {
 
   // 以下四块为票 A · A4（D-19 #2）：产物读入面的 realpath 限定 + 单文件大小上限。
   /** 逃逸目标（产物目录之外的临时区；与 dir 平级另建，测试内自行回收）。 */
-  async function withOutsideZone<T>(body: (dir: string, outside: string) => Promise<T>): Promise<T> {
+  async function withOutsideZone<T>(
+    body: (dir: string, outside: string) => Promise<T>,
+  ): Promise<T> {
     return withTempDir(async (dir) => {
       const outside = await mkdtemp(join(tmpdir(), 'df-ads-escape-'));
       try {

@@ -69,12 +69,7 @@ export function encodeMarketQuery(params: MarketQueryParams): string {
   if (params.mode !== undefined) search.set('mode', params.mode);
   if (params.scene !== undefined) search.set('scene', params.scene);
   if (params.tags !== undefined && params.tags.length > 0)
-    search.set(
-      'tags',
-      params.tags
-        .map((tag) => encodeURIComponent(tag))
-        .join(','),
-    );
+    search.set('tags', params.tags.map((tag) => encodeURIComponent(tag)).join(','));
   if (params.loadableOnly === true) search.set('loadable', '1');
   if (params.sort !== undefined) search.set('sort', params.sort);
   if (params.limit !== undefined) search.set('limit', String(params.limit));

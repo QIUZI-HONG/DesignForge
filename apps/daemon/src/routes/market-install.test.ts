@@ -483,7 +483,12 @@ describe('market install · raw URL 段级编码（D-18 #1 · 票 A · A1）', (
   it('raw 下载 URL 对 fullPath 逐段 encodeURIComponent（保留 / 分隔符）且装载成功', async () => {
     const requested: string[] = [];
     const daemon = await createInstallDaemon({
-      fetchImpl: githubStub({ repo: 'acme/skills', ref: REF, files: UNICODE_FILES, recordUrls: requested }),
+      fetchImpl: githubStub({
+        repo: 'acme/skills',
+        ref: REF,
+        files: UNICODE_FILES,
+        recordUrls: requested,
+      }),
       marketInstallCredentials: CREDENTIALS,
     });
     try {
@@ -536,6 +541,17 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
     return (plan.payload as { result: { ackToken: string } }).result.ackToken;
   }
 
+  /** 覆盖 source.ref 的资产夹具（makeAsset 返回 Record<string, unknown>，source 展开需显式形态）。 */
+  function assetWithRef(
+    ref: string,
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return makeAsset({
+      ...overrides,
+      source: { ...(makeAsset().source as Record<string, unknown>), ref },
+    });
+  }
+
   it('畸形 ref（非 40-hex commit）→ 503 source_unavailable（ref-invalid），不发起任何源请求（D-18 #5 · 票 A · A2）', async () => {
     const requested: string[] = [];
     const daemon = await createInstallDaemon({
@@ -551,12 +567,8 @@ describe('market install · 源与内容失败分支（结构化错误，不静�
       await seedIndex(
         daemon,
         makeIndex([
-          makeAsset({ source: { ...makeAsset().source, ref: 'main' } }),
-          makeAsset({
-            id: 'gh:acme/skills#skills/short-ref',
-            name: 'short-ref',
-            source: { ...makeAsset().source, ref: 'a1b2c3d' },
-          }),
+          assetWithRef('main'),
+          assetWithRef('a1b2c3d', { id: 'gh:acme/skills#skills/short-ref', name: 'short-ref' }),
         ]),
       );
       for (const assetId of [
