@@ -6,70 +6,29 @@
  * 装载真实写入走 MCP 确认桩（dryRun → ackToken → 审计）；本路由只出**装载提案**。
  */
 
-import type {
-  MarketAssetKind,
-  MarketCategory,
-  MarketLane,
-  MarketMode,
-  MarketQueryParams,
-} from '@dforge/contracts';
-import { DAEMON_ROUTES, MARKET_CATEGORIES, MARKET_MODES } from '@dforge/contracts';
+import { DAEMON_ROUTES, decodeMarketQuery } from '@dforge/contracts';
 import type { FastifyInstance } from 'fastify';
 
 import type { DaemonContext } from '../app.ts';
 import { sendFail, sendOk } from '../http.ts';
 
-const KINDS: readonly string[] = ['skill', 'plugin', 'design-system', 'template'];
-const LANES: readonly string[] = ['create', 'refine', 'deliver'];
-
-function parseQuery(query: Record<string, unknown>): MarketQueryParams {
-  const params: MarketQueryParams = {};
-  if (typeof query.q === 'string' && query.q.trim().length > 0) params.q = query.q;
-  if (typeof query.kind === 'string') {
-    const kinds = query.kind
-      .split(',')
-      .map((value) => value.trim())
-      .filter((value) => KINDS.includes(value));
-    if (kinds.length > 0) params.kinds = kinds as MarketAssetKind[];
+/** Fastify 的 query 记录 → URLSearchParams（只收字符串值；数组/对象按旧 parseQuery 口径忽略）。 */
+function toSearchParams(query: Record<string, unknown>): URLSearchParams {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (typeof value === 'string') search.set(key, value);
   }
-  if (
-    typeof query.category === 'string' &&
-    (MARKET_CATEGORIES as readonly string[]).includes(query.category)
-  ) {
-    params.category = query.category as MarketCategory;
-  }
-  if (typeof query.lane === 'string' && LANES.includes(query.lane)) {
-    params.lane = query.lane as MarketLane;
-  }
-  if (typeof query.mode === 'string' && (MARKET_MODES as readonly string[]).includes(query.mode)) {
-    params.mode = query.mode as MarketMode;
-  }
-  if (typeof query.scene === 'string' && query.scene.length > 0) params.scene = query.scene;
-  if (typeof query.tags === 'string') {
-    const tags = query.tags
-      .split(',')
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0);
-    if (tags.length > 0) params.tags = tags;
-  }
-  if (query.loadable === '1' || query.loadable === 'true') params.loadableOnly = true;
-  if (query.sort === 'score' || query.sort === 'updated' || query.sort === 'name')
-    params.sort = query.sort;
-  if (typeof query.limit === 'string') {
-    const limit = Number.parseInt(query.limit, 10);
-    if (Number.isInteger(limit) && limit > 0) params.limit = limit;
-  }
-  if (typeof query.offset === 'string') {
-    const offset = Number.parseInt(query.offset, 10);
-    if (Number.isInteger(offset) && offset >= 0) params.offset = offset;
-  }
-  return params;
+  return search;
 }
 
 /** 注册市场路由。 */
 export function registerMarketRoutes(app: FastifyInstance, context: DaemonContext): void {
   app.get(DAEMON_ROUTES.marketQuery.path, async (request, reply) => {
-    const params = parseQuery((request.query ?? {}) as Record<string, unknown>);
+    // 查询串口径收口 contracts `decodeMarketQuery`（arch-v1 · 票② · #4）：
+    // 与原 routes/market.ts parseQuery 表逐项一致（容忍、逐项校验、丢弃非法值）。
+    const params = decodeMarketQuery(
+      toSearchParams((request.query ?? {}) as Record<string, unknown>),
+    );
     return sendOk(reply, await context.market.query(params));
   });
 
