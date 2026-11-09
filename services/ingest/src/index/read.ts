@@ -2,10 +2,18 @@
  * ADS 产物读入面（arch-v1 · 票② · #3）——判别式返回，坏产物不抛异常。
  *
  * 背景：同一份 ADS 产物此前有三个读者、三种严格度——daemon 深解析（宽容）、CLI deploy
- * 浅查（严格 schema）、CLI search `JSON.parse as`（零校验）。本模块把「读 + 校验 + 归一化」
- * 收成一处：
+ * 浅查（严格 schema）、CLI search `JSON.parse as`（零校验）。
+ *
+ * 收敛**实况**（D-19 #4 注释如实：不是全部「收成一处」）：
+ * - **检索索引已收敛**：daemon `market/search-index.ts` 与 CLI search 都经
+ *   `readSearchIndex`（同一实现、同一宽容口径——坏 posting 项按条丢弃、坏 doc 判整份）；
+ * - **市场索引仍是三读者**（收敛是后续批次）：daemon `market/service.ts` 自读 +
+ *   `parseMarketplaceIndex`（宽容）、CLI deploy 经 `readAdsArtifacts`（本模块，生产侧
+ *   严格校验）、CLI search 自拼 readFile + `parseMarketplaceIndex`（宽容）——
+ *   两档严格度并存，三读者收敛立案在 Phase 2。
+ *
+ * 本模块现有两个入口：
  * - `readSearchIndex(text)`：检索索引（`market_search_index.v1.json`）文本 → `SearchIndex`；
- *   宽容口径见 `schema.ts` 的 `parseSearchIndexArtifact`（坏 posting 项按条丢弃、坏 doc 判整份）；
  * - `readAdsArtifacts(dir)`：目录里的两张产物 → `{index, searchIndex}`；市场索引走**生产侧
  *   严格校验**（与 CLI deploy 写前门同口径），检索索引缺失按可选产物返回 null。
  *
