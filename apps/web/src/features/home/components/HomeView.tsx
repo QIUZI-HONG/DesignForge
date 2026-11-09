@@ -84,9 +84,10 @@ export interface HomeViewProps {
    *
    * 缺省即网关统一超时 {@link GATEWAY_TIMEOUT_MS}——**同一个数字，一处声明**
    * （code-review #4：此前这里转发了一个 `MARKET_SEARCH_DEADLINE_MS` 别名常量，
-   * 无独立语义，已删）。两层的关系（不重复实现）：客户端侧超时
-   * （`api/gateway-timeout`）让真实请求到点失败；页面侧兜底是**最后出口**，还要盖住
-   * 被注入的非 fetch 实现（测试/宿主）。取值 3s 压在 daemon 端口段健康探测最坏耗时
+   * 无独立语义，已删）。arch-v1 · 票① 起取数在 market 公开面
+   * （`useMarketSearchHits`）：同一个数字既作传输层单请求上限（`timeoutMs`），
+   * 又作页面侧兜底（最后出口，还要盖住被注入的非 fetch 实现——测试/宿主）。
+   * 取值 3s 压在 daemon 端口段健康探测最坏耗时
    * （~2.4s，见 `home/api/daemon-url`）之上，避免误报；测试传小值。
    */
   marketSearchDeadlineMs?: number;
