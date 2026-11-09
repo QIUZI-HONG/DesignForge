@@ -248,6 +248,65 @@ describe('openStream · 只界响应头的流式语义', () => {
     expect(text).toBe('firstsecond');
   });
 
+  it('响应头到达后调用方 abort → 上游流被 cancel，消费端收到终止（旧码：监听已摘，流悬挂）', async () => {
+    // 故障形态：headers 已达，调用方（抽屉卸载 / 切换会话）abort；旧实现此时已摘掉
+    // 调用方监听，上游流既不结束也不取消——消费方永久挂起、连接不释放。
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('first'));
+        // 之后永不 close：直到调用方 abort
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+    );
+    const abort = new AbortController();
+    const result = await openStream(
+      { method: 'POST', path: '/ai/chat' },
+      { baseUrl: BASE, fetchImpl, signal: abort.signal },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const reader = result.stream.getReader();
+    const first = await reader.read();
+    expect(first.done).toBe(false);
+    const pending = reader.read(); // 上游不再吐字节：这次 read 会挂住，直到 abort 传导
+    abort.abort();
+    const end = await pending;
+    expect(end.done).toBe(true);
+    expect(cancelled).toBe(true);
+  });
+
+  it('消费方 cancel → 上游流同样被 cancel（不泄漏连接）', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start() {
+        // 永不吐字节：等消费方取消
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+    );
+    const result = await openStream(
+      { method: 'POST', path: '/ai/chat' },
+      { baseUrl: BASE, fetchImpl },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    await result.stream.cancel();
+    expect(cancelled).toBe(true);
+  });
+
   it('非 2xx + 失败信封 → 透传 daemon 错误码与状态（与既有 AI 客户端同序）', async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse(

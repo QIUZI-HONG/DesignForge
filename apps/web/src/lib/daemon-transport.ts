@@ -9,7 +9,8 @@
  * - `request<T>(route, init?)`：一元请求。缺省 30s **总超时**（`timeoutMs` 可覆盖），
  *   到点 abort 在飞请求并返回 `daemon_timeout`；
  * - `openStream(route, init?)`：流式请求。30s 只界**建连/响应头**——headers 到达即撤掉
- *   计时器，body 不被 abort（流本体无总超时，由消费方按需取消）。
+ *   计时器，body 不被 abort（流本体无总超时，由消费方按需取消）；调用方 `signal` 在流
+ *   阶段继续生效（包装层在 abort 时取消上游 reader，消费方收到终止）。
  *
  * 失败一律归一为 {@link TransportFailure}（不抛异常）：`code` = daemon 线上码 ∪
  * `daemon_unreachable`（端点不可达 / 网络异常）∪ `daemon_timeout` ∪ `daemon_bad_response`
@@ -350,8 +351,62 @@ export async function request<T>(
 }
 
 /**
+ * 把上游 body 包一层，让**调用方 signal 在响应头到达后仍然生效**。
+ *
+ * 背景：`fetchWithinDeadline` 按流式语义在响应头到达时撤掉计时器与调用方监听；
+ * 若把 `response.body` 原样交出，此后调用方 abort（抽屉卸载 / 切换会话）不会再触达
+ * 上游——消费方以为取消了，连接却悬着。本包装自持 reader：signal abort 即
+ * `reader.cancel()`（真实 fetch 据此释放连接）；消费方 cancel、流正常结束同样摘监听、
+ * 清资源。流本体仍无总超时（design 决定：流由消费方按需取消）。
+ */
+function wrapStreamWithCancel(
+  upstream: ReadableStream<Uint8Array>,
+  signal: AbortSignal | undefined,
+): ReadableStream<Uint8Array> {
+  const reader = upstream.getReader();
+  let finished = false;
+  let removeAbort = (): void => undefined;
+
+  return new ReadableStream<Uint8Array>({
+    start() {
+      if (signal === undefined) return;
+      const onAbort = (): void => {
+        // 取消上游：pending read 以 done 落定，由 pull 收口下游
+        void reader.cancel().catch(() => undefined);
+      };
+      removeAbort = () => signal.removeEventListener('abort', onAbort);
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    },
+    async pull(controller) {
+      if (finished) return;
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          finished = true;
+          removeAbort();
+          controller.close();
+          return;
+        }
+        if (value !== undefined) controller.enqueue(value);
+      } catch (cause) {
+        finished = true;
+        removeAbort();
+        controller.error(cause);
+      }
+    },
+    cancel(reason) {
+      finished = true;
+      removeAbort();
+      return reader.cancel(reason);
+    },
+  });
+}
+
+/**
  * 流式请求：30s 只界建连/响应头（headers 到达即 clearTimeout，不 abort body）。
  * 非 2xx 或失败信封 → 读信封后返回失败（顺序与既有 AI 客户端一致）。
+ * 2xx 的 body 经 {@link wrapStreamWithCancel} 包装：调用方 signal 在流阶段继续生效。
  */
 export async function openStream(
   route: DaemonRoute,
@@ -407,5 +462,5 @@ export async function openStream(
       status: response.status,
     });
   }
-  return { ok: true, stream: response.body, response };
+  return { ok: true, stream: wrapStreamWithCancel(response.body, init.signal), response };
 }

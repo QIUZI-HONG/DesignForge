@@ -89,6 +89,40 @@ describe('AI 端口', () => {
     });
   });
 
+  it('chatStream()：调用方 abort 后上游流被 cancel，消费端收到终止（不悬挂）', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('event: start\ndata: {}\n\n'));
+        // 之后永不 close：等调用方 abort
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+      );
+    const port = createAiPort({ baseUrl: 'http://127.0.0.1:4318', fetchImpl });
+    const abort = new AbortController();
+    const iterator = port
+      .chatStream({ messages: [{ role: 'user', content: '画一个按钮' }] }, abort.signal)
+      [Symbol.asyncIterator]();
+
+    const first = await iterator.next();
+    expect(first.done).toBe(false);
+    expect(first.value).toContain('event: start');
+
+    // 第二次 next 会挂在上游（不再吐字节）；abort 必须传导为「流终止」而不是悬挂
+    const pending = iterator.next();
+    abort.abort();
+    const end = await pending;
+    expect(end.done).toBe(true);
+    expect(cancelled).toBe(true);
+  });
+
   it('失败信封 → 抛 DaemonRequestError（带错误码，供失败步落点）', async () => {
     const fetchImpl = vi
       .fn()
