@@ -22,6 +22,14 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
+/** 等流被 reader 锁定（= 传输层已开始读正文；1ms 轮询，上限约 200ms）。 */
+async function waitForLocked(stream: ReadableStream<unknown>): Promise<boolean> {
+  for (let i = 0; i < 200 && !stream.locked; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  return stream.locked;
+}
+
 describe('request · 信封与传输失败归一', () => {
   it('成功信封 → { ok:true, value }，请求落点取路由表并带鉴权头', async () => {
     vi.stubEnv('NEXT_PUBLIC_DF_DAEMON_TOKEN', 'tok-test');
@@ -356,6 +364,65 @@ describe('openStream · 只界响应头的流式语义', () => {
     expect(result.code).toBe('http_502');
     expect(result.status).toBe(502);
     expect(result.message).toBe(t('daemon.transport.httpFailure', { status: 502 }));
+  });
+
+  it('非 2xx + 错误正文永不完成 + 调用方 abort → 有限时间返回 http_502 并取消上游（旧码永挂，评审 F6）', async () => {
+    // 故障形态：反代/daemon 回了 502 响应头，错误正文的流永不 close；调用方（抽屉卸载）
+    // abort。旧实现 `readJson` → `text()` 既不计时、headers 后也不再听调用方 signal，
+    // openStream 永不落定，AI `chatStream` 卡在 await。修复后错误正文读取并入总预算。
+    let cancelled = false;
+    const never = new ReadableStream<Uint8Array>({
+      start() {
+        // 永不 close/enqueue：错误正文滴流挂死
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = vi.fn(async () => new Response(never, { status: 502 }));
+    const abort = new AbortController();
+    const startedAt = Date.now();
+    const pending = openStream(
+      { method: 'POST', path: '/ai/chat' },
+      { baseUrl: BASE, fetchImpl, body: {}, signal: abort.signal },
+    );
+    // 等正文读取真正开始（body 被 reader 锁定）再 abort：钉的是 headers 之后的正文阶段
+    expect(await waitForLocked(never)).toBe(true);
+    abort.abort();
+
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('http_502'); // 保留 HTTP 状态码，文案走既有 i18n 键
+    expect(result.status).toBe(502);
+    expect(result.message).toBe(t('daemon.transport.httpFailure', { status: 502 }));
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(cancelled).toBe(true);
+  });
+
+  it('非 2xx + 错误正文永不完成 → 到 timeoutMs 有界返回 http_502 并取消上游（评审 F6 超时分支）', async () => {
+    let cancelled = false;
+    const never = new ReadableStream<Uint8Array>({
+      start() {
+        // 永不 close/enqueue
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = vi.fn(async () => new Response(never, { status: 502 }));
+    const startedAt = Date.now();
+    const result = await openStream(
+      { method: 'POST', path: '/ai/chat' },
+      { baseUrl: BASE, fetchImpl, body: {}, timeoutMs: 30 },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('http_502');
+    expect(result.status).toBe(502);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(cancelled).toBe(true);
   });
 
   it('2xx 但无响应体 → daemon_bad_response（不假装流已建立，文案来自 i18n）', async () => {

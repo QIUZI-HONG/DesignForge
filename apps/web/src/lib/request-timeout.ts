@@ -143,6 +143,11 @@ export interface TotalDeadlineResponse {
   response: Response;
   /** 合并信号（超时 / 调用方取消都会 abort，reason 区分超时哨兵与调用方原因）。 */
   signal: AbortSignal;
+  /**
+   * 到点必然拒绝的 promise（超时哨兵）。正文读取与它 `race`：即使上游流不响应
+   * `cancel()` / 宿主替身只有 `text()`，到上限也必然落定。
+   */
+  timeout: Promise<never>;
   /** 是否已因到上限被 abort。 */
   timedOut: () => boolean;
   /** 撤掉计时器与调用方监听（正文读取结束后必须调用）。 */
@@ -177,6 +182,7 @@ export async function fetchWithinTotalDeadline(
   return {
     response,
     signal: deadline.signal,
+    timeout: deadline.timeout,
     timedOut: deadline.timedOut,
     dispose: deadline.dispose,
   };

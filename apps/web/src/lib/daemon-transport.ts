@@ -8,8 +8,9 @@
  *
  * - `request<T>(route, init?)`：一元请求。缺省 30s **总超时**（`timeoutMs` 可覆盖），
  *   到点 abort 在飞请求并返回 `daemon_timeout`；
- * - `openStream(route, init?)`：流式请求。30s 只界**建连/响应头**——headers 到达即撤掉
- *   计时器，body 不被 abort（流本体无总超时，由消费方按需取消）；调用方 `signal` 在流
+ * - `openStream(route, init?)`：流式请求。30s 界**建连/响应头**——2xx 的 body 在 headers
+ *   到达后不再被 abort（流本体无总超时，由消费方按需取消）；**非 2xx 的错误正文仍在同一
+ *   预算内读取**（超时/取消即取消上游，按 `http_<status>` 失败）；调用方 `signal` 在流
  *   阶段继续生效（包装层在 abort 时取消上游 reader，消费方收到终止）。
  *
  * 失败一律归一为 {@link TransportFailure}（不抛异常）：`code` = daemon 线上码 ∪
@@ -37,7 +38,6 @@ import {
 } from '@/lib/daemon-endpoint';
 import {
   DAEMON_REQUEST_TIMEOUT_MS,
-  fetchWithinDeadline,
   fetchWithinTotalDeadline,
   RequestTimeoutError,
   type TotalDeadlineResponse,
@@ -153,16 +153,16 @@ function buildRequestInit(route: DaemonRoute, init: TransportInit): RequestInit 
   };
 }
 
-/** 发请求并把网络/超时异常归一为传输失败（成功返回 Response）。 */
-async function fetchRoute(
+/** 发一个总预算请求：成功返回句柄（`dispose` 归调用方），网络/超时异常归一为传输失败。 */
+async function fetchTotalDeadline(
   route: DaemonRoute,
   init: TransportInit,
   baseUrl: string,
-): Promise<Response | TransportFailure> {
+): Promise<TotalDeadlineResponse | TransportFailure> {
   const fetchImpl = init.fetchImpl ?? fetch;
   const timeoutMs = init.timeoutMs ?? DAEMON_REQUEST_TIMEOUT_MS;
   try {
-    return await fetchWithinDeadline(
+    return await fetchWithinTotalDeadline(
       fetchImpl,
       `${baseUrl}${route.path}`,
       buildRequestInit(route, init),
@@ -175,20 +175,6 @@ async function fetchRoute(
     }
     return failure('daemon_unreachable', cause instanceof Error ? cause.message : String(cause));
   }
-}
-
-/** 读响应 JSON；失败（非 JSON）归一为 `daemon_bad_response`。 */
-async function readJson(response: Response): Promise<unknown | TransportFailure> {
-  let text: string;
-  try {
-    text = await response.text();
-  } catch {
-    return failure('daemon_bad_response', t('daemon.transport.badResponse'), {
-      details: { reason: 'invalid-json' },
-      status: response.status,
-    });
-  }
-  return parseJsonText(text, response.status);
 }
 
 /** JSON 解析单点：文本 → 值；解析失败归一 `daemon_bad_response`（invalid-json）。 */
@@ -248,20 +234,29 @@ function abortFailure(signal: AbortSignal): TransportFailure {
 }
 
 /**
+ * 读全响应体文本，**到点必然落定**：真实 Response 的 body 走自有 reader
+ * （{@link readBodyText}，abort 时 cancel 上游并释放连接），读取整体与
+ * `deadline.timeout` race——即使上游流无视 `cancel()`，到上限也不会无界悬挂（评审 F6）。
+ */
+async function readTextWithinDeadline(deadline: TotalDeadlineResponse): Promise<string> {
+  const { response, signal, timeout } = deadline;
+  const body = response.body as ReadableStream<Uint8Array> | null | undefined;
+  if (body === null || body === undefined || typeof body.getReader !== 'function') {
+    // 204/HEAD 的 null body 与宿主替身的 text() 回退（无 reader 可取消）
+    return await response.text();
+  }
+  return await Promise.race([readBodyText(body, signal), timeout]);
+}
+
+/**
  * 读一元响应正文：读文本 → `JSON.parse`（超时/取消经 signal 取消 reader）。
  * 解析失败仍是 `daemon_bad_response`（与旧 `response.json()` 的语义一致）。
  */
 async function readPayload(deadline: TotalDeadlineResponse): Promise<unknown | TransportFailure> {
   const { response, signal } = deadline;
-  // 真实 Response 的 body 是字节流（自有 reader 路径）；204/HEAD 为 null，宿主替身可能只
-  // 实现 text()——两者都走 text()（语义等价：读全量文本）。
-  const body = response.body as ReadableStream<Uint8Array> | null | undefined;
   let text: string;
   try {
-    text =
-      body === null || body === undefined || typeof body.getReader !== 'function'
-        ? await response.text()
-        : await readBodyText(body, signal);
+    text = await readTextWithinDeadline(deadline);
   } catch (cause) {
     if (signal.aborted) return abortFailure(signal);
     return failure('daemon_unreachable', cause instanceof Error ? cause.message : String(cause), {
@@ -273,7 +268,7 @@ async function readPayload(deadline: TotalDeadlineResponse): Promise<unknown | T
   return parseJsonText(text, response.status);
 }
 
-/** 判别一个值是否为结构化失败（`readJson` 的返回是 unknown，需显式收窄）。 */
+/** 判别一个值是否为结构化失败（`readPayload` 的返回是 unknown，需显式收窄）。 */
 function isTransportFailure(value: unknown): value is TransportFailure {
   return (
     typeof value === 'object' &&
@@ -329,24 +324,9 @@ export async function request<T>(
   const baseUrl = explicit ?? (await resolveBaseUrl(init));
   if (typeof baseUrl !== 'string') return baseUrl;
 
-  const timeoutMs = init.timeoutMs ?? DAEMON_REQUEST_TIMEOUT_MS;
-  const fetchImpl = init.fetchImpl ?? fetch;
   // 总超时：一条 AbortController 覆盖建连 + 响应头 + 正文读取；到点 abort 即取消 reader。
-  let deadline: TotalDeadlineResponse;
-  try {
-    deadline = await fetchWithinTotalDeadline(
-      fetchImpl,
-      `${baseUrl}${route.path}`,
-      buildRequestInit(route, init),
-      timeoutMs,
-      (ms) => new RequestTimeoutError(ms),
-    );
-  } catch (cause) {
-    if (cause instanceof RequestTimeoutError) {
-      return failure('daemon_timeout', cause.message);
-    }
-    return failure('daemon_unreachable', cause instanceof Error ? cause.message : String(cause));
-  }
+  const deadline = await fetchTotalDeadline(route, init, baseUrl);
+  if (isTransportFailure(deadline)) return deadline;
 
   try {
     const payload = await readPayload(deadline);
@@ -360,7 +340,7 @@ export async function request<T>(
 /**
  * 把上游 body 包一层，让**调用方 signal 在响应头到达后仍然生效**。
  *
- * 背景：`fetchWithinDeadline` 按流式语义在响应头到达时撤掉计时器与调用方监听；
+ * 背景：传输层的总预算在 2xx 响应头到达即 `dispose()`（流式语义只界 headers）——
  * 若把 `response.body` 原样交出，此后调用方 abort（抽屉卸载 / 切换会话）不会再触达
  * 上游——消费方以为取消了，连接却悬着。本包装自持 reader：signal abort 即
  * `reader.cancel()`（真实 fetch 据此释放连接）；消费方 cancel、流正常结束同样摘监听、
@@ -411,7 +391,9 @@ function wrapStreamWithCancel(
 }
 
 /**
- * 流式请求：30s 只界建连/响应头（headers 到达即 clearTimeout，不 abort body）。
+ * 流式请求：30s 界建连/响应头——2xx 的 body 在 headers 到达后不再被 abort（流本体无总
+ * 超时，由消费方按需取消）；**非 2xx 的错误正文仍在同一预算内读取**：超时/调用方取消
+ * 时取消上游 reader，并按 `http_<status>` 失败（保留状态码，评审 F6）。
  * 非 2xx 或失败信封 → 读信封后返回失败（顺序与既有 AI 客户端一致）。
  * 2xx 的 body 经 {@link wrapStreamWithCancel} 包装：调用方 signal 在流阶段继续生效。
  */
@@ -423,13 +405,43 @@ export async function openStream(
   const baseUrl = explicit ?? (await resolveBaseUrl(init));
   if (typeof baseUrl !== 'string') return baseUrl;
 
-  const response = await fetchRoute(route, init, baseUrl);
-  if (isTransportFailure(response)) return response;
+  // 与一元请求同一总预算机制，但 2xx 在下面立即 dispose（只界到 headers）；非 2xx 则
+  // 保持计时器到错误正文读完——否则 502 + 永不 close 的正文会让 openStream 永不落定。
+  const deadline = await fetchTotalDeadline(route, init, baseUrl);
+  if (isTransportFailure(deadline)) return deadline;
 
+  const { response } = deadline;
   if (!response.ok) {
-    const payload = await readJson(response);
-    if (isTransportFailure(payload)) {
-      // 非 2xx 且正文不是 JSON：仍按 HTTP 状态给码（旧 AI 客户端同口径）
+    try {
+      const payload = await readPayload(deadline);
+      if (isTransportFailure(payload)) {
+        // 非 2xx 且正文不可用（非 JSON / 超时 / 调用方取消）：仍按 HTTP 状态给码
+        // （旧 AI 客户端同口径；状态码保留，文案走既有 i18n 键）
+        return failure(
+          `http_${String(response.status)}`,
+          t('daemon.transport.httpFailure', { status: response.status }),
+          {
+            status: response.status,
+          },
+        );
+      }
+      if (isApiFailure(payload)) {
+        const raw = (payload as { error?: unknown }).error;
+        const error =
+          typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
+        return failure(
+          typeof error.code === 'string' ? error.code : `http_${String(response.status)}`,
+          typeof error.message === 'string'
+            ? error.message
+            : t('daemon.transport.httpFailure', { status: response.status }),
+          {
+            ...(typeof error.details === 'object' && error.details !== null
+              ? { details: error.details }
+              : {}),
+            status: response.status,
+          },
+        );
+      }
       return failure(
         `http_${String(response.status)}`,
         t('daemon.transport.httpFailure', { status: response.status }),
@@ -437,32 +449,12 @@ export async function openStream(
           status: response.status,
         },
       );
+    } finally {
+      deadline.dispose(); // 错误正文已落定（含超时/取消）：撤掉计时器与调用方监听
     }
-    if (isApiFailure(payload)) {
-      const raw = (payload as { error?: unknown }).error;
-      const error = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
-      return failure(
-        typeof error.code === 'string' ? error.code : `http_${String(response.status)}`,
-        typeof error.message === 'string'
-          ? error.message
-          : t('daemon.transport.httpFailure', { status: response.status }),
-        {
-          ...(typeof error.details === 'object' && error.details !== null
-            ? { details: error.details }
-            : {}),
-          status: response.status,
-        },
-      );
-    }
-    return failure(
-      `http_${String(response.status)}`,
-      t('daemon.transport.httpFailure', { status: response.status }),
-      {
-        status: response.status,
-      },
-    );
   }
 
+  deadline.dispose(); // 2xx：headers 已到即撤计时器，流本体由消费方按需取消
   if (response.body === null) {
     return failure('daemon_bad_response', t('daemon.transport.noBody'), {
       details: { reason: 'no-body' },
