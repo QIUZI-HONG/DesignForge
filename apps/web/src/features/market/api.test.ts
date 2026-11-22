@@ -8,6 +8,7 @@
 import { MARKETPLACE_INDEX_SCHEMA } from '@dforge/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
+import { t } from '@/i18n';
 import { resetDaemonEndpointCache } from '@/lib/daemon-endpoint';
 import { classifyDaemonFailure } from '@/lib/daemon-failure';
 
@@ -29,7 +30,6 @@ import {
   fetchMarketQuery,
   MARKET_COLLECT_COMMAND,
   makeMarketInstallClient,
-  readEnvelope,
   validateMarketAssetDetail,
   validateMarketInstallResponse,
   validateMarketQueryResponse,
@@ -138,26 +138,79 @@ describe('api · 默认路径端口窗探测（评审 F3）', () => {
   });
 });
 
-describe('api · 信封解包', () => {
-  it('成功信封取 result', () => {
-    expect(readEnvelope<string>({ ok: true, result: 'x' })).toEqual({ ok: true, result: 'x' });
+describe('api · 信封解包（fetch 路径 · 票 #130 单信封栈）', () => {
+  const ENVELOPE_BASE = 'http://127.0.0.1:4318';
+
+  it('成功信封取 result（MarketEnvelope 形状不变）', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: true, result: makeQueryResponse() }), { status: 200 }),
+    );
+    const result = await fetchMarketQuery(
+      { q: 'pdf' },
+      { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result).toEqual({ ok: true, result: makeQueryResponse() });
   });
 
-  it('失败信封取错误码与消息（含 details）', () => {
-    const result = readEnvelope({
-      ok: false,
-      error: { code: 'market_asset_not_found', message: '资产不存在', details: { assetId: 'a' } },
+  it('daemon 业务错误信封：原码透传 + details 保留（不归一、不换码）', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: 'market_asset_not_found',
+              message: '资产不存在',
+              details: { assetId: 'a' },
+            },
+          }),
+          { status: 404 },
+        ),
+    );
+    const result = await fetchMarketAsset('gh:no/such#x', {
+      baseUrl: ENVELOPE_BASE,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     expect(result).toEqual({
       ok: false,
-      error: { code: 'market_asset_not_found', message: '资产不存在', details: { assetId: 'a' } },
+      error: {
+        code: 'market_asset_not_found',
+        message: '资产不存在',
+        details: { assetId: 'a' },
+      },
     });
   });
 
-  it('形状不符一律按失败处理（绝不当成功）', () => {
-    expect(readEnvelope(null).ok).toBe(false);
-    expect(readEnvelope('boom').ok).toBe(false);
-    expect(readEnvelope({}).ok).toBe(false);
+  it('响应体不是可用信封（null 体 / 纯文本 / 空对象）→ 判失败且归一 daemon_unreachable', async () => {
+    // 反代错页族（评审 F4）：上游答不出可用信封，与「服务不可达」同一用户动作
+    // （确认服务 / 重试）。直测迁为 fetch 路径（原 readEnvelope 直测锁的是生产不走的分支）。
+    const bodies: Array<[string, string]> = [
+      ['JSON null 体', 'null'],
+      ['纯文本体', 'boom'],
+      ['空对象体', '{}'],
+    ];
+    for (const [name, body] of bodies) {
+      const fetchImpl = vi.fn(async () => new Response(body, { status: 200 }));
+      const result = await fetchMarketQuery(
+        { q: 'pdf' },
+        { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
+      );
+      expect(result.ok, name).toBe(false);
+      if (!result.ok) expect(result.error.code, name).toBe('daemon_unreachable');
+    }
+  });
+
+  it('{ok:true} 缺 result 键 → daemon_unreachable（脏信封绝不当成功；JSON 下 result:undefined 同形）', async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const result = await fetchMarketQuery(
+      {},
+      { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('daemon_unreachable');
   });
 });
 
@@ -340,18 +393,24 @@ describe('api · 溯源链接', () => {
 });
 
 describe('api · 信封与内层形状校验（脏数据不静默）', () => {
-  it('result 为 null → 判失败（含 result 键但值为空，绝不当成功）', () => {
-    const result = readEnvelope({ ok: true, result: null });
+  it('取数：{ok:true,result:null} → daemon_bad_response（invalid-shape 保留族，绝不归一 unreachable）', async () => {
+    // 直测迁为 fetch 路径（票 #130）：{ok:true,result:undefined} 经 JSON 序列化与
+    // 缺 result 键同形（→ daemon_unreachable，见上组用例）；result:null 键在值空，
+    // transport validate 谓词判形失败 → invalid-shape，归一判据方向性保守：保留原码。
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ ok: true, result: null }), { status: 200 }),
+    );
+    const result = await fetchMarketQuery(
+      {},
+      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toContain('null');
-  });
-
-  it('result 为 undefined（键存在但无值）→ 判失败', () => {
-    expect(readEnvelope({ ok: true, result: undefined }).ok).toBe(false);
-  });
-
-  it('泛型调用（无形状校验器）仍取 result（字符串等标量合法）', () => {
-    expect(readEnvelope<string>({ ok: true, result: 'x' })).toEqual({ ok: true, result: 'x' });
+    if (!result.ok) {
+      expect(result.error.code).toBe('daemon_bad_response');
+      // 传输层判形理由进 details（诊断保留）；文案走 transport i18n 键，适配层不拼裸串
+      expect(result.error.details).toEqual({ reason: 'invalid-shape' });
+      expect(result.error.message).toBe(t('daemon.transport.invalidShape'));
+    }
   });
 
   it('查询响应形状校验：items / warnings 必须为数组，元素必须为对象', () => {
@@ -379,22 +438,7 @@ describe('api · 信封与内层形状校验（脏数据不静默）', () => {
     expect(validateMarketQueryResponse('boom')).toBeNull();
   });
 
-  it('取数：result 为 null → 失败信封（码不是 daemon_unreachable，文案可读）', async () => {
-    const fetchImpl = vi.fn(
-      async () => new Response(JSON.stringify({ ok: true, result: null }), { status: 200 }),
-    );
-    const result = await fetchMarketQuery(
-      {},
-      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).not.toBe('daemon_unreachable');
-      expect(result.error.message).toContain('null');
-    }
-  });
-
-  it('取数：warnings 为 null → 失败信封（页面落错误态，不在渲染期抛 TypeError）', async () => {
+  it('取数：warnings 为 null → daemon_bad_response（页面落错误态，不在渲染期抛 TypeError）', async () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response(
@@ -418,9 +462,10 @@ describe('api · 信封与内层形状校验（脏数据不静默）', () => {
       { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('daemon_bad_response');
   });
 
-  it('取数：items 为对象而非数组 → 失败信封（不静默当空结果）', async () => {
+  it('取数：items 为对象而非数组 → daemon_bad_response（形状不符不归一，绝不静默当空结果）', async () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response(
@@ -444,6 +489,10 @@ describe('api · 信封与内层形状校验（脏数据不静默）', () => {
       { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('daemon_bad_response');
+      expect(result.error.details).toEqual({ reason: 'invalid-shape' });
+    }
   });
 
   it('详情响应形状校验：found 缺失 / asset 为 null → 形状坏', () => {
