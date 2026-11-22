@@ -35,9 +35,12 @@ import {
   validateMarketQueryResponse,
 } from './api';
 
+/** 测试共用的 daemon 基址（模块级唯一定义：全文件统一引用本常量，不再裸写端口串）。 */
+const ENVELOPE_BASE = 'http://127.0.0.1:4318';
+
 describe('api · URL 构造', () => {
   it('查询串按 contracts encodeMarketQuery 口径序列化（kind 逗号连接、loadable=1）', () => {
-    const url = buildMarketQueryUrl('http://127.0.0.1:4318', {
+    const url = buildMarketQueryUrl(ENVELOPE_BASE, {
       q: '幻灯片 导出',
       kinds: ['skill', 'plugin'],
       category: 'PPT设计',
@@ -47,7 +50,7 @@ describe('api · URL 构造', () => {
       sort: 'name',
       limit: 60,
     });
-    expect(url.startsWith('http://127.0.0.1:4318/market/query?')).toBe(true);
+    expect(url.startsWith(`${ENVELOPE_BASE}/market/query?`)).toBe(true);
     const search = new URL(url).searchParams;
     expect(search.get('q')).toBe('幻灯片 导出');
     expect(search.get('kind')).toBe('skill,plugin');
@@ -60,13 +63,13 @@ describe('api · URL 构造', () => {
   });
 
   it('空参数不落查询串（默认取 daemon 缺省）', () => {
-    const url = buildMarketQueryUrl('http://127.0.0.1:4318', {});
+    const url = buildMarketQueryUrl(ENVELOPE_BASE, {});
     expect(new URL(url).search).toBe('');
   });
 
   it('分页覆盖参数（options.limit/offset）优先于 params 且不丢其他参数', () => {
     const url = buildMarketQueryUrl(
-      'http://127.0.0.1:4318',
+      ENVELOPE_BASE,
       { q: '图标', limit: 60 },
       { limit: 12, offset: 24 },
     );
@@ -77,7 +80,7 @@ describe('api · URL 构造', () => {
   });
 
   it('详情 URL 对 assetId 做 URL 编码（gh:owner/repo#path 形态）', () => {
-    const url = buildMarketAssetUrl('http://127.0.0.1:4318', 'gh:acme/skills#skills/pdf-export');
+    const url = buildMarketAssetUrl(ENVELOPE_BASE, 'gh:acme/skills#skills/pdf-export');
     expect(url).not.toContain('#skills/pdf-export');
     expect(decodeURIComponent(url.split('/market/assets/')[1] ?? '')).toBe(
       'gh:acme/skills#skills/pdf-export',
@@ -85,9 +88,7 @@ describe('api · URL 构造', () => {
   });
 
   it('装载提案路径取契约路由表', () => {
-    expect(buildMarketLoadPlanUrl('http://127.0.0.1:4318')).toBe(
-      'http://127.0.0.1:4318/market/load-plan',
-    );
+    expect(buildMarketLoadPlanUrl(ENVELOPE_BASE)).toBe(`${ENVELOPE_BASE}/market/load-plan`);
   });
 });
 
@@ -139,8 +140,6 @@ describe('api · 默认路径端口窗探测（评审 F3）', () => {
 });
 
 describe('api · 信封解包（fetch 路径 · 票 #130 单信封栈）', () => {
-  const ENVELOPE_BASE = 'http://127.0.0.1:4318';
-
   it('成功信封取 result（MarketEnvelope 形状不变）', async () => {
     const fetchImpl = vi.fn(
       async () =>
@@ -276,7 +275,7 @@ describe('api · 取数（假 fetch）', () => {
     );
     const result = await fetchMarketQuery(
       { q: 'pdf' },
-      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+      { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(true);
     const call = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
@@ -295,12 +294,12 @@ describe('api · 取数（假 fetch）', () => {
         ),
     );
     const result = await fetchMarketLoadPlan('gh:acme/skills#x', {
-      baseUrl: 'http://127.0.0.1:4318',
+      baseUrl: ENVELOPE_BASE,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     expect(result.ok).toBe(false);
     const call = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(call[0]).toBe('http://127.0.0.1:4318/market/load-plan');
+    expect(call[0]).toBe(`${ENVELOPE_BASE}/market/load-plan`);
     expect(call[1].method).toBe('POST');
     expect(JSON.parse(String(call[1].body))).toEqual({
       assetId: 'gh:acme/skills#x',
@@ -314,7 +313,7 @@ describe('api · 取数（假 fetch）', () => {
     });
     const result = await fetchMarketQuery(
       {},
-      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+      { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -337,7 +336,7 @@ describe('api · 取数（假 fetch）', () => {
     );
     const result = await fetchMarketQuery(
       { q: 'pdf' },
-      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+      { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -359,7 +358,7 @@ describe('api · 取数（假 fetch）', () => {
         ),
     );
     const result = await fetchMarketAsset('gh:no/such#x', {
-      baseUrl: 'http://127.0.0.1:4318',
+      baseUrl: ENVELOPE_BASE,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     expect(result.ok).toBe(false);
@@ -402,7 +401,7 @@ describe('api · 信封与内层形状校验（脏数据不静默）', () => {
     );
     const result = await fetchMarketQuery(
       {},
-      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+      { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -459,7 +458,7 @@ describe('api · 信封与内层形状校验（脏数据不静默）', () => {
     );
     const result = await fetchMarketQuery(
       {},
-      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+      { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('daemon_bad_response');
@@ -486,7 +485,7 @@ describe('api · 信封与内层形状校验（脏数据不静默）', () => {
     );
     const result = await fetchMarketQuery(
       {},
-      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+      { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -530,9 +529,7 @@ describe('api · 装载安装客户端（票③ market-load-loop）', () => {
   };
 
   it('装载安装路径取契约路由表（POST /market/install）', () => {
-    expect(buildMarketInstallUrl('http://127.0.0.1:4318')).toBe(
-      'http://127.0.0.1:4318/market/install',
-    );
+    expect(buildMarketInstallUrl(ENVELOPE_BASE)).toBe(`${ENVELOPE_BASE}/market/install`);
   });
 
   it('响应形状校验：缺 digest/files/loadedAt 等任一字段即 null（不给渲染路径脏数据）', () => {
@@ -553,14 +550,14 @@ describe('api · 装载安装客户端（票③ market-load-loop）', () => {
     );
     const result = await fetchMarketInstall(
       { assetId: 'gh:acme/skills#skills/pdf-export', ackToken: 'tok-1' },
-      { baseUrl: 'http://127.0.0.1:4318', fetchImpl: fetchImpl as unknown as typeof fetch },
+      { baseUrl: ENVELOPE_BASE, fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.result.digest).toBe('sha256:9f2c');
     expect(result.result.loadedAt).toBe('2026-11-08T00:00:00.000Z');
     const call = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(call[0]).toBe('http://127.0.0.1:4318/market/install');
+    expect(call[0]).toBe(`${ENVELOPE_BASE}/market/install`);
     expect(call[1].method).toBe('POST');
     expect(JSON.parse(String(call[1].body))).toEqual({
       assetId: 'gh:acme/skills#skills/pdf-export',
@@ -572,7 +569,7 @@ describe('api · 装载安装客户端（票③ market-load-loop）', () => {
     const rejected = await fetchMarketInstall(
       { assetId: 'a', ackToken: 't' },
       {
-        baseUrl: 'http://127.0.0.1:4318',
+        baseUrl: ENVELOPE_BASE,
         fetchImpl: (async () =>
           new Response(
             JSON.stringify({
@@ -590,7 +587,7 @@ describe('api · 装载安装客户端（票③ market-load-loop）', () => {
     const malformed = await fetchMarketInstall(
       { assetId: 'a', ackToken: 't' },
       {
-        baseUrl: 'http://127.0.0.1:4318',
+        baseUrl: ENVELOPE_BASE,
         fetchImpl: (async () =>
           new Response(JSON.stringify({ ok: true, result: { assetId: 'a' } }), {
             status: 200,
@@ -604,7 +601,7 @@ describe('api · 装载安装客户端（票③ market-load-loop）', () => {
 
   it('makeMarketInstallClient：信封 → 装载会话 outcome（成功取真值，失败取码）', async () => {
     const okClient = makeMarketInstallClient({
-      baseUrl: 'http://127.0.0.1:4318',
+      baseUrl: ENVELOPE_BASE,
       fetchImpl: (async () =>
         new Response(JSON.stringify({ ok: true, result: INSTALL_RESPONSE }), {
           status: 200,
@@ -620,7 +617,7 @@ describe('api · 装载安装客户端（票③ market-load-loop）', () => {
     });
 
     const failClient = makeMarketInstallClient({
-      baseUrl: 'http://127.0.0.1:4318',
+      baseUrl: ENVELOPE_BASE,
       fetchImpl: (async () =>
         new Response(
           JSON.stringify({
