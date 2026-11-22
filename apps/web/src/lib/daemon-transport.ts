@@ -26,7 +26,9 @@
  * `daemon_unreachable`（端点不可达 / 网络异常）∪ `daemon_timeout` ∪ `daemon_bad_response`
  * （非 JSON / 信封形状坏 / 流无 body）。坏响应的细分理由以 {@link TRANSPORT_BAD_RESPONSE_REASONS}
  * / {@link TransportBadResponseReason} 导出（票 #130）：消费方（market `api.ts`）据此把归一
- * 判据在**编译期锁定**到同一份码表，不再自写字面量对账。**领域错误类型与界面文案由消费方
+ * 判据在**编译期锁定**到同一份码表，不再自写字面量对账。码表覆盖面限定：只收**一元请求路径**
+ * 的坏响应细分理由；流式 `openStream` 的 `no-body` 理由不经本表（其 details 形状独立，消费方
+ * 按评审 F4 保守口径归一 `daemon_unreachable`）。**领域错误类型与界面文案由消费方
  * 适配层映射**（GLOSSARY「daemon 传输层」：人话走呈现层 i18n，本 module 只给可读兜底）。
  *
  * 纪律：
@@ -59,9 +61,11 @@ export type DaemonRoute = DaemonRouteSpec;
 
 /**
  * 坏响应（`daemon_bad_response`）的细分理由码表（注入失败 `details.reason`；票 #130 导出）。
- * 单一真源：类型 {@link TransportBadResponseReason} 由本表派生，消费方（market `api.ts`）
- * 引用常量而非自写字面量——归一判据「reason 为 invalid-shape 保留 `daemon_bad_response`，
- * 其余一律归一 `daemon_unreachable`（评审 F4）」编译期锁定在同一份码表上。
+ * 覆盖面限定：**一元请求路径**（`request`）的坏响应细分理由——「单一真源」就此路径成立：
+ * 类型 {@link TransportBadResponseReason} 由本表派生，消费方（market `api.ts`）引用常量
+ * 而非自写字面量——归一判据「reason 为 invalid-shape 保留 `daemon_bad_response`，其余一律
+ * 归一 `daemon_unreachable`（评审 F4）」编译期锁定在同一份码表上。流式 `openStream` 的
+ * `no-body` 理由不经本表（其 details 形状独立，消费方按 F4 保守口径归一 `daemon_unreachable`）。
  */
 export const TRANSPORT_BAD_RESPONSE_REASONS = {
   /** 响应体不是合法 JSON（反代错页 / 截断正文）。 */
