@@ -9,7 +9,7 @@ import type { MarketQueryResponse } from '@dforge/contracts';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { classifyMarketOutcome, MARKET_COLLECT_COMMAND, readEnvelope } from '../../market/api';
+import { classifyMarketOutcome, fetchMarketQuery, MARKET_COLLECT_COMMAND } from '../../market/api';
 import {
   MarketEmptyState,
   MarketErrorState,
@@ -44,25 +44,64 @@ describe('对抗 · 市场空态与坏数据', () => {
     expect(screen.getByText(/无法解析/)).toBeTruthy();
   });
 
-  it('readEnvelope：HTML/纯文本响应体（反代错页）→ 判失败且文案可读', () => {
-    const result = readEnvelope('<html><body>502 Bad Gateway</body></html>');
+  it('坏响应体：HTML/纯文本（反代错页）→ 判失败且落网络族 daemon_unreachable（文案可读）', async () => {
+    // 直测迁为 fetch 路径（票 #130）：原 readEnvelope 直测锁的是生产不走的 'internal'
+    // 分支；单信封栈下该形态由传输层判 invalid-json，市场适配层归一为 daemon_unreachable
+    // （评审 F4：与不可达同一用户动作）。文案走 transport i18n 键，不再断言裸串。
+    const result = await fetchMarketQuery(
+      {},
+      {
+        baseUrl: 'http://127.0.0.1:4318',
+        fetchImpl: (async () =>
+          new Response('<html><body>502 Bad Gateway</body></html>', {
+            status: 502,
+            headers: { 'content-type': 'text/html' },
+          })) as unknown as typeof fetch,
+      },
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe('internal');
-      expect(result.error.message).toContain('不是可识别的 JSON 信封');
+      expect(result.error.code).toBe('daemon_unreachable');
+      expect(result.error.message.length).toBeGreaterThan(0);
     }
   });
 
-  it('readEnvelope：ok:true 但缺 result → 绝不当成功（防「静默空」）', () => {
-    expect(readEnvelope({ ok: true }).ok).toBe(false);
+  it('ok:true 但缺 result → 绝不当成功（防「静默空」），归一 daemon_unreachable', async () => {
+    // 脏信封：transport 判 malformed-envelope → 市场适配层归一 daemon_unreachable（评审 F4）。
+    const result = await fetchMarketQuery(
+      {},
+      {
+        baseUrl: 'http://127.0.0.1:4318',
+        fetchImpl: (async () =>
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })) as unknown as typeof fetch,
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('daemon_unreachable');
   });
 
-  // 原为 it.fails（缺陷证据）：市场 readEnvelope 只查 `'result' in value`，
+  // 原为 it.fails（缺陷证据）：市场取数层只查 `'result' in value`，
   // `{ok:true,result:null}` 被判成功 → 下游 `classifyMarketOutcome(null)` 崩、
   // 页面结果区静默空白（见 app/market/page-null-result.adversarial.test.tsx）。
-  // 修法落地（result 判空归一为失败）后按验证方注释改回 it()。
-  it('readEnvelope：result 为 null → 也判失败（result:null 不得被当成功）', () => {
-    expect(readEnvelope({ ok: true, result: null }).ok).toBe(false);
+  // 修法落地（result 判空归一为失败）后按验证方注释改回 it()；票 #130 起该判定
+  // 收口在传输层 validate 谓词（invalid-shape），市场适配层保留 daemon_bad_response。
+  it('result 为 null → 也判失败（result:null 不得被当成功），保留 daemon_bad_response', async () => {
+    const result = await fetchMarketQuery(
+      {},
+      {
+        baseUrl: 'http://127.0.0.1:4318',
+        fetchImpl: (async () =>
+          new Response(JSON.stringify({ ok: true, result: null }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })) as unknown as typeof fetch,
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('daemon_bad_response');
   });
 
   it('分类优先级：索引缺失/损坏压过「无结果」；部分失败只在有结果时出现', () => {
