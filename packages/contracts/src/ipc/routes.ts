@@ -41,6 +41,9 @@ export const DAEMON_ROUTES = {
   marketQuery: { method: 'GET', path: '/market/query' },
   marketAsset: { method: 'GET', path: '/market/assets/:assetId' },
   marketLoadPlan: { method: 'POST', path: '/market/load-plan' },
+  // 真实装载端点（票③ market-load-loop）：消费 load-plan 签发的一次性 ackToken，
+  // 从源仓库按 pinned ref 拉取内容并真写 `<数据根>/.dfg/market/<kind>/<slug>/`
+  marketInstall: { method: 'POST', path: '/market/install' },
   mcpPropose: { method: 'POST', path: '/mcp/proposals' },
   mcpAck: { method: 'POST', path: '/mcp/ack' },
   mcpAudit: { method: 'GET', path: '/mcp/audit' },

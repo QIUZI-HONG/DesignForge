@@ -340,6 +340,43 @@
   list-style: none;
 }
 
+/* ---------- 使用示例话术列表（票② · D2「试试这样用」可复制话术） ---------- */
+
+.dfg-market__usage-examples {
+  display: grid;
+  gap: var(--dfg-space-2);
+  margin-block: var(--dfg-space-2);
+}
+
+.dfg-market__usage-examples-title {
+  margin: 0;
+  font-size: var(--dfg-font-size-13);
+  font-weight: var(--dfg-font-weight-medium);
+}
+
+.dfg-market__usage-list {
+  display: grid;
+  gap: var(--dfg-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dfg-market__usage-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dfg-space-3);
+  padding: var(--dfg-space-2) var(--dfg-space-3);
+  background-color: var(--dfg-color-surface-subtle);
+  border-radius: var(--dfg-radius-md);
+}
+
+.dfg-market__usage-text {
+  color: var(--dfg-color-text-primary);
+  line-height: var(--dfg-line-height-base);
+}
+
 .dfg-market__list-item {
   display: grid;
   gap: var(--dfg-space-1);

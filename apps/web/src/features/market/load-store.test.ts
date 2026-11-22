@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { makeMemoryStorage } from './__fixtures__/market';
 import {
+  countUpdateAvailable,
   findLoadRecord,
   isUpdateAvailable,
   LOADED_RECORDS_KEY,
@@ -106,5 +107,39 @@ describe('load-store · 卸载', () => {
     const storage = makeMemoryStorage();
     writeLoadRecord(storage, makeRecord({ assetId: 'a' }));
     expect(removeLoadRecord(storage, 'zzz').map((record) => record.assetId)).toEqual(['a']);
+  });
+});
+
+describe('load-store · daemon 真值字段（票③）', () => {
+  it('loadedAt（daemon 真写完成时刻）随记录往返存储；缺失时省略不补造', () => {
+    const storage = makeMemoryStorage();
+    writeLoadRecord(storage, makeRecord({ loadedAt: '2026-11-08T00:00:00.000Z' }));
+    const withLoadedAt = readLoadRecords(storage);
+    expect(withLoadedAt[0]?.loadedAt).toBe('2026-11-08T00:00:00.000Z');
+
+    const plain = makeMemoryStorage();
+    writeLoadRecord(plain, makeRecord());
+    const withoutLoadedAt = readLoadRecords(plain);
+    expect(withoutLoadedAt[0]?.loadedAt).toBeUndefined();
+  });
+});
+
+describe('load-store · countUpdateAvailable（票② 侧栏「可更新 N」徽标计数）', () => {
+  it('按更新判定计数：digest 变化的记录计入，相同的与查不到的不计', () => {
+    const records = [
+      makeRecord({ assetId: 'gh:a/x#skills/a', digest: 'sha256:old-a' }),
+      makeRecord({ assetId: 'gh:a/x#skills/b', digest: 'sha256:same-b' }),
+      makeRecord({ assetId: 'gh:a/x#skills/gone', digest: 'sha256:orphan' }),
+    ];
+    const current = [
+      { id: 'gh:a/x#skills/a', digest: 'sha256:new-a' },
+      { id: 'gh:a/x#skills/b', digest: 'sha256:same-b' },
+    ];
+    expect(countUpdateAvailable(records, current)).toBe(1);
+  });
+
+  it('空记录册或空当前索引 → 计数 0（不虚报）', () => {
+    expect(countUpdateAvailable([], [{ id: 'gh:a/x#skills/a', digest: 'sha256:new' }])).toBe(0);
+    expect(countUpdateAvailable([makeRecord()], [])).toBe(0);
   });
 });

@@ -210,6 +210,44 @@ describe('market · 查询与过滤', () => {
     }
   });
 
+  it('标签筛选为任一命中（OR）：多 tag 不要求全部命中；大小写不敏感', async () => {
+    const daemon = await createTestDaemon();
+    try {
+      const facets = (tags: string[]) => ({
+        category: '网站设计',
+        lane: 'create',
+        mode: 'components',
+        tags,
+        scenes: [],
+      });
+      await seedIndex(
+        daemon,
+        makeIndex([
+          makeAsset({ id: 'gh:a#t1', facets: facets(['alpha']) }),
+          makeAsset({ id: 'gh:a#t2', facets: facets(['beta']) }),
+          makeAsset({ id: 'gh:a#t3', facets: facets(['gamma']) }),
+        ]),
+      );
+      const byAnyTag = await injectJson(daemon.app, {
+        method: 'GET',
+        url: '/market/query?tags=alpha,beta',
+      });
+      expect((byAnyTag.payload as { result: { total: number } }).result.total).toBe(2);
+
+      const byCase = await injectJson(daemon.app, {
+        method: 'GET',
+        url: '/market/query?tags=ALPHA',
+      });
+      expect(
+        (byCase.payload as { result: { items: { id: string }[] } }).result.items.map(
+          (item) => item.id,
+        ),
+      ).toEqual(['gh:a#t1']);
+    } finally {
+      await daemon.cleanup();
+    }
+  });
+
   it('分页：limit/offset 生效且 total 为过滤后总数', async () => {
     const daemon = await createTestDaemon();
     try {

@@ -2,7 +2,8 @@
  * @dforge/cli —— CLI `df`（入口与命令表）。
  *
  * 命令族：
- * - `df market collect | score | index | search`（《技能市场规格 v1》§2.2 口径，`./market/**`）；
+ * - `df market collect | score | index | search | deploy`（《技能市场规格 v1》§2.2 口径 +
+ *   市场线总案 v2 票① deploy，`./market/**`）；
  * - `df config set-key --stdin | --clear`（修复批次 3 工作包 F：凭据 stdin 注入，`./config/**`）。
  * 可执行入口见 `bin/df.mjs`（Node 原生 TS 类型擦除直跑，独立于编辑器/桌面壳）。
  *
@@ -18,8 +19,8 @@ export type { CliOutcome } from './outcome.ts';
 /** CLI 名。 */
 export const CLI_BIN_NAME = 'df' as const;
 
-/** 首批子命令（`df market <子命令>`）。 */
-export const CLI_MARKET_SUBCOMMANDS = ['collect', 'score', 'index', 'search'] as const;
+/** 首批子命令（`df market <子命令>`；deploy 为市场线总案 v2 票①新增）。 */
+export const CLI_MARKET_SUBCOMMANDS = ['collect', 'score', 'index', 'search', 'deploy'] as const;
 
 /** 命令族（`df <族> <子命令>`）。 */
 export const CLI_FAMILIES = ['market', 'config'] as const;
@@ -27,7 +28,7 @@ export const CLI_FAMILIES = ['market', 'config'] as const;
 export const CLI_USAGE = `df —— 设界 CLI
 
 用法：
-  df market <子命令>   市场采集线（collect | score | index | search）
+  df market <子命令>   市场采集线（collect | score | index | search | deploy）
   df config set-key    本地凭据（--stdin 注入 / --clear 清除）
   df --help            本帮助
 

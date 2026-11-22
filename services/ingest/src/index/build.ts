@@ -117,6 +117,8 @@ export function toMarketAsset(record: DwsAssetRecord): MarketAsset {
   };
   if (record.description !== undefined) asset.description = record.description;
   if (typeof record.version === 'string') asset.version = record.version;
+  // 使用示例（票②）：存在才填、缺失省略（不产空数组键）
+  if (record.usageExamples !== undefined) asset.usageExamples = [...record.usageExamples];
   return asset;
 }
 

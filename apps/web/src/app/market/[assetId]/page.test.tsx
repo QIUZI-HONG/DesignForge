@@ -11,6 +11,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { marketFixtures, marketTestUtils } from '@/features/market';
 
 const push = vi.fn();
 
@@ -42,17 +43,23 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
+/** 默认路径先做端口窗健康探测：/health 回 200，其余请求回给定响应。 */
+function respondAll(payload: unknown, status = 200): void {
+  fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    if (String(input).endsWith('/health')) return new Response('{}', { status: 200 });
+    return jsonResponse(payload, status);
+  });
+}
+
 describe('/market/[assetId] · E2 错误分类（not-found 与连接错误分流）', () => {
   it('daemon 404 market_asset_not_found → 独立「未找到该资产」空态 + 去市场出口', async () => {
     const user = userEvent.setup();
-    fetchMock.mockResolvedValue(
-      jsonResponse(
-        {
-          ok: false,
-          error: { code: 'market_asset_not_found', message: '资产不存在（可能未采集或已下架）' },
-        },
-        404,
-      ),
+    respondAll(
+      {
+        ok: false,
+        error: { code: 'market_asset_not_found', message: '资产不存在（可能未采集或已下架）' },
+      },
+      404,
     );
     const { container } = render(<MarketAssetPage />);
 
@@ -95,5 +102,42 @@ describe('/market/[assetId] · E2 错误分类（not-found 与连接错误分流
     await waitFor(() => {
       expect(fetchMock.mock.calls.length).toBeGreaterThan(before);
     });
+  });
+});
+
+describe('/market/[assetId] · 行为事件（票②）', () => {
+  /** 抽取打到 /telemetry/events 的调用体（共享工具 D-18 #4；桩 = 本文件模块级 fetchMock）。 */
+  const telemetryCalls = (): ReturnType<typeof marketTestUtils.telemetryCalls> =>
+    marketTestUtils.telemetryCalls(fetchMock);
+
+  it('详情就绪 → 发 market.asset-detail（含 assetId，且一次挂载只发一次）', async () => {
+    const asset = marketFixtures.makeAsset();
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, result: { found: true, asset } }));
+    render(<MarketAssetPage />);
+    // 详情就绪的判据：详情容器挂上（本页不渲染 displayName 纯文本，徽标行是首屏标识）
+    await waitFor(() => {
+      expect(document.querySelector('[data-df-page="market-detail"]')).not.toBeNull();
+    });
+    await waitFor(() => {
+      const calls = telemetryCalls().filter((call) => call.name === 'market.asset-detail');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.payload).toEqual({ assetId: asset.id });
+    });
+  });
+
+  it('资产不存在 → 不发 market.asset-detail（没有「查看」行为就没有事件）', async () => {
+    respondAll(
+      {
+        ok: false,
+        error: { code: 'market_asset_not_found', message: '资产不存在（可能未采集或已下架）' },
+      },
+      404,
+    );
+    render(<MarketAssetPage />);
+    await waitFor(() => {
+      expect(screen.getByText('未找到该资产')).toBeTruthy();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(telemetryCalls().some((call) => call.name === 'market.asset-detail')).toBe(false);
   });
 });

@@ -6,6 +6,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
+import { t } from '@/i18n';
+
 import { createAiPort, DaemonRequestError, resolveDaemonBaseUrl } from './client';
 
 /** 构造成功信封响应。 */
@@ -89,6 +91,40 @@ describe('AI 端口', () => {
     });
   });
 
+  it('chatStream()：调用方 abort 后上游流被 cancel，消费端收到终止（不悬挂）', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('event: start\ndata: {}\n\n'));
+        // 之后永不 close：等调用方 abort
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+      );
+    const port = createAiPort({ baseUrl: 'http://127.0.0.1:4318', fetchImpl });
+    const abort = new AbortController();
+    const iterator = port
+      .chatStream({ messages: [{ role: 'user', content: '画一个按钮' }] }, abort.signal)
+      [Symbol.asyncIterator]();
+
+    const first = await iterator.next();
+    expect(first.done).toBe(false);
+    expect(first.value).toContain('event: start');
+
+    // 第二次 next 会挂在上游（不再吐字节）；abort 必须传导为「流终止」而不是悬挂
+    const pending = iterator.next();
+    abort.abort();
+    const end = await pending;
+    expect(end.done).toBe(true);
+    expect(cancelled).toBe(true);
+  });
+
   it('失败信封 → 抛 DaemonRequestError（带错误码，供失败步落点）', async () => {
     const fetchImpl = vi
       .fn()
@@ -103,5 +139,59 @@ describe('AI 端口', () => {
   it('解析基础地址：显式参数 > NEXT_PUBLIC_DF_DAEMON_URL > 缺省 4318', () => {
     expect(resolveDaemonBaseUrl('http://127.0.0.1:9999')).toBe('http://127.0.0.1:9999');
     expect(resolveDaemonBaseUrl()).toBe('http://127.0.0.1:4318');
+  });
+
+  // 2xx 空 body 契约（D-19 #5）：旧客户端与传输层对 2xx 空 body 的失败形状不同；
+  // 这组用例钉住**现状（传输层）**的形状——后续任何人改动都应显式过这条契约。
+  describe('2xx 空 body 契约（D-19 #5 · 断言现状传输层形状）', () => {
+    it('status()：2xx 空 body → 抛 DaemonRequestError（daemon_bad_response，非 JSON 兜底文案）', async () => {
+      const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }));
+      const port = createAiPort({ baseUrl: 'http://127.0.0.1:4318', fetchImpl });
+      const error = await port.status().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(DaemonRequestError);
+      expect((error as DaemonRequestError).code).toBe('daemon_bad_response');
+      expect((error as DaemonRequestError).message).toBe(t('daemon.transport.badResponse'));
+    });
+
+    it('chatStream()：2xx 无响应体（204）→ 抛 DaemonRequestError（daemon_bad_response，no-body）', async () => {
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(null, { status: 204, headers: { 'content-type': 'text/event-stream' } }),
+      );
+      const port = createAiPort({ baseUrl: 'http://127.0.0.1:4318', fetchImpl });
+      const iterator = port
+        .chatStream({ messages: [{ role: 'user', content: 'hi' }] })
+        [Symbol.asyncIterator]();
+      // 异步迭代器首个 next() 抛出：openStream 失败 → DaemonRequestError
+      const error = await iterator.next().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(DaemonRequestError);
+      expect((error as DaemonRequestError).code).toBe('daemon_bad_response');
+      expect((error as DaemonRequestError).message).toBe(t('daemon.transport.noBody'));
+    });
+
+    it('chatStream()：2xx 空流（body 存在但零字节）→ 流建立、产出零块（不是失败）', async () => {
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(c) {
+                c.close();
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'text/event-stream' },
+            },
+          ),
+      );
+      const port = createAiPort({ baseUrl: 'http://127.0.0.1:4318', fetchImpl });
+      const chunks: string[] = [];
+      for await (const chunk of port.chatStream({
+        messages: [{ role: 'user', content: 'hi' }],
+      })) {
+        chunks.push(chunk);
+      }
+      expect(chunks).toEqual([]);
+    });
   });
 });

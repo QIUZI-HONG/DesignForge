@@ -63,8 +63,11 @@ describe('/market/panel 页（P1-5 六态提取后：页壳 + 共享六态体）
       expect(document.querySelector('[data-df-page="market-panel"]')).not.toBeNull();
     });
     // 请求口径与编辑器页签同源（共享 hook 单点）：综合评分前 8
-    const url = String(fetchMock.mock.calls[0]?.[0]);
-    expect(url).toContain('/market/query');
+    // （默认路径先做端口窗健康探测，取市场查询那一笔）
+    const url = fetchMock.mock.calls
+      .map((call) => String(call?.[0]))
+      .find((candidate) => candidate.includes('/market/query'));
+    expect(url).toBeDefined();
     expect(url).toContain('sort=score');
     expect(url).toContain('limit=8');
 

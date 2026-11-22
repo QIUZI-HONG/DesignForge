@@ -14,7 +14,7 @@ import type { ReactNode } from 'react';
 
 import { t } from '@/i18n';
 
-import { ClockIcon, FolderIcon } from '../icons';
+import { ClockIcon, FolderIcon, MarketIcon } from '../icons';
 import { cx } from '../lib/cx';
 import type { HomeSection } from '../state/home-store';
 
@@ -28,6 +28,10 @@ export interface HomeSidebarProps {
   onToggleCollapse: () => void;
   /** 删除记录条数（回收站条目角标）。 */
   trashCount: number;
+  /** 打开技能市场（票②；导航 /market 归页面）。 */
+  onOpenMarketHome: () => void;
+  /** 可更新计数（票②；>0 显示徽标，0 不显示——不虚报）。 */
+  marketUpdateCount: number;
 }
 
 /** 分区条目定义（顺序即视觉顺序）。 */
@@ -44,6 +48,8 @@ export function HomeSidebar({
   collapsed,
   onToggleCollapse,
   trashCount,
+  onOpenMarketHome,
+  marketUpdateCount,
 }: HomeSidebarProps) {
   return (
     <nav
@@ -88,6 +94,33 @@ export function HomeSidebar({
             </li>
           );
         })}
+      </ul>
+
+      {/* 技能市场入口（票② · B+A 混合）：跨分区跳转（/market），不属于文件分区——
+          独立分组；「可更新 N」徽标与回收站计数同款样式，计数真源在市场 feature 公开面 */}
+      <div className="dfg-home__group-label">{t('home.nav.groupMarket')}</div>
+      <ul className="dfg-home__navlist">
+        <li>
+          <button
+            type="button"
+            className="dfg-home__navitem"
+            aria-label={
+              marketUpdateCount > 0
+                ? t('home.nav.marketUpdateCount', { count: marketUpdateCount })
+                : t('home.nav.market')
+            }
+            onClick={onOpenMarketHome}
+            data-df-market="sidebar-entry"
+          >
+            <span className="dfg-home__navitem-icon">
+              <MarketIcon />
+            </span>
+            <span className="dfg-home__navitem-label">{t('home.nav.market')}</span>
+            {marketUpdateCount > 0 ? (
+              <span className="dfg-home__navitem-count">{marketUpdateCount}</span>
+            ) : null}
+          </button>
+        </li>
       </ul>
     </nav>
   );

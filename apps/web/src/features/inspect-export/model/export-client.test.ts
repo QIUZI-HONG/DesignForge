@@ -172,4 +172,30 @@ describe('createExportClient · 超时', () => {
     if (outcome.ok) throw new Error('应失败');
     expect(outcome.code).toBe('timeout');
   });
+
+  it('响应头到达但正文永不落定 → 总预算到点给 timeout（旧实现 json() 无界悬挂）', async () => {
+    // 故障形态：反代/daemon 送了 200 响应头，正文滴流挂死——旧实现在响应头 race 后直接
+    // `await response.json()`，正文读取无预算，exportDocument 永不落定。修复后正文读取
+    // 与总预算 race：到点必然按 timeout 失败（B8 接 request-timeout 单点机制）。
+    const never = new ReadableStream<Uint8Array>({
+      start() {
+        // 永不 enqueue/close：正文挂死
+      },
+    });
+    const fetchImpl = vi.fn(async () => new Response(never, { status: 200 }));
+    const startedAt = Date.now();
+    const client = createExportClient({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeoutMs: 40,
+    });
+    const outcome = await client.exportDocument({
+      documentId: 'doc1',
+      pageId: 'p1',
+      format: 'png',
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error('应失败');
+    expect(outcome.code).toBe('timeout');
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
 });

@@ -59,6 +59,20 @@ export function clipSummary(text: string, maxChars = 80): string {
   return `${trimmed.slice(0, maxChars - 1)}…`;
 }
 
+/**
+ * 使用示例提取（票②）：DWD `text_frontmatter.examples`（SKILL.md frontmatter `examples:`
+ * 经 frontmatter 解析器的平坦视图透传）→ 卡片 `usageExamples`。
+ * 口径：**存在才填、缺失省略、不编造**——只收字符串项（混入非字符串项如实丢弃），
+ * 有效项为空即缺省（调用方以 `'usageExamples' in record` 区分「无示例」与「未提取」）。
+ */
+export function extractUsageExamples(frontmatter: unknown): string[] | null {
+  if (typeof frontmatter !== 'object' || frontmatter === null) return null;
+  const raw = (frontmatter as Record<string, unknown>).examples;
+  if (!Array.isArray(raw)) return null;
+  const items = raw.filter((item): item is string => typeof item === 'string');
+  return items.length > 0 ? items : null;
+}
+
 /** 单条联结：DWD 资产行 + 评分行 + 分类面 → ADS 输入契约。 */
 export function buildDwsRecord(
   joined: JoinedAsset,
@@ -120,5 +134,8 @@ export function buildDwsRecord(
   const version = typeof asset.version === 'string' && asset.version !== '' ? asset.version : null;
   if (version !== null) record.version = version;
   if (description !== undefined) record.description = description;
+  // 使用示例（票②）：frontmatter `examples:` 透传（存在才填、缺失省略）
+  const usageExamples = extractUsageExamples(rawTexts.text_frontmatter);
+  if (usageExamples !== null) record.usageExamples = usageExamples;
   return record;
 }

@@ -13,7 +13,6 @@ export {
   createMcpPort,
   DaemonRequestError,
   type McpPort,
-  readEnvelope,
   resolveDaemonBaseUrl,
 } from './client';
 export {

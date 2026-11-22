@@ -106,4 +106,36 @@ describe('parseFrontmatter（YAML 子集，零依赖）', () => {
     expect(result.data.extraKeys).toEqual(['metadata']);
     expect(result.data.name).toBe('nested');
   });
+
+  it('examples: 块式/行内列表提取（票②；缺失 → 空数组且不入 extraKeys）', () => {
+    const blockList = [
+      '---',
+      'name: with-examples',
+      'description: 带使用示例的技能',
+      'examples:',
+      '  - 把当前画板导出为 A4 分页 PDF',
+      '  - 把这三页合并成一份交付文档',
+      '---',
+      '正文',
+    ].join('\n');
+    const parsed = parseFrontmatter(blockList);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data.examples).toEqual([
+      '把当前画板导出为 A4 分页 PDF',
+      '把这三页合并成一份交付文档',
+    ]);
+    expect(parsed.data.extraKeys).not.toContain('examples');
+    // 平坦视图同样带（DWD text_frontmatter 列的透传面）
+    expect(parsed.flat.examples).toEqual([
+      '把当前画板导出为 A4 分页 PDF',
+      '把这三页合并成一份交付文档',
+    ]);
+
+    const inlineList =
+      '---\nname: inline-ex\ndescription: 行内示例\nexamples: [导出 PDF, 合并页面]\n---\n正文\n';
+    expect(parseFrontmatter(inlineList).data.examples).toEqual(['导出 PDF', '合并页面']);
+
+    const missing = parseFrontmatter('---\nname: no-ex\ndescription: 无示例\n---\n正文\n');
+    expect(missing.data.examples).toEqual([]);
+  });
 });

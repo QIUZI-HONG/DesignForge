@@ -103,7 +103,7 @@ export interface SearchFilters {
   lane?: string;
   mode?: string;
   scene?: string;
-  /** 全部命中才算通过（标签筛选的直觉语义）。 */
+  /** 任一命中（OR）即通过（arch-v1 · 票② · #4 定稿；与 daemon 分面同口径）。 */
   tags?: readonly string[];
   loadableOnly?: boolean;
 }
@@ -312,9 +312,10 @@ function matchesFilters(asset: MarketAsset, filters: SearchFilters | undefined):
   if (filters.mode !== undefined && asset.facets.mode !== filters.mode) return false;
   if (filters.scene !== undefined && !asset.facets.scenes.includes(filters.scene)) return false;
   if (filters.tags !== undefined) {
-    for (const tag of filters.tags) {
-      if (!asset.facets.tags.includes(tag)) return false;
-    }
+    // 标签查询为**任一命中（OR）**（arch-v1 · 票② · #4 定稿；规格 §6.2 D3）：
+    // 多 tag 不要求全部命中——与 daemon `matchesMarketFacets` 同口径（大小写不敏感）。
+    const haystack = new Set(asset.facets.tags.map((tag) => tag.toLowerCase()));
+    if (!filters.tags.some((tag) => haystack.has(tag.toLowerCase()))) return false;
   }
   if (filters.loadableOnly === true && asset.installGate.mode !== 'loadable') return false;
   return true;

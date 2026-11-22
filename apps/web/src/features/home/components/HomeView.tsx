@@ -21,7 +21,7 @@ import type { DocumentListWarning, DocumentSummary } from '@dforge/contracts';
 import { useToast } from '@dforge/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type StoreApi, type UseBoundStore, useStore } from 'zustand';
-
+import { type MarketSearchResult, useMarketSearchHits, useUpdatableCount } from '@/features/market';
 import { t } from '@/i18n';
 import { resolveDaemonBaseUrl } from '../api/daemon-url';
 import {
@@ -31,7 +31,6 @@ import {
   describeApiErrorCode,
 } from '../api/documents';
 import { GATEWAY_TIMEOUT_MS } from '../api/gateway-timeout';
-import { type MarketSearchResult, searchMarketAssets } from '../api/market';
 import { cx } from '../lib/cx';
 import { resolveEmptyKind } from '../lib/empty-kind';
 import { selectDocumentList } from '../lib/filter';
@@ -49,12 +48,6 @@ import { TrashList } from './TrashList';
 /** 首页 store 类型（工厂返回的 hook 也是 store API）。 */
 export type HomeStore = UseBoundStore<StoreApi<HomeState>>;
 
-/** 默认市场检索（走 daemon；基址与文档接口同源解析）。 */
-async function defaultSearchMarket(query: string): Promise<MarketSearchResult> {
-  const baseUrl = await resolveDaemonBaseUrl();
-  return searchMarketAssets({ baseUrl, query });
-}
-
 /** 首页编排 props（全部可选：缺省即真实浏览器路径）。 */
 export interface HomeViewProps {
   /** 文档数据源（测试注入替身）。 */
@@ -67,6 +60,10 @@ export interface HomeViewProps {
   onOpenDocument: (document: DocumentSummary) => void;
   /** 打开市场资产（页面注入：跳市场详情）。 */
   onOpenMarket: (assetId: string) => void;
+  /**
+   * 打开技能市场首页（页面注入：跳 /market；票② 顶栏平级切换与侧栏入口共用）。
+   */
+  onOpenMarketHome: () => void;
   /**
    * 打开 AI 助手（页面注入：跳编辑器并带 `?ai=1` 落地即开抽屉）。
    * D3 文案口径同步：修复前这里是「暂未接入」Toast，与已交付的 AI 抽屉互相矛盾。
@@ -87,9 +84,10 @@ export interface HomeViewProps {
    *
    * 缺省即网关统一超时 {@link GATEWAY_TIMEOUT_MS}——**同一个数字，一处声明**
    * （code-review #4：此前这里转发了一个 `MARKET_SEARCH_DEADLINE_MS` 别名常量，
-   * 无独立语义，已删）。两层的关系（不重复实现）：客户端侧超时
-   * （`api/gateway-timeout`）让真实请求到点失败；页面侧兜底是**最后出口**，还要盖住
-   * 被注入的非 fetch 实现（测试/宿主）。取值 3s 压在 daemon 端口段健康探测最坏耗时
+   * 无独立语义，已删）。arch-v1 · 票① 起取数在 market 公开面
+   * （`useMarketSearchHits`）：同一个数字既作传输层单请求上限（`timeoutMs`），
+   * 又作页面侧兜底（最后出口，还要盖住被注入的非 fetch 实现——测试/宿主）。
+   * 取值 3s 压在 daemon 端口段健康探测最坏耗时
    * （~2.4s，见 `home/api/daemon-url`）之上，避免误报；测试传小值。
    */
   marketSearchDeadlineMs?: number;
@@ -108,6 +106,7 @@ export function HomeView({
   now = () => new Date(),
   onOpenDocument,
   onOpenMarket,
+  onOpenMarketHome,
   onOpenAi,
   autoOpenCreate = false,
   store,
@@ -128,12 +127,9 @@ export function HomeView({
   const [deleting, setDeleting] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [market, setMarket] = useState<MarketPanelState>({
-    loading: false,
-    available: true,
-    items: [],
-    degraded: false,
-  });
+  // 侧栏「可更新 N」徽标计数（票②）：市场 feature 公开面 hook——无装载记录不发请求，
+  // 市场侧不可达降级为 0（不虚报；本地记录册真值在 localStorage）
+  const marketUpdateCount = useUpdatableCount();
 
   const gatewayRef = useRef<DocumentsGateway | null>(injectedDocuments ?? null);
   /**
@@ -191,50 +187,14 @@ export function HomeView({
     void load('initial');
   }, [load]);
 
-  // 市场结果线：输入搜索词后（防抖）查 daemon；清空即复位。
-  // 出口保证（三条，不允许永久 loading）：① 落定即用真实结果；② 被拒 → 落「市场不可用」降级态
-  // （拒绝不逃逸成 unhandled rejection）；③ 超上限仍未落定 → 先落降级态给可读出口，
-  // 结果迟到再覆盖（自愈）。
-  useEffect(() => {
-    const query = home.query.trim();
-    if (query === '') {
-      setMarket({ loading: false, available: true, items: [], degraded: false });
-      return undefined;
-    }
-    let cancelled = false;
-    let deadline: ReturnType<typeof setTimeout> | null = null;
-    setMarket((current) => ({ ...current, loading: true }));
-    const timer = setTimeout(() => {
-      deadline = setTimeout(() => {
-        if (!cancelled) setMarket({ loading: false, available: false, items: [], degraded: false });
-      }, marketSearchDeadlineMs);
-      // `Promise.resolve().then(…)`：连「同步抛错」的实现也归一到拒绝路径，异常不逃出定时器回调
-      void Promise.resolve()
-        .then(() => (searchMarket ?? defaultSearchMarket)(query))
-        .then(
-          (result) => {
-            if (deadline !== null) clearTimeout(deadline);
-            if (cancelled) return;
-            setMarket({
-              loading: false,
-              available: result.available,
-              items: result.items,
-              degraded: result.searchDegraded,
-            });
-          },
-          () => {
-            if (deadline !== null) clearTimeout(deadline);
-            if (cancelled) return;
-            setMarket({ loading: false, available: false, items: [], degraded: false });
-          },
-        );
-    }, searchDebounceMs);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      if (deadline !== null) clearTimeout(deadline);
-    };
-  }, [home.query, searchMarket, searchDebounceMs, marketSearchDeadlineMs]);
+  // 市场结果线（arch-v1 · 票① · 候选 5）：取数/防抖/deadline/降级态收进 market 公开面
+  // `useMarketSearchHits`，首页只留 UI 态；出口保证与旧实现一致（落定即真值、被拒落
+  // 降级、超上限先落降级且迟到结果覆盖）。
+  const market: MarketPanelState = useMarketSearchHits(home.query, {
+    ...(searchMarket === undefined ? {} : { search: searchMarket }),
+    debounceMs: searchDebounceMs,
+    deadlineMs: marketSearchDeadlineMs,
+  });
 
   const filtered = home.query.trim() !== '' || home.range !== 'all';
   // 时间基准在每次重算时取一次（`now` 为注入的稳定时钟；不把它当渲染依赖，避免每帧新建 Date）
@@ -334,6 +294,8 @@ export function HomeView({
         collapsed={home.sidebarCollapsed}
         onToggleCollapse={() => activeStore.getState().toggleSidebar()}
         trashCount={home.trashRecords.length}
+        onOpenMarketHome={onOpenMarketHome}
+        marketUpdateCount={marketUpdateCount}
       />
 
       <div className="dfg-home__main">
@@ -344,6 +306,7 @@ export function HomeView({
           onOpenDocument={onOpenDocument}
           market={{ loading: market.loading, available: market.available, items: market.items }}
           onOpenMarket={onOpenMarket}
+          onOpenMarketHome={onOpenMarketHome}
           onCreateDesignFile={() => setCreateOpen(true)}
         />
 

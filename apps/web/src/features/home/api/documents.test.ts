@@ -33,11 +33,10 @@ function fakeFetch(responses: Array<{ status?: number; body: unknown }>) {
     calls.push({ url: String(input), init });
     const next = responses[index] ?? responses[responses.length - 1];
     index += 1;
-    return {
-      ok: (next?.status ?? 200) < 400,
+    return new Response(JSON.stringify(next?.body ?? null), {
       status: next?.status ?? 200,
-      json: async () => next?.body,
-    } as Response;
+      headers: { 'content-type': 'application/json' },
+    });
   }) as typeof fetch;
   return { fetchImpl, calls };
 }
@@ -166,7 +165,10 @@ describe('createDocumentsGateway 其他', () => {
   it('fetchImpl 缺省时用全局 fetch', async () => {
     const spy = vi.fn(
       async () =>
-        ({ ok: true, status: 200, json: async () => ({ ok: true, result: LIST }) }) as Response,
+        new Response(JSON.stringify({ ok: true, result: LIST }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', spy);
     try {

@@ -114,6 +114,16 @@ describe('buildMarketplaceIndex · 夹具产出', () => {
     expect(charts.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(charts.source.ref).toMatch(/^[0-9a-f]{40}$/);
   });
+
+  it('usageExamples：夹具带示例的资产透传到卡片；不带的资产键省略（票②）', () => {
+    const index = buildFromFixture();
+    const pdf = byId(index, 'gh:anthropics/skills#skills/pdf');
+    expect(Array.isArray(pdf.usageExamples)).toBe(true);
+    expect(pdf.usageExamples?.length).toBeGreaterThan(0);
+    // 缺失省略：夹具里没有 examples 的资产，卡片上不出现该键（存在才填口径）
+    const a11y = byId(index, 'gh:veniceai/skills#skills/a11y-check');
+    expect('usageExamples' in a11y).toBe(false);
+  });
 });
 
 describe('composeInstallGate · 门禁合成（§7.2）', () => {

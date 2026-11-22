@@ -131,6 +131,29 @@ describe('Modal（F1 模态族）', () => {
     await user.click(screen.getByRole('button', { name: '关闭对话框' }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it('disableClose（评审 F6）：Esc、遮罩点击、关闭按钮全部失效（向后兼容缺省行为）', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(
+      <Modal open onOpenChange={onOpenChange} title="装载中" closeLabel="关闭对话框" disableClose>
+        <button type="button">卡内按钮</button>
+      </Modal>,
+    );
+    const dialog = screen.getByRole('dialog', { name: '装载中' });
+    // Esc 不关
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: '装载中' })).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    // 遮罩点击不关
+    await user.click(dialog.parentElement as HTMLElement);
+    expect(onOpenChange).not.toHaveBeenCalled();
+    // 关闭按钮不渲染（给了 closeLabel 也没有 X 可点）
+    expect(screen.queryByRole('button', { name: '关闭对话框' })).toBeNull();
+    // 焦点语义照常：卡内按钮仍可交互（禁关不是冻结）
+    await user.click(screen.getByRole('button', { name: '卡内按钮' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '卡内按钮' }));
+  });
 });
 
 describe('焦点守卫（浮层栈共有 · 票 09）', () => {

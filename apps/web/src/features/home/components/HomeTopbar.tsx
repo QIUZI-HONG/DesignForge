@@ -24,12 +24,13 @@ import {
   type MenuItemSpec,
   PlusIcon,
   SearchIcon,
+  SegmentedControl,
 } from '@dforge/ui';
 import { useId, useState } from 'react';
 
+import type { MarketSearchHit } from '@/features/market';
 import { t } from '@/i18n';
 import { useDaemonEndpointHref } from '@/lib/daemon-href';
-import type { MarketSearchHit } from '../api/market';
 import { GearIcon, TemplateIcon } from '../icons';
 
 /** 技能市场结果线状态。 */
@@ -52,6 +53,8 @@ export interface HomeTopbarProps {
   onOpenMarket: (assetId: string) => void;
   /** B5「设计文件」条目：打开新建对话框（真正的创建走对话框）。 */
   onCreateDesignFile: () => void;
+  /** 打开技能市场（票② · 顶栏「工作台 | 技能市场」平级切换；导航 /market 归页面）。 */
+  onOpenMarketHome: () => void;
 }
 
 /** 顶栏。 */
@@ -63,6 +66,7 @@ export function HomeTopbar({
   market,
   onOpenMarket,
   onCreateDesignFile,
+  onOpenMarketHome,
 }: HomeTopbarProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchCollapsed, setSearchCollapsed] = useState(false);
@@ -79,6 +83,21 @@ export function HomeTopbar({
         <FrameIcon size={24} />
         <span className="dfg-home__brand-name">{t('home.title')}</span>
       </div>
+
+      {/* 页面切换（票② · B+A 混合）：「工作台 | 技能市场」平级切换——技能市场 tab 导航
+          /market（导航归页面回调）；本页恒为工作台态，浏览器回退/命令面板不经过此控件 */}
+      <SegmentedControl
+        label={t('home.nav.viewSwitch')}
+        value="workspace"
+        size="sm"
+        onChange={(value) => {
+          if (value === 'market') onOpenMarketHome();
+        }}
+        options={[
+          { value: 'workspace', label: t('home.nav.workspace') },
+          { value: 'market', label: t('home.nav.market') },
+        ]}
+      />
 
       {/* 焦点管理挂在容器上：点结果时 focusout 落在容器内部 → 面板不消失（否则 mousedown
           先触发 blur 会把面板卸载掉，click 永远到不了按钮） */}

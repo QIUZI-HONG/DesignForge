@@ -55,6 +55,8 @@ function createFakeDaemon(): FakeDaemon {
     ({
       ok: status >= 200 && status < 300,
       status,
+      // 传输层（arch-v1 · 票①）经 response.json() 解包；text 保留给既有的文本读取路径
+      json: async () => payload,
       text: async () => JSON.stringify(payload),
     }) as unknown as Response;
 

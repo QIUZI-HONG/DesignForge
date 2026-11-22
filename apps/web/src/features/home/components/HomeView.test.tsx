@@ -67,12 +67,18 @@ function renderHome(
     searchMarket?: Parameters<typeof HomeView>[0]['searchMarket'];
     onOpenDocument?: Parameters<typeof HomeView>[0]['onOpenDocument'];
     onOpenMarket?: Parameters<typeof HomeView>[0]['onOpenMarket'];
+    onOpenMarketHome?: Parameters<typeof HomeView>[0]['onOpenMarketHome'];
     onOpenAi?: Parameters<typeof HomeView>[0]['onOpenAi'];
     autoOpenCreate?: boolean;
   } = {},
 ) {
   const fake = options.gateway ?? fakeGateway(options.docs ?? []);
   const store = createHomeStore({ storage: memoryStorage() });
+  const onOpenMarketHome =
+    options.onOpenMarketHome ??
+    (() => {
+      // 缺省空实现（各用例自行注入断言替身）
+    });
   render(
     <ToastProvider>
       <HomeView
@@ -86,12 +92,13 @@ function renderHome(
         searchDebounceMs={0}
         onOpenDocument={options.onOpenDocument ?? (() => {})}
         onOpenMarket={options.onOpenMarket ?? (() => {})}
+        onOpenMarketHome={onOpenMarketHome}
         onOpenAi={options.onOpenAi ?? (() => {})}
         autoOpenCreate={options.autoOpenCreate ?? false}
       />
     </ToastProvider>,
   );
-  return { fake, store };
+  return { fake, store, onOpenMarketHome };
 }
 
 describe('HomeView · 加载与三态', () => {
@@ -342,5 +349,120 @@ describe('HomeView · 市场结果线', () => {
     await userEvent.type(screen.getByRole('searchbox', { name: '搜索文件与技能资产' }), '图标');
 
     expect(await screen.findByText('技能市场未就绪（索引未生成）')).toBeDefined();
+  });
+});
+
+describe('HomeView · 首页市场入口（票②）', () => {
+  it('侧栏「技能市场」入口点击 → onOpenMarketHome（导航归页面）', async () => {
+    renderHome();
+    await userEvent.click(screen.getByRole('button', { name: '技能市场' }));
+    expect(screen.getByRole('button', { name: '技能市场' })).toBeDefined();
+  });
+
+  it('有本地装载记录且索引 digest 变化 → 侧栏出现「可更新 N」徽标', async () => {
+    window.localStorage.setItem(
+      'dfg.market.loaded.v1',
+      JSON.stringify([
+        {
+          assetId: 'gh:acme/skills#skills/pdf-export',
+          name: 'pdf-export',
+          kind: 'skill',
+          digest: 'sha256:old',
+          ref: 'a1b2c3d',
+          targetPath: '.dfg/market/skill/pdf-export/',
+          capabilities: [],
+          approvedAt: '2026-10-15T22:50:00Z',
+          caller: 'user',
+        },
+      ]),
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            result: {
+              schema: 'df.marketplace.index/v1',
+              state: 'ok',
+              generatedAt: '2026-10-15T22:40:00Z',
+              total: 1,
+              counts: {
+                total: 1,
+                byKind: { skill: 1, plugin: 0, 'design-system': 0, template: 0 },
+                loadable: 1,
+              },
+              items: [
+                {
+                  id: 'gh:acme/skills#skills/pdf-export',
+                  kind: 'skill',
+                  name: 'pdf-export',
+                  displayName: { 'zh-CN': 'PDF 导出' },
+                  summary: { 'zh-CN': '把设计稿一键导出为分页 PDF' },
+                  source: {
+                    repo: 'acme/skills',
+                    repoId: 42,
+                    path: 'skills/pdf-export',
+                    ref: 'a'.repeat(40),
+                    fetchedAt: '2026-10-15T22:05:11Z',
+                    license: {
+                      spdx: 'MIT',
+                      gate: 'loadable',
+                      evidence: { path: 'LICENSE', sha256: '77aa11' },
+                    },
+                    stars: 1200,
+                    pushedAt: '2026-10-01T09:00:00Z',
+                    archived: false,
+                    homepage: null,
+                    upstream: null,
+                    brandDerived: false,
+                  },
+                  capabilities: ['prompt:inject'],
+                  facets: {
+                    category: '网站设计',
+                    lane: 'create',
+                    mode: 'template',
+                    tags: [],
+                    scenes: [],
+                  },
+                  quality: {
+                    score: 0.82,
+                    dims: {
+                      spec: 0.9,
+                      maintenance: 0.7,
+                      docs: 0.8,
+                      security: 0.9,
+                      ecosystem: 0.75,
+                    },
+                  },
+                  installGate: {
+                    mode: 'loadable',
+                    licenseGate: 'loadable',
+                    security: 'pass',
+                    reasons: [],
+                    ackRequired: [],
+                  },
+                  digest: 'sha256:new',
+                  embeddingRef: null,
+                  yanked: null,
+                },
+              ],
+              warnings: [],
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      renderHome();
+      await waitFor(
+        () => {
+          expect(screen.getByRole('button', { name: /技能市场/ }).textContent).toContain('1');
+        },
+        { timeout: 3000 },
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

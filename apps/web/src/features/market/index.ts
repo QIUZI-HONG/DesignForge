@@ -14,17 +14,26 @@
  *
  * 测试夹具：`marketFixtures` 命名空间——卡片字段多（§1.2 二十余键），逐用例手写会把测试淹在
  * 样板里；跨 feature 的测试（dashboard / app 路由）经此取，**不经 `__fixtures__` 深路径**。
- * 生产代码不得引用它。
+ * 生产代码不得引用它。共享测试辅助同理走 `marketTestUtils` 命名空间（遥测断言，D-18 #4）。
  *
  * 不导出（刻意的）：`api.ts` 的取数客户端与 URL 构造（只服务本 feature 的 hooks 与门禁脚本）、
  * `capabilities` / `quality` 内部口径、`state-coverage*`（门禁用统计）。
+ * 例外（票③）：`makeMarketInstallClient` 是装载真写的**页面接线面**（`LoadConfirmDialog`
+ * 的 `install` 注入点由页面构造传入），故单独放行——其余 api 面仍不导出。
  */
 
 import './market.css';
 
 /** 测试夹具命名空间（**仅供 `*.test.*`**；理由见文件头）。 */
 export * as marketFixtures from './__fixtures__/market';
-export { classifyMarketOutcome, isSearchDegraded, type MarketOutcome } from './api';
+/** 测试工具命名空间（**仅供 `*.test.*`**；跨 feature 测试经此取共享辅助，不走深路径）。 */
+export * as marketTestUtils from './__fixtures__/telemetry-calls';
+export {
+  classifyMarketOutcome,
+  isSearchDegraded,
+  type MarketOutcome,
+  makeMarketInstallClient,
+} from './api';
 export { type BadgeTone, badgeClassName, meterFillClassName } from './badge-classes';
 export * from './components';
 export { type MarketEmptyKindInput, resolveMarketEmptyKind } from './empty-kind';
@@ -41,5 +50,17 @@ export {
   useMarketAsset,
   useMarketPagination,
   useMarketQuery,
+  useUpdatableCount,
 } from './use-market';
 export { type MarketPanelData, PANEL_LIMIT, useMarketPanelData } from './use-market-panel';
+export {
+  MARKET_RESULT_LIMIT,
+  MARKET_SEARCH_DEADLINE_MS,
+  MARKET_SEARCH_DEBOUNCE_MS,
+  type MarketSearchHit,
+  type MarketSearchHitsState,
+  type MarketSearchOptions,
+  type MarketSearchResult,
+  searchMarketHits,
+  useMarketSearchHits,
+} from './use-market-search';

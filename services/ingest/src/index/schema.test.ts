@@ -93,6 +93,15 @@ describe('validateMarketplaceIndex · 正例', () => {
     expect(validateMarketplaceIndex(index).ok).toBe(true);
   });
 
+  it('usageExamples 合法字符串数组通过；缺失省略同样通过（票②）', () => {
+    const withExamples = mutate((draft) => {
+      asset0(draft).usageExamples = ['帮我把当前画板导出为 A4 分页 PDF'];
+    });
+    expect(validateMarketplaceIndex(withExamples).ok).toBe(true);
+    // 缺失（validIndex 不带该键）已由「逐字段合法」用例覆盖；此处显式断言口径
+    expect(asset0(validIndex())).not.toHaveProperty('usageExamples');
+  });
+
   it('未知顶层字段被忽略（前向兼容 §1.5）', () => {
     const index = mutate((draft) => {
       draft.futureField = { anything: true };
@@ -141,6 +150,21 @@ describe('validateMarketplaceIndex · 反例（结构）', () => {
       }),
     );
     expect(result.errors.map((issue) => issue.code)).toContain('invalid-value');
+  });
+
+  it('usageExamples 非数组 → invalid-type；含非字符串项 → invalid-type（票②）', () => {
+    const notArray = validateMarketplaceIndex(
+      mutate((draft) => {
+        asset0(draft).usageExamples = '帮我把当前画板导出为 A4 分页 PDF';
+      }),
+    );
+    expect(notArray.errors.map((issue) => issue.code)).toContain('invalid-type');
+    const badItem = validateMarketplaceIndex(
+      mutate((draft) => {
+        asset0(draft).usageExamples = ['合法话术', 42];
+      }),
+    );
+    expect(badItem.errors.map((issue) => issue.code)).toContain('invalid-type');
   });
 
   it('id 与 source.repo/path 不一致 → id-source-mismatch', () => {

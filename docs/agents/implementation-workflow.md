@@ -58,6 +58,9 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   `git status --short` 并 `git add -A` 再提交，否则提交会静默丢新文件（legacy 丢过 6 个 web 文件）。
 - 杀进程时让 pattern 不要匹配自己的命令行（`pkill -f "http[.]server 81[2]3"`），
   否则会连正在跑 `pkill` 的 shell 一起杀掉。
+- **子代理禁止 `git stash`**（含 `-u`/`pop`/`apply`）：stash 栈是全仓库共享的，多代理并行时
+  `pop` 会误弹他人 WIP——架构批三个代理先后误弹同一条遗留条目（`integration/p0`）。
+  现场对齐只用 `git log` / `git status` / `git diff`；需要暂存就正常提交（wip 提交是合法形态）。
 - **禁止按模式杀进程**：不得用 `pkill -f` / 按命令行模式清进程——批次 4 曾两次误杀本机
   **常驻实例**（一次 `pkill -f "main[.]ts"` 命中用户正在跑的 daemon；一次成因未明的 SIGTERM）。
   只按**精确 PID** 或**自建独立进程组**（负 pid）回收自己起的进程；测试一律显式独立端口
@@ -107,7 +110,8 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
   0=判定档全达标 / 1=实测超阈（真违规），不再恒阻塞（exit 2 仅剩基线缺失/采集不完整/真链路
   起不来）。**CI 接入形态=「正式判定挂点」**（`ci.yml`，比 figma-baseline 阻塞语义断言收紧）：
   exit 0 收；exit 1 红；exit 2 仅当阻塞原因属「CI 无真链路」族（Chromium/构建/daemon）才按
-  挂点语义收（阻塞不是通过），日志出现 provisional 字样即红。**本地是正式判定、CI 仍是挂点**
+  挂点语义收（阻塞不是通过）——perf 挂点判定**查基线 JSON 的 provisional 字段，不 grep 日志
+  字样**（audit-d07b 勘误，修「provisional 字样 grep 误伤合法阻塞」）。**本地是正式判定、CI 仍是挂点**
   ——严格正式判定（仅 exit 0 绿）待 CI 具备真链路（Chromium + 阈值跨机校准：现阈值按 dev 机
   校准且贴地，跨机直判必红）后随浏览器门禁票收口。
 - **守卫输出口径（批次 3 收口 · code-review）**：`guard-vocab` 与 `guard-feature-boundaries` 的
@@ -120,6 +124,10 @@ implementer 半路死掉会留下未提交半成品 + 残留认领：
 
 - 常规链路（CI 与本地同一条）：`pnpm install --frozen-lockfile` → `pnpm lint` →
   `pnpm typecheck` → `pnpm test`；本地等价命令 `pnpm verify`。
+- **单包门禁必须逐脚本跑（假绿陷阱）**：`pnpm --filter <pkg> lint typecheck test` **不会跑三个
+  脚本**——pnpm 把 `typecheck test` 当作 `lint` 的参数传给 biome（对不存在路径报 internalError
+  却仍 exit 0）。正确写法：`pnpm --filter <pkg> run lint` / `run typecheck` / `run test` 逐个执行，
+  或直接跑全量 `pnpm verify`（先例：架构批 R2 修复代理实测发现）。
 - **浏览器门禁（挂点，随票接入）**：`verify-figma-page|component|states|baseline`（逐页/逐组件对照）、
   `verify-canvas`（画布挂载 6 断言）、`verify-command-palette`（票 04：面板成品形态——遮罩/居中卡片/
   计算样式生效 + 速查卡视口内；脚本就绪，浏览器级复核待主会话登记）、
@@ -202,6 +210,14 @@ CI runner（GitHub Actions `ubuntu-latest`，node 22）与开发机（node 24，
 
 - Node ≥ 22（开发机 node 24）+ `pnpm@10.33.2`（由根 `package.json` 的 `packageManager` 锁定）；
   脚本一律经根 `package.json` 的 scripts 走，不在包内自建工具链。
+- **Node < 22.18 跑 TS 直跑需显式剥类型**：本机若只有 node 22.16（如 ZCode server 内置
+  `/home/QIU/.zcode/server/node`），daemon dev、`verify-mk-04`、`verify:mcp-stub`、tools/cli 等
+  直接执行 `.ts` 的命令都会报 `ERR_UNKNOWN_FILE_EXTENSION`；设
+  `NODE_OPTIONS=--experimental-strip-types`（node 22.18+/23.6+ 缺省已开，显式设置无害）。
+- **浏览器门禁的系统依赖（免 root 安装法）**：Chromium/headless shell 需要 `libnspr4`/`libnss3`/
+  `libasound2`（缺任意一个报 `cannot open shared object file`）。无 sudo 时：
+  `apt download libnspr4 libnss3 libasound2t64 && dpkg -x *.deb <dir>`，跑浏览器时加
+  `LD_LIBRARY_PATH=<dir>/usr/lib/x86_64-linux-gnu`。本机已固化在 `~/df-tools/browser-deps/`。
 - 依赖版本统一走 `pnpm-workspace.yaml` 的 `catalog:`，不在各包散写版本号。
 - Electron 二进制（`apps/desktop`）：electron@44 的 npm 包**没有** postinstall，二进制在首次
   `require('electron')` 时经 `@electron/get` 懒下载——pnpm 10 的 `approve-builds` 白名单对它不适用。

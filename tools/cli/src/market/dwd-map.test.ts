@@ -225,22 +225,21 @@ describe('facets（分类面推导，规格 §1.4）', () => {
 
   it('mode：由 kind 与探针证据推导', () => {
     const joined = joinTables(tables())[0];
-    expect(joined).toBeDefined();
-    expect(deriveMode(joined!)).toBe('utility');
-    expect(
-      deriveMode(
-        joinTables(
-          tables({
-            asset: [
-              assetRow({
-                kind: 'design-system',
-                probes: [{ piece: 'tokens-file', path: 'tokens.json' }],
-              }),
-            ],
+    // 夹具前置检查（同文件 tags 用例口径）：联结果必须非空，收窄替代非空断言
+    if (joined === undefined) throw new Error('联结果为空');
+    expect(deriveMode(joined)).toBe('utility');
+    const joinedWithTokens = joinTables(
+      tables({
+        asset: [
+          assetRow({
+            kind: 'design-system',
+            probes: [{ piece: 'tokens-file', path: 'tokens.json' }],
           }),
-        )[0]!,
-      ),
-    ).toBe('tokens');
+        ],
+      }),
+    )[0];
+    if (joinedWithTokens === undefined) throw new Error('联结果为空');
+    expect(deriveMode(joinedWithTokens)).toBe('tokens');
   });
 
   it('tags：声明 tags 优先 + topics 校准，去重截 10；scenes 留空（未决项 §9.10）', () => {

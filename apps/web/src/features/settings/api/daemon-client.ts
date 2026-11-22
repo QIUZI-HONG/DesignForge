@@ -2,38 +2,30 @@
  * @dforge/web · 设置数据面 · daemon 客户端（FE-09）。
  *
  * 传输口径（`@dforge/contracts`）：daemon 全站统一信封 `{ ok, result | error }`。
- * 本客户端只做三件事——拼 URL（路径取 `DAEMON_ROUTES`，不手写字符串，避免路径漂移）、
- * 解包信封、把失败归一为**两类错误**：
+ * 本客户端只做三件事——拼路由（路径取 `DAEMON_ROUTES`，不手写字符串，避免路径漂移）、
+ * 把传输层结果归一为**两类错误**、给调用方透出领域码：
  * - `api`     = daemon 明确拒绝（错误码 + 文案原样上抛，调用方按 code 分支）；
- * - `network` = daemon 未启动 / 不可达 / 响应非 JSON（前端给「启动本地服务」引导）。
+ * - `network` = daemon 未启动 / 不可达 / 响应非 JSON / 超时（前端给「启动本地服务」引导）。
  *
  * 为什么分两类：设置页对「daemon 没起来」与「配置被 daemon 拒绝」的恢复路径不同——
  * 前者引导启动服务，后者把 daemon 的 message 原样展示给用户。
  *
- * baseUrl 解析已**全站收敛**到 `@/lib/daemon-endpoint`（ADR-0004 裁决 ①）：
- * `?daemon=` 查询参数 → `NEXT_PUBLIC_DF_DAEMON_URL`（端到端与门禁指向实例）→ 端口窗起点
- * `DAEMON_PORT_BASE`（daemon 铁律从该端口起探测，避免随机端口）。本模块不另立口径。
- * 每个请求有超时上限（audit-d04 · D-04，`lib/request-timeout` 单点机制，写路径 30s）。
+ * 传输（arch-v1 · 票①）：端点/令牌/超时/信封全部由 `@/lib/daemon-transport` 承担；
+ * 本模块只保留两类错误映射（公开类型 DaemonClientError 与 i18n 文案不变）。
+ * `daemon_unreachable`/`daemon_timeout` → `kind:'network'`，daemon 线上码 → `kind:'api'`。
  *
  * 密钥纪律：写入 key 的请求体只存在于调用栈内，模块**不记录**任何请求体；
  * 返回结构一律沿用契约的掩码摘要（`CredentialSummary`，永不携带明文）。
  */
-import {
-  type ApiFailure,
-  type DaemonError,
-  type DaemonRouteSpec,
-  type DfErrorCode,
-  isApiFailure,
-  isApiSuccess,
-} from '@dforge/contracts';
-
+import type { DaemonRouteSpec, DfErrorCode } from '@dforge/contracts';
 import { t } from '@/i18n';
-import { daemonAuthHeaders, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
+import { resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 import {
-  DAEMON_REQUEST_TIMEOUT_MS,
-  fetchWithinDeadline,
-  RequestTimeoutError,
-} from '@/lib/request-timeout';
+  type DaemonRoute,
+  request as daemonRequest,
+  type TransportFailure,
+} from '@/lib/daemon-transport';
+import { DAEMON_REQUEST_TIMEOUT_MS } from '@/lib/request-timeout';
 
 /** 失败类别（见模块头注释）。 */
 export type DaemonClientErrorKind = 'api' | 'network';
@@ -92,6 +84,48 @@ export function resolveDaemonBaseUrl(): string {
   return resolveDaemonEndpointSync();
 }
 
+/** 传输层 details 收窄为信封 details 形状（非对象一律 null）。 */
+function detailsOf(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+/** 传输失败 → 设置页两类错误（文案与 kind 口径零变化）。 */
+function toDaemonClientError(failure: TransportFailure, baseUrl: string): DaemonClientError {
+  switch (failure.code) {
+    case 'daemon_timeout':
+      // 超时 ≠ 连不上：daemon 往往活着，只是没回应——文案用超时哨兵自己的人话
+      // （含「请稍后重试」），不套「请确认 daemon 已启动」的不可达引导。
+      return new DaemonClientError({ kind: 'network', message: failure.message });
+    case 'daemon_unreachable':
+      return new DaemonClientError({
+        kind: 'network',
+        message: t('settings.error.network.unreachable', { url: baseUrl }),
+      });
+    case 'daemon_bad_response': {
+      const reason = (failure.details as { reason?: unknown } | undefined)?.reason;
+      const status = failure.status ?? null;
+      return new DaemonClientError({
+        kind: 'network',
+        message: t(
+          reason === 'invalid-json'
+            ? 'settings.error.network.unparseable'
+            : 'settings.error.network.malformed',
+          { status: status ?? 0 },
+        ),
+        status,
+      });
+    }
+    default:
+      return new DaemonClientError({
+        kind: 'api',
+        message: failure.message,
+        code: failure.code as DfErrorCode,
+        status: failure.status ?? null,
+        details: detailsOf(failure.details),
+      });
+  }
+}
+
 /** 创建 daemon 客户端（默认走全局 fetch）。 */
 export function createDaemonClient(options: DaemonClientOptions = {}): DaemonClient {
   const baseUrl = (options.baseUrl ?? resolveDaemonBaseUrl()).replace(/\/+$/, '');
@@ -105,69 +139,19 @@ export function createDaemonClient(options: DaemonClientOptions = {}): DaemonCli
       route: DaemonRouteSpec,
       requestOptions: DaemonRequestOptions = {},
     ): Promise<T> {
-      const url = `${baseUrl}${route.path}`;
-      // 本地令牌鉴权（audit-d02 · D-02）：单点解析鉴权头（无令牌 → 空对象，头不存在）
-      const headers: Record<string, string> = {
-        accept: 'application/json',
-        ...daemonAuthHeaders(),
+      const daemonRoute: DaemonRoute = {
+        method: requestOptions.method ?? route.method,
+        path: route.path,
       };
-      const init: RequestInit = { method: requestOptions.method ?? route.method, headers };
-      if (requestOptions.body !== undefined) {
-        headers['content-type'] = 'application/json';
-        init.body = JSON.stringify(requestOptions.body);
-      }
-
-      let response: Response;
-      try {
-        // 请求带超时上限（audit-d04 · D-04）：daemon「活着但不响应」时设置请求不得
-        // 永久 pending——到点 abort 并落为 network 类有界失败（同 J9 保存链口径）。
-        response = await fetchWithinDeadline(
-          fetchImpl,
-          url,
-          init,
-          timeoutMs,
-          (ms) => new RequestTimeoutError(ms),
-        );
-      } catch (error) {
-        if (error instanceof RequestTimeoutError) {
-          // 超时 ≠ 连不上：daemon 往往活着，只是没回应——文案用超时哨兵自己的
-          // 人话（含「请稍后重试」），不套「请确认 daemon 已启动」的不可达引导。
-          throw new DaemonClientError({ kind: 'network', message: error.message });
-        }
-        throw new DaemonClientError({
-          kind: 'network',
-          message: t('settings.error.network.unreachable', { url: baseUrl }),
-        });
-      }
-
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        throw new DaemonClientError({
-          kind: 'network',
-          message: t('settings.error.network.unparseable', { status: response.status }),
-          status: response.status,
-        });
-      }
-
-      if (isApiSuccess<T>(payload)) return payload.result;
-      if (isApiFailure(payload)) {
-        const failure: ApiFailure = payload;
-        const error: DaemonError = failure.error;
-        throw new DaemonClientError({
-          kind: 'api',
-          message: error.message,
-          code: error.code,
-          status: response.status,
-          details: error.details ?? null,
-        });
-      }
-      throw new DaemonClientError({
-        kind: 'network',
-        message: t('settings.error.network.malformed', { status: response.status }),
-        status: response.status,
+      const result = await daemonRequest<T>(daemonRoute, {
+        baseUrl,
+        fetchImpl,
+        timeoutMs,
+        headers: { accept: 'application/json' },
+        ...(requestOptions.body === undefined ? {} : { body: requestOptions.body }),
       });
+      if (!result.ok) throw toDaemonClientError(result, baseUrl);
+      return result.value;
     },
   };
 }

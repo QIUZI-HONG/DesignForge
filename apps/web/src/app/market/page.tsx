@@ -14,7 +14,7 @@
 import type { MarketAsset } from '@dforge/contracts';
 import { Button } from '@dforge/ui';
 import { useRouter } from 'next/navigation';
-import { type ReactElement, useMemo, useState } from 'react';
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import {
   activeFilterCount,
   applyClientFilters,
@@ -33,6 +33,7 @@ import {
   type MarketFilters,
   MarketSkeletonGrid,
   MarketWarningBanner,
+  makeMarketInstallClient,
   marketFailureText,
   resolveMarketEmptyKind,
   selectFeatured,
@@ -43,8 +44,15 @@ import {
 } from '@/features/market';
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
+import { emitTelemetryEvent } from '@/lib/telemetry';
 
 import '@/features/market/market.css';
+
+/** 装载真写客户端（票③：构造一次，注入装载确认对话框；endpoint 每次调用时解析）。 */
+const marketInstallClient = makeMarketInstallClient();
+
+/** 检索事件发射窗（毫秒）：键入停顿超过该窗才落一条（尾部触发，不影响 UI）。 */
+const MARKET_SEARCH_EVENT_DEBOUNCE_MS = 300;
 
 /** 市场首页。 */
 export default function MarketHomePage() {
@@ -68,6 +76,35 @@ export default function MarketHomePage() {
   } = useMarketPagination(params);
   const { records, loadedIds, save, remove } = useLoadRecords();
   const loadPlan = useLoadPlan(pendingAsset?.id ?? null);
+
+  // 行为事件（票② · 论文数据源预埋；fire-and-forget，失败静默）：
+  // - market.view：市场页挂载即一条（浏览行为与取数成败无关——错误态也是一次浏览）；
+  // - market.search：带检索词的响应落定后一条（词 + 命中数），300ms 尾随窗只落最后一次
+  //   （键入的中间态不刷事件），同签名（词+命中数）不重复发。
+  const viewEmitted = useRef(false);
+  const lastSearchSignature = useRef('');
+  useEffect(() => {
+    if (viewEmitted.current) return;
+    viewEmitted.current = true;
+    emitTelemetryEvent('market.view');
+  }, []);
+  useEffect(() => {
+    const query = filters.query.trim();
+    if (query.length === 0) {
+      lastSearchSignature.current = '';
+      return undefined;
+    }
+    if (response === null) return undefined;
+    const timer = setTimeout(() => {
+      const signature = `${query}\u0000${response.total}`;
+      if (lastSearchSignature.current === signature) return;
+      lastSearchSignature.current = signature;
+      emitTelemetryEvent('market.search', { query, hits: response.total });
+    }, MARKET_SEARCH_EVENT_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [response, filters.query]);
 
   // 二级视图「已装载」= 叠加 loadedOnly（真值在本地记录册；与客户端过滤同一口径）
   const effectiveFilters: MarketFilters = installedView
@@ -275,6 +312,7 @@ export default function MarketHomePage() {
             save(record);
             setPendingAsset(null);
           }}
+          install={marketInstallClient}
         />
       ) : null}
 

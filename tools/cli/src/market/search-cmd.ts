@@ -9,7 +9,8 @@
  * 检索路径：**只读 ADS 产物**（`df.marketplace.index.v1.json` + `market_search_index.v1.json`），
  * 走 `searchMarketIndex`（倒排产物直查，不重建索引）——证据脚本/daemon 同款路径。
  *
- * 退出码：0 通过 / 1 断言失败（查询集某条不达下限）/ 2 阻塞（ADS 产物缺失）。
+ * 退出码：0 通过 / 1 断言失败（查询集某条不达下限、ADS 产物存在但损坏）/
+ *         2 阻塞（ADS 产物缺失）。
  */
 
 import { createHash } from 'node:crypto';
@@ -46,26 +47,55 @@ export interface LoadedAds {
   searchIndexSha256: string;
 }
 
+/** 读入结果（判别式）：缺产物 → 阻塞（exit 2）；坏产物 → 断言失败（exit 1）。 */
+export type AdsLoadResult =
+  | { ok: true; loaded: LoadedAds }
+  | { ok: false; kind: 'missing' | 'invalid'; reason: string };
+
 /** 读 ADS 产物（index + search index）。 */
-export async function loadAdsArtifacts(paths: DataPaths): Promise<LoadedAds | null> {
+export async function loadAdsArtifacts(paths: DataPaths): Promise<AdsLoadResult> {
   let indexText: string;
   let searchText: string;
   try {
     indexText = await readFile(`${paths.ads}/${ads.ADS_INDEX_FILENAME}`, 'utf8');
     searchText = await readFile(`${paths.ads}/${ads.ADS_SEARCH_INDEX_FILENAME}`, 'utf8');
   } catch {
-    return null;
+    return {
+      ok: false,
+      kind: 'missing',
+      reason: `ADS 产物缺失（${paths.ads}/${ads.ADS_INDEX_FILENAME}）`,
+    };
   }
-  const parsed = parseMarketplaceIndex(JSON.parse(indexText) as unknown);
-  if (!parsed.ok) return null;
-  const searchIndex = JSON.parse(searchText) as ads.SearchIndex;
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(indexText) as unknown;
+  } catch {
+    return {
+      ok: false,
+      kind: 'invalid',
+      reason: `市场索引 JSON 解析失败（${ads.ADS_INDEX_FILENAME}）`,
+    };
+  }
+  const parsed = parseMarketplaceIndex(parsedJson);
+  if (!parsed.ok) {
+    return { ok: false, kind: 'invalid', reason: `市场索引不兼容：${parsed.reason}` };
+  }
+  // 检索索引走 ingest 读入面（arch-v1 · 票② · #3）：去掉此前的 `JSON.parse as` 零校验。
+  const searchResult = ads.readSearchIndex(searchText);
+  if (!searchResult.ok) {
+    return { ok: false, kind: 'invalid', reason: `检索索引不可用：${searchResult.reason}` };
+  }
+  const searchIndex = searchResult.value;
   const sha256Of = (text: string): string =>
     `sha256:${createHash('sha256').update(text, 'utf8').digest('hex')}`;
   return {
-    assets: parsed.index.assets,
-    searchIndex,
-    indexSha256: sha256Of(indexText),
-    searchIndexSha256: sha256Of(searchText),
+    ok: true,
+    loaded: {
+      assets: parsed.index.assets,
+      searchIndex,
+      indexSha256: sha256Of(indexText),
+      searchIndexSha256: sha256Of(searchText),
+    },
   };
 }
 
@@ -128,14 +158,23 @@ export async function runSearchCommand(
   log: (line: string) => void,
 ): Promise<SearchCommandResult> {
   const paths = resolveDataPaths(options.dataRoot);
-  const loaded = await loadAdsArtifacts(paths);
-  if (loaded === null) {
+  const loadedResult = await loadAdsArtifacts(paths);
+  if (!loadedResult.ok) {
+    if (loadedResult.kind === 'missing') {
+      return {
+        exitCode: 2,
+        summary: { dataRoot: paths.root },
+        blockedReason: `${loadedResult.reason}——先跑 df market index`,
+      };
+    }
+    log(`ADS 产物不可用：${loadedResult.reason}`);
     return {
-      exitCode: 2,
-      summary: { dataRoot: paths.root },
-      blockedReason: `ADS 产物缺失（${paths.ads}/${ads.ADS_INDEX_FILENAME}）——先跑 df market index`,
+      exitCode: 1,
+      summary: { dataRoot: paths.root, error: loadedResult.reason },
+      blockedReason: null,
     };
   }
+  const loaded = loadedResult.loaded;
 
   if (options.querySet) {
     const { outcomes, p95Ms, withAtLeast3, failed } = runQuerySet(loaded, MARKET_EXAMPLE_QUERIES);

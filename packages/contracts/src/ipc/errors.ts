@@ -52,6 +52,17 @@ export const DF_ERROR_CODES = [
   'comfy_run_not_found',
   // 市场（索引缺失是空态而非错误；仅详情/装载目标缺失走错误码）
   'market_asset_not_found',
+  // 市场装载真写（票③ market-load-loop · POST /market/install）：一次性 ackToken 消费 +
+  // 源仓库拉取 + digest 校验 + 落盘；档位对齐 mcp_ack 家族（invalid=403 / expired=410）
+  'market_install_asset_not_found',
+  'market_install_ack_invalid',
+  'market_install_ack_expired',
+  'market_install_digest_mismatch',
+  'market_install_source_unavailable',
+  'market_install_target_invalid',
+  // 消费时复查装载闸门（市场线总案 v2 评审 · F7）：提案签发后索引重建，资产被 yank 或
+  // 闸门改为不可装载 → 拒绝消费旧 ackToken（策略性拒绝，对齐 invalid=403 档）
+  'market_install_gate_blocked',
   // MCP 确认桩（dryRun → 一次性 ackToken → 审计）
   'mcp_ack_invalid',
   'mcp_ack_expired',
@@ -96,6 +107,13 @@ export const DF_ERROR_HTTP_STATUS: Record<DfErrorCode, number> = {
   comfy_invalid_request: 400,
   comfy_run_not_found: 404,
   market_asset_not_found: 404,
+  market_install_asset_not_found: 404,
+  market_install_ack_invalid: 403,
+  market_install_ack_expired: 410,
+  market_install_digest_mismatch: 422,
+  market_install_source_unavailable: 503,
+  market_install_target_invalid: 400,
+  market_install_gate_blocked: 403,
   mcp_ack_invalid: 403,
   mcp_ack_expired: 410,
   mcp_proposal_not_found: 404,

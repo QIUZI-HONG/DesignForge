@@ -25,6 +25,8 @@ export interface DaemonPaths {
   marketIndexCandidates: string[];
   telemetryEventsPath: string;
   mcpAuditPath: string;
+  /** 市场装载审计（票③：形态对齐 mcp-audit，独立文件不与 MCP 桩共用）。 */
+  marketInstallAuditPath: string;
   /** 导出产物落盘目录（本地优先：产物不出机）。 */
   exportsDir: string;
   /** 出图产出资产（按内容哈希命名，天然去重）。 */
@@ -48,6 +50,7 @@ export function resolveDaemonPaths(dataRoot: string): DaemonPaths {
     ],
     telemetryEventsPath: join(dataRoot, 'telemetry', 'events.jsonl'),
     mcpAuditPath: join(dataRoot, 'audit', 'mcp-audit.jsonl'),
+    marketInstallAuditPath: join(dataRoot, 'audit', 'market-install.jsonl'),
     exportsDir: join(dataRoot, 'exports'),
     imageAssetsDir: join(dataRoot, 'image', 'assets'),
     imageTemplatesPath: join(dataRoot, 'image', 'templates.json'),

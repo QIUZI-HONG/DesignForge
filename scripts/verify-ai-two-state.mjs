@@ -301,7 +301,7 @@ async function main() {
     child.stderr.on('data', (chunk) => logChunks.push(chunk.toString()));
     const baseUrl = await waitForListening(child);
     // 令牌文件由 daemon 启动落盘（listening 已打印 = 应用装配完成）
-    daemonToken = (await readFile(join(tempRoot, 'data') + '/daemon-token', 'utf8')).trim();
+    daemonToken = (await readFile(`${join(tempRoot, 'data')}/daemon-token`, 'utf8')).trim();
     console.log(`[verify-ai-two-state] daemon 监听于 ${baseUrl}`);
 
     // —— 态 A：无 key（真跑降级路径）——

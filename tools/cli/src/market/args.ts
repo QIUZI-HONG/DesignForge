@@ -39,6 +39,11 @@ export function parseArgv(argv: readonly string[], spec: ArgvSpec): ParsedArgv {
       help = true;
       continue;
     }
+    if (arg === '--') {
+      // POSIX 惯例的「选项终止符」：pnpm run 会把调用方的 `--` 原样透传给脚本
+      // （`pnpm market:deploy -- --data x`），按忽略处理，不得当未知选项报错。
+      continue;
+    }
     if (!arg.startsWith('--')) {
       throw new CliUsageError(`未知位置参数：${arg}（用法见 --help）`);
     }

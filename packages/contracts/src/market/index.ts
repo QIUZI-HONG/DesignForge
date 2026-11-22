@@ -9,6 +9,7 @@
  */
 
 import { isSha256Digest } from '../ipc/guards.ts';
+import type { MarketLocalizedText } from './query.ts';
 import type {
   LicenseGate,
   MarketAssetKind,
@@ -26,6 +27,8 @@ import {
   MARKET_MODES,
 } from './vocab.ts';
 
+// 查询协议与资产比较（arch-v1 · 票② · #4）：encode/decode/compare/matches 的唯一实现。
+export * from './query.ts';
 export type {
   LicenseGate,
   MarketAssetKind,
@@ -67,12 +70,6 @@ export const MARKETPLACE_INDEX_SCHEMA = 'df.marketplace.index/v1' as const;
  * 已由 `guard:vocab` 登记名 InstallGateMode 覆盖）。
  */
 export type InstallGateMode = LicenseGate;
-
-/** 双语字段（缺一言回退另一言，皆缺回退 name）。 */
-export interface MarketLocalizedText {
-  'zh-CN'?: string;
-  en?: string;
-}
 
 /** 溯源块（§1.3）。 */
 export interface MarketSource {
@@ -153,6 +150,8 @@ export interface MarketAsset {
   description?: string;
   source: MarketSource;
   capabilities: string[];
+  /** 使用示例话术（票②；来自 SKILL.md frontmatter `examples:`，存在才填、缺失省略；中文为主）。 */
+  usageExamples?: string[];
   facets: MarketAssetFacets;
   quality: MarketQuality;
   installGate: MarketInstallGate;
@@ -327,6 +326,9 @@ function parseAsset(value: unknown): MarketAsset | null {
   };
   if (typeof raw.description === 'string') asset.description = raw.description;
   if (typeof raw.version === 'string') asset.version = raw.version;
+  // 使用示例（票②）：宽容读取——只收字符串项；有效项为空则省略键（缺失省略口径）
+  const usageExamples = asStringArray(raw.usageExamples);
+  if (usageExamples.length > 0) asset.usageExamples = usageExamples;
   if (metricsRecord !== null) {
     asset.metrics = {
       installs: asNumber(metricsRecord.installs),
@@ -416,30 +418,6 @@ export function parseMarketplaceIndex(value: unknown): MarketplaceParseResult {
   };
 }
 
-/** 双语回退（卡片主文案：zh-CN → en → 机器名）。 */
-export function displayText(localized: MarketLocalizedText, fallback: string): string {
-  const zh = localized['zh-CN'];
-  if (typeof zh === 'string' && zh.trim().length > 0) return zh;
-  const en = localized.en;
-  if (typeof en === 'string' && en.trim().length > 0) return en;
-  return fallback;
-}
-
-/** 查询请求（`GET /market/query` 查询串 → 规范化参数）。 */
-export interface MarketQueryParams {
-  q?: string;
-  kinds?: MarketAssetKind[];
-  category?: MarketCategory;
-  lane?: MarketLane;
-  mode?: MarketMode;
-  scene?: string;
-  tags?: string[];
-  loadableOnly?: boolean;
-  sort?: 'score' | 'updated' | 'name';
-  limit?: number;
-  offset?: number;
-}
-
 /** 查询告警（部分失败/索引缺失不抛错，前端在结果区提示）。
  *
  * `search-index-*`：BM25 检索索引（`market_search_index.v1.json`）缺失/损坏时的**降级提示**——
@@ -490,6 +468,40 @@ export interface MarketLoadPlan {
   reasons: string[];
   /** 中文说明（三态各自的解释文案）。 */
   notice: string;
+  /**
+   * 一次性装载 ackToken（票③ market-load-loop）：仅 loadable 提案由 daemon 签发，
+   * `POST /market/install` 消费（一次性、短 TTL——`MCP_ACK_TTL_MS` 同族、审计只存哈希）。
+   * 与 MCP 桩同构（`McpProposalResponse.ackToken`）：随提案下发、短时效、不可重放。
+   */
+  ackToken?: string;
+  /** ackToken 到期时刻（ISO 8601；与 `ackToken` 同现）。 */
+  ackExpiresAt?: string;
+}
+
+/** 装载安装请求（`POST /market/install`；ackToken 来自装载提案）。 */
+export interface MarketInstallRequest {
+  assetId: string;
+  ackToken: string;
+}
+
+/** 装载安装响应（真写完成且回读校验通过；形态对齐市场查询响应——带 schema 标识）。 */
+export interface MarketInstallResponse {
+  schema: typeof MARKETPLACE_INDEX_SCHEMA;
+  assetId: string;
+  /** 资产类型（决定落点目录第一段）。 */
+  kind: MarketAssetKind;
+  /** 落点目录名（经白名单校验的资产 slug）。 */
+  slug: string;
+  /** 落点标记（`.dfg/market/<kind>/<slug>/`，与装载提案 targetPathHint 同口径的相对标记）。 */
+  targetPath: string;
+  /** 回读校验后的内容 digest（规格 §1.6 全文件清单流哈希；= 索引 digest）。 */
+  digest: string;
+  /** 已写入的相对路径清单（字典序，含 SKILL.md）。 */
+  files: string[];
+  /** 实际装载完成时刻（ISO 8601；前端 LoadRecord.loadedAt 真值来源）。 */
+  loadedAt: string;
+  /** 审计记录 id（`<数据根>/audit/market-install.jsonl`）。 */
+  auditId: string;
 }
 
 /** 校验索引摘要（供市场路由做轻量自检；完整解析用 parseMarketplaceIndex）。 */

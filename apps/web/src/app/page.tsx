@@ -33,6 +33,8 @@ export default function HomePage() {
       onOpenMarket={(assetId) =>
         router.push(withDaemonEndpoint(`/market?assetId=${encodeURIComponent(assetId)}`))
       }
+      // 技能市场首页（票② · 顶栏平级切换 + 侧栏入口共用）：跳 /market 并续写端点参数
+      onOpenMarketHome={() => router.push(withDaemonEndpoint('/market'))}
       // AI 助手按钮（D3）：进编辑器并带 `?ai=1`——编辑器落地即打开 AI 抽屉（无 key 时为
       // 「本地建议」降级态，非 AI 生成）；首页不再声称「暂未接入」
       onOpenAi={() => router.push(withDaemonEndpoint('/editor?ai=1'))}

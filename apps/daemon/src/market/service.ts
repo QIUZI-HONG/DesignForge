@@ -22,7 +22,13 @@ import type {
   MarketQueryResponse,
   MarketQueryWarning,
 } from '@dforge/contracts';
-import { displayText, MARKETPLACE_INDEX_SCHEMA, parseMarketplaceIndex } from '@dforge/contracts';
+import {
+  compareMarketAssets,
+  displayText,
+  MARKETPLACE_INDEX_SCHEMA,
+  matchesMarketFacets,
+  parseMarketplaceIndex,
+} from '@dforge/contracts';
 import { searchMarketIndex } from '@dforge/ingest/ads';
 
 import { loadSearchIndex, siblingSearchIndexPath } from './search-index.ts';
@@ -90,26 +96,6 @@ export function createMarketService(options: {
     return { index: null, sourcePath: null, warning: null };
   };
 
-  const matchFacets = (asset: MarketAsset, params: MarketQueryParams): boolean => {
-    if (
-      params.kinds !== undefined &&
-      params.kinds.length > 0 &&
-      !params.kinds.includes(asset.kind)
-    ) {
-      return false;
-    }
-    if (params.category !== undefined && asset.facets.category !== params.category) return false;
-    if (params.lane !== undefined && asset.facets.lane !== params.lane) return false;
-    if (params.mode !== undefined && asset.facets.mode !== params.mode) return false;
-    if (params.scene !== undefined && !asset.facets.scenes.includes(params.scene)) return false;
-    if (params.tags !== undefined && params.tags.length > 0) {
-      const haystack = new Set(asset.facets.tags.map((tag) => tag.toLowerCase()));
-      if (!params.tags.some((tag) => haystack.has(tag.toLowerCase()))) return false;
-    }
-    if (params.loadableOnly === true && asset.installGate.mode !== 'loadable') return false;
-    return true;
-  };
-
   /** 字面兜底（检索索引缺失/损坏时的降级路径；大小写不敏感的包含匹配）。 */
   const matchLiteral = (asset: MarketAsset, needle: string): boolean => {
     const haystack = [
@@ -124,26 +110,12 @@ export function createMarketService(options: {
     return haystack.includes(needle.toLowerCase());
   };
 
+  /**
+   * 排序：口径收口 contracts `compareMarketAssets`（arch-v1 · 票② · #4）——
+   * 此前 daemon 与 web 各一份比较器；现以本服务原 sortAssets 口径为准唯一实现。
+   */
   const sortAssets = (assets: MarketAsset[], sort: MarketQueryParams['sort']): MarketAsset[] => {
-    const sorted = [...assets];
-    switch (sort) {
-      case 'name':
-        sorted.sort((a, b) =>
-          displayText(a.displayName, a.name).localeCompare(
-            displayText(b.displayName, b.name),
-            'zh-CN',
-          ),
-        );
-        break;
-      case 'updated':
-        sorted.sort((a, b) => b.source.pushedAt.localeCompare(a.source.pushedAt));
-        break;
-      default:
-        // 默认综合评分（市场规格 §6.1：quality.score 排序；并列时按点赞近的星标增速信号简化处理）
-        sorted.sort((a, b) => b.quality.score - a.quality.score || b.source.stars - a.source.stars);
-        break;
-    }
-    return sorted;
+    return [...assets].sort(compareMarketAssets(sort ?? 'score'));
   };
 
   const findAsset = async (assetId: string): Promise<MarketAsset | null> => {
@@ -174,7 +146,7 @@ export function createMarketService(options: {
       }
 
       const q = params.q === undefined ? '' : params.q.trim();
-      const facetMatched = index.assets.filter((asset) => matchFacets(asset, params));
+      const facetMatched = index.assets.filter((asset) => matchesMarketFacets(asset, params));
 
       // 检索面（E1）：q 非空 → BM25 倒排（相关度 × 质量分，CLI 同口径）；
       // 检索索引缺失/损坏 → 字面过滤兜底 + 稳定 warning（不报错、不 500）。

@@ -5,28 +5,35 @@
  * - **索引缺失/损坏是空态，不是错误**：daemon 用 `warnings`（`index-missing`/`index-invalid`）
  *   表达，本模块把它们归一成视图状态（`classifyMarketOutcome`），页面据此给「去跑采集」指引；
  *   任何情况下**不伪造数据**（无索引就是空态，不造样例卡片）。
- * - 信封统一 `{ok, result|error}`（`apps/daemon/src/http.ts`）：HTTP 层只看信封，不看状态码分支。
- * - **信封与内层都要验形状**：`{ok:true,result:null}` 与「内层字段为 null / 类型不符」同样是坏响应，
- *   在解包点归一为带码失败（`daemon_bad_response`），页面拿到的一定是形状已验的数据——
- *   渲染路径不再有抛 TypeError 的输入（W1 缺陷：此前的坏响应走到渲染期整树卸载 = 白屏）。
+ * - **单信封栈（票 130）**：信封拆包与 result 形状校验收口在传输层——`requestJson` 把
+ *   `MarketShapeValidator` 适配成 transport `validate` 谓词传给 `daemonRequest`，脏 result
+ *   （`{ok:true,result:null}` / 内层字段类型不符）在解包点即判 `daemon_bad_response`
+ *   （reason=invalid-shape）；本模块不再二次拆包（原第二份信封拆包已删），传输结果经
+ *   {@link toMarketEnvelope} 单点映射为 `MarketEnvelope`（ADR-0004：错误映射留消费方适配层）。
+ *   页面拿到的一定是形状已验的数据——渲染路径不再有抛 TypeError 的输入（W1 缺陷：此前的
+ *   坏响应走到渲染期整树卸载 = 白屏）。
  * - 路径一律取 `@dforge/contracts` 的 `DAEMON_ROUTES`（路径单一真源），不硬编码字符串。
  */
 
 import type {
   MarketAsset,
   MarketAssetDetailResponse,
+  MarketInstallResponse,
   MarketLoadPlan,
   MarketQueryParams,
   MarketQueryResponse,
   MarketQueryWarning,
 } from '@dforge/contracts';
-import { DAEMON_ROUTES } from '@dforge/contracts';
+import { DAEMON_ROUTES, encodeMarketQuery } from '@dforge/contracts';
 
+import { DAEMON_ENDPOINT_DEFAULT, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
 import {
-  DAEMON_ENDPOINT_DEFAULT,
-  daemonAuthHeaders,
-  resolveDaemonEndpointSync,
-} from '@/lib/daemon-endpoint';
+  request as daemonRequest,
+  TRANSPORT_BAD_RESPONSE_REASONS,
+  type TransportResult,
+} from '@/lib/daemon-transport';
+
+import type { MarketInstallClient } from './load-token';
 
 /**
  * daemon 缺省地址（端口窗起点）。解析顺序**全站收敛**在 `@/lib/daemon-endpoint`
@@ -45,7 +52,8 @@ export interface MarketFailure {
 export type MarketEnvelope<T> = { ok: true; result: T } | { ok: false; error: MarketFailure };
 
 /**
- * 内层形状校验器：把 result 收窄为契约类型；形状不符返回 null（`readEnvelope` 据此归一为失败）。
+ * 内层形状校验器：把 result 收窄为契约类型；形状不符返回 null（经 {@link toValidatePredicate}
+ * 适配成 transport `validate` 谓词，脏 result 在传输层解包点归一为失败）。
  * 为什么在信封层做：`{ok:true,result:null}` / 内层字段为 null 的「信封状坏响应」此前能过
  * `isApiSuccess`，一路走到渲染期才抛 TypeError（整树卸载 = 白屏）；把判定前移到解包点，
  * 页面只需处理「成功 = 形状已验」与「失败 = 有码有文案」两种情况。
@@ -57,65 +65,86 @@ export interface MarketClientOptions {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+  /** 单请求超时上限（毫秒；测试注入小值；缺省走传输层 30s）。 */
+  timeoutMs?: number;
 }
 
 /**
- * 取 daemon 基址——纯委托 `@/lib/daemon-endpoint`（解析顺序与环境变量读取都在那里，
- * 本模块不再暴露 env 注入口；测试要注入环境请用收敛模块的 `envUrl` 选项或其单测）。
+ * 取 daemon 基址的**同步**快路径（查询参数 → env → 端口窗起点；不探测）。
+ *
+ * 只用于「创建时就要一个字符串」的宿主/测试；**取数路径不经过它**——无注入 `baseUrl`
+ * 时 `requestJson` 把解析交给传输层的异步 `resolveDaemonEndpoint()`（端口窗健康探测
+ * 4318..4350，命中即止、进程内缓存）。此前这里用同步解析导致首页市场检索只能打到
+ * 端口窗起点，端口漂移时整块市场「不可用」（评审 F3）。
  */
 export function daemonBaseUrl(): string {
   return resolveDaemonEndpointSync();
 }
 
-/** 规范化未知的 JSON 为信封（缺 result / result 为空 / 形状不符一律按失败处理——绝不当成功）。 */
-export function readEnvelope<T>(
-  value: unknown,
-  validate?: MarketShapeValidator<T>,
-): MarketEnvelope<T> {
-  if (typeof value === 'object' && value !== null && (value as { ok?: unknown }).ok === true) {
-    const record = value as Record<string, unknown>;
-    if (!('result' in record)) {
-      // 缺 result：连信封形状都不是（daemon 契约里 result 是必有键）
-      return failure('daemon_bad_response', '本地服务响应缺 result 字段（已按错误处理）');
+/**
+ * 把形状校验器适配成 transport `validate` 类型谓词（票 130）：校验器返回非 null 即收窄为 T。
+ * 适配只此一处——校验器签名（T | null）与传输层谓词签名（value is T）在此换算。
+ */
+function toValidatePredicate<T>(
+  validator: MarketShapeValidator<T>,
+): (value: unknown) => value is T {
+  return (value: unknown): value is T => validator(value) !== null;
+}
+
+/**
+ * 判断传输失败 details 是否携带 invalid-shape 理由（对照 transport 导出常量取值，不另写字面量）。
+ * 归一判据方向性保守（票 130 / 评审 F4）：只有 invalid-shape 保留 `daemon_bad_response`，
+ * 其余坏响应理由（invalid-json / malformed-envelope / 无理由）一律归一 `daemon_unreachable`。
+ */
+function isInvalidShapeReason(details: unknown): boolean {
+  return (
+    typeof details === 'object' &&
+    details !== null &&
+    (details as { reason?: unknown }).reason === TRANSPORT_BAD_RESPONSE_REASONS.invalidShape
+  );
+}
+
+/**
+ * 传输结果 → 市场信封的**唯一失败映射点**（票 130；ADR-0004：错误映射留消费方适配层）。
+ * 归一判据方向性保守（评审 F4）：
+ * - `daemon_bad_response` 且 reason=invalid-shape → 保留 `daemon_bad_response`（daemon 活着、
+ *   答的是坏数据——内层形状坏，与「服务不可达」不是同一用户动作）；
+ * - 其余 `daemon_bad_response`（invalid-json / malformed-envelope / 无理由）→
+ *   `daemon_unreachable`（网关活着但上游答不出可用信封——与不可达同一用户动作：确认服务 /
+ *   重试；message/details 保留技术细节，便于诊断）；
+ * - `daemon_unreachable` / `daemon_timeout` → `daemon_unreachable`；
+ * - 其余（daemon 线上码）原码透传，details 保留。
+ */
+function toMarketEnvelope<T>(result: TransportResult<T>): MarketEnvelope<T> {
+  if (result.ok) return { ok: true, result: result.value };
+  if (result.code === 'daemon_bad_response') {
+    if (isInvalidShapeReason(result.details)) {
+      return failure(result.code, result.message, result.details);
     }
-    const raw = record.result;
-    if (raw === null || raw === undefined) {
-      // `{ok:true,result:null}`：信封说成功但载荷为空——这是坏响应，不是空数据
-      return failure('daemon_bad_response', '本地服务返回了空结果（result 为 null，已按错误处理）');
-    }
-    if (validate !== undefined) {
-      const shaped = validate(raw);
-      if (shaped === null) {
-        return failure(
-          'daemon_bad_response',
-          '本地服务返回的 result 形状不符合契约（已按错误处理，可重试）',
-        );
-      }
-      return { ok: true, result: shaped };
-    }
-    return { ok: true, result: raw as T };
+    return failure('daemon_unreachable', result.message, result.details);
   }
-  if (typeof value === 'object' && value !== null) {
-    const record = value as Record<string, unknown>;
-    const rawError = record.error;
-    if (rawError !== undefined && rawError !== null) {
-      const error = rawError as Record<string, unknown>;
-      const failure_: MarketFailure = {
-        code: typeof error.code === 'string' ? error.code : 'internal',
-        message: typeof error.message === 'string' ? error.message : '本地服务返回了未知错误',
-      };
-      if (typeof error.details === 'object' && error.details !== null) {
-        failure_.details = error.details as Record<string, unknown>;
-      }
-      return { ok: false, error: failure_ };
-    }
+  if (result.code === 'daemon_unreachable' || result.code === 'daemon_timeout') {
+    return failure('daemon_unreachable', result.message);
   }
-  return failure('internal', '本地服务响应不是可识别的 JSON 信封');
+  return failure(result.code, result.message, result.details);
 }
 
 /** 造一个失败信封（内部小工具，避免每处重复字面量）。 */
-function failure(code: string, message: string): { ok: false; error: MarketFailure } {
-  return { ok: false, error: { code, message } };
+function failure(
+  code: string,
+  message: string,
+  details?: unknown,
+): { ok: false; error: MarketFailure } {
+  return {
+    ok: false,
+    error: {
+      code,
+      message,
+      ...(typeof details === 'object' && details !== null
+        ? { details: details as Record<string, unknown> }
+        : {}),
+    },
+  };
 }
 
 /** 判断值是否为非 null 对象（形状校验的最小单元）。 */
@@ -168,36 +197,36 @@ export function validateMarketLoadPlan(value: unknown): MarketLoadPlan | null {
   return value as unknown as MarketLoadPlan;
 }
 
-/** 查询串序列化（字段口径与 daemon `routes/market.ts` 的 parseQuery 一致）。 */
+/** 查询路径（含序列化查询串；URL 构造器与传输层共用这一份，避免路径两处漂移）。 */
+function marketQueryPath(
+  params: MarketQueryParams,
+  options?: { limit?: number; offset?: number },
+): string {
+  // 分页覆盖是 URL 构造器的便利参数（不属于 MarketQueryParams）；合并后交协议层编码。
+  const merged: MarketQueryParams = { ...params };
+  if (options?.limit !== undefined) merged.limit = options.limit;
+  if (options?.offset !== undefined) merged.offset = options.offset;
+  const query = encodeMarketQuery(merged);
+  return `${DAEMON_ROUTES.marketQuery.path}${query.length > 0 ? `?${query}` : ''}`;
+}
+
+/** 查询串序列化（口径与 daemon `routes/market.ts` 的解码表同源：contracts `encodeMarketQuery`）。 */
 export function buildMarketQueryUrl(
   baseUrl: string,
   params: MarketQueryParams,
   options?: { limit?: number; offset?: number },
 ): string {
-  const search = new URLSearchParams();
-  if (params.q !== undefined && params.q.length > 0) search.set('q', params.q);
-  if (params.kinds !== undefined && params.kinds.length > 0)
-    search.set('kind', params.kinds.join(','));
-  if (params.category !== undefined) search.set('category', params.category);
-  if (params.lane !== undefined) search.set('lane', params.lane);
-  if (params.mode !== undefined) search.set('mode', params.mode);
-  if (params.scene !== undefined) search.set('scene', params.scene);
-  if (params.tags !== undefined && params.tags.length > 0)
-    search.set('tags', params.tags.join(','));
-  if (params.loadableOnly === true) search.set('loadable', '1');
-  if (params.sort !== undefined) search.set('sort', params.sort);
-  const limit = options?.limit ?? params.limit;
-  if (limit !== undefined) search.set('limit', String(limit));
-  const offset = options?.offset ?? params.offset;
-  if (offset !== undefined && offset > 0) search.set('offset', String(offset));
-  const query = search.toString();
-  return `${baseUrl}${DAEMON_ROUTES.marketQuery.path}${query.length > 0 ? `?${query}` : ''}`;
+  return `${baseUrl}${marketQueryPath(params, options)}`;
+}
+
+/** 资产详情路径（路径参数需 URL 编码——id 形如 `gh:owner/repo#path`）。 */
+function marketAssetPath(assetId: string): string {
+  return DAEMON_ROUTES.marketAsset.path.replace(':assetId', encodeURIComponent(assetId));
 }
 
 /** 资产详情 URL（路径参数需 URL 编码——id 形如 `gh:owner/repo#path`）。 */
 export function buildMarketAssetUrl(baseUrl: string, assetId: string): string {
-  const path = DAEMON_ROUTES.marketAsset.path.replace(':assetId', encodeURIComponent(assetId));
-  return `${baseUrl}${path}`;
+  return `${baseUrl}${marketAssetPath(assetId)}`;
 }
 
 /** 装载提案 URL。 */
@@ -205,41 +234,39 @@ export function buildMarketLoadPlanUrl(baseUrl: string): string {
   return `${baseUrl}${DAEMON_ROUTES.marketLoadPlan.path}`;
 }
 
+/** 装载安装 URL（票③：daemon 真写端点，路径单一真源）。 */
+export function buildMarketInstallUrl(baseUrl: string): string {
+  return `${baseUrl}${DAEMON_ROUTES.marketInstall.path}`;
+}
+
 async function requestJson<T>(
-  url: string,
+  path: string,
   options: MarketClientOptions & {
     method?: 'GET' | 'POST';
     body?: unknown;
-    validate?: MarketShapeValidator<T>;
+    validate: MarketShapeValidator<T>;
   },
 ): Promise<MarketEnvelope<T>> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const init: RequestInit = { method: options.method ?? 'GET' };
-  if (options.signal !== undefined) init.signal = options.signal;
-  // 本地令牌鉴权（audit-d02 · D-02）：鉴权头单点解析，无令牌 → 空对象（头不存在）
-  init.headers = {
-    ...daemonAuthHeaders(),
-    ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
-  };
-  if (options.body !== undefined) {
-    init.method = 'POST';
-    init.body = JSON.stringify(options.body);
-  }
-  try {
-    const response = await fetchImpl(url, init);
-    const payload: unknown = await response.json();
-    return readEnvelope<T>(payload, options.validate);
-  } catch (error) {
-    // 客户端层只透传原始错误与归一码（票 06 / spec P1-2）：不在这里拼界面文案——
-    // 「中文人话 + 下一步 + 技术详情」由展示层经共享归类（`@/lib/daemon-failure`）生成
-    return {
-      ok: false,
-      error: {
-        code: 'daemon_unreachable',
-        message: error instanceof Error ? error.message : String(error),
-      },
-    };
-  }
+  const method = options.body === undefined ? (options.method ?? 'GET') : 'POST';
+  // 无注入 baseUrl 时不预解析：传输层走异步 `resolveDaemonEndpoint()`（端口窗探测 +
+  // 进程内缓存）；注入 baseUrl 时按原样使用（测试/宿主显式指向）。
+  // validate 必填（票 130）：四 fetcher 全带校验器，脏 result 在传输层解包点即判
+  // daemon_bad_response（invalid-shape）——市场页拿到的一定是形状已验的数据。
+  const result = await daemonRequest<T>(
+    { method, path },
+    {
+      ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
+      ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      ...(options.body === undefined ? {} : { body: options.body }),
+      validate: toValidatePredicate(options.validate),
+    },
+  );
+  // 失败映射单点（票 130）：客户端层只透传原始错误与归一码（票 06 / spec P1-2）——
+  // 不在这里拼界面文案，「中文人话 + 下一步 + 技术详情」由展示层经共享归类
+  // （`@/lib/daemon-failure`）生成；坏响应归一口径见 {@link toMarketEnvelope}。
+  return toMarketEnvelope(result);
 }
 
 /** 查询市场（含空态/告警；不抛错——失败走信封；内层形状校验后页面不会读到脏字段）。 */
@@ -247,8 +274,7 @@ export function fetchMarketQuery(
   params: MarketQueryParams,
   options: MarketClientOptions = {},
 ): Promise<MarketEnvelope<MarketQueryResponse>> {
-  const base = options.baseUrl ?? daemonBaseUrl();
-  return requestJson<MarketQueryResponse>(buildMarketQueryUrl(base, params), {
+  return requestJson<MarketQueryResponse>(marketQueryPath(params), {
     ...options,
     validate: validateMarketQueryResponse,
   });
@@ -259,24 +285,72 @@ export function fetchMarketAsset(
   assetId: string,
   options: MarketClientOptions = {},
 ): Promise<MarketEnvelope<MarketAssetDetailResponse>> {
-  const base = options.baseUrl ?? daemonBaseUrl();
-  return requestJson<MarketAssetDetailResponse>(buildMarketAssetUrl(base, assetId), {
+  return requestJson<MarketAssetDetailResponse>(marketAssetPath(assetId), {
     ...options,
     validate: validateMarketAssetDetail,
   });
 }
 
-/** 取装载提案（dryRun 前置；真实写入归 MCP 确认桩）。 */
+/** 取装载提案（dryRun 前置；可装载提案随响应携带一次性 ackToken——票③ install 消费）。 */
 export function fetchMarketLoadPlan(
   assetId: string,
   options: MarketClientOptions & { documentId?: string | null } = {},
 ): Promise<MarketEnvelope<MarketLoadPlan>> {
-  const base = options.baseUrl ?? daemonBaseUrl();
-  return requestJson<MarketLoadPlan>(buildMarketLoadPlanUrl(base), {
+  return requestJson<MarketLoadPlan>(DAEMON_ROUTES.marketLoadPlan.path, {
     ...options,
     validate: validateMarketLoadPlan,
     body: { assetId, documentId: options.documentId ?? null },
   });
+}
+
+/** 装载安装响应形状校验（缺任一必需键返回 null → 归一 daemon_bad_response）。 */
+export function validateMarketInstallResponse(value: unknown): MarketInstallResponse | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.schema !== 'string' || value.schema.length === 0) return null;
+  if (typeof value.assetId !== 'string' || value.assetId.length === 0) return null;
+  if (typeof value.kind !== 'string' || value.kind.length === 0) return null;
+  if (typeof value.slug !== 'string' || value.slug.length === 0) return null;
+  if (typeof value.targetPath !== 'string' || value.targetPath.length === 0) return null;
+  if (typeof value.digest !== 'string' || value.digest.length === 0) return null;
+  if (!Array.isArray(value.files) || !value.files.every((file) => typeof file === 'string')) {
+    return null;
+  }
+  if (typeof value.loadedAt !== 'string' || value.loadedAt.length === 0) return null;
+  if (typeof value.auditId !== 'string' || value.auditId.length === 0) return null;
+  return value as unknown as MarketInstallResponse;
+}
+
+/** 发起真实装载（POST /market/install；一次性 ackToken 来自装载提案）。 */
+export function fetchMarketInstall(
+  input: { assetId: string; ackToken: string },
+  options: MarketClientOptions = {},
+): Promise<MarketEnvelope<MarketInstallResponse>> {
+  return requestJson<MarketInstallResponse>(DAEMON_ROUTES.marketInstall.path, {
+    ...options,
+    validate: validateMarketInstallResponse,
+    body: { assetId: input.assetId, ackToken: input.ackToken },
+  });
+}
+
+/**
+ * 组装装载客户端（`LoadConfirmDialog` 的 `install` 注入点；页面侧构造一次传入）。
+ * 信封 → 装载会话 outcome：成功只取记账/渲染所需真值字段，失败透传 daemon 原始错误码
+ * （装载状态机据此映射前端词表并保留原码做诊断）。
+ */
+export function makeMarketInstallClient(options: MarketClientOptions = {}): MarketInstallClient {
+  return async (input) => {
+    const envelope = await fetchMarketInstall(input, options);
+    if (envelope.ok) {
+      return {
+        ok: true,
+        digest: envelope.result.digest,
+        loadedAt: envelope.result.loadedAt,
+        targetPath: envelope.result.targetPath,
+        files: [...envelope.result.files],
+      };
+    }
+    return { ok: false, code: envelope.error.code, message: envelope.error.message };
+  };
 }
 
 /**

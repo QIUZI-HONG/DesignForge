@@ -13,6 +13,8 @@
  * 嵌套（Modal 内再开浮层，如抽屉上盖模态）：走浮层栈——Esc 与遮罩点击只关最内层、
  * 焦点落在最内层、z 序随栈序；子树经 `OverlayDepthContext` 拿到嵌套深度。
  * 关闭按钮只在给了 `closeLabel` 时渲染——「关闭」这类文案由调用方给，本包不含界面文案。
+ * `disableClose`（如装载中防中途关闭）：遮罩点击/Esc/关闭按钮全部失效，缺省 false
+ * 向后兼容；调用方应同时藏起「取消」类退出动作，避免「按钮能点、浮层关不掉」的错位。
  */
 import { type ReactNode, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -39,6 +41,11 @@ export interface ModalProps {
   size?: ModalSize;
   /** 遮罩点击是否关闭；默认 true。 */
   closeOnBackdrop?: boolean;
+  /**
+   * 禁关（评审 F6，如装载中防中途关闭）：true 时遮罩点击、Esc、关闭按钮全部失效；
+   * 缺省 false（向后兼容）。调用方应同时藏起「取消」类退出动作。
+   */
+  disableClose?: boolean;
   /** 关闭按钮的可访问名；不给则不渲染关闭按钮。 */
   closeLabel?: string;
   className?: string;
@@ -54,6 +61,7 @@ export function Modal({
   footer,
   size = 'md',
   closeOnBackdrop = true,
+  disableClose = false,
   closeLabel,
   className,
 }: ModalProps) {
@@ -64,6 +72,8 @@ export function Modal({
     open,
     onClose: () => onOpenChange(false),
     containerRef: dialogRef,
+    // 禁关时 Esc 不再归本层（焦点陷阱/栈序语义照常）
+    closeOnEsc: !disableClose,
   });
 
   if (!open || typeof document === 'undefined') return null;
@@ -76,8 +86,14 @@ export function Modal({
         className="dfg-backdrop"
         style={{ zIndex: behavior.zIndex }}
         onClick={(event) => {
-          // 外部点击只作用于栈顶：内层浮层开着时，点遮罩不应把外层一并关掉
-          if (behavior.isTop() && closeOnBackdrop && event.target === event.currentTarget) {
+          // 外部点击只作用于栈顶：内层浮层开着时，点遮罩不应把外层一并关掉；
+          // disableClose 时遮罩点击整体失效（装载中防中途关闭）
+          if (
+            behavior.isTop() &&
+            closeOnBackdrop &&
+            !disableClose &&
+            event.target === event.currentTarget
+          ) {
             onOpenChange(false);
           }
         }}
@@ -103,7 +119,7 @@ export function Modal({
                 </div>
               )}
             </div>
-            {closeLabel === undefined ? null : (
+            {closeLabel === undefined || disableClose ? null : (
               <IconButton
                 label={closeLabel}
                 icon={<CloseIcon />}

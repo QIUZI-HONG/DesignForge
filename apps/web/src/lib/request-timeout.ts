@@ -53,6 +53,59 @@ export class RequestTimeoutError extends Error {
   }
 }
 
+/** 计时句柄（内部）：合并 signal、超时哨兵与可撤销的计时器。 */
+interface Deadline {
+  /** 合并后的信号（超时 / 调用方取消都会 abort；reason 区分两者）。 */
+  signal: AbortSignal;
+  /** 计时到点后必然落定的 promise（拒绝超时哨兵）。 */
+  timeout: Promise<never>;
+  /** 是否已因到上限被 abort（正文读取据此区分超时与调用方取消）。 */
+  timedOut: () => boolean;
+  /** 撤掉计时器与调用方监听（请求生命周期结束必须调用）。 */
+  dispose: () => void;
+}
+
+/**
+ * 建立计时句柄：调用方 signal 与上限计时**合并**到同一控制器（任一触发都 abort）。
+ * 不合并会让 `{...init, signal}` 覆盖掉调用方信号——取消语义静默失效。
+ */
+function startDeadline(
+  timeoutMs: number,
+  external: AbortSignal | undefined,
+  toTimeoutError: (timeoutMs: number) => Error,
+): Deadline {
+  const controller = new AbortController();
+  const abortFromExternal = (): void => {
+    controller.abort(external?.reason);
+  };
+  if (external !== undefined) {
+    if (external.aborted) abortFromExternal();
+    else external.addEventListener('abort', abortFromExternal, { once: true });
+  }
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const error = toTimeoutError(timeoutMs);
+      timedOut = true;
+      reject(error); // 先 reject（race 立即落定），再取消在飞请求（正文读取据 reason 判定）
+      controller.abort(error);
+    }, timeoutMs);
+  });
+  // 总预算语义下 race 可能先于计时器落定（如正文已读完但 dispose 前计时器到点）；
+  // 迟到的拒绝必须有消费者，否则会成为 unhandled rejection。
+  timeout.catch(() => undefined);
+  return {
+    signal: controller.signal,
+    timeout,
+    timedOut: () => timedOut,
+    dispose: () => {
+      clearTimeout(timer); // 已落定就撤掉上限计时（别让计时器吊着事件循环）
+      external?.removeEventListener('abort', abortFromExternal);
+    },
+  };
+}
+
 /**
  * 发一个有界的请求：到 `timeoutMs` 未落定即 abort 在飞请求并抛
  * `toTimeoutError(timeoutMs)`；fetch 自身的异常（网络错/被拒）原样抛出，
@@ -62,8 +115,9 @@ export class RequestTimeoutError extends Error {
  * 可能既不看 signal 也不落定——`abort()` 单靠自己是**喂给 fetch 的请求**，
  * 不是对调用方的承诺；race 才能保证本函数自己到点必然落定。
  *
- * 界到哪里为止：只界到「响应头落定」（fetch 本身）——正文慢速滴流不在本机制界内
- * （与 gateway-timeout 同一口径；「头到了正文挂死」未在审计实证内，不为它扩面）。
+ * 界到哪里为止（headers 语义）：只界到「响应头落定」（fetch 本身）——正文慢速滴流
+ * 不在本机制界内（流式请求由消费方按需取消）。需要连正文一起界的一元请求用
+ * {@link fetchWithinTotalDeadline}。
  */
 export async function fetchWithinDeadline(
   fetchImpl: typeof fetch,
@@ -72,17 +126,64 @@ export async function fetchWithinDeadline(
   timeoutMs: number,
   toTimeoutError: (timeoutMs: number) => Error,
 ): Promise<Response> {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      reject(toTimeoutError(timeoutMs)); // 先 reject（race 立即落定），再取消在飞请求
-      controller.abort();
-    }, timeoutMs);
-  });
+  const deadline = startDeadline(timeoutMs, init.signal ?? undefined, toTimeoutError);
   try {
-    return await Promise.race([fetchImpl(url, { ...init, signal: controller.signal }), timeout]);
+    return await Promise.race([
+      fetchImpl(url, { ...init, signal: deadline.signal }),
+      deadline.timeout,
+    ]);
   } finally {
-    clearTimeout(timer); // 已落定就撤掉上限计时（别让计时器吊着事件循环）
+    deadline.dispose();
   }
+}
+
+/** 总预算请求句柄：计时器在响应头到达后**不撤销**，继续界正文读取。 */
+export interface TotalDeadlineResponse {
+  /** 已落定的响应（正文尚未读取）。 */
+  response: Response;
+  /** 合并信号（超时 / 调用方取消都会 abort，reason 区分超时哨兵与调用方原因）。 */
+  signal: AbortSignal;
+  /**
+   * 到点必然拒绝的 promise（超时哨兵）。正文读取与它 `race`：即使上游流不响应
+   * `cancel()` / 宿主替身只有 `text()`，到上限也必然落定。
+   */
+  timeout: Promise<never>;
+  /** 是否已因到上限被 abort。 */
+  timedOut: () => boolean;
+  /** 撤掉计时器与调用方监听（正文读取结束后必须调用）。 */
+  dispose: () => void;
+}
+
+/**
+ * 一元请求的总预算：一次调用（建连 + 响应头 + 正文）共用同一条上限。
+ *
+ * 与 {@link fetchWithinDeadline} 同一套 race + abort 机制，唯一区别是**计时器不随
+ * 响应头撤销**——「头到了、正文滴流挂死」同样有界失败；调用方读正文时用返回的
+ * `signal`（超时到点即 abort）取消自有 reader，读完/放弃后调用 `dispose()`。
+ */
+export async function fetchWithinTotalDeadline(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  toTimeoutError: (timeoutMs: number) => Error,
+): Promise<TotalDeadlineResponse> {
+  const deadline = startDeadline(timeoutMs, init.signal ?? undefined, toTimeoutError);
+  let response: Response;
+  try {
+    response = await Promise.race([
+      fetchImpl(url, { ...init, signal: deadline.signal }),
+      deadline.timeout,
+    ]);
+  } catch (cause) {
+    deadline.dispose();
+    throw cause;
+  }
+  return {
+    response,
+    signal: deadline.signal,
+    timeout: deadline.timeout,
+    timedOut: deadline.timedOut,
+    dispose: deadline.dispose,
+  };
 }

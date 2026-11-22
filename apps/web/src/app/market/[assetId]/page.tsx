@@ -9,18 +9,20 @@
  * 状态（E2 分流，修复批次 4）：加载 → 详情视图；**资产不存在**（daemon `market_asset_not_found`
  * 或信封 `found=false`）→ 独立「未找到该资产」空态 + 去市场出口；**连接/服务错误** → 错误态
  * （带 daemon 错误码与重试）——两类彻底分流，不再把 not-found 挂到「无法连接本地服务」外壳。
- * 装载确认（D4）由本页持有：先取提案（`/market/load-plan`），再打开确认框。
+ * 装载确认（D4）由本页持有：每次点「装载」都重取提案（`/market/load-plan`，daemon 侧
+ * ackToken 一次性——重开不复用旧 plan），提案就绪再开确认框。
  */
 
 import type { DF_ERROR_CODES } from '@dforge/contracts';
 import { Button, EmptyState, ErrorState } from '@dforge/ui';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AssetDetailView,
   isUpdateAvailable,
   LoadConfirmDialog,
   MarketErrorState,
+  makeMarketInstallClient,
   marketFailureText,
   useLoadPlan,
   useLoadRecords,
@@ -28,9 +30,13 @@ import {
 } from '@/features/market';
 import { t } from '@/i18n';
 import { withDaemonEndpoint } from '@/lib/daemon-endpoint';
+import { emitTelemetryEvent } from '@/lib/telemetry';
 
 // 版式类复用 market.css（工单 06 · 样式单轨；本批补迁——06 首批只迁了首页/面板页，此处当时漏迁）
 import '@/features/market/market.css';
+
+/** 装载真写客户端（票③：构造一次，注入装载确认对话框；endpoint 每次调用时解析）。 */
+const marketInstallClient = makeMarketInstallClient();
 
 /** 解码路由参数（防御式：已解码的字符串不含 `%` 时原样返回）。 */
 export function decodeAssetId(raw: string): string {
@@ -79,6 +85,16 @@ export default function MarketAssetPage() {
 
   const record = records.find((item) => item.assetId === assetId) ?? null;
 
+  // 行为事件（票②）：详情就绪即一条 market.asset-detail（一次挂载只发一次；
+  // not-found/错误态不算「查看」——没有看到详情就没有事件）。fire-and-forget，失败静默。
+  const detailEmitted = useRef(false);
+  useEffect(() => {
+    if (status !== 'ready' || asset === null) return;
+    if (detailEmitted.current) return;
+    detailEmitted.current = true;
+    emitTelemetryEvent('market.asset-detail', { assetId: asset.id });
+  }, [status, asset]);
+
   if (status === 'loading') {
     return (
       <header className="dfg-market__header" data-df-state="loading" data-df-loading="detail">
@@ -113,6 +129,9 @@ export default function MarketAssetPage() {
         loadedAt={record?.approvedAt ?? null}
         onBack={back}
         onLoadClick={() => {
+          // 每次打开都重取提案：daemon 的 ackToken 一次性且短时效，重开确认框
+          // 绝不复用旧 plan 对象（旧 token 可能已被消费/过期——F1 评审修复）。
+          loadPlan.reload();
           setConfirming(true);
         }}
         onUninstall={() => {
@@ -133,6 +152,7 @@ export default function MarketAssetPage() {
             save(loadedRecord);
             setConfirming(false);
           }}
+          install={marketInstallClient}
         />
       )}
 

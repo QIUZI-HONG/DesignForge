@@ -11,7 +11,6 @@ export {
   createImagePort,
   DaemonRequestError,
   type ImagePort,
-  readEnvelope,
   resolveDaemonBaseUrl,
 } from './client';
 export { ImagePanel, type ImagePanelProps } from './components/ImagePanel';
