@@ -24,8 +24,10 @@
  *
  * 失败一律归一为 {@link TransportFailure}（不抛异常）：`code` = daemon 线上码 ∪
  * `daemon_unreachable`（端点不可达 / 网络异常）∪ `daemon_timeout` ∪ `daemon_bad_response`
- * （非 JSON / 信封形状坏 / 流无 body）。**领域错误类型与界面文案由消费方适配层映射**
- * （GLOSSARY「daemon 传输层」：人话走呈现层 i18n，本 module 只给可读兜底）。
+ * （非 JSON / 信封形状坏 / 流无 body）。坏响应的细分理由以 {@link TRANSPORT_BAD_RESPONSE_REASONS}
+ * / {@link TransportBadResponseReason} 导出（票 #130）：消费方（market `api.ts`）据此把归一
+ * 判据在**编译期锁定**到同一份码表，不再自写字面量对账。**领域错误类型与界面文案由消费方
+ * 适配层映射**（GLOSSARY「daemon 传输层」：人话走呈现层 i18n，本 module 只给可读兜底）。
  *
  * 纪律：
  * - **不得依赖 React / 不得加 `'use client'`**——市场数据面被 Server Component 间接导入；
@@ -54,6 +56,25 @@ import {
 
 /** 路由（取 `DAEMON_ROUTES` 的值；路径模板拼参数由消费方完成）。 */
 export type DaemonRoute = DaemonRouteSpec;
+
+/**
+ * 坏响应（`daemon_bad_response`）的细分理由码表（注入失败 `details.reason`；票 #130 导出）。
+ * 单一真源：类型 {@link TransportBadResponseReason} 由本表派生，消费方（market `api.ts`）
+ * 引用常量而非自写字面量——归一判据「reason 为 invalid-shape 保留 `daemon_bad_response`，
+ * 其余一律归一 `daemon_unreachable`（评审 F4）」编译期锁定在同一份码表上。
+ */
+export const TRANSPORT_BAD_RESPONSE_REASONS = {
+  /** 响应体不是合法 JSON（反代错页 / 截断正文）。 */
+  invalidJson: 'invalid-json',
+  /** 信封形状合法但 result 未过 `validate` 谓词（内层形状坏）。 */
+  invalidShape: 'invalid-shape',
+  /** 可识别 JSON 但不是 `{ok,result|error}` 信封（含缺 result 键）。 */
+  malformedEnvelope: 'malformed-envelope',
+} as const;
+
+/** 坏响应理由类型（由 {@link TRANSPORT_BAD_RESPONSE_REASONS} 派生，编译期同源）。 */
+export type TransportBadResponseReason =
+  (typeof TRANSPORT_BAD_RESPONSE_REASONS)[keyof typeof TRANSPORT_BAD_RESPONSE_REASONS];
 
 /** 传输失败（结构化；码集见模块头）。 */
 export interface TransportFailure {
@@ -113,6 +134,18 @@ function failure(
     ...(extras.details === undefined ? {} : { details: extras.details }),
     ...(extras.status === undefined ? {} : { status: extras.status }),
   };
+}
+
+/**
+ * 造坏响应失败（票 #130：reason 注入处**类型化**——理由必须 ∈ {@link TransportBadResponseReason}，
+ * 取值统一走 {@link TRANSPORT_BAD_RESPONSE_REASONS}，注入点不再裸写字面量）。
+ */
+function badResponseFailure(
+  message: string,
+  reason: TransportBadResponseReason,
+  status: number,
+): TransportFailure {
+  return failure('daemon_bad_response', message, { details: { reason }, status });
 }
 
 /** 去掉尾部斜杠（拼路径时避免双斜杠）。 */
@@ -218,10 +251,11 @@ function parseJsonText(text: string, status: number): unknown | TransportFailure
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    return failure('daemon_bad_response', t('daemon.transport.badResponse'), {
-      details: { reason: 'invalid-json' },
+    return badResponseFailure(
+      t('daemon.transport.badResponse'),
+      TRANSPORT_BAD_RESPONSE_REASONS.invalidJson,
       status,
-    });
+    );
   }
 }
 
@@ -326,10 +360,11 @@ function unwrapEnvelope<T>(
 ): TransportResult<T> {
   if (isApiSuccess<T>(payload)) {
     if (init.validate !== undefined && !init.validate(payload.result)) {
-      return failure('daemon_bad_response', t('daemon.transport.invalidShape'), {
-        details: { reason: 'invalid-shape' },
+      return badResponseFailure(
+        t('daemon.transport.invalidShape'),
+        TRANSPORT_BAD_RESPONSE_REASONS.invalidShape,
         status,
-      });
+      );
     }
     return { ok: true, value: payload.result };
   }
@@ -349,10 +384,11 @@ function unwrapEnvelope<T>(
       },
     );
   }
-  return failure('daemon_bad_response', t('daemon.transport.malformedEnvelope'), {
-    details: { reason: 'malformed-envelope' },
+  return badResponseFailure(
+    t('daemon.transport.malformedEnvelope'),
+    TRANSPORT_BAD_RESPONSE_REASONS.malformedEnvelope,
     status,
-  });
+  );
 }
 
 /** 一元请求：缺省 30s 总超时（头 + 正文同一预算）；失败一律结构化返回（不抛）。
