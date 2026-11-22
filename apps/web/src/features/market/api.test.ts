@@ -184,7 +184,7 @@ describe('api · 信封解包（fetch 路径 · 票 #130 单信封栈）', () =>
 
   it('响应体不是可用信封（null 体 / 纯文本 / 空对象）→ 判失败且归一 daemon_unreachable', async () => {
     // 反代错页族（评审 F4）：上游答不出可用信封，与「服务不可达」同一用户动作
-    // （确认服务 / 重试）。直测迁为 fetch 路径（原 readEnvelope 直测锁的是生产不走的分支）。
+    // （确认服务 / 重试）。直测迁为 fetch 路径（原直测锁的是生产不走的兜底分支）。
     const bodies: Array<[string, string]> = [
       ['JSON null 体', 'null'],
       ['纯文本体', 'boom'],

@@ -45,8 +45,8 @@ describe('对抗 · 市场空态与坏数据', () => {
   });
 
   it('坏响应体：HTML/纯文本（反代错页）→ 判失败且落网络族 daemon_unreachable（文案可读）', async () => {
-    // 直测迁为 fetch 路径（票 #130）：原 readEnvelope 直测锁的是生产不走的 'internal'
-    // 分支；单信封栈下该形态由传输层判 invalid-json，市场适配层归一为 daemon_unreachable
+    // 直测迁为 fetch 路径（票 #130）：原直测锁的是生产不走的兜底码分支；单信封栈下
+    // 该形态由传输层判 invalid-json，市场适配层归一为 daemon_unreachable
     // （评审 F4：与不可达同一用户动作）。文案走 transport i18n 键，不再断言裸串。
     const result = await fetchMarketQuery(
       {},

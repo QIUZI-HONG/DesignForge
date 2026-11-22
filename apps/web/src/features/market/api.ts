@@ -8,7 +8,7 @@
  * - **单信封栈（票 #130）**：信封拆包与 result 形状校验收口在传输层——`requestJson` 把
  *   `MarketShapeValidator` 适配成 transport `validate` 谓词传给 `daemonRequest`，脏 result
  *   （`{ok:true,result:null}` / 内层字段类型不符）在解包点即判 `daemon_bad_response`
- *   （reason=invalid-shape）；本模块不再二次拆包（原 `readEnvelope` 已删），传输结果经
+ *   （reason=invalid-shape）；本模块不再二次拆包（原第二份信封拆包已删），传输结果经
  *   {@link toMarketEnvelope} 单点映射为 `MarketEnvelope`（ADR-0004：错误映射留消费方适配层）。
  *   页面拿到的一定是形状已验的数据——渲染路径不再有抛 TypeError 的输入（W1 缺陷：此前的
  *   坏响应走到渲染期整树卸载 = 白屏）。
