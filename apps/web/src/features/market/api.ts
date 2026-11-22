@@ -5,7 +5,7 @@
  * - **索引缺失/损坏是空态，不是错误**：daemon 用 `warnings`（`index-missing`/`index-invalid`）
  *   表达，本模块把它们归一成视图状态（`classifyMarketOutcome`），页面据此给「去跑采集」指引；
  *   任何情况下**不伪造数据**（无索引就是空态，不造样例卡片）。
- * - **单信封栈（票 #130）**：信封拆包与 result 形状校验收口在传输层——`requestJson` 把
+ * - **单信封栈（票 130）**：信封拆包与 result 形状校验收口在传输层——`requestJson` 把
  *   `MarketShapeValidator` 适配成 transport `validate` 谓词传给 `daemonRequest`，脏 result
  *   （`{ok:true,result:null}` / 内层字段类型不符）在解包点即判 `daemon_bad_response`
  *   （reason=invalid-shape）；本模块不再二次拆包（原第二份信封拆包已删），传输结果经
@@ -82,7 +82,7 @@ export function daemonBaseUrl(): string {
 }
 
 /**
- * 把形状校验器适配成 transport `validate` 类型谓词（票 #130）：校验器返回非 null 即收窄为 T。
+ * 把形状校验器适配成 transport `validate` 类型谓词（票 130）：校验器返回非 null 即收窄为 T。
  * 适配只此一处——校验器签名（T | null）与传输层谓词签名（value is T）在此换算。
  */
 function toValidatePredicate<T>(
@@ -93,7 +93,7 @@ function toValidatePredicate<T>(
 
 /**
  * 判断传输失败 details 是否携带 invalid-shape 理由（对照 transport 导出常量取值，不另写字面量）。
- * 归一判据方向性保守（票 #130 / 评审 F4）：只有 invalid-shape 保留 `daemon_bad_response`，
+ * 归一判据方向性保守（票 130 / 评审 F4）：只有 invalid-shape 保留 `daemon_bad_response`，
  * 其余坏响应理由（invalid-json / malformed-envelope / 无理由）一律归一 `daemon_unreachable`。
  */
 function isInvalidShapeReason(details: unknown): boolean {
@@ -105,7 +105,7 @@ function isInvalidShapeReason(details: unknown): boolean {
 }
 
 /**
- * 传输结果 → 市场信封的**唯一失败映射点**（票 #130；ADR-0004：错误映射留消费方适配层）。
+ * 传输结果 → 市场信封的**唯一失败映射点**（票 130；ADR-0004：错误映射留消费方适配层）。
  * 归一判据方向性保守（评审 F4）：
  * - `daemon_bad_response` 且 reason=invalid-shape → 保留 `daemon_bad_response`（daemon 活着、
  *   答的是坏数据——内层形状坏，与「服务不可达」不是同一用户动作）；
@@ -250,7 +250,7 @@ async function requestJson<T>(
   const method = options.body === undefined ? (options.method ?? 'GET') : 'POST';
   // 无注入 baseUrl 时不预解析：传输层走异步 `resolveDaemonEndpoint()`（端口窗探测 +
   // 进程内缓存）；注入 baseUrl 时按原样使用（测试/宿主显式指向）。
-  // validate 必填（票 #130）：四 fetcher 全带校验器，脏 result 在传输层解包点即判
+  // validate 必填（票 130）：四 fetcher 全带校验器，脏 result 在传输层解包点即判
   // daemon_bad_response（invalid-shape）——市场页拿到的一定是形状已验的数据。
   const result = await daemonRequest<T>(
     { method, path },
@@ -263,7 +263,7 @@ async function requestJson<T>(
       validate: toValidatePredicate(options.validate),
     },
   );
-  // 失败映射单点（票 #130）：客户端层只透传原始错误与归一码（票 06 / spec P1-2）——
+  // 失败映射单点（票 130）：客户端层只透传原始错误与归一码（票 06 / spec P1-2）——
   // 不在这里拼界面文案，「中文人话 + 下一步 + 技术详情」由展示层经共享归类
   // （`@/lib/daemon-failure`）生成；坏响应归一口径见 {@link toMarketEnvelope}。
   return toMarketEnvelope(result);
