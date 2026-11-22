@@ -5,10 +5,13 @@
  * - **索引缺失/损坏是空态，不是错误**：daemon 用 `warnings`（`index-missing`/`index-invalid`）
  *   表达，本模块把它们归一成视图状态（`classifyMarketOutcome`），页面据此给「去跑采集」指引；
  *   任何情况下**不伪造数据**（无索引就是空态，不造样例卡片）。
- * - 信封统一 `{ok, result|error}`（`apps/daemon/src/http.ts`）：HTTP 层只看信封，不看状态码分支。
- * - **信封与内层都要验形状**：`{ok:true,result:null}` 与「内层字段为 null / 类型不符」同样是坏响应，
- *   在解包点归一为带码失败（`daemon_bad_response`），页面拿到的一定是形状已验的数据——
- *   渲染路径不再有抛 TypeError 的输入（W1 缺陷：此前的坏响应走到渲染期整树卸载 = 白屏）。
+ * - **单信封栈（票 #130）**：信封拆包与 result 形状校验收口在传输层——`requestJson` 把
+ *   `MarketShapeValidator` 适配成 transport `validate` 谓词传给 `daemonRequest`，脏 result
+ *   （`{ok:true,result:null}` / 内层字段类型不符）在解包点即判 `daemon_bad_response`
+ *   （reason=invalid-shape）；本模块不再二次拆包（原 `readEnvelope` 已删），传输结果经
+ *   {@link toMarketEnvelope} 单点映射为 `MarketEnvelope`（ADR-0004：错误映射留消费方适配层）。
+ *   页面拿到的一定是形状已验的数据——渲染路径不再有抛 TypeError 的输入（W1 缺陷：此前的
+ *   坏响应走到渲染期整树卸载 = 白屏）。
  * - 路径一律取 `@dforge/contracts` 的 `DAEMON_ROUTES`（路径单一真源），不硬编码字符串。
  */
 
@@ -24,7 +27,11 @@ import type {
 import { DAEMON_ROUTES, encodeMarketQuery } from '@dforge/contracts';
 
 import { DAEMON_ENDPOINT_DEFAULT, resolveDaemonEndpointSync } from '@/lib/daemon-endpoint';
-import { request as daemonRequest } from '@/lib/daemon-transport';
+import {
+  request as daemonRequest,
+  TRANSPORT_BAD_RESPONSE_REASONS,
+  type TransportResult,
+} from '@/lib/daemon-transport';
 
 import type { MarketInstallClient } from './load-token';
 
@@ -45,7 +52,8 @@ export interface MarketFailure {
 export type MarketEnvelope<T> = { ok: true; result: T } | { ok: false; error: MarketFailure };
 
 /**
- * 内层形状校验器：把 result 收窄为契约类型；形状不符返回 null（`readEnvelope` 据此归一为失败）。
+ * 内层形状校验器：把 result 收窄为契约类型；形状不符返回 null（经 {@link toValidatePredicate}
+ * 适配成 transport `validate` 谓词，脏 result 在传输层解包点归一为失败）。
  * 为什么在信封层做：`{ok:true,result:null}` / 内层字段为 null 的「信封状坏响应」此前能过
  * `isApiSuccess`，一路走到渲染期才抛 TypeError（整树卸载 = 白屏）；把判定前移到解包点，
  * 页面只需处理「成功 = 形状已验」与「失败 = 有码有文案」两种情况。
@@ -73,50 +81,52 @@ export function daemonBaseUrl(): string {
   return resolveDaemonEndpointSync();
 }
 
-/** 规范化未知的 JSON 为信封（缺 result / result 为空 / 形状不符一律按失败处理——绝不当成功）。 */
-export function readEnvelope<T>(
-  value: unknown,
-  validate?: MarketShapeValidator<T>,
-): MarketEnvelope<T> {
-  if (typeof value === 'object' && value !== null && (value as { ok?: unknown }).ok === true) {
-    const record = value as Record<string, unknown>;
-    if (!('result' in record)) {
-      // 缺 result：连信封形状都不是（daemon 契约里 result 是必有键）
-      return failure('daemon_bad_response', '本地服务响应缺 result 字段（已按错误处理）');
+/**
+ * 把形状校验器适配成 transport `validate` 类型谓词（票 #130）：校验器返回非 null 即收窄为 T。
+ * 适配只此一处——校验器签名（T | null）与传输层谓词签名（value is T）在此换算。
+ */
+function toValidatePredicate<T>(
+  validator: MarketShapeValidator<T>,
+): (value: unknown) => value is T {
+  return (value: unknown): value is T => validator(value) !== null;
+}
+
+/**
+ * 判断传输失败 details 是否携带 invalid-shape 理由（对照 transport 导出常量取值，不另写字面量）。
+ * 归一判据方向性保守（票 #130 / 评审 F4）：只有 invalid-shape 保留 `daemon_bad_response`，
+ * 其余坏响应理由（invalid-json / malformed-envelope / 无理由）一律归一 `daemon_unreachable`。
+ */
+function isInvalidShapeReason(details: unknown): boolean {
+  return (
+    typeof details === 'object' &&
+    details !== null &&
+    (details as { reason?: unknown }).reason === TRANSPORT_BAD_RESPONSE_REASONS.invalidShape
+  );
+}
+
+/**
+ * 传输结果 → 市场信封的**唯一失败映射点**（票 #130；ADR-0004：错误映射留消费方适配层）。
+ * 归一判据方向性保守（评审 F4）：
+ * - `daemon_bad_response` 且 reason=invalid-shape → 保留 `daemon_bad_response`（daemon 活着、
+ *   答的是坏数据——内层形状坏，与「服务不可达」不是同一用户动作）；
+ * - 其余 `daemon_bad_response`（invalid-json / malformed-envelope / 无理由）→
+ *   `daemon_unreachable`（网关活着但上游答不出可用信封——与不可达同一用户动作：确认服务 /
+ *   重试；message/details 保留技术细节，便于诊断）；
+ * - `daemon_unreachable` / `daemon_timeout` → `daemon_unreachable`；
+ * - 其余（daemon 线上码）原码透传，details 保留。
+ */
+function toMarketEnvelope<T>(result: TransportResult<T>): MarketEnvelope<T> {
+  if (result.ok) return { ok: true, result: result.value };
+  if (result.code === 'daemon_bad_response') {
+    if (isInvalidShapeReason(result.details)) {
+      return failure(result.code, result.message, result.details);
     }
-    const raw = record.result;
-    if (raw === null || raw === undefined) {
-      // `{ok:true,result:null}`：信封说成功但载荷为空——这是坏响应，不是空数据
-      return failure('daemon_bad_response', '本地服务返回了空结果（result 为 null，已按错误处理）');
-    }
-    if (validate !== undefined) {
-      const shaped = validate(raw);
-      if (shaped === null) {
-        return failure(
-          'daemon_bad_response',
-          '本地服务返回的 result 形状不符合契约（已按错误处理，可重试）',
-        );
-      }
-      return { ok: true, result: shaped };
-    }
-    return { ok: true, result: raw as T };
+    return failure('daemon_unreachable', result.message, result.details);
   }
-  if (typeof value === 'object' && value !== null) {
-    const record = value as Record<string, unknown>;
-    const rawError = record.error;
-    if (rawError !== undefined && rawError !== null) {
-      const error = rawError as Record<string, unknown>;
-      const failure_: MarketFailure = {
-        code: typeof error.code === 'string' ? error.code : 'internal',
-        message: typeof error.message === 'string' ? error.message : '本地服务返回了未知错误',
-      };
-      if (typeof error.details === 'object' && error.details !== null) {
-        failure_.details = error.details as Record<string, unknown>;
-      }
-      return { ok: false, error: failure_ };
-    }
+  if (result.code === 'daemon_unreachable' || result.code === 'daemon_timeout') {
+    return failure('daemon_unreachable', result.message);
   }
-  return failure('internal', '本地服务响应不是可识别的 JSON 信封');
+  return failure(result.code, result.message, result.details);
 }
 
 /** 造一个失败信封（内部小工具，避免每处重复字面量）。 */
@@ -234,13 +244,15 @@ async function requestJson<T>(
   options: MarketClientOptions & {
     method?: 'GET' | 'POST';
     body?: unknown;
-    validate?: MarketShapeValidator<T>;
+    validate: MarketShapeValidator<T>;
   },
 ): Promise<MarketEnvelope<T>> {
   const method = options.body === undefined ? (options.method ?? 'GET') : 'POST';
   // 无注入 baseUrl 时不预解析：传输层走异步 `resolveDaemonEndpoint()`（端口窗探测 +
   // 进程内缓存）；注入 baseUrl 时按原样使用（测试/宿主显式指向）。
-  const result = await daemonRequest<unknown>(
+  // validate 必填（票 #130）：四 fetcher 全带校验器，脏 result 在传输层解包点即判
+  // daemon_bad_response（invalid-shape）——市场页拿到的一定是形状已验的数据。
+  const result = await daemonRequest<T>(
     { method, path },
     {
       ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
@@ -248,36 +260,13 @@ async function requestJson<T>(
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
       ...(options.body === undefined ? {} : { body: options.body }),
+      validate: toValidatePredicate(options.validate),
     },
   );
-
-  if (!result.ok) {
-    // 客户端层只透传原始错误与归一码（票 06 / spec P1-2）：不在这里拼界面文案——
-    // 「中文人话 + 下一步 + 技术详情」由展示层经共享归类（`@/lib/daemon-failure`）生成。
-    // 传输层坏响应（非 JSON / 脏信封，如反代 502 HTML）在**市场适配层**归一到
-    // `daemon_unreachable`：网关活着但上游 daemon 不可用，与不可达同一用户动作
-    // （确认服务 / 重试）；message/details 保留技术细节，便于诊断（评审 F4）。
-    if (result.code === 'daemon_bad_response') {
-      return failure('daemon_unreachable', result.message, result.details);
-    }
-    if (result.code === 'daemon_unreachable' || result.code === 'daemon_timeout') {
-      return failure('daemon_unreachable', result.message);
-    }
-    return {
-      ok: false,
-      error: {
-        code: result.code,
-        message: result.message,
-        ...(typeof result.details === 'object' && result.details !== null
-          ? { details: result.details as Record<string, unknown> }
-          : {}),
-      },
-    };
-  }
-
-  // 成功信封的内层形状仍由本模块的 readEnvelope 收口（result 为 null / 形状不符
-  // 一律判失败——市场页渲染路径不接受脏数据）。
-  return readEnvelope<T>({ ok: true, result: result.value }, options.validate);
+  // 失败映射单点（票 #130）：客户端层只透传原始错误与归一码（票 06 / spec P1-2）——
+  // 不在这里拼界面文案，「中文人话 + 下一步 + 技术详情」由展示层经共享归类
+  // （`@/lib/daemon-failure`）生成；坏响应归一口径见 {@link toMarketEnvelope}。
+  return toMarketEnvelope(result);
 }
 
 /** 查询市场（含空态/告警；不抛错——失败走信封；内层形状校验后页面不会读到脏字段）。 */
